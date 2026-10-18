@@ -1,0 +1,2 @@
+# Preserve Prisma migration bytes and checksums
+/backend/prisma/migrations/** -text
