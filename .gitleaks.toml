@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "False positive: SISCOM benchmark labels"
+targetRules = ["generic-api-key"]
+paths = ['''backend/scripts/windows/run-search-bench\.ps1''']
+regexTarget = "match"
+regexes = ['''BENCH_API_PERF','BENCH_P23A_DIAG''']
