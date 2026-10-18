@@ -1,0 +1,487 @@
+{
+  "kind": "B1.2.3-B2-P1-bench",
+  "startedAt": "2026-10-14T15:56:04.248Z",
+  "limits": {
+    "list": 150,
+    "search3": 500,
+    "search2": 1500
+  },
+  "rounds": 3,
+  "samples": 15,
+  "warmup": 3,
+  "variants": [
+    "V1_or_two_orig",
+    "V2_union_two_orig",
+    "V3_unionall_two_orig",
+    "V4_or_window_orig",
+    "V5_union_window_orig",
+    "V6_unionall_window_orig",
+    "V7_union_window_lateral",
+    "V8_unionall_window_lateral"
+  ],
+  "terms": [
+    {
+      "term": "minh phat",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "dien lanh",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "cumperf",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "nguyen van",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "0912345",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "mi",
+      "sortBy": "createdAt"
+    }
+  ],
+  "proofOnly": true,
+  "database": {
+    "name": "siscom_crm_restore_20261014_214105",
+    "perfCustomers": 50000,
+    "perfContacts": 100000,
+    "allCustomers": 50000
+  },
+  "pgSettings": [
+    {
+      "name": "effective_cache_size",
+      "setting": "524288"
+    },
+    {
+      "name": "jit",
+      "setting": "on"
+    },
+    {
+      "name": "max_parallel_workers_per_gather",
+      "setting": "2"
+    },
+    {
+      "name": "plan_cache_mode",
+      "setting": "auto"
+    },
+    {
+      "name": "random_page_cost",
+      "setting": "4"
+    },
+    {
+      "name": "server_version",
+      "setting": "18.6"
+    },
+    {
+      "name": "shared_buffers",
+      "setting": "16384"
+    },
+    {
+      "name": "work_mem",
+      "setting": "4096"
+    }
+  ],
+  "stats": [
+    {
+      "relname": "contact",
+      "live": 100000,
+      "dead": 0,
+      "last_analyze": "2026-10-14 21:44:44.195817+07",
+      "last_autoanalyze": null
+    },
+    {
+      "relname": "customer",
+      "live": 50000,
+      "dead": 0,
+      "last_analyze": "2026-10-14 21:44:43.965051+07",
+      "last_autoanalyze": null
+    }
+  ],
+  "snapshotBefore": {
+    "perf_fingerprint": "758b21a08c74b2a4e0c27a11526dc681",
+    "perf_modified_rows": 0,
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "correctness": [
+    {
+      "term": "minh phat",
+      "sortBy": "relevance",
+      "total": 5000,
+      "fnCustomerSearch": 5000,
+      "pagesChecked": [
+        1,
+        125,
+        250,
+        251
+      ],
+      "V1_or_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V2_union_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V3_unionall_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V4_or_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V5_union_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V6_unionall_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V7_union_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V8_unionall_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      }
+    },
+    {
+      "term": "dien lanh",
+      "sortBy": "relevance",
+      "total": 6250,
+      "fnCustomerSearch": 6250,
+      "pagesChecked": [
+        1,
+        157,
+        313,
+        314
+      ],
+      "V1_or_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V2_union_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V3_unionall_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V4_or_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V5_union_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V6_unionall_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V7_union_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V8_unionall_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      }
+    },
+    {
+      "term": "cumperf",
+      "sortBy": "relevance",
+      "total": 1250,
+      "fnCustomerSearch": 1250,
+      "pagesChecked": [
+        1,
+        32,
+        63,
+        64
+      ],
+      "V1_or_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V2_union_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V3_unionall_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V4_or_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V5_union_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V6_unionall_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V7_union_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V8_unionall_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      }
+    },
+    {
+      "term": "nguyen van",
+      "sortBy": "relevance",
+      "total": 20000,
+      "fnCustomerSearch": 20000,
+      "pagesChecked": [
+        1,
+        500,
+        1000,
+        1001
+      ],
+      "V1_or_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V2_union_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V3_unionall_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V4_or_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V5_union_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V6_unionall_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V7_union_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V8_unionall_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      }
+    },
+    {
+      "term": "0912345",
+      "sortBy": "relevance",
+      "total": 0,
+      "fnCustomerSearch": 0,
+      "pagesChecked": [
+        1,
+        2
+      ],
+      "V1_or_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V2_union_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V3_unionall_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V4_or_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V5_union_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V6_unionall_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V7_union_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V8_unionall_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      }
+    },
+    {
+      "term": "mi",
+      "sortBy": "createdAt",
+      "total": 30000,
+      "fnCustomerSearch": 30000,
+      "pagesChecked": [
+        1,
+        750,
+        1500,
+        1501
+      ],
+      "V1_or_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V2_union_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V3_unionall_two_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V4_or_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V5_union_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V6_unionall_window_orig": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V7_union_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      },
+      "V8_unionall_window_lateral": {
+        "sameTotal": true,
+        "sameSet": true,
+        "sameOrder": true,
+        "pagesOk": true
+      }
+    }
+  ],
+  "snapshotAfter": {
+    "perf_fingerprint": "758b21a08c74b2a4e0c27a11526dc681",
+    "perf_modified_rows": 0,
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "finishedAt": "2026-10-14T15:57:42.791Z",
+  "failures": []
+}

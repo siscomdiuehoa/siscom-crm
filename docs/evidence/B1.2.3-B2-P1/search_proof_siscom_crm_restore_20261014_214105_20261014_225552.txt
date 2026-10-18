@@ -1,0 +1,25 @@
+﻿B1.2.3-B2 P1 bench db=siscom_crm_restore_20261014_214105 rounds=3 samples=15 variants= terms= at 2026-10-14T22:55:52.4049694+07:00
+Database thu: siscom_crm_restore_20261014_214105 | P1 ProofOnly | CHI DOC, khong UPDATE/VACUUM (khong dung toi siscom_crm_dev)
+DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.
+[DAT] Dung database thu: siscom_crm_restore_20261014_214105, schema B1.2 co mat, lich su migration dung.
+Chay: node jest --config ./test/jest-bench.json --runInBand (jest cuc bo, khong them dependency). Log: D:\SISCOM-CRM\backups\b123\search_proof_siscom_crm_restore_20261014_214105_20261014_225552.txt
+  console.log
+    Báo cáo P1: D:\SISCOM-CRM\backups\b123\proof_2026-10-14T15-57-42-791Z.json (ProofOnly)
+
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:126:11)
+
+PASS test/perf/bench/search.bench-spec.ts (101.6 s)
+  B1.2.3-B2 P1: benchmark & proof (DB thử)
+    √ 1. đúng đắn trên dữ liệu thật: tổng, toàn bộ ID theo thứ tự, trang đầu/giữa/cuối/vượt cuối (mọi biến thể = V1) (97976 ms)
+    √ 7. kết luận: dữ liệu không đổi so với trước khi chạy; mọi biến thể phải khớp V1 tuyệt đối (hiệu năng chỉ báo cáo, không tự chọn phương án) (107 ms)
+    ○ skipped 3. EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) cho COUNT và trang relevance của từng biến thể
+    ○ skipped 4. p95 lõi tìm kiếm: warm-up + 3 vòng × 15 mẫu, thứ tự biến thể xoay vòng mỗi vòng
+    ○ skipped 5. hiệu chuẩn HTTP: API hiện tại (= V1) cùng số vòng/mẫu, để ước lượng phần chênh HTTP/Nest/serialize
+    ○ skipped 6. (CHẠY CUỐI, sau mọi phép đo) đúng đắn theo phạm vi/xoá mềm/mã/MST/liên hệ/SĐT/bộ lọc: dữ liệu tạm trong transaction, ROLLBACK, VACUUM ANALYZE
+System.Management.Automation.RemoteException
+Test Suites: 1 passed, 1 total
+Tests:       4 skipped, 2 passed, 6 total
+Snapshots:   0 total
+Time:        101.788 s
+Ran all test suites.
+[DAT] ProofOnly thoat ma 0 (moi bien the khop V1; du lieu truoc/sau khong doi).

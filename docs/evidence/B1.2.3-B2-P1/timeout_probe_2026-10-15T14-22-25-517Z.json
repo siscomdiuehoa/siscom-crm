@@ -1,0 +1,75 @@
+{
+  "kind": "B1.2.3-B2-P1-r5A-timeout-probe",
+  "startedAt": "2026-10-15T14:22:14.781Z",
+  "txTimeoutMs": 2000,
+  "database": "siscom_crm_restore_20261014_214105",
+  "snapshotBefore": {
+    "perf_fingerprint": "758b21a08c74b2a4e0c27a11526dc681",
+    "perf_modified_rows": 0,
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "versions": {
+    "prismaClient": "7.10.0",
+    "adapterPg": "7.10.0",
+    "pg": "8.23.1",
+    "node": "v24.21.0"
+  },
+  "t1": {
+    "verdict": "PASS",
+    "reasons": [],
+    "outcome": "P2028",
+    "errorCode": "P2028",
+    "errorMessage": "\nInvalid `prisma.$queryRaw()` invocation:\n\n\nTransaction API error: A query cannot be executed on an expired transaction. The timeout for this transaction was 2000 ms, however 2061 ms passed since the start of the transaction. Consider increasing the interactive transaction timeout or doing less work in the transaction.",
+    "errorAtMs": 2123,
+    "writeCount": 100,
+    "inTxCountAfterWrite": 100,
+    "writeDoneMs": 37,
+    "completedSelects": 2,
+    "selectMs": [
+      1016,
+      1005
+    ],
+    "idleAfter": {
+      "immediate": 0,
+      "afterWait": 0
+    },
+    "fingerprintEqual": {
+      "immediate": true,
+      "after3s": true
+    },
+    "snapshotAfter": {
+      "perf_fingerprint": "758b21a08c74b2a4e0c27a11526dc681",
+      "perf_modified_rows": 0,
+      "customer": 50000,
+      "contact": 100000,
+      "lookup_item": 10,
+      "department": 2,
+      "employee": 3,
+      "audit_log": 0
+    }
+  },
+  "t2": {
+    "longStatement": {
+      "ok": true,
+      "ms": 5008
+    },
+    "nextQuery": {
+      "ok": false,
+      "ms": 1,
+      "code": "P2028",
+      "message": "\nInvalid `prisma.$queryRaw()` invocation:\n\n\nTransaction API error: A query cannot be executed on an expired transaction. The timeout for this transaction was 2000 ms, however 5008 ms passed since the start of the transaction. Consider increasing the interactive transaction timeout or doing less work in the transaction."
+    },
+    "finalError": {
+      "message": "__probe_rollback__:t2"
+    },
+    "totalMs": 5009,
+    "interpretation": "Câu đang chạy KHÔNG bị hủy khi hết hạn (chạy trọn ~5 s). Hết hạn chỉ lộ ra ở câu kế tiếp (P2028).",
+    "fingerprintEqual": true
+  },
+  "finishedAt": "2026-10-15T14:22:25.517Z"
+}

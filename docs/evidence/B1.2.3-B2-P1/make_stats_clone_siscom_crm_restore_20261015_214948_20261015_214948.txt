@@ -1,0 +1,8 @@
+﻿make-stats-clone source=siscom_crm_restore_20261014_214105 clone=siscom_crm_restore_20261015_214948 at 2026-10-15T21:49:48.5009071+07:00
+Se TAO ban sao siscom_crm_restore_20261015_214948 tu siscom_crm_restore_20261014_214105 (CREATE DATABASE ... TEMPLATE). Khong sua database nguon.
+[DAT] Database nguon khong co ket noi nao. Ban sao chua ton tai.
+[DAT] Da tao ban sao siscom_crm_restore_20261015_214948 va gan nhan.
+Nguon  (customer|contact|PERF|so dong pg_stats|null_frac owner_id|reltuples|owner not null): 50000|100000|50000|48|1.0000|50000|0
+Ban sao (cung chi tieu)                                                                   : 50000|100000|50000|48|1.0000|50000|0
+[DAT] So dong va thong ke planner cua ban sao khop nguon.
+Ban sao: bo dem pg_stat_user_tables (last_analyze|last_autoanalyze|n_mod_since_analyze) = -|-|0 (bo dem hoat dong KHONG duoc sao chep; chi de tham khao).

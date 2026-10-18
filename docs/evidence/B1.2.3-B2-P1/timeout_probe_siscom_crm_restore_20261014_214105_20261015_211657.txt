@@ -1,0 +1,21 @@
+﻿B1.2.3-B2 P1 bench db=siscom_crm_restore_20261014_214105 rounds=3 samples=15 variants= terms= at 2026-10-15T21:16:57.2883285+07:00
+Database thu: siscom_crm_restore_20261014_214105 | P1 r5-A TimeoutProbe | T1 ghi 100 dong PERF roi ROLLBACK (timeout Prisma 2 s), T2 chi doc (khong dung toi siscom_crm_dev)
+DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.
+[DAT] Dung database thu: siscom_crm_restore_20261014_214105, schema B1.2 co mat, lich su migration dung.
+Chay: node jest --config ./test/jest-bench.json --runInBand (jest cuc bo, khong them dependency). Log: D:\SISCOM-CRM\backups\b123\timeout_probe_siscom_crm_restore_20261014_214105_20261015_211657.txt
+  console.log
+    Báo cáo r5-A: D:\SISCOM-CRM\backups\b123\timeout_probe_2026-10-15T14-22-25-517Z.json
+
+      at Object.<anonymous> (perf/bench/tx-timeout.bench-spec.ts:50:13)
+
+PASS test/perf/bench/tx-timeout.bench-spec.ts (14.789 s)
+  B1.2.3-B2 P1 r5-A: timeout giao dịch Prisma (DB thử)
+    √ T1: timeout hết hạn -> lỗi P2028 hợp lệ và rollback thật (ĐÚNG MỘT câu ghi, trước hạn; sau hạn chỉ SELECT) (5277 ms)
+    √ T2 (chỉ quan sát, không PASS/FAIL): câu đang chạy có bị hủy khi hết hạn? Giao dịch CHỈ ĐỌC (5100 ms)
+System.Management.Automation.RemoteException
+Test Suites: 1 passed, 1 total
+Tests:       2 passed, 2 total
+Snapshots:   0 total
+Time:        15.049 s
+Ran all test suites within paths "test/perf/bench/tx-timeout.bench-spec.ts".
+[DAT] TimeoutProbe thoat ma 0: T1 PASS (xem timeout_probe_*.json). T2 chi la quan sat.

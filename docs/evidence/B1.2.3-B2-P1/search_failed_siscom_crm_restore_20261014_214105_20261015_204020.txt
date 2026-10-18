@@ -1,0 +1,88 @@
+﻿B1.2.3-B2 P1 bench db=siscom_crm_restore_20261014_214105 rounds=3 samples=15 variants= terms= at 2026-10-15T20:40:20.5713505+07:00
+Database thu: siscom_crm_restore_20261014_214105 | P1 FailedOnly | CHI 5 nhom (S0b,02,14,15,18), moi nhom 1 transaction + ROLLBACK (khong dung toi siscom_crm_dev)
+DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.
+[DAT] Dung database thu: siscom_crm_restore_20261014_214105, schema B1.2 co mat, lich su migration dung.
+Chay: node jest --config ./test/jest-bench.json --runInBand (jest cuc bo, khong them dependency). Log: D:\SISCOM-CRM\backups\b123\search_failed_siscom_crm_restore_20261014_214105_20261015_204020.txt
+  console.log
+    *** FailedOnly: chỉ 5 nhóm chạy; 18 nhóm còn lại NOT_RUN (không phải PASS). Không dùng kết quả này để nghiệm thu 23 nhóm. ***
+
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:314:30)
+
+  console.log
+    [nhóm] S0b rollback khi timeout Prisma | FAIL (thực tế OK, kỳ vọng TIMEOUT) | 8045 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:264:15)
+
+  console.log
+    [nhóm] 02 OWN A cumperf | FAIL (thực tế OK, kỳ vọng OK) | 126128 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:264:15)
+
+  console.log
+    [nhóm] 14 tên liên hệ OWN | FAIL (thực tế OK, kỳ vọng OK) | 125313 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:264:15)
+
+  console.log
+    [nhóm] 15 SĐT nội địa (số thật trong PERF) | PASS (thực tế OK, kỳ vọng OK) | 3649 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:264:15)
+
+  console.log
+    [nhóm] 18 ownerId B + tier | FAIL (thực tế OK, kỳ vọng OK) | 124558 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:264:15)
+
+  console.log
+    Báo cáo P1: D:\SISCOM-CRM\backups\b123\scen_2026-10-15T13-47-00-636Z.json (ScenariosOnly)
+
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:132:11)
+
+FAIL test/perf/bench/search.bench-spec.ts (394.139 s)
+  B1.2.3-B2 P1: benchmark & proof (DB thử)
+    √ 6. kịch bản phạm vi/xoá mềm/mã/MST/liên hệ/SĐT/bộ lọc: MỖI kịch bản một transaction nhỏ, ROLLBACK độc lập, kiểm tra dữ liệu sau từng nhóm (390996 ms)
+    × 7. kết luận: dữ liệu không đổi so với trước khi chạy; mọi biến thể phải khớp V1 tuyệt đối (hiệu năng chỉ báo cáo, không tự chọn phương án) (79 ms)
+    ○ skipped 1. đúng đắn trên dữ liệu thật: tổng, toàn bộ ID theo thứ tự, trang đầu/giữa/cuối/vượt cuối (mọi biến thể = V1)
+    ○ skipped 3. EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) cho COUNT và trang relevance của từng biến thể
+    ○ skipped 4. p95 lõi tìm kiếm: warm-up + 3 vòng × 15 mẫu, thứ tự biến thể xoay vòng mỗi vòng
+    ○ skipped 5. hiệu chuẩn HTTP: API hiện tại (= V1) cùng số vòng/mẫu, để ước lượng phần chênh HTTP/Nest/serialize
+System.Management.Automation.RemoteException
+  ● B1.2.3-B2 P1: benchmark & proof (DB thử) › 7. kết luận: dữ liệu không đổi so với trước khi chạy; mọi biến thể phải khớp V1 tuyệt đối (hiệu năng chỉ báo cáo, không tự chọn phương án)
+System.Management.Automation.RemoteException
+    Có 7 sai khác:
+    [S0b rollback khi timeout Prisma] lỗi timeout không nêu đúng giới hạn Prisma 3000 ms: (không có lỗi)
+    [S0b rollback khi timeout Prisma] trạng thái thực tế OK khác kỳ vọng TIMEOUT
+    [02 OWN A cumperf] bước "V3_unionall_two_orig full" STATEMENT_TIMEOUT sau 120167 ms: 
+    Invalid `prisma.$queryRaw()` invocation:
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+    Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`
+    [14 tên liên hệ OWN] bước "V3_unionall_two_orig full" STATEMENT_TIMEOUT sau 120171 ms: 
+    Invalid `prisma.$queryRaw()` invocation:
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+    Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`
+    [18 ownerId B + tier] bước "V3_unionall_two_orig full" STATEMENT_TIMEOUT sau 120066 ms: 
+    Invalid `prisma.$queryRaw()` invocation:
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+    Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`
+    Bài 6 KHÔNG đạt trọn vẹn: {"fullSuite":false,"planned":5,"pass":1,"fail":4,"skipped":0,"notRunByDesign":18,"neverReached":0,"note":"NOT_RUN không phải PASS; không nghiệm thu 23 nhóm"}
+    Bài 6 chưa hoàn thành hoặc có nhóm FAIL/SKIPPED: {"fullSuite":false,"planned":5,"pass":1,"fail":4,"skipped":0,"notRunByDesign":18,"neverReached":0,"note":"NOT_RUN không phải PASS; không nghiệm thu 23 nhóm"}
+System.Management.Automation.RemoteException
+    [0m [90m 395 |[39m     [36mif[39m ([33m![39m[33mPROOF[39m) { [36mconst[39m sm [33m=[39m report[33m.[39mscenarioSummary [36mas[39m { planned[33m:[39m number[33m;[39m pass[33m:[39m number } [33m|[39m undefined[33m;[39m [36mif[39m ([33m![39msm [33m||[39m sm[33m.[39mpass [33m!==[39m sm[33m.[39mplanned) failures[33m.[39mpush([32m'Bài 6 chưa hoàn thành hoặc có nhóm FAIL/SKIPPED: '[39m [33m+[39m [33mJSON[39m[33m.[39mstringify(sm [33m?[39m[33m?[39m [36mnull[39m))[33m;[39m }
+     [90m 396 |[39m     [36mif[39m ([33mJSON[39m[33m.[39mstringify(fin) [33m!==[39m [33mJSON[39m[33m.[39mstringify(before)) failures[33m.[39mpush([32m'Dấu vân tay CUỐI KHÁC dữ liệu ĐẦU: '[39m [33m+[39m [33mJSON[39m[33m.[39mstringify({ before[33m,[39m after[33m:[39m fin }))[33m;[39m
+    [31m[1m>[22m[39m[90m 397 |[39m     [36mif[39m (failures[33m.[39mlength) [36mthrow[39m [36mnew[39m [33mError[39m([32m'Có '[39m [33m+[39m failures[33m.[39mlength [33m+[39m [32m' sai khác:\n'[39m [33m+[39m failures[33m.[39mjoin([32m'\n'[39m))[33m;[39m
+     [90m     |[39m                                [31m[1m^[22m[39m
+     [90m 398 |[39m   })[33m;[39m
+     [90m 399 |[39m })[33m;[39m
+     [90m 400 |[39m[0m
+System.Management.Automation.RemoteException
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:397:32)
+System.Management.Automation.RemoteException
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 4 skipped, 1 passed, 6 total
+Snapshots:   0 total
+Time:        394.383 s, estimated 503 s
+Ran all test suites.
+[CO SAI KHAC / LOI] benchmark thoat ma 1 (xem muc failures trong bench_*.json)

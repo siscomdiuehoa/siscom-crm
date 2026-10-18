@@ -1,0 +1,54 @@
+{
+  "name": "siscom-crm-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SISCOM CRM backend (NestJS 11 + Prisma 7 + PostgreSQL) - B1.1",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24.11.0 <25",
+    "npm": ">=11.6.0"
+  },
+  "scripts": {
+    "build": "prisma generate && nest build && node -e \"require('fs').accessSync('dist/main.js')\"",
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main.js",
+    "prisma:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "test:unit": "jest --config ./test/jest-unit.json --runInBand",
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
+    "test:e2e:customers": "jest --config ./test/jest-customers-e2e.json --runInBand",
+    "test:perf": "jest --config ./test/jest-perf.json --runInBand"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.2.6",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/core": "11.2.6",
+    "@nestjs/platform-express": "11.2.6",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "dotenv": "^16.4.7",
+    "helmet": "^8.0.0",
+    "pg": "^8.13.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "11.2.6",
+    "@types/express": "^5.0.0",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.11.10",
+    "@types/supertest": "^6.0.2",
+    "jest": "^29.7.0",
+    "prisma": "7.10.0",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "~5.9.0"
+  }
+}

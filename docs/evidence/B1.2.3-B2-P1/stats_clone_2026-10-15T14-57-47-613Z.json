@@ -1,0 +1,4182 @@
+{
+  "kind": "B1.2.3-B2-P1-r5B-stats-clone",
+  "startedAt": "2026-10-15T14:57:40.313Z",
+  "cloneOf": "siscom_crm_restore_20261014_214105",
+  "analyzeApproved": false,
+  "statementTimeout": "120s",
+  "database": "siscom_crm_restore_20261015_214948",
+  "versions": {
+    "node": "v24.21.0"
+  },
+  "setup": {
+    "alreadyApplied": false,
+    "reloptionsBefore": "",
+    "autovacuumDisabledNow": true,
+    "startedAt": "2026-10-15 21:57:40.556158+07",
+    "ownerRows": 50000,
+    "ownerMs": 6652,
+    "deletedRows": 515,
+    "deletedMs": 35,
+    "taxRows": 99,
+    "taxMs": 15
+  },
+  "snapshotAfterSetup": {
+    "perf_fingerprint": "0e083ae8aa1c4e47ac1310161e33bff2",
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "statsStale": {
+    "ownerColumnStats": {
+      "null_frac": 1,
+      "n_distinct": 0,
+      "mcv": null
+    },
+    "ownerNotNullLive": 20000,
+    "customerTotal": 50000,
+    "ownerNullFracActual": 0.6,
+    "tableStats": {
+      "last_analyze": null,
+      "last_autoanalyze": null,
+      "n_mod_since_analyze": 50000
+    },
+    "relation": {
+      "reltuples": 50000,
+      "relpages": 1429
+    },
+    "staleDetected": true
+  },
+  "staleContamination": false,
+  "snapshotFinal": {
+    "perf_fingerprint": "0e083ae8aa1c4e47ac1310161e33bff2",
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "conclusion": {
+    "perScenario": {
+      "14": {
+        "name": "tên liên hệ OWN",
+        "verdict": "STALE_ONLY: ANALYZE chưa được duyệt (-ApproveAnalyze); chỉ có bằng chứng kế hoạch cũ",
+        "staleReproduced": true,
+        "staleOwnerEstRows": 1,
+        "freshBadShape": null,
+        "v1Ms": null,
+        "v2Ms": null,
+        "v3Ms": null
+      },
+      "18": {
+        "name": "ownerId B + tier",
+        "verdict": "STALE_ONLY: ANALYZE chưa được duyệt (-ApproveAnalyze); chỉ có bằng chứng kế hoạch cũ",
+        "staleReproduced": true,
+        "staleOwnerEstRows": 1,
+        "freshBadShape": null,
+        "v1Ms": null,
+        "v2Ms": null,
+        "v3Ms": null
+      },
+      "02": {
+        "name": "OWN A cumperf",
+        "verdict": "STALE_ONLY: ANALYZE chưa được duyệt (-ApproveAnalyze); chỉ có bằng chứng kế hoạch cũ",
+        "staleReproduced": true,
+        "staleOwnerEstRows": 1,
+        "freshBadShape": null,
+        "v1Ms": null,
+        "v2Ms": null,
+        "v3Ms": null
+      }
+    },
+    "recommendation": "Chưa có số đo thống kê mới (cần -ApproveAnalyze)."
+  },
+  "finishedAt": "2026-10-15T14:57:47.613Z",
+  "failures": [],
+  "plans": {
+    "stale": {
+      "14": {
+        "V1_or_two_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 34.86,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": false,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) ((deleted_at IS NULL) AND ((f_vn_fold((name)::text) ~~ '%tran thi%'::text) OR (f_v",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND (f_vn_fold((full_name)::text) ~~ '%tran thi%'::text))",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "count": {
+            "topEstRows": 1,
+            "totalCost": 21.59,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": false,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) ((deleted_at IS NULL) AND ((f_vn_fold((name)::text) ~~ '%tran thi%'::text) OR (f_v",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND (f_vn_fold((full_name)::text) ~~ '%tran thi%'::text))",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V2_union_two_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6913.83,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Merge Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "count": {
+            "topEstRows": 1,
+            "totalCost": 6900.54,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": true,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Hash Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V3_unionall_two_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6384.48,
+            "executionMs": null,
+            "nestedLoopSemi": true,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": true,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "count": {
+            "topEstRows": 1,
+            "totalCost": 6370.83,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": true,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Hash Join",
+                "joinType": "Right Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "pageRaw": [
+            {
+              "Plan": {
+                "Node Type": "Limit",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 6384.48,
+                "Total Cost": 6384.48,
+                "Plan Rows": 1,
+                "Plan Width": 29,
+                "Disabled": false,
+                "Plans": [
+                  {
+                    "Node Type": "Sort",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 6384.48,
+                    "Total Cost": 6384.48,
+                    "Plan Rows": 1,
+                    "Plan Width": 29,
+                    "Disabled": false,
+                    "Sort Key": [
+                      "(GREATEST(similarity(f_vn_fold((c.name)::text), 'tran thi'::text), COALESCE(similarity(f_vn_fold((c.short_name)::text), 'tran thi'::text), '0'::real), COALESCE((SubPlan 1), '0'::real))) DESC",
+                      "c.code DESC"
+                    ],
+                    "Plans": [
+                      {
+                        "Node Type": "Nested Loop",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Join Type": "Semi",
+                        "Startup Cost": 1566.29,
+                        "Total Cost": 6384.47,
+                        "Plan Rows": 1,
+                        "Plan Width": 29,
+                        "Disabled": false,
+                        "Inner Unique": false,
+                        "Join Filter": "(c.id = c_1.id)",
+                        "Plans": [
+                          {
+                            "Node Type": "Index Scan",
+                            "Parent Relationship": "Outer",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Scan Direction": "Forward",
+                            "Index Name": "customer_owner_id_idx",
+                            "Relation Name": "customer",
+                            "Alias": "c",
+                            "Startup Cost": 0.29,
+                            "Total Cost": 8.31,
+                            "Plan Rows": 1,
+                            "Plan Width": 73,
+                            "Disabled": false,
+                            "Index Cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid)",
+                            "Filter": "(deleted_at IS NULL)"
+                          },
+                          {
+                            "Node Type": "Gather",
+                            "Parent Relationship": "Inner",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Startup Cost": 1566,
+                            "Total Cost": 6362.38,
+                            "Plan Rows": 40,
+                            "Plan Width": 16,
+                            "Disabled": false,
+                            "Workers Planned": 2,
+                            "Single Copy": false,
+                            "Plans": [
+                              {
+                                "Node Type": "Append",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": true,
+                                "Async Capable": false,
+                                "Startup Cost": 566,
+                                "Total Cost": 5358.38,
+                                "Plan Rows": 16,
+                                "Plan Width": 16,
+                                "Disabled": false,
+                                "Subplans Removed": 0,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Bitmap Heap Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "customer",
+                                    "Alias": "c_1",
+                                    "Startup Cost": 1352.5,
+                                    "Total Cost": 1393.37,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Recheck Cond": "((f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) AND (deleted_at IS NULL))",
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Index Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Index Name": "ix_customer_short_fold",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 1352.5,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 0,
+                                        "Disabled": false,
+                                        "Index Cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text)"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Bitmap Heap Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "customer",
+                                    "Alias": "c_2",
+                                    "Startup Cost": 566,
+                                    "Total Cost": 606.87,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Recheck Cond": "((f_vn_fold((name)::text) ~~ '%tran thi%'::text) AND (deleted_at IS NULL))",
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Index Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Index Name": "ix_customer_name_fold",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 565.99,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 0,
+                                        "Disabled": false,
+                                        "Index Cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text)"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Bitmap Heap Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "contact",
+                                    "Alias": "ct",
+                                    "Startup Cost": 150.25,
+                                    "Total Cost": 190.51,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Recheck Cond": "((f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) AND (deleted_at IS NULL))",
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Index Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Index Name": "ix_contact_name_fold",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 150.25,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 0,
+                                        "Disabled": false,
+                                        "Index Cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text)"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Seq Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": true,
+                                    "Async Capable": false,
+                                    "Relation Name": "customer",
+                                    "Alias": "c_3",
+                                    "Startup Cost": 0,
+                                    "Total Cost": 3964.94,
+                                    "Plan Rows": 6,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Filter": "((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))"
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "Node Type": "Aggregate",
+                            "Strategy": "Plain",
+                            "Partial Mode": "Simple",
+                            "Parent Relationship": "SubPlan",
+                            "Subplan Name": "SubPlan 1",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Startup Cost": 12.76,
+                            "Total Cost": 12.77,
+                            "Plan Rows": 1,
+                            "Plan Width": 4,
+                            "Disabled": false,
+                            "Plans": [
+                              {
+                                "Node Type": "Bitmap Heap Scan",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Relation Name": "contact",
+                                "Alias": "ct_1",
+                                "Startup Cost": 4.43,
+                                "Total Cost": 12.25,
+                                "Plan Rows": 2,
+                                "Plan Width": 18,
+                                "Disabled": false,
+                                "Recheck Cond": "(customer_id = c.id)",
+                                "Filter": "(deleted_at IS NULL)",
+                                "Plans": [
+                                  {
+                                    "Node Type": "Bitmap Index Scan",
+                                    "Parent Relationship": "Outer",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Index Name": "contact_customer_id_idx",
+                                    "Startup Cost": 0,
+                                    "Total Cost": 4.43,
+                                    "Plan Rows": 2,
+                                    "Plan Width": 0,
+                                    "Disabled": false,
+                                    "Index Cond": "(customer_id = c.id)"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "V4_or_window_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 34.88,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": false,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) ((deleted_at IS NULL) AND ((f_vn_fold((name)::text) ~~ '%tran thi%'::text) OR (f_v",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND (f_vn_fold((full_name)::text) ~~ '%tran thi%'::text))",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V5_union_window_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6913.84,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Merge Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V6_unionall_window_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6384.5,
+            "executionMs": null,
+            "nestedLoopSemi": true,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": true,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V7_union_window_lateral": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6913.85,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Left",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Merge Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V8_unionall_window_lateral": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6384.51,
+            "executionMs": null,
+            "nestedLoopSemi": true,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": true,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Nested Loop",
+                "joinType": "Left",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        }
+      },
+      "18": {
+        "V1_or_two_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 34.87,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": false,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND (f_vn_fold((full_name)::text) ~~ '%minh phat%'::text))",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "count": {
+            "topEstRows": 1,
+            "totalCost": 21.59,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": false,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND (f_vn_fold((full_name)::text) ~~ '%minh phat%'::text))",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V2_union_two_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6956.23,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Merge Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "count": {
+            "topEstRows": 1,
+            "totalCost": 6942.94,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": true,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Hash Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V3_unionall_two_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6393.17,
+            "executionMs": null,
+            "nestedLoopSemi": true,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": true,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "count": {
+            "topEstRows": 1,
+            "totalCost": 6379.51,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": true,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Hash Join",
+                "joinType": "Right Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "pageRaw": [
+            {
+              "Plan": {
+                "Node Type": "Limit",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 6393.16,
+                "Total Cost": 6393.17,
+                "Plan Rows": 1,
+                "Plan Width": 29,
+                "Disabled": false,
+                "Plans": [
+                  {
+                    "Node Type": "Sort",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 6393.16,
+                    "Total Cost": 6393.17,
+                    "Plan Rows": 1,
+                    "Plan Width": 29,
+                    "Disabled": false,
+                    "Sort Key": [
+                      "(GREATEST(similarity(f_vn_fold((c.name)::text), 'minh phat'::text), COALESCE(similarity(f_vn_fold((c.short_name)::text), 'minh phat'::text), '0'::real), COALESCE((SubPlan 1), '0'::real))) DESC",
+                      "c.code DESC"
+                    ],
+                    "Plans": [
+                      {
+                        "Node Type": "Nested Loop",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Join Type": "Semi",
+                        "Startup Cost": 1574.97,
+                        "Total Cost": 6393.15,
+                        "Plan Rows": 1,
+                        "Plan Width": 29,
+                        "Disabled": false,
+                        "Inner Unique": false,
+                        "Join Filter": "(c.id = c_1.id)",
+                        "Plans": [
+                          {
+                            "Node Type": "Index Scan",
+                            "Parent Relationship": "Outer",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Scan Direction": "Forward",
+                            "Index Name": "customer_owner_id_idx",
+                            "Relation Name": "customer",
+                            "Alias": "c",
+                            "Startup Cost": 0.29,
+                            "Total Cost": 8.31,
+                            "Plan Rows": 1,
+                            "Plan Width": 73,
+                            "Disabled": false,
+                            "Index Cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid)",
+                            "Filter": "((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid))"
+                          },
+                          {
+                            "Node Type": "Gather",
+                            "Parent Relationship": "Inner",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Startup Cost": 1574.68,
+                            "Total Cost": 6371.07,
+                            "Plan Rows": 40,
+                            "Plan Width": 16,
+                            "Disabled": false,
+                            "Workers Planned": 2,
+                            "Single Copy": false,
+                            "Plans": [
+                              {
+                                "Node Type": "Append",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": true,
+                                "Async Capable": false,
+                                "Startup Cost": 574.68,
+                                "Total Cost": 5367.07,
+                                "Plan Rows": 16,
+                                "Plan Width": 16,
+                                "Disabled": false,
+                                "Subplans Removed": 0,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Bitmap Heap Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "customer",
+                                    "Alias": "c_1",
+                                    "Startup Cost": 1361.18,
+                                    "Total Cost": 1402.05,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Recheck Cond": "((f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) AND (deleted_at IS NULL))",
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Index Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Index Name": "ix_customer_short_fold",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 1361.18,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 0,
+                                        "Disabled": false,
+                                        "Index Cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text)"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Bitmap Heap Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "customer",
+                                    "Alias": "c_2",
+                                    "Startup Cost": 574.68,
+                                    "Total Cost": 615.55,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Recheck Cond": "((f_vn_fold((name)::text) ~~ '%minh phat%'::text) AND (deleted_at IS NULL))",
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Index Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Index Name": "ix_customer_name_fold",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 574.68,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 0,
+                                        "Disabled": false,
+                                        "Index Cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text)"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Bitmap Heap Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "contact",
+                                    "Alias": "ct",
+                                    "Startup Cost": 175.28,
+                                    "Total Cost": 215.54,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Recheck Cond": "((f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) AND (deleted_at IS NULL))",
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Index Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Index Name": "ix_contact_name_fold",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 175.28,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 0,
+                                        "Disabled": false,
+                                        "Index Cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text)"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Seq Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": true,
+                                    "Async Capable": false,
+                                    "Relation Name": "customer",
+                                    "Alias": "c_3",
+                                    "Startup Cost": 0,
+                                    "Total Cost": 3964.94,
+                                    "Plan Rows": 6,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Filter": "((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))"
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "Node Type": "Aggregate",
+                            "Strategy": "Plain",
+                            "Partial Mode": "Simple",
+                            "Parent Relationship": "SubPlan",
+                            "Subplan Name": "SubPlan 1",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Startup Cost": 12.76,
+                            "Total Cost": 12.77,
+                            "Plan Rows": 1,
+                            "Plan Width": 4,
+                            "Disabled": false,
+                            "Plans": [
+                              {
+                                "Node Type": "Bitmap Heap Scan",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Relation Name": "contact",
+                                "Alias": "ct_1",
+                                "Startup Cost": 4.43,
+                                "Total Cost": 12.25,
+                                "Plan Rows": 2,
+                                "Plan Width": 18,
+                                "Disabled": false,
+                                "Recheck Cond": "(customer_id = c.id)",
+                                "Filter": "(deleted_at IS NULL)",
+                                "Plans": [
+                                  {
+                                    "Node Type": "Bitmap Index Scan",
+                                    "Parent Relationship": "Outer",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Index Name": "contact_customer_id_idx",
+                                    "Startup Cost": 0,
+                                    "Total Cost": 4.43,
+                                    "Plan Rows": 2,
+                                    "Plan Width": 0,
+                                    "Disabled": false,
+                                    "Index Cond": "(customer_id = c.id)"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "V4_or_window_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 34.88,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": false,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND (f_vn_fold((full_name)::text) ~~ '%minh phat%'::text))",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V5_union_window_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6956.24,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Merge Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V6_unionall_window_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6393.18,
+            "executionMs": null,
+            "nestedLoopSemi": true,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": true,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V7_union_window_lateral": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6956.25,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Left",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Merge Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V8_unionall_window_lateral": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6393.19,
+            "executionMs": null,
+            "nestedLoopSemi": true,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": true,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Nested Loop",
+                "joinType": "Left",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid) ((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        }
+      },
+      "02": {
+        "V1_or_two_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 34.86,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": false,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) ((deleted_at IS NULL) AND ((f_vn_fold((name)::text) ~~ '%cumperf%'::text) OR (f_vn",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND (f_vn_fold((full_name)::text) ~~ '%cumperf%'::text))",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "count": {
+            "topEstRows": 1,
+            "totalCost": 21.59,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": false,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) ((deleted_at IS NULL) AND ((f_vn_fold((name)::text) ~~ '%cumperf%'::text) OR (f_vn",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND (f_vn_fold((full_name)::text) ~~ '%cumperf%'::text))",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V2_union_two_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6867.3,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Merge Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "count": {
+            "topEstRows": 1,
+            "totalCost": 6854.02,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": true,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Hash Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V3_unionall_two_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6375.8,
+            "executionMs": null,
+            "nestedLoopSemi": true,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": true,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "count": {
+            "topEstRows": 1,
+            "totalCost": 6362.14,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": true,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Hash Join",
+                "joinType": "Right Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          },
+          "pageRaw": [
+            {
+              "Plan": {
+                "Node Type": "Limit",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 6375.8,
+                "Total Cost": 6375.8,
+                "Plan Rows": 1,
+                "Plan Width": 29,
+                "Disabled": false,
+                "Plans": [
+                  {
+                    "Node Type": "Sort",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 6375.8,
+                    "Total Cost": 6375.8,
+                    "Plan Rows": 1,
+                    "Plan Width": 29,
+                    "Disabled": false,
+                    "Sort Key": [
+                      "(GREATEST(similarity(f_vn_fold((c.name)::text), 'cumperf'::text), COALESCE(similarity(f_vn_fold((c.short_name)::text), 'cumperf'::text), '0'::real), COALESCE((SubPlan 1), '0'::real))) DESC",
+                      "c.code DESC"
+                    ],
+                    "Plans": [
+                      {
+                        "Node Type": "Nested Loop",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Join Type": "Semi",
+                        "Startup Cost": 1553.48,
+                        "Total Cost": 6375.79,
+                        "Plan Rows": 1,
+                        "Plan Width": 29,
+                        "Disabled": false,
+                        "Inner Unique": false,
+                        "Join Filter": "(c.id = c_1.id)",
+                        "Plans": [
+                          {
+                            "Node Type": "Index Scan",
+                            "Parent Relationship": "Outer",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Scan Direction": "Forward",
+                            "Index Name": "customer_owner_id_idx",
+                            "Relation Name": "customer",
+                            "Alias": "c",
+                            "Startup Cost": 0.29,
+                            "Total Cost": 8.31,
+                            "Plan Rows": 1,
+                            "Plan Width": 73,
+                            "Disabled": false,
+                            "Index Cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid)",
+                            "Filter": "(deleted_at IS NULL)"
+                          },
+                          {
+                            "Node Type": "Gather",
+                            "Parent Relationship": "Inner",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Startup Cost": 1553.19,
+                            "Total Cost": 6353.7,
+                            "Plan Rows": 40,
+                            "Plan Width": 16,
+                            "Disabled": false,
+                            "Workers Planned": 2,
+                            "Single Copy": false,
+                            "Plans": [
+                              {
+                                "Node Type": "Append",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": true,
+                                "Async Capable": false,
+                                "Startup Cost": 553.19,
+                                "Total Cost": 5349.7,
+                                "Plan Rows": 16,
+                                "Plan Width": 16,
+                                "Disabled": false,
+                                "Subplans Removed": 0,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Bitmap Heap Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "customer",
+                                    "Alias": "c_1",
+                                    "Startup Cost": 1343.82,
+                                    "Total Cost": 1384.68,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Recheck Cond": "((f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) AND (deleted_at IS NULL))",
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Index Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Index Name": "ix_customer_short_fold",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 1343.81,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 0,
+                                        "Disabled": false,
+                                        "Index Cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text)"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Bitmap Heap Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "customer",
+                                    "Alias": "c_2",
+                                    "Startup Cost": 553.19,
+                                    "Total Cost": 594.06,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Recheck Cond": "((f_vn_fold((name)::text) ~~ '%cumperf%'::text) AND (deleted_at IS NULL))",
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Index Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Index Name": "ix_customer_name_fold",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 553.19,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 0,
+                                        "Disabled": false,
+                                        "Index Cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text)"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Bitmap Heap Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "contact",
+                                    "Alias": "ct",
+                                    "Startup Cost": 125.22,
+                                    "Total Cost": 165.48,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Recheck Cond": "((f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) AND (deleted_at IS NULL))",
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Index Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Index Name": "ix_contact_name_fold",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 125.21,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 0,
+                                        "Disabled": false,
+                                        "Index Cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text)"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Seq Scan",
+                                    "Parent Relationship": "Member",
+                                    "Parallel Aware": true,
+                                    "Async Capable": false,
+                                    "Relation Name": "customer",
+                                    "Alias": "c_3",
+                                    "Startup Cost": 0,
+                                    "Total Cost": 3964.94,
+                                    "Plan Rows": 6,
+                                    "Plan Width": 16,
+                                    "Disabled": false,
+                                    "Filter": "((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))"
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "Node Type": "Aggregate",
+                            "Strategy": "Plain",
+                            "Partial Mode": "Simple",
+                            "Parent Relationship": "SubPlan",
+                            "Subplan Name": "SubPlan 1",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Startup Cost": 12.76,
+                            "Total Cost": 12.77,
+                            "Plan Rows": 1,
+                            "Plan Width": 4,
+                            "Disabled": false,
+                            "Plans": [
+                              {
+                                "Node Type": "Bitmap Heap Scan",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Relation Name": "contact",
+                                "Alias": "ct_1",
+                                "Startup Cost": 4.43,
+                                "Total Cost": 12.25,
+                                "Plan Rows": 2,
+                                "Plan Width": 18,
+                                "Disabled": false,
+                                "Recheck Cond": "(customer_id = c.id)",
+                                "Filter": "(deleted_at IS NULL)",
+                                "Plans": [
+                                  {
+                                    "Node Type": "Bitmap Index Scan",
+                                    "Parent Relationship": "Outer",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Index Name": "contact_customer_id_idx",
+                                    "Startup Cost": 0,
+                                    "Total Cost": 4.43,
+                                    "Plan Rows": 2,
+                                    "Plan Width": 0,
+                                    "Disabled": false,
+                                    "Index Cond": "(customer_id = c.id)"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "V4_or_window_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 34.88,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": false,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) ((deleted_at IS NULL) AND ((f_vn_fold((name)::text) ~~ '%cumperf%'::text) OR (f_vn",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND (f_vn_fold((full_name)::text) ~~ '%cumperf%'::text))",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V5_union_window_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6867.32,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Merge Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V6_unionall_window_orig": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6375.82,
+            "executionMs": null,
+            "nestedLoopSemi": true,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": true,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V7_union_window_lateral": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6867.33,
+            "executionMs": null,
+            "nestedLoopSemi": false,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": false,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": false,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Left",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Merge Join",
+                "joinType": "Inner",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        },
+        "V8_unionall_window_lateral": {
+          "page": {
+            "topEstRows": 1,
+            "totalCost": 6375.83,
+            "executionMs": null,
+            "nestedLoopSemi": true,
+            "hashSemi": false,
+            "materialize": false,
+            "hashNode": false,
+            "hashedAggregate": false,
+            "append": true,
+            "gather": true,
+            "hashedSubPlan": false,
+            "ownerScanMinEstRows": 1,
+            "badShape": true,
+            "joins": [
+              {
+                "node": "Nested Loop",
+                "joinType": "Semi",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Nested Loop",
+                "joinType": "Left",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "scans": [
+              {
+                "node": "Index Scan",
+                "rel": "customer",
+                "index": "customer_owner_id_idx",
+                "cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid) (deleted_at IS NULL)",
+                "estRows": 1,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " (deleted_at IS NULL)",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "contact_customer_id_idx",
+                "cond": "(customer_id = c.id) ",
+                "estRows": 2,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_short_fold",
+                "cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_customer_name_fold",
+                "cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Heap Scan",
+                "rel": "contact",
+                "index": null,
+                "cond": " ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Bitmap Index Scan",
+                "rel": null,
+                "index": "ix_contact_name_fold",
+                "cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) ",
+                "estRows": 10,
+                "actRows": null,
+                "loops": null
+              },
+              {
+                "node": "Seq Scan",
+                "rel": "customer",
+                "index": null,
+                "cond": " ((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))",
+                "estRows": 6,
+                "actRows": null,
+                "loops": null
+              }
+            ],
+            "sharedHit": null,
+            "sharedRead": null
+          }
+        }
+      }
+    },
+    "fresh": {}
+  },
+  "results": {}
+}

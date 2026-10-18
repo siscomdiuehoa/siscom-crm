@@ -1,0 +1,1639 @@
+{
+  "kind": "B1.2.3-B2-P1-bench",
+  "startedAt": "2026-10-15T15:33:08.826Z",
+  "limits": {
+    "list": 150,
+    "search3": 500,
+    "search2": 1500
+  },
+  "rounds": 3,
+  "samples": 15,
+  "warmup": 3,
+  "variants": [
+    "V1_or_two_orig",
+    "V2_union_two_orig",
+    "V3_unionall_two_orig",
+    "V4_or_window_orig",
+    "V5_union_window_orig",
+    "V6_unionall_window_orig",
+    "V7_union_window_lateral",
+    "V8_unionall_window_lateral"
+  ],
+  "terms": [
+    {
+      "term": "minh phat",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "dien lanh",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "cumperf",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "nguyen van",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "0912345",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "mi",
+      "sortBy": "createdAt"
+    }
+  ],
+  "proofOnly": false,
+  "scenariosOnly": true,
+  "database": {
+    "name": "siscom_crm_restore_20261015_214948",
+    "perfCustomers": 50000,
+    "perfContacts": 100000,
+    "allCustomers": 50000
+  },
+  "pgSettings": [
+    {
+      "name": "effective_cache_size",
+      "setting": "524288"
+    },
+    {
+      "name": "jit",
+      "setting": "on"
+    },
+    {
+      "name": "max_parallel_workers_per_gather",
+      "setting": "2"
+    },
+    {
+      "name": "plan_cache_mode",
+      "setting": "auto"
+    },
+    {
+      "name": "random_page_cost",
+      "setting": "4"
+    },
+    {
+      "name": "server_version",
+      "setting": "18.6"
+    },
+    {
+      "name": "shared_buffers",
+      "setting": "16384"
+    },
+    {
+      "name": "work_mem",
+      "setting": "4096"
+    }
+  ],
+  "stats": [
+    {
+      "relname": "contact",
+      "live": 0,
+      "dead": 0,
+      "last_analyze": null,
+      "last_autoanalyze": null
+    },
+    {
+      "relname": "customer",
+      "live": 50000,
+      "dead": 50704,
+      "last_analyze": "2026-10-15 22:04:03.82662+07",
+      "last_autoanalyze": null
+    }
+  ],
+  "snapshotBefore": {
+    "perf_fingerprint": "0e083ae8aa1c4e47ac1310161e33bff2",
+    "perf_modified_rows": 20414,
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "statsPrecheck": {
+    "nullFracInStats": 0.5970333218574524,
+    "nullFracActual": 0.6
+  },
+  "r5c": {
+    "stepGuardMs": 330000,
+    "statementTimeout": "120s",
+    "txTimeoutMs": 480000,
+    "requireFreshStats": true
+  },
+  "deadTuplesBeforeScenarios": {
+    "customer": 50704,
+    "contact": 0
+  },
+  "realPhoneUsed": {
+    "id": "1be7a065-079f-46a4-997e-546233491105",
+    "phone": "0900000010"
+  },
+  "acceptanceScope": "FULL: 22 nhóm (S0a + 21 kịch bản)",
+  "vacuumMs": [
+    1108,
+    895,
+    839,
+    980,
+    913,
+    950,
+    908,
+    923,
+    828
+  ],
+  "vacuumLog": [
+    {
+      "label": "02 OWN A cumperf",
+      "db": "siscom_crm_restore_20261015_214948",
+      "idleBefore": 0,
+      "ms": 1108
+    },
+    {
+      "label": "03 DEPARTMENT A(d1) cumperf",
+      "db": "siscom_crm_restore_20261015_214948",
+      "idleBefore": 0,
+      "ms": 895
+    },
+    {
+      "label": "04 DEPARTMENT C(d2) cumperf",
+      "db": "siscom_crm_restore_20261015_214948",
+      "idleBefore": 0,
+      "ms": 839
+    },
+    {
+      "label": "07 deleted=only ALL/OWN",
+      "db": "siscom_crm_restore_20261015_214948",
+      "idleBefore": 0,
+      "ms": 980
+    },
+    {
+      "label": "08 deleted=only DEPT/ALL",
+      "db": "siscom_crm_restore_20261015_214948",
+      "idleBefore": 0,
+      "ms": 913
+    },
+    {
+      "label": "14 tên liên hệ OWN",
+      "db": "siscom_crm_restore_20261015_214948",
+      "idleBefore": 0,
+      "ms": 950
+    },
+    {
+      "label": "18 ownerId B + tier",
+      "db": "siscom_crm_restore_20261015_214948",
+      "idleBefore": 0,
+      "ms": 908
+    },
+    {
+      "label": "19 2 ký tự DEPARTMENT",
+      "db": "siscom_crm_restore_20261015_214948",
+      "idleBefore": 0,
+      "ms": 923
+    },
+    {
+      "label": "cuối bài",
+      "db": "siscom_crm_restore_20261015_214948",
+      "idleBefore": 0,
+      "ms": 828
+    }
+  ],
+  "deadTuplesAfterScenarios": {
+    "customer": 1180,
+    "contact": 0
+  },
+  "scenarioGroups": [
+    {
+      "group": "S0a rollback khi exception",
+      "expectedStatus": "ERROR",
+      "actualStatus": "ERROR",
+      "outcome": "PASS",
+      "ms": 46,
+      "error": "bench-injected-exception",
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "01 ALL cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3357,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 1238,
+        "timings": {
+          "setup.deleted": 81,
+          "setup.tax": 17,
+          "fold": 1,
+          "V1 base (full)": 487,
+          "V1_or_two_orig full": 464,
+          "V1_or_two_orig beyond": 444,
+          "V2_union_two_orig full": 93,
+          "V2_union_two_orig beyond": 63,
+          "V3_unionall_two_orig full": 89,
+          "V3_unionall_two_orig beyond": 183,
+          "V4_or_window_orig full": 237,
+          "V4_or_window_orig beyond": 493,
+          "V5_union_window_orig full": 52,
+          "V5_union_window_orig beyond": 75,
+          "V6_unionall_window_orig full": 63,
+          "V6_unionall_window_orig beyond": 203,
+          "V7_union_window_lateral full": 61,
+          "V7_union_window_lateral beyond": 76,
+          "V8_unionall_window_lateral full": 69,
+          "V8_unionall_window_lateral beyond": 84
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "02 OWN A cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 7183,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 248,
+        "timings": {
+          "setup.owner": 5312,
+          "setup.deleted": 58,
+          "setup.tax": 26,
+          "fold": 1,
+          "V1 base (full)": 146,
+          "V1_or_two_orig full": 176,
+          "V1_or_two_orig beyond": 166,
+          "V2_union_two_orig full": 64,
+          "V2_union_two_orig beyond": 69,
+          "V3_unionall_two_orig full": 225,
+          "V3_unionall_two_orig beyond": 184,
+          "V4_or_window_orig full": 52,
+          "V4_or_window_orig beyond": 117,
+          "V5_union_window_orig full": 44,
+          "V5_union_window_orig beyond": 63,
+          "V6_unionall_window_orig full": 41,
+          "V6_unionall_window_orig beyond": 72,
+          "V7_union_window_lateral full": 37,
+          "V7_union_window_lateral beyond": 66,
+          "V8_unionall_window_lateral full": 47,
+          "V8_unionall_window_lateral beyond": 188
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "03 DEPARTMENT A(d1) cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 5446,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 248,
+        "timings": {
+          "setup.owner": 3439,
+          "setup.deleted": 48,
+          "setup.tax": 21,
+          "fold": 0,
+          "V1 base (full)": 180,
+          "V1_or_two_orig full": 193,
+          "V1_or_two_orig beyond": 231,
+          "V2_union_two_orig full": 102,
+          "V2_union_two_orig beyond": 81,
+          "V3_unionall_two_orig full": 119,
+          "V3_unionall_two_orig beyond": 176,
+          "V4_or_window_orig full": 114,
+          "V4_or_window_orig beyond": 191,
+          "V5_union_window_orig full": 39,
+          "V5_union_window_orig beyond": 92,
+          "V6_unionall_window_orig full": 50,
+          "V6_unionall_window_orig beyond": 87,
+          "V7_union_window_lateral full": 44,
+          "V7_union_window_lateral beyond": 83,
+          "V8_unionall_window_lateral full": 49,
+          "V8_unionall_window_lateral beyond": 82
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "04 DEPARTMENT C(d2) cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 4001,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 248,
+        "timings": {
+          "setup.owner": 2870,
+          "setup.deleted": 48,
+          "setup.tax": 24,
+          "fold": 1,
+          "V1 base (full)": 73,
+          "V1_or_two_orig full": 61,
+          "V1_or_two_orig beyond": 61,
+          "V2_union_two_orig full": 76,
+          "V2_union_two_orig beyond": 68,
+          "V3_unionall_two_orig full": 76,
+          "V3_unionall_two_orig beyond": 74,
+          "V4_or_window_orig full": 47,
+          "V4_or_window_orig beyond": 67,
+          "V5_union_window_orig full": 36,
+          "V5_union_window_orig beyond": 69,
+          "V6_unionall_window_orig full": 39,
+          "V6_unionall_window_orig beyond": 71,
+          "V7_union_window_lateral full": 39,
+          "V7_union_window_lateral beyond": 70,
+          "V8_unionall_window_lateral full": 37,
+          "V8_unionall_window_lateral beyond": 70
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "05 không quyền -> rỗng",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 88,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 0,
+        "timings": {
+          "setup.deleted": 20,
+          "setup.tax": 14,
+          "fold": 1,
+          "V1 base (full)": 1,
+          "V1_or_two_orig full": 1,
+          "V1_or_two_orig beyond": 1,
+          "V2_union_two_orig full": 1,
+          "V2_union_two_orig beyond": 1,
+          "V3_unionall_two_orig full": 2,
+          "V3_unionall_two_orig beyond": 1,
+          "V4_or_window_orig full": 2,
+          "V4_or_window_orig beyond": 2,
+          "V5_union_window_orig full": 2,
+          "V5_union_window_orig beyond": 2,
+          "V6_unionall_window_orig full": 2,
+          "V6_unionall_window_orig beyond": 10,
+          "V7_union_window_lateral full": 1,
+          "V7_union_window_lateral beyond": 2,
+          "V8_unionall_window_lateral full": 2,
+          "V8_unionall_window_lateral beyond": 2
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "06 deleted=only ALL/ALL",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 197,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 12,
+        "timings": {
+          "setup.deleted": 34,
+          "setup.tax": 12,
+          "fold": 0,
+          "V1 base (full)": 7,
+          "V1_or_two_orig full": 9,
+          "V1_or_two_orig beyond": 7,
+          "V2_union_two_orig full": 10,
+          "V2_union_two_orig beyond": 8,
+          "V3_unionall_two_orig full": 10,
+          "V3_unionall_two_orig beyond": 9,
+          "V4_or_window_orig full": 5,
+          "V4_or_window_orig beyond": 10,
+          "V5_union_window_orig full": 4,
+          "V5_union_window_orig beyond": 9,
+          "V6_unionall_window_orig full": 5,
+          "V6_unionall_window_orig beyond": 9,
+          "V7_union_window_lateral full": 6,
+          "V7_union_window_lateral beyond": 11,
+          "V8_unionall_window_lateral full": 6,
+          "V8_unionall_window_lateral beyond": 10
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "07 deleted=only ALL/OWN",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3207,
+      "fails": [],
+      "detail": {
+        "term": "cong ty",
+        "total": 100,
+        "timings": {
+          "setup.owner": 2967,
+          "setup.deleted": 46,
+          "setup.tax": 23,
+          "fold": 1,
+          "V1 base (full)": 5,
+          "V1_or_two_orig full": 5,
+          "V1_or_two_orig beyond": 6,
+          "V2_union_two_orig full": 27,
+          "V2_union_two_orig beyond": 10,
+          "V3_unionall_two_orig full": 12,
+          "V3_unionall_two_orig beyond": 10,
+          "V4_or_window_orig full": 4,
+          "V4_or_window_orig beyond": 5,
+          "V5_union_window_orig full": 6,
+          "V5_union_window_orig beyond": 10,
+          "V6_unionall_window_orig full": 6,
+          "V6_unionall_window_orig beyond": 10,
+          "V7_union_window_lateral full": 6,
+          "V7_union_window_lateral beyond": 14,
+          "V8_unionall_window_lateral full": 7,
+          "V8_unionall_window_lateral beyond": 10
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": true
+    },
+    {
+      "group": "08 deleted=only DEPT/ALL",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3046,
+      "fails": [],
+      "detail": {
+        "term": "minh phat",
+        "total": 15,
+        "timings": {
+          "setup.owner": 2833,
+          "setup.deleted": 36,
+          "setup.tax": 20,
+          "fold": 0,
+          "V1 base (full)": 15,
+          "V1_or_two_orig full": 7,
+          "V1_or_two_orig beyond": 5,
+          "V2_union_two_orig full": 8,
+          "V2_union_two_orig beyond": 9,
+          "V3_unionall_two_orig full": 8,
+          "V3_unionall_two_orig beyond": 8,
+          "V4_or_window_orig full": 3,
+          "V4_or_window_orig beyond": 5,
+          "V5_union_window_orig full": 4,
+          "V5_union_window_orig beyond": 8,
+          "V6_unionall_window_orig full": 4,
+          "V6_unionall_window_orig beyond": 12,
+          "V7_union_window_lateral full": 21,
+          "V7_union_window_lateral beyond": 8,
+          "V8_unionall_window_lateral full": 5,
+          "V8_unionall_window_lateral beyond": 11
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 2,
+      "rollbackVerified": true
+    },
+    {
+      "group": "09 mã khách (một phần)",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3309,
+      "fails": [],
+      "detail": {
+        "term": "KH-1234",
+        "total": 10,
+        "timings": {
+          "setup.deleted": 23,
+          "setup.tax": 15,
+          "fold": 1,
+          "V1 base (full)": 618,
+          "V1_or_two_orig full": 621,
+          "V1_or_two_orig beyond": 680,
+          "V2_union_two_orig full": 36,
+          "V2_union_two_orig beyond": 35,
+          "V3_unionall_two_orig full": 36,
+          "V3_unionall_two_orig beyond": 34,
+          "V4_or_window_orig full": 351,
+          "V4_or_window_orig beyond": 610,
+          "V5_union_window_orig full": 26,
+          "V5_union_window_orig beyond": 29,
+          "V6_unionall_window_orig full": 15,
+          "V6_unionall_window_orig beyond": 31,
+          "V7_union_window_lateral full": 15,
+          "V7_union_window_lateral beyond": 39,
+          "V8_unionall_window_lateral full": 29,
+          "V8_unionall_window_lateral beyond": 45
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": true
+    },
+    {
+      "group": "10 mã khách (đủ)",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3111,
+      "fails": [],
+      "detail": {
+        "term": "KH-12345",
+        "total": 1,
+        "timings": {
+          "setup.deleted": 28,
+          "setup.tax": 19,
+          "fold": 0,
+          "V1 base (full)": 613,
+          "V1_or_two_orig full": 555,
+          "V1_or_two_orig beyond": 639,
+          "V2_union_two_orig full": 35,
+          "V2_union_two_orig beyond": 42,
+          "V3_unionall_two_orig full": 33,
+          "V3_unionall_two_orig beyond": 32,
+          "V4_or_window_orig full": 278,
+          "V4_or_window_orig beyond": 562,
+          "V5_union_window_orig full": 28,
+          "V5_union_window_orig beyond": 51,
+          "V6_unionall_window_orig full": 23,
+          "V6_unionall_window_orig beyond": 39,
+          "V7_union_window_lateral full": 17,
+          "V7_union_window_lateral beyond": 32,
+          "V8_unionall_window_lateral full": 16,
+          "V8_unionall_window_lateral beyond": 50
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "11 MST một phần",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3742,
+      "fails": [],
+      "detail": {
+        "term": "0300000",
+        "total": 2,
+        "timings": {
+          "setup.deleted": 26,
+          "setup.tax": 14,
+          "fold": 1,
+          "V1 base (full)": 705,
+          "V1_or_two_orig full": 726,
+          "V1_or_two_orig beyond": 721,
+          "V2_union_two_orig full": 43,
+          "V2_union_two_orig beyond": 58,
+          "V3_unionall_two_orig full": 55,
+          "V3_unionall_two_orig beyond": 46,
+          "V4_or_window_orig full": 354,
+          "V4_or_window_orig beyond": 673,
+          "V5_union_window_orig full": 18,
+          "V5_union_window_orig beyond": 64,
+          "V6_unionall_window_orig full": 24,
+          "V6_unionall_window_orig beyond": 55,
+          "V7_union_window_lateral full": 21,
+          "V7_union_window_lateral beyond": 51,
+          "V8_unionall_window_lateral full": 21,
+          "V8_unionall_window_lateral beyond": 45
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "12 MST đủ",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3769,
+      "fails": [],
+      "detail": {
+        "term": "0300025001",
+        "total": 1,
+        "timings": {
+          "setup.deleted": 36,
+          "setup.tax": 17,
+          "fold": 0,
+          "V1 base (full)": 822,
+          "V1_or_two_orig full": 739,
+          "V1_or_two_orig beyond": 709,
+          "V2_union_two_orig full": 57,
+          "V2_union_two_orig beyond": 42,
+          "V3_unionall_two_orig full": 44,
+          "V3_unionall_two_orig beyond": 43,
+          "V4_or_window_orig full": 295,
+          "V4_or_window_orig beyond": 662,
+          "V5_union_window_orig full": 29,
+          "V5_union_window_orig beyond": 43,
+          "V6_unionall_window_orig full": 23,
+          "V6_unionall_window_orig beyond": 37,
+          "V7_union_window_lateral full": 16,
+          "V7_union_window_lateral beyond": 63,
+          "V8_unionall_window_lateral full": 26,
+          "V8_unionall_window_lateral beyond": 44
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "13 tên liên hệ",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 5542,
+      "fails": [],
+      "detail": {
+        "term": "le hoang an",
+        "total": 3300,
+        "timings": {
+          "setup.deleted": 25,
+          "setup.tax": 17,
+          "fold": 0,
+          "V1 base (full)": 801,
+          "V1_or_two_orig full": 818,
+          "V1_or_two_orig beyond": 710,
+          "V2_union_two_orig full": 163,
+          "V2_union_two_orig beyond": 147,
+          "V3_unionall_two_orig full": 163,
+          "V3_unionall_two_orig beyond": 184,
+          "V4_or_window_orig full": 425,
+          "V4_or_window_orig beyond": 915,
+          "V5_union_window_orig full": 142,
+          "V5_union_window_orig beyond": 150,
+          "V6_unionall_window_orig full": 132,
+          "V6_unionall_window_orig beyond": 160,
+          "V7_union_window_lateral full": 130,
+          "V7_union_window_lateral beyond": 172,
+          "V8_unionall_window_lateral full": 119,
+          "V8_unionall_window_lateral beyond": 146
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": true
+    },
+    {
+      "group": "14 tên liên hệ OWN",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 8361,
+      "fails": [],
+      "detail": {
+        "term": "tran thi",
+        "total": 3960,
+        "timings": {
+          "setup.owner": 2699,
+          "setup.deleted": 38,
+          "setup.tax": 20,
+          "fold": 0,
+          "V1 base (full)": 444,
+          "V1_or_two_orig full": 313,
+          "V1_or_two_orig beyond": 291,
+          "V2_union_two_orig full": 327,
+          "V2_union_two_orig beyond": 366,
+          "V3_unionall_two_orig full": 458,
+          "V3_unionall_two_orig beyond": 385,
+          "V4_or_window_orig full": 244,
+          "V4_or_window_orig beyond": 298,
+          "V5_union_window_orig full": 202,
+          "V5_union_window_orig beyond": 247,
+          "V6_unionall_window_orig full": 230,
+          "V6_unionall_window_orig beyond": 458,
+          "V7_union_window_lateral full": 245,
+          "V7_union_window_lateral beyond": 266,
+          "V8_unionall_window_lateral full": 338,
+          "V8_unionall_window_lateral beyond": 458
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "15 SĐT nội địa (số thật trong PERF)",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3651,
+      "fails": [],
+      "detail": {
+        "term": "0900000010",
+        "total": 1,
+        "timings": {
+          "setup.deleted": 20,
+          "setup.tax": 11,
+          "fold": 0,
+          "V1 base (full)": 671,
+          "V1_or_two_orig full": 635,
+          "V1_or_two_orig beyond": 746,
+          "V2_union_two_orig full": 59,
+          "V2_union_two_orig beyond": 57,
+          "V3_unionall_two_orig full": 48,
+          "V3_unionall_two_orig beyond": 44,
+          "V4_or_window_orig full": 412,
+          "V4_or_window_orig beyond": 642,
+          "V5_union_window_orig full": 21,
+          "V5_union_window_orig beyond": 50,
+          "V6_unionall_window_orig full": 25,
+          "V6_unionall_window_orig beyond": 58,
+          "V7_union_window_lateral full": 17,
+          "V7_union_window_lateral beyond": 52,
+          "V8_unionall_window_lateral full": 24,
+          "V8_unionall_window_lateral beyond": 42
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": true
+    },
+    {
+      "group": "16 SĐT có khoảng trắng",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3468,
+      "fails": [],
+      "detail": {
+        "term": "0900 012 345",
+        "total": 1,
+        "timings": {
+          "setup.deleted": 20,
+          "setup.tax": 18,
+          "fold": 0,
+          "V1 base (full)": 607,
+          "V1_or_two_orig full": 720,
+          "V1_or_two_orig beyond": 700,
+          "V2_union_two_orig full": 56,
+          "V2_union_two_orig beyond": 57,
+          "V3_unionall_two_orig full": 44,
+          "V3_unionall_two_orig beyond": 52,
+          "V4_or_window_orig full": 328,
+          "V4_or_window_orig beyond": 565,
+          "V5_union_window_orig full": 24,
+          "V5_union_window_orig beyond": 57,
+          "V6_unionall_window_orig full": 25,
+          "V6_unionall_window_orig beyond": 42,
+          "V7_union_window_lateral full": 18,
+          "V7_union_window_lateral beyond": 39,
+          "V8_unionall_window_lateral full": 27,
+          "V8_unionall_window_lateral beyond": 49
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "17 SĐT +84",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 4010,
+      "fails": [],
+      "detail": {
+        "term": "+84900012",
+        "total": 989,
+        "timings": {
+          "setup.deleted": 27,
+          "setup.tax": 19,
+          "fold": 0,
+          "V1 base (full)": 613,
+          "V1_or_two_orig full": 702,
+          "V1_or_two_orig beyond": 547,
+          "V2_union_two_orig full": 88,
+          "V2_union_two_orig beyond": 119,
+          "V3_unionall_two_orig full": 93,
+          "V3_unionall_two_orig beyond": 65,
+          "V4_or_window_orig full": 383,
+          "V4_or_window_orig beyond": 707,
+          "V5_union_window_orig full": 74,
+          "V5_union_window_orig beyond": 84,
+          "V6_unionall_window_orig full": 69,
+          "V6_unionall_window_orig beyond": 72,
+          "V7_union_window_lateral full": 76,
+          "V7_union_window_lateral beyond": 97,
+          "V8_unionall_window_lateral full": 69,
+          "V8_unionall_window_lateral beyond": 85
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "18 ownerId B + tier",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 5217,
+      "fails": [],
+      "detail": {
+        "term": "minh phat",
+        "total": 495,
+        "timings": {
+          "setup.owner": 3020,
+          "setup.deleted": 44,
+          "setup.tax": 22,
+          "fold": 1,
+          "V1 base (full)": 94,
+          "V1_or_two_orig full": 84,
+          "V1_or_two_orig beyond": 73,
+          "V2_union_two_orig full": 108,
+          "V2_union_two_orig beyond": 139,
+          "V3_unionall_two_orig full": 153,
+          "V3_unionall_two_orig beyond": 230,
+          "V4_or_window_orig full": 88,
+          "V4_or_window_orig beyond": 96,
+          "V5_union_window_orig full": 89,
+          "V5_union_window_orig beyond": 158,
+          "V6_unionall_window_orig full": 86,
+          "V6_unionall_window_orig beyond": 149,
+          "V7_union_window_lateral full": 82,
+          "V7_union_window_lateral beyond": 125,
+          "V8_unionall_window_lateral full": 94,
+          "V8_unionall_window_lateral beyond": 254
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 2,
+      "rollbackVerified": true
+    },
+    {
+      "group": "19 2 ký tự DEPARTMENT",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 13082,
+      "fails": [],
+      "detail": {
+        "term": "mi",
+        "total": 8910,
+        "timings": {
+          "setup.owner": 3881,
+          "setup.deleted": 64,
+          "setup.tax": 82,
+          "fold": 0,
+          "V1 base (full)": 769,
+          "V1_or_two_orig full": 764,
+          "V1_or_two_orig beyond": 674,
+          "V2_union_two_orig full": 532,
+          "V2_union_two_orig beyond": 570,
+          "V3_unionall_two_orig full": 560,
+          "V3_unionall_two_orig beyond": 549,
+          "V4_or_window_orig full": 424,
+          "V4_or_window_orig beyond": 857,
+          "V5_union_window_orig full": 235,
+          "V5_union_window_orig beyond": 498,
+          "V6_unionall_window_orig full": 268,
+          "V6_unionall_window_orig beyond": 616,
+          "V7_union_window_lateral full": 264,
+          "V7_union_window_lateral beyond": 545,
+          "V8_unionall_window_lateral full": 291,
+          "V8_unionall_window_lateral beyond": 602
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "20 sắp xếp tên tăng",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 4180,
+      "fails": [],
+      "detail": {
+        "term": "dien lanh",
+        "total": 6186,
+        "timings": {
+          "setup.deleted": 24,
+          "setup.tax": 13,
+          "fold": 0,
+          "V1 base (full)": 634,
+          "V1_or_two_orig full": 683,
+          "V1_or_two_orig beyond": 705,
+          "V2_union_two_orig full": 107,
+          "V2_union_two_orig beyond": 117,
+          "V3_unionall_two_orig full": 107,
+          "V3_unionall_two_orig beyond": 123,
+          "V4_or_window_orig full": 242,
+          "V4_or_window_orig beyond": 537,
+          "V5_union_window_orig full": 60,
+          "V5_union_window_orig beyond": 147,
+          "V6_unionall_window_orig full": 85,
+          "V6_unionall_window_orig beyond": 150,
+          "V7_union_window_lateral full": 86,
+          "V7_union_window_lateral beyond": 115,
+          "V8_unionall_window_lateral full": 82,
+          "V8_unionall_window_lateral beyond": 126
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "21 relevance tăng",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 6033,
+      "fails": [],
+      "detail": {
+        "term": "minh phat",
+        "total": 4949,
+        "timings": {
+          "setup.deleted": 22,
+          "setup.tax": 10,
+          "fold": 0,
+          "V1 base (full)": 654,
+          "V1_or_two_orig full": 759,
+          "V1_or_two_orig beyond": 748,
+          "V2_union_two_orig full": 282,
+          "V2_union_two_orig beyond": 219,
+          "V3_unionall_two_orig full": 248,
+          "V3_unionall_two_orig beyond": 199,
+          "V4_or_window_orig full": 346,
+          "V4_or_window_orig beyond": 673,
+          "V5_union_window_orig full": 187,
+          "V5_union_window_orig beyond": 245,
+          "V6_unionall_window_orig full": 198,
+          "V6_unionall_window_orig beyond": 244,
+          "V7_union_window_lateral full": 195,
+          "V7_union_window_lateral beyond": 266,
+          "V8_unionall_window_lateral full": 215,
+          "V8_unionall_window_lateral beyond": 291
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    }
+  ],
+  "rollbackClean": true,
+  "scenarioTotalMs": 94046,
+  "haltReason": null,
+  "scenarioSummary": {
+    "fullSuite": true,
+    "planned": 22,
+    "pass": 22,
+    "fail": 0,
+    "skipped": 0,
+    "notRunByDesign": 0,
+    "neverReached": 0
+  },
+  "snapshotAfter": {
+    "perf_fingerprint": "0e083ae8aa1c4e47ac1310161e33bff2",
+    "perf_modified_rows": 20414,
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "finishedAt": "2026-10-15T15:34:54.531Z",
+  "failures": []
+}

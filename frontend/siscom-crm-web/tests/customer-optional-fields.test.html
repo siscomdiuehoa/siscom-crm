@@ -1,0 +1,93 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Optional-fields tests</title>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>body{font:13px/1.5 ui-monospace,Menlo,monospace;padding:16px;background:#fff;color:#111}.p{color:#0a7d33}.f{color:#b00020;font-weight:700}h3{margin:14px 0 4px}</style></head><body>
+<h2 id="sum">Đang chạy…</h2><pre id="o"></pre>
+<script type="module">
+// Isolated: localStorage is replaced by an in-memory fake, so real browser data is never touched.
+const mem = {}; let failSet = false;
+const base = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { if (failSet) { const e = new Error('q'); e.name = 'QuotaExceededError'; throw e; } mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; }, get length() { return Object.keys(mem).length; }, key: (i) => Object.keys(mem)[i] };
+const fake = new Proxy(base, { ownKeys: () => Object.keys(mem), getOwnPropertyDescriptor: (_t, k) => (k in mem ? { enumerable: true, configurable: true, value: mem[k] } : undefined) });
+let shim = true; try { Object.defineProperty(window, 'localStorage', { value: fake, configurable: true }); if (window.localStorage !== fake) shim = false; } catch (e) { shim = false; }
+const keysShim = () => Object.keys(mem);
+const storageSet = (k, v) => { mem[k] = v; };
+const rawSrc = async (f) => { const u = '../src/' + f; let s = await (await fetch(u)).text(); if (/\.jsx$/.test(f) && (!/<Input|<Select|<Modal/.test(s) || /jsxDEV|import\.meta\.hot|\$RefreshReg\$/.test(s))) { try { const d = (await import(u + '?raw')).default; if (typeof d === 'string' && d.length > 50) s = d; } catch (e) { /* static server: keep fetched text */ } } return s; };
+const awaitedSrc = {}; for (const f of ['features/customers/CustomerForm.jsx', 'features/customers/CustomerIO.jsx', 'pages/CustomerList.jsx', 'pages/CustomerProfile.jsx']) awaitedSrc[f] = await rawSrc(f);
+const O = document.getElementById('o'); let pass = 0, fail = 0;
+const t = (name, fn) => { try { const r = fn(); if (r === false) throw new Error('assertion false'); pass++; O.innerHTML += '<span class="p">✓ ' + name + '</span>\n'; } catch (e) { fail++; O.innerHTML += '<span class="f">✗ ' + name + ' — ' + e.message + '</span>\n'; } };
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const throws = (fn, cls) => { try { fn(); } catch (e) { return !cls || e instanceof cls || e.name === cls; } return false; };
+const S = '../src/';
+const [sch, mut, perm, rules, util, imp] = await Promise.all([import(S + 'data/repository/schema.js'), import(S + 'data/repository/mutations.js'), import(S + 'auth/permissions.js'), import(S + 'data/customerRules.js'), import(S + 'data/util.js'), import(S + 'data/demoData.js')]);
+const { RepoError } = mut; const dir = perm.DEMO_USERS.find((u) => u.id === 'u-director'); const X = { user: dir };
+const D = imp.APP_DATA; let db = sch.seedV2(); const n0 = db.customers.length;
+const add = (d, o) => mut.saveCustomer(d, { id: mut.nextCustomerId(d), createdAt: '2026-10-11', revenue: 0, tags: [], ...o }, null, X);
+O.innerHTML += '<h3>Số điện thoại</h3>';
+for (const p of ['0903123456', '0903 123 456', '028 3822 1234', '+84 903 123 456', '+84 28 3822 1234', '0084 903123456', '(028) 3822-1234', '0274 3700 100'.replace(/ /g, '').slice(0, 11), '+1 415 555 2671', '+82 2 1234 5678', '+44 20 7946 0958'])
+  t('hợp lệ: ' + p, () => util.isPhone(p));
+for (const p of ['', '123', '903123456', '+84', '+84 12', '0123', '+0 123456789', 'abcdefghij', '+1 23', '09031234567890'])
+  t('không hợp lệ: "' + p + '"', () => !util.isPhone(p));
+O.innerHTML += '<h3>Form/Repository dùng chung một bộ luật</h3>';
+t('Chỉ Tên + Điện thoại: validateCustomer không báo lỗi', () => Object.keys(rules.validateCustomer({ name: 'Công ty A', phone: '0903123456' })).length === 0);
+t('Thiếu tên → lỗi name; thiếu điện thoại → lỗi phone; thiếu cả hai → 2 lỗi, đúng thông điệp', () => { const a = rules.validateCustomer({ name: '', phone: '0903123456' }), b = rules.validateCustomer({ name: 'Công ty A', phone: '  ' }), c = rules.validateCustomer({}); return a.name === rules.MSG.name && !a.phone && b.phone === rules.MSG.phone && !b.name && Object.keys(c).sort().join() === 'name,phone'; });
+t('SĐT sai định dạng → lỗi phoneFmt', () => rules.validateCustomer({ name: 'Công ty A', phone: '12345' }).phone === rules.MSG.phoneFmt);
+t('Email/Website để trống không lỗi; nhập sai thì lỗi', () => { const ok = rules.validateCustomer({ name: 'Cty A', phone: '0903123456', email: '', website: '' }); const bad = rules.validateCustomer({ name: 'Cty A', phone: '0903123456', email: 'x@', website: 'a b' }); return !ok.email && !ok.website && !!bad.email && !!bad.website; });
+const src = async (f) => rawSrc(f);
+const form = await src('features/customers/CustomerForm.jsx'), io = await src('features/customers/CustomerIO.jsx'), mutSrc = await src('data/repository/mutations.js');
+t('Form, Import và Repository đều gọi validateCustomer/normalizeCustomer (không có luật riêng)', () => form.includes('validateCustomer(f') && io.includes('validateCustomer(normalizeCustomer') && mutSrc.includes('validateCustomer(nc') && mutSrc.includes('validateCustomer(c, { customers: d.customers })'));
+const tags = (s) => { const out = []; const re = /<(Input|Select)\b/g; let m; while ((m = re.exec(s))) { let i = m.index + m[0].length, depth = 0, q = null; for (; i < s.length; i++) { const c = s[i]; if (q) { if (c === q && s[i - 1] !== '\\') q = null; continue; } if (c === '"' || c === "'" || c === '`') { q = c; continue; } if (c === '{') depth++; else if (c === '}') depth--; else if (depth === 0 && c === '>') break; } out.push(s.slice(m.index, i + 1)); } return out; };
+t('Form: chỉ "Tên công ty" và "Điện thoại" còn thuộc tính required (kể cả khi dev server đã biên dịch JSX)', () => { const found = tags(form).filter((x) => /\srequired(\s|=|\/|>)/.test(x)).map((x) => (x.match(/label="([^"]+)"/) || [])[1]); if (!eq(found.sort(), ['Tên công ty', 'Điện thoại'].sort())) throw new Error('required: ' + found.join(' | ')); const bad = tags(form).filter((x) => /label="(Mã số thuế|Ngành nghề|Địa chỉ|Tỉnh \/ Thành phố|Phân hạng|Trạng thái|Nhân viên kinh doanh phụ trách)"/.test(x) && /\srequired(\s|=|\/|>)/.test(x)); if (bad.length) throw new Error('trường tuỳ chọn còn required'); if (!io.includes('validateCustomer(normalizeCustomer') || /MST không hợp lệ|Thiếu tên công ty/.test(io)) throw new Error('Import CSV chưa dùng bộ luật chung'); return true; });
+
+O.innerHTML += '<h3>Kiểm thử 1–6: thêm khách hàng</h3>';
+t('1. Chỉ nhập Tên công ty + Điện thoại → lưu thành công', () => { db = add(db, { name: 'Công ty TNHH Chỉ Hai Trường', phone: '0903 123 456' }); return db.customers.length === n0 + 1; });
+const c1 = () => db.customers[0];
+t('1b. Không tạo dữ liệu giả: MST/ngành/phụ trách/nguồn/địa chỉ/tỉnh/email/website để trống', () => ['taxId', 'industry', 'owner', 'source', 'address', 'city', 'email', 'website', 'note'].every((k) => c1()[k] === ''));
+t('1c. Phân hạng/Trạng thái nhận giá trị mặc định cấu hình; tên viết tắt suy ra từ tên', () => c1().tier === 'Tiềm năng' && c1().status === 'Tiềm năng' && c1().short === 'Chỉ Hai Trường' && c1().revenue === 0);
+t('1d. Có thể lưu mà không gán nhân viên phụ trách (owner = "")', () => c1().owner === '');
+t('2. Thiếu tên công ty → bị chặn (RepoError)', () => throws(() => add(db, { name: '   ', phone: '0903123456' }), RepoError));
+t('3. Thiếu điện thoại → bị chặn (RepoError)', () => throws(() => add(db, { name: 'Công ty B', phone: '' }), RepoError));
+t('3b. Điện thoại sai định dạng → bị chặn', () => throws(() => add(db, { name: 'Công ty B', phone: '123' }), RepoError));
+t('3c. Điện thoại quốc tế được chấp nhận', () => { const d = add(db, { name: 'Công ty Hàn Quốc ABC', phone: '+82 2 1234 5678' }); return d.customers.length === db.customers.length + 1; });
+t('4. Bỏ trống MST → lưu thành công', () => db.customers[0].taxId === '');
+t('5. Nhiều khách hàng cùng không có MST → không báo trùng', () => { let d = db; for (let i = 0; i < 5; i++) d = add(d, { name: 'Công ty không MST số ' + i, phone: '090312345' + i }); return d.customers.length === db.customers.length + 5 && d.customers.slice(0, 5).every((c) => c.taxId === ''); });
+t('5b. MST toàn khoảng trắng cũng coi là trống', () => { const d = add(db, { name: 'Công ty MST trống 2', phone: '0903123499', taxId: '   ' }); return d.customers[0].taxId === ''; });
+t('6. Nhập MST trùng (khách hàng đang có) → bị chặn, thông báo nêu mã khách hàng', () => { const tax = D.customers[0].taxId; try { add(db, { name: 'Công ty trùng', phone: '0903123456', taxId: tax }); return false; } catch (e) { return e instanceof RepoError && e.message.includes(D.customers[0].id); } });
+t('6b. MST sai định dạng → bị chặn', () => throws(() => add(db, { name: 'Công ty C', phone: '0903123456', taxId: '12345' }), RepoError));
+t('6c. MST hợp lệ chưa dùng → lưu được; sau đó trùng chính nó → bị chặn', () => { const d = add(db, { name: 'Công ty Có MST', phone: '0903123456', taxId: '0399999990' }); return throws(() => add(d, { name: 'Công ty Có MST 2', phone: '0903123456', taxId: '0399999990' }), RepoError); });
+t('6d. Khách hàng đã xoá mềm không chặn MST', () => { let d = add(db, { name: 'Công ty Sẽ Xoá', phone: '0903123456', taxId: '0399999991' }); const id = d.customers[0].id; d = mut.deleteCustomers(d, [id], X); return add(d, { name: 'Công ty Dùng Lại MST', phone: '0903123456', taxId: '0399999991' }).customers.length > d.customers.length; });
+t('Mặc định cấu hình được: đổi phân hạng/trạng thái mặc định', () => { rules.setCustomerDefaults({ tier: 'VIP', status: 'Đang giao dịch' }); const d = add(db, { name: 'Công ty Mặc Định', phone: '0903123456' }); const r = d.customers[0]; rules.setCustomerDefaults({ tier: 'Tiềm năng', status: 'Tiềm năng' }); return r.tier === 'VIP' && r.status === 'Đang giao dịch'; });
+t('Giá trị mặc định không hợp lệ bị bỏ qua (về mặc định gốc)', () => { storageSet('siscom-crm-customer-defaults', JSON.stringify({ tier: 'Hạng X', status: '??' })); const d = rules.getCustomerDefaults(); storageSet('siscom-crm-customer-defaults', JSON.stringify({ tier: 'Tiềm năng', status: 'Tiềm năng' })); return d.tier === 'Tiềm năng' && d.status === 'Tiềm năng'; });
+
+O.innerHTML += '<h3>Kiểm thử 7: sửa khách hàng cũ</h3>';
+const legacyBad = db.customers.find((c) => !util.isPhone(c.phone));
+t('7. Sửa khách hàng cũ: mọi trường khác giữ nguyên', () => { const o = D.customers[3]; const before = JSON.stringify(db.customers.find((c) => c.id === o.id)); const d = mut.saveCustomer(db, { ...db.customers.find((c) => c.id === o.id), note: 'ghi chú mới' }, null, X); const a = d.customers.find((c) => c.id === o.id), b = JSON.parse(before); return Object.keys(b).every((k) => k === 'note' || eq(a[k], b[k])) && a.note === 'ghi chú mới' && d.customers.length === db.customers.length; });
+t('7b. Khách hàng cũ có SĐT sai chuẩn mới (' + (legacyBad ? legacyBad.phone : '—') + ') vẫn sửa được khi không đổi SĐT', () => !legacyBad || mut.saveCustomer(db, { ...legacyBad, note: 'x' }, null, X).customers.length === db.customers.length);
+t('7c. …nhưng đổi sang SĐT sai thì bị chặn', () => !legacyBad || throws(() => mut.saveCustomer(db, { ...legacyBad, phone: '12' }, null, X), RepoError));
+t('7d. Xoá tên hoặc điện thoại của khách hàng cũ → bị chặn', () => throws(() => mut.saveCustomer(db, { ...D.customers[3], name: '' }, null, X), RepoError) && throws(() => mut.saveCustomer(db, { ...D.customers[3], phone: '' }, null, X), RepoError));
+t('7e. Có thể gỡ nhân viên phụ trách/ngành/MST khi sửa (trường tùy chọn)', () => { const d = mut.saveCustomer(db, { ...db.customers.find((c) => c.id === D.customers[3].id), owner: '', industry: '', taxId: '' }, null, X); const r = d.customers.find((c) => c.id === D.customers[3].id); return r.owner === '' && r.industry === '' && r.taxId === ''; });
+t('7f. Sửa khách hàng cũ giữ nguyên liên hệ/tương tác', () => { const d = mut.saveCustomer(db, { ...D.customers[3], note: 'q' }, null, X); return d.contacts.length === db.contacts.length && d.interactions.length === db.interactions.length; });
+
+O.innerHTML += '<h3>Kiểm thử 8: Import CSV</h3>';
+const csv = 'Tên công ty,Mã số thuế,Ngành nghề,Tỉnh/Thành phố,Địa chỉ,Điện thoại,Email,Phân hạng\n' +
+ 'Công ty Nhập A,,,,,0903111111,,\nCông ty Nhập B,,,,,0903111112,,\nCông ty Nhập C,0388888881,Y tế,Hà Nội,1 Lê Lợi,+82 2 1234 5678,a@b.vn,VIP\nCông ty Nhập D,0388888881,,,,0903111113,,\n,,,,,0903111114,,\nCông ty Thiếu SĐT,,,,,,,\n\n';
+const rows = util.parseCsv(csv); const head = rows[0].map((h) => util.norm(h.trim())); const col = (l) => head.indexOf(util.norm(l));
+const map = { name: col('Tên công ty'), taxId: col('Mã số thuế'), industry: col('Ngành nghề'), city: col('Tỉnh/Thành phố'), address: col('Địa chỉ'), phone: col('Điện thoại'), email: col('Email'), tier: col('Phân hạng') };
+const parsed = rows.slice(1).map((r) => Object.fromEntries(Object.entries(map).map(([k, i]) => [k, i >= 0 ? (r[i] || '').trim() : '']))).filter((r) => Object.values(r).some(Boolean));
+const check = (r, all) => { const e = Object.values(rules.validateCustomer(rules.normalizeCustomer(r), { customers: db.customers })); const tax = (r.taxId || '').trim(); if (tax && all.filter((x) => (x.taxId || '').trim() === tax).length > 1) e.push('MST trùng trong file'); return e; };
+const res = parsed.map((r) => ({ r, e: check(r, parsed) }));
+t('8. Dòng trống hoàn toàn bị bỏ qua (6 dòng dữ liệu, không tính dòng trống)', () => parsed.length === 6);
+t('8a. Chỉ cần Tên + SĐT: dòng A, B (không MST) hợp lệ', () => res[0].e.length === 0 && res[1].e.length === 0);
+t('8b. Hai dòng không MST không bị báo trùng nhau', () => !res[0].e.concat(res[1].e).some((m) => /MST/.test(m)));
+t('8c. SĐT quốc tế + dữ liệu đầy đủ → hợp lệ', () => res[2].e.length === 0 || res[2].e.every((m) => /MST trùng trong file/.test(m)));
+t('8d. MST trùng trong file bị báo cho cả hai dòng', () => res[2].e.includes('MST trùng trong file') && res[3].e.includes('MST trùng trong file'));
+t('8e. Thiếu tên → báo lỗi; thiếu SĐT → báo lỗi', () => res[4].e.includes(rules.MSG.name) && res[5].e.includes(rules.MSG.phone) && res[5].e.includes(rules.MSG.name) === false);
+const okRows = res.filter((x) => !x.e.length).map(({ r }) => ({ id: mut.nextCustomerId(db) /* replaced below */, ...rules.normalizeCustomer({ ...r, industry: D.INDUSTRIES.includes(r.industry) ? r.industry : '', tier: D.TIERS.includes(r.tier) ? r.tier : '', owner: '', source: '', website: '', note: 'Nhập từ file' }), revenue: 0, createdAt: '2026-10-11', tags: [] }));
+let nn = mut.maxCustomerNo(db); okRows.forEach((r) => { r.id = 'KH-' + String(++nn).padStart(5, '0'); });
+t('8f. Repository nhập được các dòng hợp lệ (nhiều dòng MST trống), không phát sinh dữ liệu giả', () => { const d = mut.importCustomers(db, okRows, X); const added = d.customers.slice(0, okRows.length); return d.customers.length === db.customers.length + okRows.length && added.every((c) => c.owner === '' && c.source === '' && c.website === '') && added.filter((c) => c.taxId === '').length === 2; });
+t('8g. Repository chặn dòng thiếu SĐT / MST trùng khi bị gọi trực tiếp', () => throws(() => mut.importCustomers(db, [{ id: 'KH-90001', name: 'Cty X', phone: '' }], X), RepoError) && throws(() => mut.importCustomers(db, [{ id: 'KH-90001', name: 'Cty X', phone: '0903123456', taxId: '0377777771' }, { id: 'KH-90002', name: 'Cty Y', phone: '0903123457', taxId: '0377777771' }], X), RepoError));
+t('8h. Import: danh mục không khớp (ngành lạ) → để trống, không điền ngành giả', () => okRows.every((r) => r.industry === '' || D.INDUSTRIES.includes(r.industry)));
+t('Bất biến: các thao tác trên không làm thay đổi db gốc của bản seed', () => sch.seedV2().customers.length === n0 && D.customers.length === n0);
+
+O.innerHTML += '<h3>Cú pháp các file đã sửa</h3>';
+for (const f of ['features/customers/CustomerForm.jsx', 'features/customers/CustomerIO.jsx', 'pages/CustomerList.jsx', 'pages/CustomerProfile.jsx']) t('parse ' + f, () => { Babel.transform(awaitedSrc[f], { presets: ['react'], sourceType: 'module', filename: f }); return true; });
+document.getElementById('sum').innerHTML = '<span class="' + (fail ? 'f' : 'p') + '">' + pass + ' đạt · ' + fail + ' lỗi</span>'; document.title = 'DONE ' + pass + '/' + fail;
+</script></body></html>

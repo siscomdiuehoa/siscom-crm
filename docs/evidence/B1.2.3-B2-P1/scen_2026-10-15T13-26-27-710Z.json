@@ -1,0 +1,1178 @@
+{
+  "kind": "B1.2.3-B2-P1-bench",
+  "startedAt": "2026-10-15T13:18:10.622Z",
+  "limits": {
+    "list": 150,
+    "search3": 500,
+    "search2": 1500
+  },
+  "rounds": 3,
+  "samples": 15,
+  "warmup": 3,
+  "variants": [
+    "V1_or_two_orig",
+    "V2_union_two_orig",
+    "V3_unionall_two_orig",
+    "V4_or_window_orig",
+    "V5_union_window_orig",
+    "V6_unionall_window_orig",
+    "V7_union_window_lateral",
+    "V8_unionall_window_lateral"
+  ],
+  "terms": [
+    {
+      "term": "minh phat",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "dien lanh",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "cumperf",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "nguyen van",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "0912345",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "mi",
+      "sortBy": "createdAt"
+    }
+  ],
+  "proofOnly": false,
+  "scenariosOnly": true,
+  "database": {
+    "name": "siscom_crm_restore_20261014_214105",
+    "perfCustomers": 50000,
+    "perfContacts": 100000,
+    "allCustomers": 50000
+  },
+  "pgSettings": [
+    {
+      "name": "effective_cache_size",
+      "setting": "524288"
+    },
+    {
+      "name": "jit",
+      "setting": "on"
+    },
+    {
+      "name": "max_parallel_workers_per_gather",
+      "setting": "2"
+    },
+    {
+      "name": "plan_cache_mode",
+      "setting": "auto"
+    },
+    {
+      "name": "random_page_cost",
+      "setting": "4"
+    },
+    {
+      "name": "server_version",
+      "setting": "18.6"
+    },
+    {
+      "name": "shared_buffers",
+      "setting": "16384"
+    },
+    {
+      "name": "work_mem",
+      "setting": "4096"
+    }
+  ],
+  "stats": [
+    {
+      "relname": "contact",
+      "live": 100000,
+      "dead": 0,
+      "last_analyze": "2026-10-14 21:44:44.195817+07",
+      "last_autoanalyze": null
+    },
+    {
+      "relname": "customer",
+      "live": 50000,
+      "dead": 0,
+      "last_analyze": "2026-10-14 21:44:43.965051+07",
+      "last_autoanalyze": null
+    }
+  ],
+  "snapshotBefore": {
+    "perf_fingerprint": "758b21a08c74b2a4e0c27a11526dc681",
+    "perf_modified_rows": 0,
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "deadTuplesBeforeScenarios": {
+    "customer": 0,
+    "contact": 0
+  },
+  "vacuumMs": [
+    832,
+    705,
+    640,
+    674,
+    757,
+    691,
+    770,
+    677,
+    661
+  ],
+  "deadTuplesAfterScenarios": {
+    "customer": 0,
+    "contact": 0
+  },
+  "scenarioGroups": [
+    {
+      "group": "S0a rollback khi exception",
+      "expectedStatus": "ERROR",
+      "actualStatus": "ERROR",
+      "outcome": "PASS",
+      "ms": 49,
+      "error": "bench-injected-exception",
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "S0b rollback khi timeout Prisma",
+      "expectedStatus": "TIMEOUT",
+      "actualStatus": "ERROR",
+      "outcome": "FAIL",
+      "ms": 8088,
+      "error": "\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `N/A`. Message: `Failed to deserialize column of type 'void'. If you're using $queryRaw and this column is explicitly marked as `Unsupported` in your Prisma schema, try casting this column to any supported Prisma type such as `Strin",
+      "fails": [
+        "trạng thái thực tế ERROR khác kỳ vọng TIMEOUT (\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `N/A`. Message: `Failed to deserialize column of type 'void'. If you're using $queryRaw and this column is explicitly marked as `Unsupported` in your Prisma schema, try casting this column to any supported Prisma type such as `Strin)"
+      ],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 2,
+      "rollbackVerified": true
+    },
+    {
+      "group": "01 ALL cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 4118,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 1238,
+        "setupMs": 156,
+        "baseMs": 681,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1240
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 184
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 180
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 1085
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 151
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 154
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 148
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 135
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "02 OWN A cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "TIMEOUT",
+      "outcome": "FAIL",
+      "ms": 125562,
+      "error": "\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`",
+      "fails": [
+        "trạng thái thực tế TIMEOUT khác kỳ vọng OK (\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`)"
+      ],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 2,
+      "rollbackVerified": true
+    },
+    {
+      "group": "03 DEPARTMENT A(d1) cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 7510,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 248,
+        "setupMs": 4340,
+        "baseMs": 518,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1141
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 146
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 151
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 778
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 109
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 123
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 104
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 95
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "04 DEPARTMENT C(d2) cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 5370,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 248,
+        "setupMs": 3841,
+        "baseMs": 168,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 380
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 135
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 126
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 307
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 122
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 93
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 101
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 94
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "05 không quyền -> rỗng",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 79,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 0,
+        "setupMs": 54,
+        "baseMs": 1,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 2
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 1
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 2
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 4
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 5
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 3
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 3
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "06 deleted=only ALL/ALL",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 16751,
+      "fails": [],
+      "detail": {
+        "term": "cumperf",
+        "total": 12,
+        "setupMs": 44,
+        "baseMs": 24,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 44
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 34
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 7216
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 48
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 21
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 4831
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 14
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 4472
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "07 deleted=only ALL/OWN",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 5370,
+      "fails": [],
+      "detail": {
+        "term": "cong ty",
+        "total": 100,
+        "setupMs": 3651,
+        "baseMs": 12,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 26
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 44
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 643
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 23
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 47
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 433
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 46
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 439
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 2,
+      "rollbackVerified": true
+    },
+    {
+      "group": "08 deleted=only DEPT/ALL",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 8591,
+      "fails": [],
+      "detail": {
+        "term": "minh phat",
+        "total": 15,
+        "setupMs": 3720,
+        "baseMs": 19,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 36
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 26
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 1945
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 31
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 20
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 1434
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 29
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 1327
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 2,
+      "rollbackVerified": true
+    },
+    {
+      "group": "09 mã khách (một phần)",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3628,
+      "fails": [],
+      "detail": {
+        "term": "KH-1234",
+        "total": 10,
+        "setupMs": 40,
+        "baseMs": 704,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1362
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 77
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 80
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 1116
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 76
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 76
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 49
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 45
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "10 mã khách (đủ)",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3674,
+      "fails": [],
+      "detail": {
+        "term": "KH-12345",
+        "total": 1,
+        "setupMs": 55,
+        "baseMs": 751,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1284
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 82
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 87
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 1161
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 54
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 72
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 67
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 57
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "11 MST một phần",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3269,
+      "fails": [],
+      "detail": {
+        "term": "0300000",
+        "total": 2,
+        "setupMs": 52,
+        "baseMs": 738,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1038
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 96
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 87
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 967
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 65
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 78
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 75
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 68
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "12 MST đủ",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3299,
+      "fails": [],
+      "detail": {
+        "term": "0300025001",
+        "total": 1,
+        "setupMs": 49,
+        "baseMs": 574,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1176
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 99
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 104
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 1021
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 71
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 68
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 63
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 69
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "13 tên liên hệ",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 4803,
+      "fails": [],
+      "detail": {
+        "term": "le hoang an",
+        "total": 3300,
+        "setupMs": 46,
+        "baseMs": 727,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1269
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 300
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 293
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 1095
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 246
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 259
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 251
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 313
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "14 tên liên hệ OWN",
+      "expectedStatus": "OK",
+      "actualStatus": "TIMEOUT",
+      "outcome": "FAIL",
+      "ms": 126656,
+      "error": "\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`",
+      "fails": [
+        "trạng thái thực tế TIMEOUT khác kỳ vọng OK (\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`)"
+      ],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 8,
+      "rollbackVerified": true
+    },
+    {
+      "group": "15 SĐT nội địa",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "FAIL",
+      "ms": 2632,
+      "fails": [
+        "V1 rỗng -> kịch bản không kiểm được gì"
+      ],
+      "detail": {
+        "term": "0912345",
+        "total": 0,
+        "setupMs": 46,
+        "baseMs": 371,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 684
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 33
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 29
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 1057
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 91
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 108
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 101
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 109
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "16 SĐT có khoảng trắng",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3823,
+      "fails": [],
+      "detail": {
+        "term": "0900 012 345",
+        "total": 1,
+        "setupMs": 47,
+        "baseMs": 814,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1395
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 75
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 98
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 1090
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 69
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 80
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 78
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 74
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "17 SĐT +84",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 4185,
+      "fails": [],
+      "detail": {
+        "term": "+84900012",
+        "total": 989,
+        "setupMs": 42,
+        "baseMs": 756,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1477
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 198
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 142
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 916
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 181
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 152
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 177
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 142
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "18 ownerId B + tier",
+      "expectedStatus": "OK",
+      "actualStatus": "TIMEOUT",
+      "outcome": "FAIL",
+      "ms": 124878,
+      "error": "\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`",
+      "fails": [
+        "trạng thái thực tế TIMEOUT khác kỳ vọng OK (\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`)"
+      ],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 4,
+      "rollbackVerified": true
+    },
+    {
+      "group": "19 2 ký tự DEPARTMENT",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 14402,
+      "fails": [],
+      "detail": {
+        "term": "mi",
+        "total": 8910,
+        "setupMs": 3643,
+        "baseMs": 582,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 952
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 2205
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 1121
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 715
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 1662
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 980
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 1621
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 915
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "20 sắp xếp tên tăng",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 4505,
+      "fails": [],
+      "detail": {
+        "term": "dien lanh",
+        "total": 6186,
+        "setupMs": 49,
+        "baseMs": 668,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1334
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 228
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 254
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 1146
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 190
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 208
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 194
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 230
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "21 relevance tăng",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 6455,
+      "fails": [],
+      "detail": {
+        "term": "minh phat",
+        "total": 4949,
+        "setupMs": 60,
+        "baseMs": 920,
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true,
+            "ms": 1549
+          },
+          "V2_union_two_orig": {
+            "ok": true,
+            "ms": 503
+          },
+          "V3_unionall_two_orig": {
+            "ok": true,
+            "ms": 528
+          },
+          "V4_or_window_orig": {
+            "ok": true,
+            "ms": 1219
+          },
+          "V5_union_window_orig": {
+            "ok": true,
+            "ms": 375
+          },
+          "V6_unionall_window_orig": {
+            "ok": true,
+            "ms": 454
+          },
+          "V7_union_window_lateral": {
+            "ok": true,
+            "ms": 419
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true,
+            "ms": 424
+          }
+        }
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    }
+  ],
+  "rollbackClean": true,
+  "scenarioTotalMs": 487697,
+  "haltReason": null,
+  "scenarioSummary": {
+    "planned": 23,
+    "pass": 18,
+    "fail": 5,
+    "skipped": 0,
+    "notRun": 0
+  },
+  "snapshotAfter": {
+    "perf_fingerprint": "758b21a08c74b2a4e0c27a11526dc681",
+    "perf_modified_rows": 0,
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "finishedAt": "2026-10-15T13:26:27.712Z",
+  "failures": [
+    "[S0b rollback khi timeout Prisma] trạng thái thực tế ERROR khác kỳ vọng TIMEOUT (\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `N/A`. Message: `Failed to deserialize column of type 'void'. If you're using $queryRaw and this column is explicitly marked as `Unsupported` in your Prisma schema, try casting this column to any supported Prisma type such as `Strin)",
+    "[02 OWN A cumperf] trạng thái thực tế TIMEOUT khác kỳ vọng OK (\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`)",
+    "[14 tên liên hệ OWN] trạng thái thực tế TIMEOUT khác kỳ vọng OK (\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`)",
+    "[15 SĐT nội địa] V1 rỗng -> kịch bản không kiểm được gì",
+    "[18 ownerId B + tier] trạng thái thực tế TIMEOUT khác kỳ vọng OK (\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`)",
+    "Bài 6 KHÔNG đạt trọn vẹn: {\"planned\":23,\"pass\":18,\"fail\":5,\"skipped\":0,\"notRun\":0}",
+    "Bài 6 chưa hoàn thành hoặc có nhóm FAIL/SKIPPED: {\"planned\":23,\"pass\":18,\"fail\":5,\"skipped\":0,\"notRun\":0}"
+  ]
+}

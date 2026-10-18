@@ -1,0 +1,136 @@
+﻿B1.2.3-B2 P1 bench db=siscom_crm_restore_20261015_214948 rounds=3 samples=15 variants= terms= at 2026-10-15T22:32:55.5659545+07:00
+Database thu: siscom_crm_restore_20261015_214948 | P1 ScenariosOnly | moi kich ban 1 transaction nho + ROLLBACK, VACUUM ANALYZE customer (khong dung toi siscom_crm_dev)
+DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.
+[DAT] Dung database thu: siscom_crm_restore_20261015_214948, schema B1.2 co mat, lich su migration dung.
+[DAT] r5-C: database la ban sao co nhan hop le cua siscom_crm_restore_20261014_214105. Script KHONG ket noi toi database goc.
+Chay: node jest --config ./test/jest-bench.json --runInBand (jest cuc bo, khong them dependency). Log: D:\SISCOM-CRM\backups\b123\search_scen_siscom_crm_restore_20261015_214948_20261015_223255.txt
+PASS test/perf/bench/search.bench-spec.ts (108.184 s)
+  ● Console
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] S0a rollback khi exception | PASS (thực tế ERROR, kỳ vọng ERROR) | 46 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 01 ALL cumperf | PASS (thực tế OK, kỳ vọng OK) | 3357 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 02 OWN A cumperf | PASS (thực tế OK, kỳ vọng OK) | 7183 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 03 DEPARTMENT A(d1) cumperf | PASS (thực tế OK, kỳ vọng OK) | 5446 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 04 DEPARTMENT C(d2) cumperf | PASS (thực tế OK, kỳ vọng OK) | 4001 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 05 không quyền -> rỗng | PASS (thực tế OK, kỳ vọng OK) | 88 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 06 deleted=only ALL/ALL | PASS (thực tế OK, kỳ vọng OK) | 197 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 07 deleted=only ALL/OWN | PASS (thực tế OK, kỳ vọng OK) | 3207 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 08 deleted=only DEPT/ALL | PASS (thực tế OK, kỳ vọng OK) | 3046 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 09 mã khách (một phần) | PASS (thực tế OK, kỳ vọng OK) | 3309 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 10 mã khách (đủ) | PASS (thực tế OK, kỳ vọng OK) | 3111 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 11 MST một phần | PASS (thực tế OK, kỳ vọng OK) | 3742 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 12 MST đủ | PASS (thực tế OK, kỳ vọng OK) | 3769 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 13 tên liên hệ | PASS (thực tế OK, kỳ vọng OK) | 5542 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 14 tên liên hệ OWN | PASS (thực tế OK, kỳ vọng OK) | 8361 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 15 SĐT nội địa (số thật trong PERF) | PASS (thực tế OK, kỳ vọng OK) | 3651 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 16 SĐT có khoảng trắng | PASS (thực tế OK, kỳ vọng OK) | 3468 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 17 SĐT +84 | PASS (thực tế OK, kỳ vọng OK) | 4010 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 18 ownerId B + tier | PASS (thực tế OK, kỳ vọng OK) | 5217 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 19 2 ký tự DEPARTMENT | PASS (thực tế OK, kỳ vọng OK) | 13082 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 20 sắp xếp tên tăng | PASS (thực tế OK, kỳ vọng OK) | 4180 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      [nhóm] 21 relevance tăng | PASS (thực tế OK, kỳ vọng OK) | 6033 ms | rollback OK
+System.Management.Automation.RemoteException
+      at runGroup (perf/bench/search.bench-spec.ts:272:15)
+System.Management.Automation.RemoteException
+    console.log
+      r5-C: 22/22 nhóm PASS (S0a + 21 kịch bản), rollback và dấu vân tay sạch trên siscom_crm_restore_20261015_214948 — bài 6 NGHIỆM THU ĐẦY ĐỦ.
+System.Management.Automation.RemoteException
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:409:82)
+System.Management.Automation.RemoteException
+    console.log
+      Báo cáo P1: D:\SISCOM-CRM\backups\b123\scen_2026-10-15T15-34-54-530Z.json (ScenariosOnly)
+System.Management.Automation.RemoteException
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:134:11)
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+Test Suites: 2 skipped, 1 passed, 1 of 3 total
+Tests:       9 skipped, 2 passed, 11 total
+Snapshots:   0 total
+Time:        108.861 s, estimated 420 s
+Ran all test suites.
+[DAT] ScenariosOnly thoat ma 0 (moi nhom ROLLBACK sach; moi bien the khop V1).

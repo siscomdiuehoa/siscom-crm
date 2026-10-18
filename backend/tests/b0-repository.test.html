@@ -1,0 +1,102 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>B0 tests</title>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>body{font:13px/1.5 ui-monospace,Menlo,monospace;padding:16px;background:#fff;color:#111}.p{color:#0a7d33}.f{color:#b00020;font-weight:700}h3{margin:14px 0 4px}</style></head><body>
+<h2 id="sum">Đang chạy…</h2><pre id="o"></pre>
+<script type="module">
+// Isolated: localStorage is replaced by an in-memory fake, so real browser data is never touched.
+const mem = {}; let failSet = false;
+const base = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { if (failSet) { const e = new Error('q'); e.name = 'QuotaExceededError'; throw e; } mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; }, get length() { return Object.keys(mem).length; }, key: (i) => Object.keys(mem)[i] };
+const fake = new Proxy(base, { ownKeys: () => Object.keys(mem), getOwnPropertyDescriptor: (_t, k) => (k in mem ? { enumerable: true, configurable: true, value: mem[k] } : undefined) });
+let shim = true; try { Object.defineProperty(window, 'localStorage', { value: fake, configurable: true }); if (window.localStorage !== fake) shim = false; } catch (e) { shim = false; }
+const keysShim = () => Object.keys(mem);
+const O = document.getElementById('o'); let pass = 0, fail = 0;
+const t = (name, fn) => { try { const r = fn(); if (r === false) throw new Error('assertion false'); pass++; O.innerHTML += '<span class="p">✓ ' + name + '</span>\n'; } catch (e) { fail++; O.innerHTML += '<span class="f">✗ ' + name + ' — ' + e.message + '</span>\n'; } };
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const throws = (fn, cls) => { try { fn(); } catch (e) { return !cls || e instanceof cls || e.name === cls; } return false; };
+const S = '../src/';
+const [sch, ids, mut, perm, demo, util] = await Promise.all([import(S + 'data/repository/schema.js'), import(S + 'data/repository/ids.js'), import(S + 'data/repository/mutations.js'), import(S + 'auth/permissions.js'), import(S + 'data/demoData.js'), import(S + 'data/util.js')]);
+const { RepoError } = mut; const dir = perm.DEMO_USERS.find((u) => u.id === 'u-director'), sales = perm.DEMO_USERS.find((u) => u.id === 'u-sales'), smgr = perm.DEMO_USERS.find((u) => u.id === 'u-smgr');
+const X = (u) => ({ user: u });
+O.innerHTML += '<h3>Môi trường</h3>localStorage shim: ' + (shim ? 'OK (bộ nhớ giả, không chạm dữ liệu thật)' : 'KHÔNG dùng được — bỏ qua nhóm loadDatabase') + '\n';
+
+O.innerHTML += '<h3>Migration v1 → v2</h3>';
+const seed = sch.seedV2(); const v1 = { customers: JSON.parse(JSON.stringify(seed.customers)).slice(0, 8), contacts: seed.contacts.slice(0, 5), interactions: seed.interactions.slice(0, 5) };
+const v1copy = JSON.stringify(v1);
+const m = sch.migrate(JSON.parse(v1copy));
+t('migrate giữ nguyên 100% khách hàng/liên hệ/tương tác của v1', () => eq(m.customers, v1.customers) && eq(m.contacts, v1.contacts) && eq(m.interactions, v1.interactions));
+t('v2 có đủ bảng mới + meta.schemaVersion=2, migratedFrom=1', () => m.meta.schemaVersion === 2 && m.meta.migratedFrom === 1 && ['quotes', 'contracts', 'projects', 'opportunities', 'approvals', 'overdue', 'contractAlerts', 'auditLog'].every((k) => Array.isArray(m[k])));
+t('bản ghi nghiệp vụ mẫu đều gắn isDemo', () => m.quotes.every((q) => q.isDemo) && m.contracts.every((q) => q.isDemo) && m.approvals.every((q) => q.isDemo && q.status === 'Chờ duyệt'));
+t('migrate không làm thay đổi đối tượng đầu vào v1 (bản gốc)', () => JSON.stringify(v1) === v1copy);
+t('migrate từ phiên bản mới hơn bị từ chối', () => throws(() => sch.migrate({ meta: { schemaVersion: 99 } })));
+t('validate từ chối dữ liệu thiếu bảng', () => throws(() => sch.validate({ meta: { schemaVersion: 2 }, customers: [] })));
+
+O.innerHTML += '<h3>Mã & ID (sửa lỗi nextId / Date.now)</h3>';
+t('nextCustomerId khi danh sách rỗng = KH-00001 (trước: -Infinity)', () => mut.nextCustomerId({ customers: [] }) === 'KH-00001');
+t('maxCustomerNo tính cả khách hàng đã xoá mềm (không tái dùng mã)', () => mut.nextCustomerId({ customers: [{ id: 'KH-00009', deletedAt: 'x' }] }) === 'KH-00010');
+t('uid() không trùng trong 20.000 lần gọi liên tiếp', () => { const s = new Set(); for (let i = 0; i < 20000; i++) s.add(ids.uid('LH')); return s.size === 20000; });
+t('maxNo bỏ qua id sai định dạng', () => ids.maxNo([{ id: 'KH-00003' }, { id: 'abc' }, {}], 'KH-') === 3);
+
+O.innerHTML += '<h3>Phân quyền (demo)</h3>';
+const own = m.customers.find((c) => c.owner === sales.name) || m.customers[0]; const other = m.customers.find((c) => c.owner !== sales.name);
+t('Giám đốc: được sửa/xoá/duyệt/khôi phục', () => ['customer.update', 'customer.delete', 'approval.decide', 'data.restore'].every((a) => perm.can(dir, a, other)));
+t('Nhân viên KD: chỉ sửa khách hàng do mình phụ trách', () => perm.can(sales, 'customer.update', own) && !perm.can(sales, 'customer.update', other));
+t('Nhân viên KD: không xoá, không duyệt, không nhập', () => !perm.can(sales, 'customer.delete', own) && !perm.can(sales, 'approval.decide') && !perm.can(sales, 'customer.import'));
+t('Kế toán: chỉ xuất, không thêm/sửa', () => { const a = perm.DEMO_USERS.find((u) => u.role === 'accountant'); return perm.can(a, 'customer.export') && !perm.can(a, 'customer.create') && !perm.can(a, 'customer.update', other); });
+t('Repository chặn thao tác không đủ quyền (RepoError)', () => throws(() => mut.saveCustomer(m, { ...other, note: 'x' }, null, X(sales)), RepoError));
+t('Repository chặn Nhân viên KD xoá', () => throws(() => mut.deleteCustomers(m, [own.id], X(sales)), RepoError));
+
+O.innerHTML += '<h3>Khách hàng: lưu, trùng MST, xoá mềm</h3>';
+const full = sch.seedV2();
+t('Thêm khách hàng mới thành công + ghi nhật ký', () => { const c = { ...full.customers[0], id: mut.nextCustomerId(full), taxId: '0999999991', name: 'Công ty thử nghiệm B0', short: 'Thử nghiệm B0', owner: dir.name }; const d = mut.saveCustomer(full, c, { name: 'A', title: 'B', phone: '', email: '' }, X(dir)); return d.customers.length === full.customers.length + 1 && d.contacts.length === full.contacts.length + 1 && d.contacts[0].id.startsWith('LH-') && d.auditLog[0].action === 'create'; });
+t('Trùng MST bị chặn ở tầng repository', () => throws(() => mut.saveCustomer(full, { ...full.customers[0], id: 'KH-99999' }, null, X(dir)), RepoError));
+t('Sửa khách hàng giữ nguyên MST của chính nó', () => { const c = { ...full.customers[1], note: 'đã sửa' }; const d = mut.saveCustomer(full, c, null, X(dir)); return d.customers.find((k) => k.id === c.id).note === 'đã sửa' && d.customers.length === full.customers.length; });
+const withLinks = full.customers.find((c) => mut.activeLinks(full, [c.id]).total > 0), noLinks = full.customers.find((c) => mut.activeLinks(full, [c.id]).total === 0);
+t('Xoá bị chặn khi còn hợp đồng/báo giá/dự án/cơ hội đang mở', () => !!withLinks && throws(() => mut.deleteCustomers(full, [withLinks.id], X(dir)), RepoError));
+t('Khách hàng không còn ràng buộc: xoá MỀM (bản ghi + liên hệ + tương tác còn nguyên)', () => { if (!noLinks) return false; const d = mut.deleteCustomers(full, [noLinks.id], X(dir)); const r = d.customers.find((c) => c.id === noLinks.id); return !!r && !!r.deletedAt && d.contacts.length === full.contacts.length && d.interactions.length === full.interactions.length && d.auditLog[0].action === 'soft-delete'; });
+t('Các hàm repository không làm thay đổi db đầu vào (bất biến)', () => { const a = JSON.stringify(full); mut.deleteCustomers(full, [noLinks.id], X(dir)); mut.saveCustomer(full, { ...full.customers[2], note: 'q' }, null, X(dir)); return JSON.stringify(full) === a; });
+t('Nhập khách hàng: chặn MST trùng trong file/đã tồn tại', () => throws(() => mut.importCustomers(full, [{ id: 'KH-99998', name: 'Công ty trùng MST', phone: '0903123456', taxId: full.customers[0].taxId }], X(dir)), RepoError));
+
+O.innerHTML += '<h3>Liên hệ, tương tác, phê duyệt</h3>';
+t('Thêm tương tác dùng id không phụ thuộc Date.now()', () => { const d = mut.addInteraction(full, { customerId: own.id, type: 'Cuộc gọi', date: '2026-10-10', content: 'Thử nghiệm', by: sales.name }, X(dir)); return d.interactions[0].id.startsWith('TT-') && d.interactions.length === full.interactions.length + 1; });
+t('Nhân viên KD không ghi tương tác cho khách hàng của người khác', () => throws(() => mut.addInteraction(full, { customerId: other.id, type: 'Email', date: '2026-10-10', content: 'x', by: 'a' }, X(sales)), RepoError));
+const ap = full.approvals[0];
+t('Phê duyệt: approval → "Đã duyệt" và báo giá cùng mã → "Đã duyệt"', () => { const d = mut.decideApproval(full, ap.code, true, X(dir)); return d.approvals.find((a) => a.code === ap.code).status === 'Đã duyệt' && d.quotes.find((q) => q.code === ap.code).status === 'Đã duyệt'; });
+t('Trả về: báo giá về "Nháp"', () => mut.decideApproval(full, ap.code, false, X(smgr)).quotes.find((q) => q.code === ap.code).status === 'Nháp');
+t('Không duyệt lại báo giá đã xử lý', () => { const d = mut.decideApproval(full, ap.code, true, X(dir)); return throws(() => mut.decideApproval(d, ap.code, true, X(dir)), RepoError); });
+t('Nhân viên KD không có quyền phê duyệt', () => throws(() => mut.decideApproval(full, ap.code, true, X(sales)), RepoError));
+
+O.innerHTML += '<h3>Khởi động, sao lưu, an toàn dữ liệu (localStorage giả)</h3>';
+if (shim) {
+  const reset = () => { for (const k of Object.keys(mem)) delete mem[k]; failSet = false; };
+  reset(); mem[sch.LEGACY_KEY] = v1copy;
+  let r = sch.loadDatabase();
+  t('Có dữ liệu v1 → nâng cấp, giữ nguyên khách hàng, migrated=true', () => r.report.migrated && !r.report.readOnly && eq(r.db.customers, v1.customers));
+  t('Tạo bản sao lưu "v1" trước khi nâng cấp, nội dung = dữ liệu gốc', () => r.report.backupKey && mem[r.report.backupKey] === v1copy);
+  t('Khoá dữ liệu cũ siscom-crm-demo-v1 KHÔNG bị sửa/xoá', () => mem[sch.LEGACY_KEY] === v1copy);
+  t('loadDatabase chưa tự ghi v2 (chỉ ghi khi app lưu)', () => !(sch.DB_KEY in mem));
+  t('saveDatabase ghi v2; tải lại đọc đúng', () => { sch.saveDatabase(r.db); const r2 = sch.loadDatabase(); return r2.report.source === 'v2' && !r2.report.migrated && eq(r2.db.customers, v1.customers); });
+  reset(); mem[sch.DB_KEY] = '{hỏng'; r = sch.loadDatabase();
+  t('v2 hỏng → chế độ chỉ đọc, KHÔNG ghi đè dữ liệu gốc', () => r.report.readOnly && mem[sch.DB_KEY] === '{hỏng' && !!r.report.error);
+  reset(); const newer = JSON.stringify({ ...m, meta: { ...m.meta, schemaVersion: 7 } }); mem[sch.DB_KEY] = newer; r = sch.loadDatabase();
+  t('v2 thuộc phiên bản mới hơn → chỉ đọc, giữ nguyên', () => r.report.readOnly && mem[sch.DB_KEY] === newer);
+  reset(); mem[sch.LEGACY_KEY] = v1copy; failSet = true; r = sch.loadDatabase();
+  t('Không sao lưu được (đầy bộ nhớ) → KHÔNG nâng cấp, chỉ đọc, dữ liệu cũ nguyên vẹn', () => r.report.readOnly && !r.report.migrated && mem[sch.LEGACY_KEY] === v1copy);
+  reset(); mem[sch.LEGACY_KEY] = '{"x":1}'; r = sch.loadDatabase();
+  t('Dữ liệu v1 sai định dạng → chỉ đọc, giữ nguyên', () => r.report.readOnly && mem[sch.LEGACY_KEY] === '{"x":1}');
+  reset(); r = sch.loadDatabase();
+  t('Trình duyệt trống → dùng dữ liệu mẫu, không ghi gì', () => r.report.source === 'seed' && keysShim().length === 0 && r.db.customers.length === full.customers.length);
+  reset(); for (let i = 0; i < 6; i++) { sch.makeBackup('x' + i, 'auto-reset'); await new Promise((q) => setTimeout(q, 3)); } sch.makeBackup('gốc', 'v1');
+  t('Sao lưu tự động chỉ giữ 3 bản mới nhất; bản "v1" không bao giờ bị xoá', () => { const ks = sch.listBackups(); return ks.filter((k) => k.includes('auto-reset')).length === 3 && ks.filter((k) => k.includes('-v1-')).length === 1; });
+}
+O.innerHTML += '<h3>File sao lưu</h3>';
+t('Xuất → nhập lại cho ra cùng dữ liệu', () => { const back = sch.parseBackupFile(sch.buildBackupFile(full)); return eq(back.customers, full.customers) && eq(back.approvals, full.approvals); });
+t('Từ chối file không phải JSON / không phải sao lưu SISCOM', () => throws(() => sch.parseBackupFile('abc')) && throws(() => sch.parseBackupFile('{"a":1}')));
+t('Nhập sao lưu v1 cũ: được nâng cấp lên v2', () => { const txt = JSON.stringify({ app: 'siscom-crm', data: JSON.parse(v1copy) }); return sch.parseBackupFile(txt).meta.schemaVersion === 2; });
+
+O.innerHTML += '<h3>Cú pháp JSX/JS các file đã sửa (Babel)</h3>';
+for (const f of ['App.jsx', 'pages/Dashboard.jsx', 'pages/CustomerList.jsx', 'pages/CustomerProfile.jsx', 'features/customers/CustomerForm.jsx', 'features/customers/CustomerIO.jsx', 'features/data/DataTools.jsx']) {
+  const src = await (await fetch(S + f)).text();
+  t('parse ' + f, () => { Babel.transform(src, { presets: ['react'], sourceType: 'module', filename: f }); return true; });
+}
+document.getElementById('sum').innerHTML = '<span class="' + (fail ? 'f' : 'p') + '">' + pass + ' đạt · ' + fail + ' lỗi</span>'; document.title = 'DONE ' + pass + '/' + fail;
+</script></body></html>

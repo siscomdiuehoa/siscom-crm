@@ -1,0 +1,28 @@
+/* Radius, elevation, glass blur, motion, z-index */
+:root{
+--radius-xs:6px;--radius-sm:8px;--radius-button:10px;--radius-md:12px;--radius-card:16px;--radius-lg:20px;--radius-xl:24px;--radius-pill:999px;
+--blur-sm:8px;/* @kind other */--blur-md:16px;/* @kind other */--blur-lg:24px;/* @kind other */--glass-saturate:160%;/* @kind other */--glass-blur:16px;/* @kind other */
+--shadow-xs:0 1px 2px rgba(15,23,42,.05);
+--shadow-sm:0 1px 2px rgba(15,23,42,.04),0 2px 8px rgba(15,23,42,.05);
+--shadow-md:0 2px 6px rgba(15,23,42,.05),0 12px 32px rgba(15,23,42,.07);
+--shadow-lg:0 12px 24px rgba(15,23,42,.08),0 32px 64px rgba(15,23,42,.14);
+--shadow-glass:inset 0 1px 0 rgba(255,255,255,.8),0 1px 2px rgba(15,23,42,.04),0 8px 28px rgba(15,23,42,.06);
+--shadow-glass-hover:inset 0 1px 0 rgba(255,255,255,.9),0 2px 4px rgba(15,23,42,.05),0 16px 40px rgba(15,23,42,.10);
+--shadow-primary:0 1px 2px rgba(37,99,235,.30),0 6px 16px -4px rgba(37,99,235,.45);
+--shadow-glow-ai:0 0 0 4px rgba(6,182,212,.12),0 8px 24px -6px rgba(6,182,212,.45);
+--focus-ring:0 0 0 3px rgba(37,99,235,.28);
+--focus-ring-error:0 0 0 3px rgba(239,68,68,.22);
+--dur-instant:120ms;/* @kind other */--dur-fast:180ms;/* @kind other */--dur-base:220ms;/* @kind other */--dur-slow:300ms;/* @kind other */--dur-page:420ms;/* @kind other */
+--ease-out:cubic-bezier(.22,.61,.36,1);/* @kind other */--ease-in-out:cubic-bezier(.65,0,.35,1);/* @kind other */--ease-spring:cubic-bezier(.34,1.4,.64,1);/* @kind other */
+--z-sticky:20;/* @kind other */--z-sidebar:30;/* @kind other */--z-topbar:40;/* @kind other */--z-dropdown:50;/* @kind other */--z-overlay:60;/* @kind other */--z-modal:70;/* @kind other */--z-toast:80;/* @kind other */--z-tooltip:90;/* @kind other */
+}
+[data-theme="dark"]{
+--shadow-xs:0 1px 2px rgba(0,0,0,.30);
+--shadow-sm:0 1px 2px rgba(0,0,0,.30),0 2px 8px rgba(0,0,0,.25);
+--shadow-md:0 2px 6px rgba(0,0,0,.30),0 12px 32px rgba(0,0,0,.35);
+--shadow-lg:0 12px 24px rgba(0,0,0,.40),0 32px 64px rgba(0,0,0,.50);
+--shadow-glass:inset 0 1px 0 rgba(255,255,255,.06),0 1px 2px rgba(0,0,0,.25),0 8px 28px rgba(0,0,0,.30);
+--shadow-glass-hover:inset 0 1px 0 rgba(255,255,255,.09),0 2px 4px rgba(0,0,0,.3),0 16px 40px rgba(0,0,0,.45);
+--focus-ring:0 0 0 3px rgba(59,130,246,.40);
+}
+@media (prefers-reduced-motion:reduce){:root{--dur-instant:0ms;/* @kind other */--dur-fast:0ms;/* @kind other */--dur-base:0ms;/* @kind other */--dur-slow:0ms;/* @kind other */--dur-page:0ms/* @kind other */}}

@@ -1,0 +1,12 @@
+/* Same order as the design system's styles.css (liquid last). Only change: "./" prefixes so Vite resolves the imports. */
+@import "./tokens/fonts.css";
+@import "./assets/icons/lucide.css";
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/effects.css";
+@import "./tokens/shadcn.css";
+@import "./tokens/base.css";
+@import "./components/components.css";
+@import "./tokens/liquid.css";
+@import "./components/liquid.css";

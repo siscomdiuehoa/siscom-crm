@@ -1,0 +1,28 @@
+﻿B1.2.3-B2 P1 bench db=siscom_crm_restore_20261014_214105 rounds=3 samples=15 variants= terms= at 2026-10-14T22:53:23.5183186+07:00
+Database thu: siscom_crm_restore_20261014_214105 | P1 ProofOnly | CHI DOC, khong UPDATE/VACUUM (khong dung toi siscom_crm_dev)
+DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.
+[DAT] Dung database thu: siscom_crm_restore_20261014_214105, schema B1.2 co mat, lich su migration dung.
+Chay: node jest --config ./test/jest-bench.json --runInBand (jest cuc bo, khong them dependency). Log: D:\SISCOM-CRM\backups\b123\search_proof_siscom_crm_restore_20261014_214105_20261014_225323.txt
+FAIL test/perf/bench/search.bench-spec.ts
+  ● Test suite failed to run
+System.Management.Automation.RemoteException
+    File not found: ../tsconfig.json (resolved as: D:\SISCOM-CRM\tsconfig.json)
+System.Management.Automation.RemoteException
+      at ConfigSet.resolvePath (../node_modules/ts-jest/dist/legacy/config/config-set.js:615:19)
+      at ConfigSet._setupConfigSet (../node_modules/ts-jest/dist/legacy/config/config-set.js:321:71)
+      at new ConfigSet (../node_modules/ts-jest/dist/legacy/config/config-set.js:205:14)
+      at TsJestTransformer._createConfigSet (../node_modules/ts-jest/dist/legacy/ts-jest-transformer.js:119:16)
+      at TsJestTransformer._configsFor (../node_modules/ts-jest/dist/legacy/ts-jest-transformer.js:98:34)
+      at TsJestTransformer.getCacheKey (../node_modules/ts-jest/dist/legacy/ts-jest-transformer.js:252:30)
+      at ScriptTransformer._getCacheKey (../node_modules/@jest/transform/build/ScriptTransformer.js:228:41)
+      at ScriptTransformer._getFileCachePath (../node_modules/@jest/transform/build/ScriptTransformer.js:289:27)
+      at ScriptTransformer.transformSource (../node_modules/@jest/transform/build/ScriptTransformer.js:525:32)
+      at ScriptTransformer._transformAndBuildScript (../node_modules/@jest/transform/build/ScriptTransformer.js:674:40)
+      at ScriptTransformer.transform (../node_modules/@jest/transform/build/ScriptTransformer.js:726:19)
+System.Management.Automation.RemoteException
+Test Suites: 1 failed, 1 total
+Tests:       0 total
+Snapshots:   0 total
+Time:        0.389 s
+Ran all test suites.
+[CO SAI KHAC / LOI] benchmark thoat ma 1 (xem muc failures trong bench_*.json)

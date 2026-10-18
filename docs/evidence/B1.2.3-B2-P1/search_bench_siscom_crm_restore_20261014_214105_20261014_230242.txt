@@ -1,0 +1,52 @@
+﻿B1.2.3-B2 P1 bench db=siscom_crm_restore_20261014_214105 rounds=3 samples=15 variants= terms= at 2026-10-14T23:02:42.8500085+07:00
+Database thu: siscom_crm_restore_20261014_214105 | P1 benchmark | chi doc + transaction ROLLBACK (khong dung toi siscom_crm_dev)
+DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.
+[DAT] Dung database thu: siscom_crm_restore_20261014_214105, schema B1.2 co mat, lich su migration dung.
+Chay: node jest --config ./test/jest-bench.json --runInBand (jest cuc bo, khong them dependency). Log: D:\SISCOM-CRM\backups\b123\search_bench_siscom_crm_restore_20261014_214105_20261014_230242.txt
+(node:14000) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  console.log
+    Báo cáo P1: D:\SISCOM-CRM\backups\b123\bench_2026-10-14T16-55-05-643Z.json | Kế hoạch đầy đủ: D:\SISCOM-CRM\backups\b123\bench_plans_2026-10-14T16-55-05-643Z.json
+
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:126:11)
+
+FAIL test/perf/bench/search.bench-spec.ts (3132.344 s)
+  B1.2.3-B2 P1: benchmark & proof (DB thử)
+    √ 1. đúng đắn trên dữ liệu thật: tổng, toàn bộ ID theo thứ tự, trang đầu/giữa/cuối/vượt cuối (mọi biến thể = V1) (105496 ms)
+    √ 3. EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) cho COUNT và trang relevance của từng biến thể (17873 ms)
+    √ 4. p95 lõi tìm kiếm: warm-up + 3 vòng × 15 mẫu, thứ tự biến thể xoay vòng mỗi vòng (856314 ms)
+    √ 5. hiệu chuẩn HTTP: API hiện tại (= V1) cùng số vòng/mẫu, để ước lượng phần chênh HTTP/Nest/serialize (245578 ms)
+    × 6. (CHẠY CUỐI, sau mọi phép đo) đúng đắn theo phạm vi/xoá mềm/mã/MST/liên hệ/SĐT/bộ lọc: dữ liệu tạm trong transaction, ROLLBACK, VACUUM ANALYZE (1902401 ms)
+    √ 7. kết luận: dữ liệu không đổi so với trước khi chạy; mọi biến thể phải khớp V1 tuyệt đối (hiệu năng chỉ báo cáo, không tự chọn phương án) (265 ms)
+System.Management.Automation.RemoteException
+  ● B1.2.3-B2 P1: benchmark & proof (DB thử) › 6. (CHẠY CUỐI, sau mọi phép đo) đúng đắn theo phạm vi/xoá mềm/mã/MST/liên hệ/SĐT/bộ lọc: dữ liệu tạm trong transaction, ROLLBACK, VACUUM ANALYZE
+System.Management.Automation.RemoteException
+    PrismaClientKnownRequestError: 
+    Invalid `prisma.$queryRaw()` invocation:
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+    Transaction API error: A query cannot be executed on an expired transaction. The timeout for this transaction was 1800000 ms, however 1902265 ms passed since the start of the transaction. Consider increasing the interactive transaction timeout or doing less work in the transaction.
+System.Management.Automation.RemoteException
+    [0m [90m 94 |[39m     [36mreturn[39m { total[33m:[39m n[33m,[39m ids[33m:[39m rows[33m.[39mmap((r) [33m=>[39m r[33m.[39mid)[33m,[39m queries[33m:[39m [35m2[39m }[33m;[39m
+     [90m 95 |[39m   }
+    [31m[1m>[22m[39m[90m 96 |[39m   [36mconst[39m rows [33m=[39m [36mawait[39m tx[33m.[39m$queryRaw[33m<[39m{ id[33m:[39m string[33m;[39m total[33m:[39m number }[][33m>[39m(pageSql(p[33m,[39m v[33m,[39m limit[33m,[39m offset))[33m;[39m
+     [90m    |[39m                [31m[1m^[22m[39m
+     [90m 97 |[39m   [36mif[39m (rows[33m.[39mlength [33m>[39m [35m0[39m) [36mreturn[39m { total[33m:[39m [33mNumber[39m(rows[[35m0[39m][33m?[39m[33m.[39mtotal [33m?[39m[33m?[39m [35m0[39m)[33m,[39m ids[33m:[39m rows[33m.[39mmap((r) [33m=>[39m r[33m.[39mid)[33m,[39m queries[33m:[39m [35m1[39m }[33m;[39m
+     [90m 98 |[39m   [36mconst[39m n [33m=[39m [33mNumber[39m(([36mawait[39m tx[33m.[39m$queryRaw[33m<[39m{ n[33m:[39m number }[][33m>[39m(countSql(p[33m,[39m v)))[[35m0[39m][33m?[39m[33m.[39mn [33m?[39m[33m?[39m [35m0[39m)[33m;[39m
+     [90m 99 |[39m   [36mreturn[39m { total[33m:[39m n[33m,[39m ids[33m:[39m [][33m,[39m queries[33m:[39m [35m2[39m }[33m;[39m[0m
+System.Management.Automation.RemoteException
+      at vn.handleRequestError (../node_modules/@prisma/client/src/runtime/RequestHandler.ts:238:13)
+      at vn.handleAndLogRequestError (../node_modules/@prisma/client/src/runtime/RequestHandler.ts:184:12)
+      at vn.request (../node_modules/@prisma/client/src/runtime/RequestHandler.ts:153:12)
+      at a (../node_modules/@prisma/client/src/runtime/getPrismaClient.ts:1014:24)
+      at runVariant (perf/bench/search-variants.ts:96:16)
+      at prisma.$transaction.isolationLevel (perf/bench/search.bench-spec.ts:263:28)
+      at Proxy._transactionWithCallback (../node_modules/@prisma/client/src/runtime/getPrismaClient.ts:861:18)
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:223:7)
+System.Management.Automation.RemoteException
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 5 passed, 6 total
+Snapshots:   0 total
+Time:        3132.579 s
+Ran all test suites.
+[CO SAI KHAC / LOI] benchmark thoat ma 1 (xem muc failures trong bench_*.json)

@@ -1,0 +1,177 @@
+﻿B1.2.3-B2 P1 bench db=siscom_crm_restore_20261014_214105 rounds=3 samples=15 variants= terms= at 2026-10-15T20:17:48.3051450+07:00
+Database thu: siscom_crm_restore_20261014_214105 | P1 ScenariosOnly | moi kich ban 1 transaction nho + ROLLBACK, VACUUM ANALYZE customer (khong dung toi siscom_crm_dev)
+DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.
+[DAT] Dung database thu: siscom_crm_restore_20261014_214105, schema B1.2 co mat, lich su migration dung.
+Chay: node jest --config ./test/jest-bench.json --runInBand (jest cuc bo, khong them dependency). Log: D:\SISCOM-CRM\backups\b123\search_scen_siscom_crm_restore_20261014_214105_20261015_201748.txt
+  console.log
+    [nhóm] S0a rollback khi exception | PASS (thực tế ERROR, kỳ vọng ERROR) | 49 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] S0b rollback khi timeout Prisma | FAIL (thực tế ERROR, kỳ vọng TIMEOUT) | 8088 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 01 ALL cumperf | PASS (thực tế OK, kỳ vọng OK) | 4118 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 02 OWN A cumperf | FAIL (thực tế TIMEOUT, kỳ vọng OK) | 125562 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 03 DEPARTMENT A(d1) cumperf | PASS (thực tế OK, kỳ vọng OK) | 7510 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 04 DEPARTMENT C(d2) cumperf | PASS (thực tế OK, kỳ vọng OK) | 5370 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 05 không quyền -> rỗng | PASS (thực tế OK, kỳ vọng OK) | 79 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 06 deleted=only ALL/ALL | PASS (thực tế OK, kỳ vọng OK) | 16751 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 07 deleted=only ALL/OWN | PASS (thực tế OK, kỳ vọng OK) | 5370 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 08 deleted=only DEPT/ALL | PASS (thực tế OK, kỳ vọng OK) | 8591 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 09 mã khách (một phần) | PASS (thực tế OK, kỳ vọng OK) | 3628 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 10 mã khách (đủ) | PASS (thực tế OK, kỳ vọng OK) | 3674 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 11 MST một phần | PASS (thực tế OK, kỳ vọng OK) | 3269 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 12 MST đủ | PASS (thực tế OK, kỳ vọng OK) | 3299 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 13 tên liên hệ | PASS (thực tế OK, kỳ vọng OK) | 4803 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 14 tên liên hệ OWN | FAIL (thực tế TIMEOUT, kỳ vọng OK) | 126656 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 15 SĐT nội địa | FAIL (thực tế OK, kỳ vọng OK) | 2632 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 16 SĐT có khoảng trắng | PASS (thực tế OK, kỳ vọng OK) | 3823 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 17 SĐT +84 | PASS (thực tế OK, kỳ vọng OK) | 4185 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 18 ownerId B + tier | FAIL (thực tế TIMEOUT, kỳ vọng OK) | 124878 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 19 2 ký tự DEPARTMENT | PASS (thực tế OK, kỳ vọng OK) | 14402 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 20 sắp xếp tên tăng | PASS (thực tế OK, kỳ vọng OK) | 4505 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    [nhóm] 21 relevance tăng | PASS (thực tế OK, kỳ vọng OK) | 6455 ms | rollback OK
+
+      at runGroup (perf/bench/search.bench-spec.ts:257:15)
+
+  console.log
+    Báo cáo P1: D:\SISCOM-CRM\backups\b123\scen_2026-10-15T13-26-27-710Z.json (ScenariosOnly)
+
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:129:11)
+
+FAIL test/perf/bench/search.bench-spec.ts (502.086 s)
+  B1.2.3-B2 P1: benchmark & proof (DB thử)
+    √ 6. kịch bản phạm vi/xoá mềm/mã/MST/liên hệ/SĐT/bộ lọc: MỖI kịch bản một transaction nhỏ, ROLLBACK độc lập, kiểm tra dữ liệu sau từng nhóm (496548 ms)
+    × 7. kết luận: dữ liệu không đổi so với trước khi chạy; mọi biến thể phải khớp V1 tuyệt đối (hiệu năng chỉ báo cáo, không tự chọn phương án) (85 ms)
+    ○ skipped 1. đúng đắn trên dữ liệu thật: tổng, toàn bộ ID theo thứ tự, trang đầu/giữa/cuối/vượt cuối (mọi biến thể = V1)
+    ○ skipped 3. EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) cho COUNT và trang relevance của từng biến thể
+    ○ skipped 4. p95 lõi tìm kiếm: warm-up + 3 vòng × 15 mẫu, thứ tự biến thể xoay vòng mỗi vòng
+    ○ skipped 5. hiệu chuẩn HTTP: API hiện tại (= V1) cùng số vòng/mẫu, để ước lượng phần chênh HTTP/Nest/serialize
+System.Management.Automation.RemoteException
+  ● B1.2.3-B2 P1: benchmark & proof (DB thử) › 7. kết luận: dữ liệu không đổi so với trước khi chạy; mọi biến thể phải khớp V1 tuyệt đối (hiệu năng chỉ báo cáo, không tự chọn phương án)
+System.Management.Automation.RemoteException
+    Có 7 sai khác:
+    [S0b rollback khi timeout Prisma] trạng thái thực tế ERROR khác kỳ vọng TIMEOUT (
+    Invalid `prisma.$queryRaw()` invocation:
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+    Raw query failed. Code: `N/A`. Message: `Failed to deserialize column of type 'void'. If you're using $queryRaw and this column is explicitly marked as `Unsupported` in your Prisma schema, try casting this column to any supported Prisma type such as `Strin)
+    [02 OWN A cumperf] trạng thái thực tế TIMEOUT khác kỳ vọng OK (
+    Invalid `prisma.$queryRaw()` invocation:
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+    Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`)
+    [14 tên liên hệ OWN] trạng thái thực tế TIMEOUT khác kỳ vọng OK (
+    Invalid `prisma.$queryRaw()` invocation:
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+    Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`)
+    [15 SĐT nội địa] V1 rỗng -> kịch bản không kiểm được gì
+    [18 ownerId B + tier] trạng thái thực tế TIMEOUT khác kỳ vọng OK (
+    Invalid `prisma.$queryRaw()` invocation:
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+    Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`)
+    Bài 6 KHÔNG đạt trọn vẹn: {"planned":23,"pass":18,"fail":5,"skipped":0,"notRun":0}
+    Bài 6 chưa hoàn thành hoặc có nhóm FAIL/SKIPPED: {"planned":23,"pass":18,"fail":5,"skipped":0,"notRun":0}
+System.Management.Automation.RemoteException
+    [0m [90m 348 |[39m     [36mif[39m ([33m![39m[33mPROOF[39m) { [36mconst[39m sm [33m=[39m report[33m.[39mscenarioSummary [36mas[39m { planned[33m:[39m number[33m;[39m pass[33m:[39m number } [33m|[39m undefined[33m;[39m [36mif[39m ([33m![39msm [33m||[39m sm[33m.[39mpass [33m!==[39m sm[33m.[39mplanned) failures[33m.[39mpush([32m'Bài 6 chưa hoàn thành hoặc có nhóm FAIL/SKIPPED: '[39m [33m+[39m [33mJSON[39m[33m.[39mstringify(sm [33m?[39m[33m?[39m [36mnull[39m))[33m;[39m }
+     [90m 349 |[39m     [36mif[39m ([33mJSON[39m[33m.[39mstringify(fin) [33m!==[39m [33mJSON[39m[33m.[39mstringify(before)) failures[33m.[39mpush([32m'Dấu vân tay CUỐI KHÁC dữ liệu ĐẦU: '[39m [33m+[39m [33mJSON[39m[33m.[39mstringify({ before[33m,[39m after[33m:[39m fin }))[33m;[39m
+    [31m[1m>[22m[39m[90m 350 |[39m     [36mif[39m (failures[33m.[39mlength) [36mthrow[39m [36mnew[39m [33mError[39m([32m'Có '[39m [33m+[39m failures[33m.[39mlength [33m+[39m [32m' sai khác:\n'[39m [33m+[39m failures[33m.[39mjoin([32m'\n'[39m))[33m;[39m
+     [90m     |[39m                                [31m[1m^[22m[39m
+     [90m 351 |[39m   })[33m;[39m
+     [90m 352 |[39m })[33m;[39m
+     [90m 353 |[39m[0m
+System.Management.Automation.RemoteException
+      at Object.<anonymous> (perf/bench/search.bench-spec.ts:350:32)
+System.Management.Automation.RemoteException
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 4 skipped, 1 passed, 6 total
+Snapshots:   0 total
+Time:        502.318 s, estimated 3133 s
+Ran all test suites.
+[CO SAI KHAC / LOI] benchmark thoat ma 1 (xem muc failures trong bench_*.json)

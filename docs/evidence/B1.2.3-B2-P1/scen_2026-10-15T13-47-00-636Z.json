@@ -1,0 +1,2459 @@
+{
+  "kind": "B1.2.3-B2-P1-bench",
+  "startedAt": "2026-10-15T13:40:29.105Z",
+  "limits": {
+    "list": 150,
+    "search3": 500,
+    "search2": 1500
+  },
+  "rounds": 3,
+  "samples": 15,
+  "warmup": 3,
+  "variants": [
+    "V1_or_two_orig",
+    "V2_union_two_orig",
+    "V3_unionall_two_orig",
+    "V4_or_window_orig",
+    "V5_union_window_orig",
+    "V6_unionall_window_orig",
+    "V7_union_window_lateral",
+    "V8_unionall_window_lateral"
+  ],
+  "terms": [
+    {
+      "term": "minh phat",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "dien lanh",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "cumperf",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "nguyen van",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "0912345",
+      "sortBy": "relevance"
+    },
+    {
+      "term": "mi",
+      "sortBy": "createdAt"
+    }
+  ],
+  "proofOnly": false,
+  "scenariosOnly": true,
+  "database": {
+    "name": "siscom_crm_restore_20261014_214105",
+    "perfCustomers": 50000,
+    "perfContacts": 100000,
+    "allCustomers": 50000
+  },
+  "pgSettings": [
+    {
+      "name": "effective_cache_size",
+      "setting": "524288"
+    },
+    {
+      "name": "jit",
+      "setting": "on"
+    },
+    {
+      "name": "max_parallel_workers_per_gather",
+      "setting": "2"
+    },
+    {
+      "name": "plan_cache_mode",
+      "setting": "auto"
+    },
+    {
+      "name": "random_page_cost",
+      "setting": "4"
+    },
+    {
+      "name": "server_version",
+      "setting": "18.6"
+    },
+    {
+      "name": "shared_buffers",
+      "setting": "16384"
+    },
+    {
+      "name": "work_mem",
+      "setting": "4096"
+    }
+  ],
+  "stats": [
+    {
+      "relname": "contact",
+      "live": 100000,
+      "dead": 0,
+      "last_analyze": "2026-10-14 21:44:44.195817+07",
+      "last_autoanalyze": null
+    },
+    {
+      "relname": "customer",
+      "live": 50000,
+      "dead": 0,
+      "last_analyze": "2026-10-15 20:26:27.607231+07",
+      "last_autoanalyze": null
+    }
+  ],
+  "snapshotBefore": {
+    "perf_fingerprint": "758b21a08c74b2a4e0c27a11526dc681",
+    "perf_modified_rows": 0,
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "deadTuplesBeforeScenarios": {
+    "customer": 0,
+    "contact": 0
+  },
+  "realPhoneUsed": {
+    "id": "1be7a065-079f-46a4-997e-546233491105",
+    "phone": "0900000010"
+  },
+  "acceptanceScope": "PARTIAL: chỉ chạy lại 5 nhóm (S0b,02,14,15,18). KHÔNG phải nghiệm thu 23 nhóm.",
+  "vacuumMs": [
+    686,
+    708,
+    650,
+    636
+  ],
+  "vacuumLog": [
+    {
+      "label": "02 OWN A cumperf",
+      "db": "siscom_crm_restore_20261014_214105",
+      "idleBefore": 0,
+      "ms": 686
+    },
+    {
+      "label": "14 tên liên hệ OWN",
+      "db": "siscom_crm_restore_20261014_214105",
+      "idleBefore": 0,
+      "ms": 709
+    },
+    {
+      "label": "18 ownerId B + tier",
+      "db": "siscom_crm_restore_20261014_214105",
+      "idleBefore": 0,
+      "ms": 650
+    },
+    {
+      "label": "cuối bài",
+      "db": "siscom_crm_restore_20261014_214105",
+      "idleBefore": 0,
+      "ms": 636
+    }
+  ],
+  "deadTuplesAfterScenarios": {
+    "customer": 0,
+    "contact": 0
+  },
+  "scenarioGroups": [
+    {
+      "group": "S0a rollback khi exception",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "S0b rollback khi timeout Prisma",
+      "expectedStatus": "TIMEOUT",
+      "actualStatus": "OK",
+      "outcome": "FAIL",
+      "ms": 8045,
+      "fails": [
+        "lỗi timeout không nêu đúng giới hạn Prisma 3000 ms: (không có lỗi)",
+        "trạng thái thực tế OK khác kỳ vọng TIMEOUT"
+      ],
+      "detail": {},
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 2,
+      "rollbackVerified": true
+    },
+    {
+      "group": "01 ALL cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "02 OWN A cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "FAIL",
+      "ms": 126128,
+      "fails": [
+        "bước \"V3_unionall_two_orig full\" STATEMENT_TIMEOUT sau 120167 ms: \nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`"
+      ],
+      "detail": {
+        "term": "cumperf",
+        "total": 248,
+        "timings": {
+          "setup.owner": 4505,
+          "setup.deleted": 57,
+          "setup.tax": 25,
+          "fold": 2,
+          "V1 base (full)": 420,
+          "V1_or_two_orig full": 371,
+          "V1_or_two_orig beyond": 406,
+          "V2_union_two_orig full": 69,
+          "V2_union_two_orig beyond": 74,
+          "V3_unionall_two_orig full": 120167
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          }
+        },
+        "diag": [
+          {
+            "step": "V3_unionall_two_orig full",
+            "kind": "STATEMENT_TIMEOUT",
+            "ms": 120167,
+            "error": "\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`",
+            "ownerStats": [
+              {
+                "null_frac": 1,
+                "n_distinct": 0,
+                "mcv": null
+              }
+            ],
+            "ownerNotNullLive": 20000,
+            "plan_count": {
+              "seqScanCustomer": true,
+              "seqScanContact": false,
+              "indexesUsed": [
+                "ix_customer_short_fold",
+                "ix_customer_name_fold",
+                "ix_contact_name_fold",
+                "customer_owner_id_idx"
+              ],
+              "hashAggregate": false,
+              "hashedSubPlan": false,
+              "sortMethod": [],
+              "nodeTypes": [
+                "Aggregate",
+                "Hash Join",
+                "Gather",
+                "Append",
+                "Bitmap Heap Scan",
+                "Bitmap Index Scan",
+                "Seq Scan",
+                "Hash",
+                "Index Scan"
+              ],
+              "scans": [
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_short_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "contact",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_contact_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Seq Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 6
+                },
+                {
+                  "node": "Index Scan",
+                  "rel": "customer",
+                  "index": "customer_owner_id_idx",
+                  "estRows": 1
+                }
+              ]
+            },
+            "planRaw_count": [
+              {
+                "Plan": {
+                  "Node Type": "Aggregate",
+                  "Strategy": "Plain",
+                  "Partial Mode": "Simple",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 6336.29,
+                  "Total Cost": 6336.31,
+                  "Plan Rows": 1,
+                  "Plan Width": 4,
+                  "Disabled": false,
+                  "Plans": [
+                    {
+                      "Node Type": "Hash Join",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Join Type": "Right Semi",
+                      "Startup Cost": 1561.51,
+                      "Total Cost": 6336.29,
+                      "Plan Rows": 1,
+                      "Plan Width": 0,
+                      "Disabled": false,
+                      "Inner Unique": true,
+                      "Hash Cond": "(c_1.id = c.id)",
+                      "Plans": [
+                        {
+                          "Node Type": "Gather",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Startup Cost": 1553.19,
+                          "Total Cost": 6327.86,
+                          "Plan Rows": 40,
+                          "Plan Width": 16,
+                          "Disabled": false,
+                          "Workers Planned": 2,
+                          "Single Copy": false,
+                          "Plans": [
+                            {
+                              "Node Type": "Append",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": true,
+                              "Async Capable": false,
+                              "Startup Cost": 553.19,
+                              "Total Cost": 5323.86,
+                              "Plan Rows": 16,
+                              "Plan Width": 16,
+                              "Disabled": false,
+                              "Subplans Removed": 0,
+                              "Plans": [
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "customer",
+                                  "Alias": "c_1",
+                                  "Startup Cost": 1343.82,
+                                  "Total Cost": 1384.68,
+                                  "Plan Rows": 10,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Recheck Cond": "((f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) AND (deleted_at IS NULL))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "ix_customer_short_fold",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 1343.81,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text)"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "customer",
+                                  "Alias": "c_2",
+                                  "Startup Cost": 553.19,
+                                  "Total Cost": 594.06,
+                                  "Plan Rows": 10,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Recheck Cond": "((f_vn_fold((name)::text) ~~ '%cumperf%'::text) AND (deleted_at IS NULL))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "ix_customer_name_fold",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 553.19,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text)"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "contact",
+                                  "Alias": "ct",
+                                  "Startup Cost": 125.22,
+                                  "Total Cost": 165.48,
+                                  "Plan Rows": 10,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Recheck Cond": "((f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) AND (deleted_at IS NULL))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "ix_contact_name_fold",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 125.21,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text)"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Seq Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": true,
+                                  "Async Capable": false,
+                                  "Relation Name": "customer",
+                                  "Alias": "c_3",
+                                  "Startup Cost": 0,
+                                  "Total Cost": 3939.1,
+                                  "Plan Rows": 6,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Filter": "((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "Node Type": "Hash",
+                          "Parent Relationship": "Inner",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Startup Cost": 8.31,
+                          "Total Cost": 8.31,
+                          "Plan Rows": 1,
+                          "Plan Width": 16,
+                          "Disabled": false,
+                          "Plans": [
+                            {
+                              "Node Type": "Index Scan",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Scan Direction": "Forward",
+                              "Index Name": "customer_owner_id_idx",
+                              "Relation Name": "customer",
+                              "Alias": "c",
+                              "Startup Cost": 0.29,
+                              "Total Cost": 8.31,
+                              "Plan Rows": 1,
+                              "Plan Width": 16,
+                              "Disabled": false,
+                              "Index Cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid)",
+                              "Filter": "(deleted_at IS NULL)"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "sql_count": "SELECT count(*)::int AS n FROM customer c WHERE c.deleted_at IS NULL AND c.owner_id = $1::uuid AND c.id IN (SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.name) LIKE $2 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.short_name) LIKE $3 UNION ALL SELECT ct.customer_id AS id FROM contact ct WHERE ct.deleted_at IS NULL AND public.f_vn_fold(ct.full_name) LIKE $4 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND (lower(c.code) LIKE $5 OR c.tax_id LIKE $6))",
+            "plan_page": {
+              "seqScanCustomer": true,
+              "seqScanContact": false,
+              "indexesUsed": [
+                "customer_owner_id_idx",
+                "ix_customer_short_fold",
+                "ix_customer_name_fold",
+                "ix_contact_name_fold",
+                "contact_customer_id_idx"
+              ],
+              "hashAggregate": false,
+              "hashedSubPlan": false,
+              "sortMethod": [],
+              "nodeTypes": [
+                "Limit",
+                "Sort",
+                "Nested Loop",
+                "Index Scan",
+                "Gather",
+                "Append",
+                "Bitmap Heap Scan",
+                "Bitmap Index Scan",
+                "Seq Scan",
+                "Aggregate"
+              ],
+              "scans": [
+                {
+                  "node": "Index Scan",
+                  "rel": "customer",
+                  "index": "customer_owner_id_idx",
+                  "estRows": 1
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_short_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "contact",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_contact_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Seq Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 6
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "contact",
+                  "index": null,
+                  "estRows": 2
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "contact_customer_id_idx",
+                  "estRows": 2
+                }
+              ]
+            },
+            "planRaw_page": [
+              {
+                "Plan": {
+                  "Node Type": "Limit",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 6349.96,
+                  "Total Cost": 6349.96,
+                  "Plan Rows": 1,
+                  "Plan Width": 29,
+                  "Disabled": false,
+                  "Plans": [
+                    {
+                      "Node Type": "Sort",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Startup Cost": 6349.96,
+                      "Total Cost": 6349.96,
+                      "Plan Rows": 1,
+                      "Plan Width": 29,
+                      "Disabled": false,
+                      "Sort Key": [
+                        "(GREATEST(similarity(f_vn_fold((c.name)::text), 'cumperf'::text), COALESCE(similarity(f_vn_fold((c.short_name)::text), 'cumperf'::text), '0'::real), COALESCE((SubPlan 1), '0'::real))) DESC",
+                        "c.code DESC"
+                      ],
+                      "Plans": [
+                        {
+                          "Node Type": "Nested Loop",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Join Type": "Semi",
+                          "Startup Cost": 1553.48,
+                          "Total Cost": 6349.95,
+                          "Plan Rows": 1,
+                          "Plan Width": 29,
+                          "Disabled": false,
+                          "Inner Unique": false,
+                          "Join Filter": "(c.id = c_1.id)",
+                          "Plans": [
+                            {
+                              "Node Type": "Index Scan",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Scan Direction": "Forward",
+                              "Index Name": "customer_owner_id_idx",
+                              "Relation Name": "customer",
+                              "Alias": "c",
+                              "Startup Cost": 0.29,
+                              "Total Cost": 8.31,
+                              "Plan Rows": 1,
+                              "Plan Width": 73,
+                              "Disabled": false,
+                              "Index Cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid)",
+                              "Filter": "(deleted_at IS NULL)"
+                            },
+                            {
+                              "Node Type": "Gather",
+                              "Parent Relationship": "Inner",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Startup Cost": 1553.19,
+                              "Total Cost": 6327.86,
+                              "Plan Rows": 40,
+                              "Plan Width": 16,
+                              "Disabled": false,
+                              "Workers Planned": 2,
+                              "Single Copy": false,
+                              "Plans": [
+                                {
+                                  "Node Type": "Append",
+                                  "Parent Relationship": "Outer",
+                                  "Parallel Aware": true,
+                                  "Async Capable": false,
+                                  "Startup Cost": 553.19,
+                                  "Total Cost": 5323.86,
+                                  "Plan Rows": 16,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Subplans Removed": 0,
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "customer",
+                                      "Alias": "c_1",
+                                      "Startup Cost": 1343.82,
+                                      "Total Cost": 1384.68,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Recheck Cond": "((f_vn_fold((short_name)::text) ~~ '%cumperf%'::text) AND (deleted_at IS NULL))",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "ix_customer_short_fold",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 1343.81,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(f_vn_fold((short_name)::text) ~~ '%cumperf%'::text)"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "customer",
+                                      "Alias": "c_2",
+                                      "Startup Cost": 553.19,
+                                      "Total Cost": 594.06,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Recheck Cond": "((f_vn_fold((name)::text) ~~ '%cumperf%'::text) AND (deleted_at IS NULL))",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "ix_customer_name_fold",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 553.19,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(f_vn_fold((name)::text) ~~ '%cumperf%'::text)"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "contact",
+                                      "Alias": "ct",
+                                      "Startup Cost": 125.22,
+                                      "Total Cost": 165.48,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Recheck Cond": "((f_vn_fold((full_name)::text) ~~ '%cumperf%'::text) AND (deleted_at IS NULL))",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "ix_contact_name_fold",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 125.21,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(f_vn_fold((full_name)::text) ~~ '%cumperf%'::text)"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "Node Type": "Seq Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": true,
+                                      "Async Capable": false,
+                                      "Relation Name": "customer",
+                                      "Alias": "c_3",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 3939.1,
+                                      "Plan Rows": 6,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Filter": "((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%cumperf%'::text) OR ((tax_id)::text ~~ '%cumperf%'::text)))"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "Node Type": "Aggregate",
+                              "Strategy": "Plain",
+                              "Partial Mode": "Simple",
+                              "Parent Relationship": "SubPlan",
+                              "Subplan Name": "SubPlan 1",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Startup Cost": 12.76,
+                              "Total Cost": 12.77,
+                              "Plan Rows": 1,
+                              "Plan Width": 4,
+                              "Disabled": false,
+                              "Plans": [
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Outer",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "contact",
+                                  "Alias": "ct_1",
+                                  "Startup Cost": 4.43,
+                                  "Total Cost": 12.25,
+                                  "Plan Rows": 2,
+                                  "Plan Width": 18,
+                                  "Disabled": false,
+                                  "Recheck Cond": "(customer_id = c.id)",
+                                  "Filter": "(deleted_at IS NULL)",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "contact_customer_id_idx",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 4.43,
+                                      "Plan Rows": 2,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(customer_id = c.id)"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "sql_page": "SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND c.owner_id = $1::uuid AND c.id IN (SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.name) LIKE $2 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.short_name) LIKE $3 UNION ALL SELECT ct.customer_id AS id FROM contact ct WHERE ct.deleted_at IS NULL AND public.f_vn_fold(ct.full_name) LIKE $4 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND (lower(c.code) LIKE $5 OR c.tax_id LIKE $6)) ORDER BY greatest(public.similarity(public.f_vn_fold(c.name), $7), coalesce(public.similarity(public.f_vn_fold(c.short_name), $8), 0), coalesce((SELECT max(public.similarity(public.f_vn_fold(ct.full_name), $9)) FROM contact ct WHERE ct.customer_id = c.id AND ct.deleted_at IS NULL), 0)) DESC, c.code DESC LIMIT $10::int OFFSET $11::int"
+          }
+        ],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "03 DEPARTMENT A(d1) cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "04 DEPARTMENT C(d2) cumperf",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "05 không quyền -> rỗng",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "06 deleted=only ALL/ALL",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "07 deleted=only ALL/OWN",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "08 deleted=only DEPT/ALL",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "09 mã khách (một phần)",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "10 mã khách (đủ)",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "11 MST một phần",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "12 MST đủ",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "13 tên liên hệ",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "14 tên liên hệ OWN",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "FAIL",
+      "ms": 125313,
+      "fails": [
+        "bước \"V3_unionall_two_orig full\" STATEMENT_TIMEOUT sau 120171 ms: \nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`"
+      ],
+      "detail": {
+        "term": "tran thi",
+        "total": 3960,
+        "timings": {
+          "setup.owner": 2764,
+          "setup.deleted": 56,
+          "setup.tax": 20,
+          "fold": 0,
+          "V1 base (full)": 544,
+          "V1_or_two_orig full": 530,
+          "V1_or_two_orig beyond": 570,
+          "V2_union_two_orig full": 336,
+          "V2_union_two_orig beyond": 266,
+          "V3_unionall_two_orig full": 120171
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          }
+        },
+        "diag": [
+          {
+            "step": "V3_unionall_two_orig full",
+            "kind": "STATEMENT_TIMEOUT",
+            "ms": 120171,
+            "error": "\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`",
+            "ownerStats": [
+              {
+                "null_frac": 1,
+                "n_distinct": 0,
+                "mcv": null
+              }
+            ],
+            "ownerNotNullLive": 20000,
+            "plan_count": {
+              "seqScanCustomer": true,
+              "seqScanContact": false,
+              "indexesUsed": [
+                "ix_customer_short_fold",
+                "ix_customer_name_fold",
+                "ix_contact_name_fold",
+                "customer_owner_id_idx"
+              ],
+              "hashAggregate": false,
+              "hashedSubPlan": false,
+              "sortMethod": [],
+              "nodeTypes": [
+                "Aggregate",
+                "Hash Join",
+                "Gather",
+                "Append",
+                "Bitmap Heap Scan",
+                "Bitmap Index Scan",
+                "Seq Scan",
+                "Hash",
+                "Index Scan"
+              ],
+              "scans": [
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_short_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "contact",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_contact_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Seq Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 6
+                },
+                {
+                  "node": "Index Scan",
+                  "rel": "customer",
+                  "index": "customer_owner_id_idx",
+                  "estRows": 1
+                }
+              ]
+            },
+            "planRaw_count": [
+              {
+                "Plan": {
+                  "Node Type": "Aggregate",
+                  "Strategy": "Plain",
+                  "Partial Mode": "Simple",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 6359.59,
+                  "Total Cost": 6359.6,
+                  "Plan Rows": 1,
+                  "Plan Width": 4,
+                  "Disabled": false,
+                  "Plans": [
+                    {
+                      "Node Type": "Hash Join",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Join Type": "Right Semi",
+                      "Startup Cost": 1548.82,
+                      "Total Cost": 6359.59,
+                      "Plan Rows": 1,
+                      "Plan Width": 0,
+                      "Disabled": false,
+                      "Inner Unique": true,
+                      "Hash Cond": "(c_1.id = c.id)",
+                      "Plans": [
+                        {
+                          "Node Type": "Gather",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Startup Cost": 1540.5,
+                          "Total Cost": 6351.16,
+                          "Plan Rows": 40,
+                          "Plan Width": 16,
+                          "Disabled": false,
+                          "Workers Planned": 2,
+                          "Single Copy": false,
+                          "Plans": [
+                            {
+                              "Node Type": "Append",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": true,
+                              "Async Capable": false,
+                              "Startup Cost": 540.5,
+                              "Total Cost": 5347.16,
+                              "Plan Rows": 16,
+                              "Plan Width": 16,
+                              "Disabled": false,
+                              "Subplans Removed": 0,
+                              "Plans": [
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "customer",
+                                  "Alias": "c_1",
+                                  "Startup Cost": 1344,
+                                  "Total Cost": 1384.86,
+                                  "Plan Rows": 10,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Recheck Cond": "((f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) AND (deleted_at IS NULL))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "ix_customer_short_fold",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 1344,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text)"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "customer",
+                                  "Alias": "c_2",
+                                  "Startup Cost": 540.5,
+                                  "Total Cost": 581.36,
+                                  "Plan Rows": 10,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Recheck Cond": "((f_vn_fold((name)::text) ~~ '%tran thi%'::text) AND (deleted_at IS NULL))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "ix_customer_name_fold",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 540.49,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text)"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "contact",
+                                  "Alias": "ct",
+                                  "Startup Cost": 150.25,
+                                  "Total Cost": 190.51,
+                                  "Plan Rows": 10,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Recheck Cond": "((f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) AND (deleted_at IS NULL))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "ix_contact_name_fold",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 150.25,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text)"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Seq Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": true,
+                                  "Async Capable": false,
+                                  "Relation Name": "customer",
+                                  "Alias": "c_3",
+                                  "Startup Cost": 0,
+                                  "Total Cost": 3962.22,
+                                  "Plan Rows": 6,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Filter": "((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "Node Type": "Hash",
+                          "Parent Relationship": "Inner",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Startup Cost": 8.31,
+                          "Total Cost": 8.31,
+                          "Plan Rows": 1,
+                          "Plan Width": 16,
+                          "Disabled": false,
+                          "Plans": [
+                            {
+                              "Node Type": "Index Scan",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Scan Direction": "Forward",
+                              "Index Name": "customer_owner_id_idx",
+                              "Relation Name": "customer",
+                              "Alias": "c",
+                              "Startup Cost": 0.29,
+                              "Total Cost": 8.31,
+                              "Plan Rows": 1,
+                              "Plan Width": 16,
+                              "Disabled": false,
+                              "Index Cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid)",
+                              "Filter": "(deleted_at IS NULL)"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "sql_count": "SELECT count(*)::int AS n FROM customer c WHERE c.deleted_at IS NULL AND c.owner_id = $1::uuid AND c.id IN (SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.name) LIKE $2 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.short_name) LIKE $3 UNION ALL SELECT ct.customer_id AS id FROM contact ct WHERE ct.deleted_at IS NULL AND public.f_vn_fold(ct.full_name) LIKE $4 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND (lower(c.code) LIKE $5 OR c.tax_id LIKE $6))",
+            "plan_page": {
+              "seqScanCustomer": true,
+              "seqScanContact": false,
+              "indexesUsed": [
+                "customer_owner_id_idx",
+                "ix_customer_short_fold",
+                "ix_customer_name_fold",
+                "ix_contact_name_fold",
+                "contact_customer_id_idx"
+              ],
+              "hashAggregate": false,
+              "hashedSubPlan": false,
+              "sortMethod": [],
+              "nodeTypes": [
+                "Limit",
+                "Sort",
+                "Nested Loop",
+                "Index Scan",
+                "Gather",
+                "Append",
+                "Bitmap Heap Scan",
+                "Bitmap Index Scan",
+                "Seq Scan",
+                "Aggregate"
+              ],
+              "scans": [
+                {
+                  "node": "Index Scan",
+                  "rel": "customer",
+                  "index": "customer_owner_id_idx",
+                  "estRows": 1
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_short_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "contact",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_contact_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Seq Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 6
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "contact",
+                  "index": null,
+                  "estRows": 2
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "contact_customer_id_idx",
+                  "estRows": 2
+                }
+              ]
+            },
+            "planRaw_page": [
+              {
+                "Plan": {
+                  "Node Type": "Limit",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 6373.26,
+                  "Total Cost": 6373.26,
+                  "Plan Rows": 1,
+                  "Plan Width": 29,
+                  "Disabled": false,
+                  "Plans": [
+                    {
+                      "Node Type": "Sort",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Startup Cost": 6373.26,
+                      "Total Cost": 6373.26,
+                      "Plan Rows": 1,
+                      "Plan Width": 29,
+                      "Disabled": false,
+                      "Sort Key": [
+                        "(GREATEST(similarity(f_vn_fold((c.name)::text), 'tran thi'::text), COALESCE(similarity(f_vn_fold((c.short_name)::text), 'tran thi'::text), '0'::real), COALESCE((SubPlan 1), '0'::real))) DESC",
+                        "c.code DESC"
+                      ],
+                      "Plans": [
+                        {
+                          "Node Type": "Nested Loop",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Join Type": "Semi",
+                          "Startup Cost": 1540.79,
+                          "Total Cost": 6373.25,
+                          "Plan Rows": 1,
+                          "Plan Width": 29,
+                          "Disabled": false,
+                          "Inner Unique": false,
+                          "Join Filter": "(c.id = c_1.id)",
+                          "Plans": [
+                            {
+                              "Node Type": "Index Scan",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Scan Direction": "Forward",
+                              "Index Name": "customer_owner_id_idx",
+                              "Relation Name": "customer",
+                              "Alias": "c",
+                              "Startup Cost": 0.29,
+                              "Total Cost": 8.31,
+                              "Plan Rows": 1,
+                              "Plan Width": 73,
+                              "Disabled": false,
+                              "Index Cond": "(owner_id = '41e25afb-dfe6-424b-9297-d5daed00c20e'::uuid)",
+                              "Filter": "(deleted_at IS NULL)"
+                            },
+                            {
+                              "Node Type": "Gather",
+                              "Parent Relationship": "Inner",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Startup Cost": 1540.5,
+                              "Total Cost": 6351.16,
+                              "Plan Rows": 40,
+                              "Plan Width": 16,
+                              "Disabled": false,
+                              "Workers Planned": 2,
+                              "Single Copy": false,
+                              "Plans": [
+                                {
+                                  "Node Type": "Append",
+                                  "Parent Relationship": "Outer",
+                                  "Parallel Aware": true,
+                                  "Async Capable": false,
+                                  "Startup Cost": 540.5,
+                                  "Total Cost": 5347.16,
+                                  "Plan Rows": 16,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Subplans Removed": 0,
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "customer",
+                                      "Alias": "c_1",
+                                      "Startup Cost": 1344,
+                                      "Total Cost": 1384.86,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Recheck Cond": "((f_vn_fold((short_name)::text) ~~ '%tran thi%'::text) AND (deleted_at IS NULL))",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "ix_customer_short_fold",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 1344,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(f_vn_fold((short_name)::text) ~~ '%tran thi%'::text)"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "customer",
+                                      "Alias": "c_2",
+                                      "Startup Cost": 540.5,
+                                      "Total Cost": 581.36,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Recheck Cond": "((f_vn_fold((name)::text) ~~ '%tran thi%'::text) AND (deleted_at IS NULL))",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "ix_customer_name_fold",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 540.49,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(f_vn_fold((name)::text) ~~ '%tran thi%'::text)"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "contact",
+                                      "Alias": "ct",
+                                      "Startup Cost": 150.25,
+                                      "Total Cost": 190.51,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Recheck Cond": "((f_vn_fold((full_name)::text) ~~ '%tran thi%'::text) AND (deleted_at IS NULL))",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "ix_contact_name_fold",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 150.25,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(f_vn_fold((full_name)::text) ~~ '%tran thi%'::text)"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "Node Type": "Seq Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": true,
+                                      "Async Capable": false,
+                                      "Relation Name": "customer",
+                                      "Alias": "c_3",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 3962.22,
+                                      "Plan Rows": 6,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Filter": "((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%tran thi%'::text) OR ((tax_id)::text ~~ '%tran thi%'::text)))"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "Node Type": "Aggregate",
+                              "Strategy": "Plain",
+                              "Partial Mode": "Simple",
+                              "Parent Relationship": "SubPlan",
+                              "Subplan Name": "SubPlan 1",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Startup Cost": 12.76,
+                              "Total Cost": 12.77,
+                              "Plan Rows": 1,
+                              "Plan Width": 4,
+                              "Disabled": false,
+                              "Plans": [
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Outer",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "contact",
+                                  "Alias": "ct_1",
+                                  "Startup Cost": 4.43,
+                                  "Total Cost": 12.25,
+                                  "Plan Rows": 2,
+                                  "Plan Width": 18,
+                                  "Disabled": false,
+                                  "Recheck Cond": "(customer_id = c.id)",
+                                  "Filter": "(deleted_at IS NULL)",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "contact_customer_id_idx",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 4.43,
+                                      "Plan Rows": 2,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(customer_id = c.id)"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "sql_page": "SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND c.owner_id = $1::uuid AND c.id IN (SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.name) LIKE $2 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.short_name) LIKE $3 UNION ALL SELECT ct.customer_id AS id FROM contact ct WHERE ct.deleted_at IS NULL AND public.f_vn_fold(ct.full_name) LIKE $4 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND (lower(c.code) LIKE $5 OR c.tax_id LIKE $6)) ORDER BY greatest(public.similarity(public.f_vn_fold(c.name), $7), coalesce(public.similarity(public.f_vn_fold(c.short_name), $8), 0), coalesce((SELECT max(public.similarity(public.f_vn_fold(ct.full_name), $9)) FROM contact ct WHERE ct.customer_id = c.id AND ct.deleted_at IS NULL), 0)) DESC, c.code DESC LIMIT $10::int OFFSET $11::int"
+          }
+        ],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 2,
+      "rollbackVerified": true
+    },
+    {
+      "group": "15 SĐT nội địa (số thật trong PERF)",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "PASS",
+      "ms": 3649,
+      "fails": [],
+      "detail": {
+        "term": "0900000010",
+        "total": 1,
+        "timings": {
+          "setup.deleted": 21,
+          "setup.tax": 20,
+          "fold": 1,
+          "V1 base (full)": 696,
+          "V1_or_two_orig full": 705,
+          "V1_or_two_orig beyond": 742,
+          "V2_union_two_orig full": 42,
+          "V2_union_two_orig beyond": 45,
+          "V3_unionall_two_orig full": 33,
+          "V3_unionall_two_orig beyond": 38,
+          "V4_or_window_orig full": 335,
+          "V4_or_window_orig beyond": 669,
+          "V5_union_window_orig full": 27,
+          "V5_union_window_orig beyond": 52,
+          "V6_unionall_window_orig full": 20,
+          "V6_unionall_window_orig beyond": 46,
+          "V7_union_window_lateral full": 18,
+          "V7_union_window_lateral beyond": 41,
+          "V8_unionall_window_lateral full": 22,
+          "V8_unionall_window_lateral beyond": 37
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          },
+          "V3_unionall_two_orig": {
+            "ok": true
+          },
+          "V4_or_window_orig": {
+            "ok": true
+          },
+          "V5_union_window_orig": {
+            "ok": true
+          },
+          "V6_unionall_window_orig": {
+            "ok": true
+          },
+          "V7_union_window_lateral": {
+            "ok": true
+          },
+          "V8_unionall_window_lateral": {
+            "ok": true
+          }
+        },
+        "diag": [],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "16 SĐT có khoảng trắng",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "17 SĐT +84",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "18 ownerId B + tier",
+      "expectedStatus": "OK",
+      "actualStatus": "OK",
+      "outcome": "FAIL",
+      "ms": 124558,
+      "fails": [
+        "bước \"V3_unionall_two_orig full\" STATEMENT_TIMEOUT sau 120066 ms: \nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`"
+      ],
+      "detail": {
+        "term": "minh phat",
+        "total": 495,
+        "timings": {
+          "setup.owner": 3458,
+          "setup.deleted": 53,
+          "setup.tax": 17,
+          "fold": 0,
+          "V1 base (full)": 195,
+          "V1_or_two_orig full": 158,
+          "V1_or_two_orig beyond": 254,
+          "V2_union_two_orig full": 109,
+          "V2_union_two_orig beyond": 120,
+          "V3_unionall_two_orig full": 120066
+        },
+        "variants": {
+          "V1_or_two_orig": {
+            "ok": true
+          },
+          "V2_union_two_orig": {
+            "ok": true
+          }
+        },
+        "diag": [
+          {
+            "step": "V3_unionall_two_orig full",
+            "kind": "STATEMENT_TIMEOUT",
+            "ms": 120066,
+            "error": "\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`",
+            "ownerStats": [
+              {
+                "null_frac": 1,
+                "n_distinct": 0,
+                "mcv": null
+              }
+            ],
+            "ownerNotNullLive": 20000,
+            "plan_count": {
+              "seqScanCustomer": true,
+              "seqScanContact": false,
+              "indexesUsed": [
+                "ix_customer_short_fold",
+                "ix_customer_name_fold",
+                "ix_contact_name_fold",
+                "customer_owner_id_idx"
+              ],
+              "hashAggregate": false,
+              "hashedSubPlan": false,
+              "sortMethod": [],
+              "nodeTypes": [
+                "Aggregate",
+                "Hash Join",
+                "Gather",
+                "Append",
+                "Bitmap Heap Scan",
+                "Bitmap Index Scan",
+                "Seq Scan",
+                "Hash",
+                "Index Scan"
+              ],
+              "scans": [
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_short_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "contact",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_contact_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Seq Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 6
+                },
+                {
+                  "node": "Index Scan",
+                  "rel": "customer",
+                  "index": "customer_owner_id_idx",
+                  "estRows": 1
+                }
+              ]
+            },
+            "planRaw_count": [
+              {
+                "Plan": {
+                  "Node Type": "Aggregate",
+                  "Strategy": "Plain",
+                  "Partial Mode": "Simple",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 6402.63,
+                  "Total Cost": 6402.64,
+                  "Plan Rows": 1,
+                  "Plan Width": 4,
+                  "Disabled": false,
+                  "Plans": [
+                    {
+                      "Node Type": "Hash Join",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Join Type": "Right Semi",
+                      "Startup Cost": 1587.26,
+                      "Total Cost": 6402.63,
+                      "Plan Rows": 1,
+                      "Plan Width": 0,
+                      "Disabled": false,
+                      "Inner Unique": true,
+                      "Hash Cond": "(c_1.id = c.id)",
+                      "Plans": [
+                        {
+                          "Node Type": "Gather",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Startup Cost": 1578.93,
+                          "Total Cost": 6394.2,
+                          "Plan Rows": 40,
+                          "Plan Width": 16,
+                          "Disabled": false,
+                          "Workers Planned": 2,
+                          "Single Copy": false,
+                          "Plans": [
+                            {
+                              "Node Type": "Append",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": true,
+                              "Async Capable": false,
+                              "Startup Cost": 578.93,
+                              "Total Cost": 5390.2,
+                              "Plan Rows": 16,
+                              "Plan Width": 16,
+                              "Disabled": false,
+                              "Subplans Removed": 0,
+                              "Plans": [
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "customer",
+                                  "Alias": "c_1",
+                                  "Startup Cost": 1361.18,
+                                  "Total Cost": 1402.05,
+                                  "Plan Rows": 10,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Recheck Cond": "((f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) AND (deleted_at IS NULL))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "ix_customer_short_fold",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 1361.18,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text)"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "customer",
+                                  "Alias": "c_2",
+                                  "Startup Cost": 578.93,
+                                  "Total Cost": 619.8,
+                                  "Plan Rows": 10,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Recheck Cond": "((f_vn_fold((name)::text) ~~ '%minh phat%'::text) AND (deleted_at IS NULL))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "ix_customer_name_fold",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 578.93,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text)"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "contact",
+                                  "Alias": "ct",
+                                  "Startup Cost": 175.28,
+                                  "Total Cost": 215.54,
+                                  "Plan Rows": 10,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Recheck Cond": "((f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) AND (deleted_at IS NULL))",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "ix_contact_name_fold",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 175.28,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text)"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "Node Type": "Seq Scan",
+                                  "Parent Relationship": "Member",
+                                  "Parallel Aware": true,
+                                  "Async Capable": false,
+                                  "Relation Name": "customer",
+                                  "Alias": "c_3",
+                                  "Startup Cost": 0,
+                                  "Total Cost": 3988.06,
+                                  "Plan Rows": 6,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Filter": "((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "Node Type": "Hash",
+                          "Parent Relationship": "Inner",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Startup Cost": 8.31,
+                          "Total Cost": 8.31,
+                          "Plan Rows": 1,
+                          "Plan Width": 16,
+                          "Disabled": false,
+                          "Plans": [
+                            {
+                              "Node Type": "Index Scan",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Scan Direction": "Forward",
+                              "Index Name": "customer_owner_id_idx",
+                              "Relation Name": "customer",
+                              "Alias": "c",
+                              "Startup Cost": 0.29,
+                              "Total Cost": 8.31,
+                              "Plan Rows": 1,
+                              "Plan Width": 16,
+                              "Disabled": false,
+                              "Index Cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid)",
+                              "Filter": "((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid))"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "sql_count": "SELECT count(*)::int AS n FROM customer c WHERE c.deleted_at IS NULL AND TRUE AND c.owner_id = $1::uuid AND c.tier_id = $2::uuid AND c.id IN (SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.name) LIKE $3 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.short_name) LIKE $4 UNION ALL SELECT ct.customer_id AS id FROM contact ct WHERE ct.deleted_at IS NULL AND public.f_vn_fold(ct.full_name) LIKE $5 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND (lower(c.code) LIKE $6 OR c.tax_id LIKE $7))",
+            "plan_page": {
+              "seqScanCustomer": true,
+              "seqScanContact": false,
+              "indexesUsed": [
+                "customer_owner_id_idx",
+                "ix_customer_short_fold",
+                "ix_customer_name_fold",
+                "ix_contact_name_fold",
+                "contact_customer_id_idx"
+              ],
+              "hashAggregate": false,
+              "hashedSubPlan": false,
+              "sortMethod": [],
+              "nodeTypes": [
+                "Limit",
+                "Sort",
+                "Nested Loop",
+                "Index Scan",
+                "Gather",
+                "Append",
+                "Bitmap Heap Scan",
+                "Bitmap Index Scan",
+                "Seq Scan",
+                "Aggregate"
+              ],
+              "scans": [
+                {
+                  "node": "Index Scan",
+                  "rel": "customer",
+                  "index": "customer_owner_id_idx",
+                  "estRows": 1
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_short_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_customer_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "contact",
+                  "index": null,
+                  "estRows": 10
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "ix_contact_name_fold",
+                  "estRows": 10
+                },
+                {
+                  "node": "Seq Scan",
+                  "rel": "customer",
+                  "index": null,
+                  "estRows": 6
+                },
+                {
+                  "node": "Bitmap Heap Scan",
+                  "rel": "contact",
+                  "index": null,
+                  "estRows": 2
+                },
+                {
+                  "node": "Bitmap Index Scan",
+                  "rel": null,
+                  "index": "contact_customer_id_idx",
+                  "estRows": 2
+                }
+              ]
+            },
+            "planRaw_page": [
+              {
+                "Plan": {
+                  "Node Type": "Limit",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 6416.29,
+                  "Total Cost": 6416.3,
+                  "Plan Rows": 1,
+                  "Plan Width": 29,
+                  "Disabled": false,
+                  "Plans": [
+                    {
+                      "Node Type": "Sort",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Startup Cost": 6416.29,
+                      "Total Cost": 6416.3,
+                      "Plan Rows": 1,
+                      "Plan Width": 29,
+                      "Disabled": false,
+                      "Sort Key": [
+                        "(GREATEST(similarity(f_vn_fold((c.name)::text), 'minh phat'::text), COALESCE(similarity(f_vn_fold((c.short_name)::text), 'minh phat'::text), '0'::real), COALESCE((SubPlan 1), '0'::real))) DESC",
+                        "c.code DESC"
+                      ],
+                      "Plans": [
+                        {
+                          "Node Type": "Nested Loop",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Join Type": "Semi",
+                          "Startup Cost": 1579.22,
+                          "Total Cost": 6416.28,
+                          "Plan Rows": 1,
+                          "Plan Width": 29,
+                          "Disabled": false,
+                          "Inner Unique": false,
+                          "Join Filter": "(c.id = c_1.id)",
+                          "Plans": [
+                            {
+                              "Node Type": "Index Scan",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Scan Direction": "Forward",
+                              "Index Name": "customer_owner_id_idx",
+                              "Relation Name": "customer",
+                              "Alias": "c",
+                              "Startup Cost": 0.29,
+                              "Total Cost": 8.31,
+                              "Plan Rows": 1,
+                              "Plan Width": 73,
+                              "Disabled": false,
+                              "Index Cond": "(owner_id = 'a45abc86-0885-4449-8da8-22a1554b5f29'::uuid)",
+                              "Filter": "((deleted_at IS NULL) AND (tier_id = 'b25fd9dc-ef91-42c0-9b07-9f0506ef2cc1'::uuid))"
+                            },
+                            {
+                              "Node Type": "Gather",
+                              "Parent Relationship": "Inner",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Startup Cost": 1578.93,
+                              "Total Cost": 6394.2,
+                              "Plan Rows": 40,
+                              "Plan Width": 16,
+                              "Disabled": false,
+                              "Workers Planned": 2,
+                              "Single Copy": false,
+                              "Plans": [
+                                {
+                                  "Node Type": "Append",
+                                  "Parent Relationship": "Outer",
+                                  "Parallel Aware": true,
+                                  "Async Capable": false,
+                                  "Startup Cost": 578.93,
+                                  "Total Cost": 5390.2,
+                                  "Plan Rows": 16,
+                                  "Plan Width": 16,
+                                  "Disabled": false,
+                                  "Subplans Removed": 0,
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "customer",
+                                      "Alias": "c_1",
+                                      "Startup Cost": 1361.18,
+                                      "Total Cost": 1402.05,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Recheck Cond": "((f_vn_fold((short_name)::text) ~~ '%minh phat%'::text) AND (deleted_at IS NULL))",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "ix_customer_short_fold",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 1361.18,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(f_vn_fold((short_name)::text) ~~ '%minh phat%'::text)"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "customer",
+                                      "Alias": "c_2",
+                                      "Startup Cost": 578.93,
+                                      "Total Cost": 619.8,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Recheck Cond": "((f_vn_fold((name)::text) ~~ '%minh phat%'::text) AND (deleted_at IS NULL))",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "ix_customer_name_fold",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 578.93,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(f_vn_fold((name)::text) ~~ '%minh phat%'::text)"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "contact",
+                                      "Alias": "ct",
+                                      "Startup Cost": 175.28,
+                                      "Total Cost": 215.54,
+                                      "Plan Rows": 10,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Recheck Cond": "((f_vn_fold((full_name)::text) ~~ '%minh phat%'::text) AND (deleted_at IS NULL))",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "ix_contact_name_fold",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 175.28,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(f_vn_fold((full_name)::text) ~~ '%minh phat%'::text)"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "Node Type": "Seq Scan",
+                                      "Parent Relationship": "Member",
+                                      "Parallel Aware": true,
+                                      "Async Capable": false,
+                                      "Relation Name": "customer",
+                                      "Alias": "c_3",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 3988.06,
+                                      "Plan Rows": 6,
+                                      "Plan Width": 16,
+                                      "Disabled": false,
+                                      "Filter": "((deleted_at IS NULL) AND ((lower((code)::text) ~~ '%minh phat%'::text) OR ((tax_id)::text ~~ '%minh phat%'::text)))"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "Node Type": "Aggregate",
+                              "Strategy": "Plain",
+                              "Partial Mode": "Simple",
+                              "Parent Relationship": "SubPlan",
+                              "Subplan Name": "SubPlan 1",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Startup Cost": 12.76,
+                              "Total Cost": 12.77,
+                              "Plan Rows": 1,
+                              "Plan Width": 4,
+                              "Disabled": false,
+                              "Plans": [
+                                {
+                                  "Node Type": "Bitmap Heap Scan",
+                                  "Parent Relationship": "Outer",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "contact",
+                                  "Alias": "ct_1",
+                                  "Startup Cost": 4.43,
+                                  "Total Cost": 12.25,
+                                  "Plan Rows": 2,
+                                  "Plan Width": 18,
+                                  "Disabled": false,
+                                  "Recheck Cond": "(customer_id = c.id)",
+                                  "Filter": "(deleted_at IS NULL)",
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Index Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Index Name": "contact_customer_id_idx",
+                                      "Startup Cost": 0,
+                                      "Total Cost": 4.43,
+                                      "Plan Rows": 2,
+                                      "Plan Width": 0,
+                                      "Disabled": false,
+                                      "Index Cond": "(customer_id = c.id)"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "sql_page": "SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND TRUE AND c.owner_id = $1::uuid AND c.tier_id = $2::uuid AND c.id IN (SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.name) LIKE $3 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND public.f_vn_fold(c.short_name) LIKE $4 UNION ALL SELECT ct.customer_id AS id FROM contact ct WHERE ct.deleted_at IS NULL AND public.f_vn_fold(ct.full_name) LIKE $5 UNION ALL SELECT c.id FROM customer c WHERE c.deleted_at IS NULL AND (lower(c.code) LIKE $6 OR c.tax_id LIKE $7)) ORDER BY greatest(public.similarity(public.f_vn_fold(c.name), $8), coalesce(public.similarity(public.f_vn_fold(c.short_name), $9), 0), coalesce((SELECT max(public.similarity(public.f_vn_fold(ct.full_name), $10)) FROM contact ct WHERE ct.customer_id = c.id AND ct.deleted_at IS NULL), 0)) DESC, c.code DESC LIMIT $11::int OFFSET $12::int"
+          }
+        ],
+        "analyzeInTx": false
+      },
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 1,
+      "rollbackVerified": true
+    },
+    {
+      "group": "19 2 ký tự DEPARTMENT",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "20 sắp xếp tên tăng",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    },
+    {
+      "group": "21 relevance tăng",
+      "expectedStatus": "OK",
+      "actualStatus": "NOT_RUN",
+      "outcome": "NOT_RUN",
+      "ms": 0,
+      "fails": [],
+      "fingerprintEqual": true,
+      "lingeringSessions": 0,
+      "lingerWaitMs": 0,
+      "rollbackVerified": false
+    }
+  ],
+  "rollbackClean": true,
+  "scenarioTotalMs": 387693,
+  "haltReason": null,
+  "scenarioSummary": {
+    "fullSuite": false,
+    "planned": 5,
+    "pass": 1,
+    "fail": 4,
+    "skipped": 0,
+    "notRunByDesign": 18,
+    "neverReached": 0,
+    "note": "NOT_RUN không phải PASS; không nghiệm thu 23 nhóm"
+  },
+  "snapshotAfter": {
+    "perf_fingerprint": "758b21a08c74b2a4e0c27a11526dc681",
+    "perf_modified_rows": 0,
+    "customer": 50000,
+    "contact": 100000,
+    "lookup_item": 10,
+    "department": 2,
+    "employee": 3,
+    "audit_log": 0
+  },
+  "finishedAt": "2026-10-15T13:47:00.638Z",
+  "failures": [
+    "[S0b rollback khi timeout Prisma] lỗi timeout không nêu đúng giới hạn Prisma 3000 ms: (không có lỗi)",
+    "[S0b rollback khi timeout Prisma] trạng thái thực tế OK khác kỳ vọng TIMEOUT",
+    "[02 OWN A cumperf] bước \"V3_unionall_two_orig full\" STATEMENT_TIMEOUT sau 120167 ms: \nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`",
+    "[14 tên liên hệ OWN] bước \"V3_unionall_two_orig full\" STATEMENT_TIMEOUT sau 120171 ms: \nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`",
+    "[18 ownerId B + tier] bước \"V3_unionall_two_orig full\" STATEMENT_TIMEOUT sau 120066 ms: \nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`",
+    "Bài 6 KHÔNG đạt trọn vẹn: {\"fullSuite\":false,\"planned\":5,\"pass\":1,\"fail\":4,\"skipped\":0,\"notRunByDesign\":18,\"neverReached\":0,\"note\":\"NOT_RUN không phải PASS; không nghiệm thu 23 nhóm\"}",
+    "Bài 6 chưa hoàn thành hoặc có nhóm FAIL/SKIPPED: {\"fullSuite\":false,\"planned\":5,\"pass\":1,\"fail\":4,\"skipped\":0,\"notRunByDesign\":18,\"neverReached\":0,\"note\":\"NOT_RUN không phải PASS; không nghiệm thu 23 nhóm\"}"
+  ]
+}

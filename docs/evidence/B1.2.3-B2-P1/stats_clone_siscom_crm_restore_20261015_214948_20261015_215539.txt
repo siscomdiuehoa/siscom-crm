@@ -1,0 +1,60 @@
+﻿B1.2.3-B2 P1 bench db=siscom_crm_restore_20261015_214948 rounds=3 samples=15 variants= terms= at 2026-10-15T21:55:39.7274489+07:00
+Database thu: siscom_crm_restore_20261015_214948 | P1 r5-B StatsClone | GHI (commit) tren BAN SAO huy bo duoc; ANALYZE chi khi co -ApproveAnalyze (khong dung toi DB goc/siscom_crm_dev)
+DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.
+[DAT] Dung database thu: siscom_crm_restore_20261015_214948, schema B1.2 co mat, lich su migration dung.
+[DAT] Database la ban sao co nhan hop le cua siscom_crm_restore_20261014_214105. Script KHONG ket noi toi database goc.
+Chay: node jest --config ./test/jest-bench.json --runInBand (jest cuc bo, khong them dependency). Log: D:\SISCOM-CRM\backups\b123\stats_clone_siscom_crm_restore_20261015_214948_20261015_215539.txt
+  console.log
+    KẾT LUẬN r5-B: {
+     "14": {
+      "name": "tên liên hệ OWN",
+      "verdict": "STALE_ONLY: ANALYZE chưa được duyệt (-ApproveAnalyze); chỉ có bằng chứng kế hoạch cũ",
+      "staleReproduced": true,
+      "staleOwnerEstRows": 1,
+      "freshBadShape": null,
+      "v1Ms": null,
+      "v2Ms": null,
+      "v3Ms": null
+     },
+     "18": {
+      "name": "ownerId B + tier",
+      "verdict": "STALE_ONLY: ANALYZE chưa được duyệt (-ApproveAnalyze); chỉ có bằng chứng kế hoạch cũ",
+      "staleReproduced": true,
+      "staleOwnerEstRows": 1,
+      "freshBadShape": null,
+      "v1Ms": null,
+      "v2Ms": null,
+      "v3Ms": null
+     },
+     "02": {
+      "name": "OWN A cumperf",
+      "verdict": "STALE_ONLY: ANALYZE chưa được duyệt (-ApproveAnalyze); chỉ có bằng chứng kế hoạch cũ",
+      "staleReproduced": true,
+      "staleOwnerEstRows": 1,
+      "freshBadShape": null,
+      "v1Ms": null,
+      "v2Ms": null,
+      "v3Ms": null
+     }
+    }
+    Chưa có số đo thống kê mới (cần -ApproveAnalyze).
+
+      at Object.<anonymous> (perf/bench/stats-clone.bench-spec.ts:238:13)
+
+  console.log
+    Báo cáo r5-B: D:\SISCOM-CRM\backups\b123\stats_clone_2026-10-15T14-57-47-613Z.json
+
+      at Object.<anonymous> (perf/bench/stats-clone.bench-spec.ts:181:13)
+
+PASS test/perf/bench/stats-clone.bench-spec.ts (9.459 s)
+  B1.2.3-B2 P1 r5-B: V3 với thống kê mới trên bản sao
+    √ A. thống kê CŨ: pg_stats + kế hoạch (EXPLAIN không ANALYZE) của V1–V8 cho nhóm 02/14/18 (117 ms)
+    √ C. kết luận + kiểm tra phiên/fingerprint (kết quả đo, KHÔNG phải PASS/FAIL của V3) (120 ms)
+    ○ skipped B. ANALYZE customer (ngoài transaction, đã duyệt) + kế hoạch mới + thực thi V1–V8 (chỉ đọc, statement_timeout 120 s)
+System.Management.Automation.RemoteException
+Test Suites: 1 passed, 1 total
+Tests:       1 skipped, 2 passed, 3 total
+Snapshots:   0 total
+Time:        9.673 s
+Ran all test suites within paths "test/perf/bench/stats-clone.bench-spec.ts".
+[DAT] StatsClone thoat ma 0: phep do hop le. Doc KET LUAN trong log/stats_clone_*.json (ket luan V3 KHONG tu dong la DAT).

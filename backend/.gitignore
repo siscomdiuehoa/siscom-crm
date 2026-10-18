@@ -1,0 +1,14 @@
+node_modules
+dist
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.log
+src/generated
+check-env-result.txt
+db-backups
+*.dump
+*.sql.gz
+coverage
+.DS_Store

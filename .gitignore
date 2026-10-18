@@ -1,0 +1,46 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*secret*
+*credentials*
+
+# Dependencies and build artifacts
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+*.tsbuildinfo
+
+# Database and backups
+backups/
+*.sql
+*.dump
+*.backup
+*.bak
+*.sqlite
+*.sqlite3
+
+# Benchmark output and local logs
+perf-report/
+*.log
+logs/
+*.jsonl
+
+# Temporary and system files
+*.tmp
+*.temp
+*.zip
+*.7z
+*.rar
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

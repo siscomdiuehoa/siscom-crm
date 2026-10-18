@@ -1,0 +1,8 @@
+/* 8px grid (4px half-steps for dense controls) + layout constants */
+:root{
+--space-0:0;--space-0-5:2px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-7:28px;--space-8:32px;--space-10:40px;--space-12:48px;--space-16:64px;--space-20:80px;
+--control-h-sm:32px;--control-h-md:40px;--control-h-lg:48px;
+--sidebar-w:264px;--sidebar-w-collapsed:76px;--topbar-h:64px;--content-max:1600px;--page-gutter:24px;--card-pad:20px;--card-gap:16px;
+--table-row-h:52px;--table-row-h-compact:40px;
+--bp-sm:640px;/* @kind other */--bp-md:768px;/* @kind other */--bp-lg:1024px;/* @kind other */--bp-xl:1280px;/* @kind other */--bp-2xl:1536px;/* @kind other */
+}

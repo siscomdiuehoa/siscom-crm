@@ -1,0 +1,385 @@
+// SISCOM CRM — B1.2.1 rev.2 (da qua validate/generate tren may nguoi dung o rev.1; rev.2 CHUA kiem chung lai)
+// rev.2: updated_at co DEFAULT now(); bo @@index taxId/email (da co partial unique viet tay); tim kiem khong dau nam o HAND_SQL (chi muc bieu thuc, khong doi schema).
+// Dich: D:\SISCOM-CRM\backend\prisma\schema.prisma  (ghi de file B1.1)
+// Rang buoc ma Prisma khong mo ta duoc (partial unique, sequence, CHECK, trigger) nam o docs/B1.2.1_HAND_SQL.sql.
+// Quy uoc actor (created/updated/deleted/restored/assigned by): FK toi employee, onDelete Restrict, NULL = he thong/migration (xem B1.2.1_REVIEW.md muc 4).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────── B1.1 (giu nguyen) ─────────
+model AppMeta {
+  key       String   @id @db.VarChar(100)
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("app_meta")
+}
+
+// ───────── Enum (chi cho gia tri co logic co dinh; tier/status khach hang la LookupItem) ─────────
+enum ActivityType {
+  CALL
+  EMAIL
+  MEETING
+  SITE_SURVEY
+  NOTE
+
+  @@map("activity_type")
+}
+
+enum AssignmentRole {
+  OWNER
+  SUPPORT
+
+  @@map("assignment_role")
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  RESIGNED
+
+  @@map("employee_status")
+}
+
+enum PermissionScope {
+  ALL
+  DEPARTMENT
+  OWN
+
+  @@map("permission_scope")
+}
+
+// Doanh thu tam: ESTIMATED = du kien, DEMO = minh hoa B0. Khong co gia tri "thuc te" cho den khi co hop dong (B2).
+enum RevenueBasis {
+  ESTIMATED
+  DEMO
+
+  @@map("revenue_basis")
+}
+
+// ───────── Danh muc linh hoat ─────────
+// type: industry | source | province | customer_tier | customer_status (them loai moi khong can migration).
+// (type, code) la khoa on dinh, KHONG doi sau khi tao (trigger). Doi ten hien thi = sua label_vi; ngung dung = is_active=false; khong xoa khi con tham chieu (FK Restrict).
+model LookupItem {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type      String   @db.VarChar(30)
+  code      String   @db.VarChar(60)
+  labelVi   String   @map("label_vi") @db.VarChar(200)
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  isSystem  Boolean  @default(false) @map("is_system")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  industryOf Customer[] @relation("CustIndustry")
+  sourceOf   Customer[] @relation("CustSource")
+  provinceOf Customer[] @relation("CustProvince")
+  tierOf     Customer[] @relation("CustTier")
+  statusOf   Customer[] @relation("CustStatus")
+
+  @@unique([type, code])
+  @@index([type, isActive, sortOrder])
+  @@map("lookup_item")
+}
+
+// ───────── To chuc ─────────
+model Department {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique @db.VarChar(30)
+  name      String   @db.VarChar(200)
+  parentId  String?  @map("parent_id") @db.Uuid
+  headId    String?  @map("head_employee_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  parent    Department?  @relation("DeptTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  Department[] @relation("DeptTree")
+  head      Employee?    @relation("DeptHead", fields: [headId], references: [id], onDelete: Restrict)
+  employees Employee[]   @relation("EmployeeDept")
+
+  @@index([parentId])
+  @@map("department")
+}
+
+// Nhan vien: khong xoa cung (trigger). Nghi viec = status RESIGNED + deleted_at (xoa mem).
+model Employee {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String         @unique @default(dbgenerated("fn_next_employee_code()")) @db.VarChar(20)
+  fullName      String         @map("full_name") @db.VarChar(200)
+  email         String?        @db.VarChar(254)
+  phone         String?        @db.VarChar(40)
+  departmentId  String?        @map("department_id") @db.Uuid
+  positionTitle String?        @map("position_title") @db.VarChar(120)
+  managerId     String?        @map("manager_id") @db.Uuid
+  status        EmployeeStatus @default(ACTIVE)
+  hireDate      DateTime?      @map("hire_date") @db.Date
+  isDemo        Boolean        @default(false) @map("is_demo")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime?      @map("deleted_at") @db.Timestamptz(3)
+  deletedById   String?        @map("deleted_by") @db.Uuid
+
+  department Department? @relation("EmployeeDept", fields: [departmentId], references: [id], onDelete: Restrict)
+  manager    Employee?   @relation("EmpTree", fields: [managerId], references: [id], onDelete: Restrict)
+  reports    Employee[]  @relation("EmpTree")
+  deletedBy  Employee?   @relation("EmpDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+  deletedEmployees Employee[] @relation("EmpDeletedBy")
+  headOf     Department[] @relation("DeptHead")
+  roles      EmployeeRole[]
+
+  ownedCustomers     Customer[] @relation("CustomerOwner")
+  customersCreated   Customer[] @relation("CustomerCreatedBy")
+  customersUpdated   Customer[] @relation("CustomerUpdatedBy")
+  customersDeleted   Customer[] @relation("CustomerDeletedBy")
+  customersRestored  Customer[] @relation("CustomerRestoredBy")
+  contactsCreated    Contact[]  @relation("ContactCreatedBy")
+  contactsUpdated    Contact[]  @relation("ContactUpdatedBy")
+  contactsDeleted    Contact[]  @relation("ContactDeletedBy")
+  activitiesPerformed Activity[] @relation("ActivityPerformedBy")
+  activitiesCreated  Activity[] @relation("ActivityCreatedBy")
+  activitiesUpdated  Activity[] @relation("ActivityUpdatedBy")
+  activitiesDeleted  Activity[] @relation("ActivityDeletedBy")
+  assignments        CustomerAssignment[] @relation("AssignmentEmployee")
+  assignmentsMade    CustomerAssignment[] @relation("AssignmentAssignedBy")
+  auditEntries       AuditLog[]
+
+  @@index([departmentId])
+  @@index([managerId])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("employee")
+}
+
+// ───────── Vai tro & quyen (chi luu cau truc; thuc thi o B1.3) ─────────
+model Role {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String  @unique @db.VarChar(40)
+  name        String  @db.VarChar(120)
+  description String?
+  isSystem    Boolean @default(false) @map("is_system")
+  isConfirmed Boolean @default(false) @map("is_confirmed")
+
+  permissions RolePermission[]
+  employees   EmployeeRole[]
+
+  @@map("role")
+}
+
+model Permission {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String  @unique @db.VarChar(80)
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permission")
+}
+
+model RolePermission {
+  roleId       String          @map("role_id") @db.Uuid
+  permissionId String          @map("permission_id") @db.Uuid
+  scope        PermissionScope @default(ALL)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permission")
+}
+
+model EmployeeRole {
+  employeeId String   @map("employee_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  grantedAt  DateTime @default(now()) @map("granted_at") @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  role     Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([employeeId, roleId])
+  @@index([roleId])
+  @@map("employee_role")
+}
+
+// ───────── Khach hang ─────────
+model Customer {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String  @unique @default(dbgenerated("fn_next_customer_code()")) @db.VarChar(20)
+  name        String  @db.VarChar(300)
+  shortName   String? @map("short_name") @db.VarChar(120)
+  taxId       String? @map("tax_id") @db.VarChar(14)
+  industryId  String? @map("industry_id") @db.Uuid
+  sourceId    String? @map("source_id") @db.Uuid
+  provinceId  String? @map("province_id") @db.Uuid
+  tierId      String  @map("tier_id") @db.Uuid
+  statusId    String  @map("status_id") @db.Uuid
+  address     String?
+  phone       String  @db.VarChar(40)
+  phoneE164   String? @map("phone_e164") @db.VarChar(20)
+  email       String? @db.VarChar(254)
+  website     String? @db.VarChar(255)
+  ownerId     String? @map("owner_id") @db.Uuid
+  note        String?
+  tags        String[] @default([])
+
+  // Tam thoi, tuong thich B0. KHONG phai doanh thu thuc te; suy ra tu hop dong o B2.
+  revenueVnd   BigInt       @default(0) @map("revenue_vnd")
+  revenueBasis RevenueBasis @default(ESTIMATED) @map("revenue_basis")
+
+  isDemo      Boolean  @default(false) @map("is_demo")
+  version     Int      @default(1)
+  legacyId    String?  @unique @map("legacy_id") @db.VarChar(40)
+
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById  String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById  String?   @map("updated_by") @db.Uuid
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById  String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+  restoredAt   DateTime? @map("restored_at") @db.Timestamptz(3)
+  restoredById String?   @map("restored_by") @db.Uuid
+
+  industry   LookupItem? @relation("CustIndustry", fields: [industryId], references: [id], onDelete: Restrict)
+  source     LookupItem? @relation("CustSource", fields: [sourceId], references: [id], onDelete: Restrict)
+  province   LookupItem? @relation("CustProvince", fields: [provinceId], references: [id], onDelete: Restrict)
+  tier       LookupItem  @relation("CustTier", fields: [tierId], references: [id], onDelete: Restrict)
+  status     LookupItem  @relation("CustStatus", fields: [statusId], references: [id], onDelete: Restrict)
+  owner      Employee?   @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy  Employee?   @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy  Employee?   @relation("CustomerUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  deletedBy  Employee?   @relation("CustomerDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+  restoredBy Employee?   @relation("CustomerRestoredBy", fields: [restoredById], references: [id], onDelete: Restrict)
+
+  contacts    Contact[]
+  activities  Activity[]
+  assignments CustomerAssignment[]
+
+  @@index([ownerId])
+  @@index([tierId])
+  @@index([statusId])
+  @@index([industryId])
+  @@index([provinceId])
+  @@index([deletedAt])
+  @@index([phoneE164])
+  @@map("customer")
+}
+
+model Contact {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code       String  @unique @default(dbgenerated("fn_next_contact_code()")) @db.VarChar(20)
+  customerId String  @map("customer_id") @db.Uuid
+  fullName   String  @map("full_name") @db.VarChar(200)
+  title      String? @db.VarChar(120)
+  phone      String? @db.VarChar(40)
+  email      String? @db.VarChar(254)
+  isPrimary  Boolean @default(false) @map("is_primary")
+  note       String?
+  isDemo     Boolean @default(false) @map("is_demo")
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById String?   @map("created_by") @db.Uuid
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById String?   @map("updated_by") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById String?   @map("deleted_by") @db.Uuid
+
+  customer  Customer   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy Employee?  @relation("ContactCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy Employee?  @relation("ContactUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  deletedBy Employee?  @relation("ContactDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+  activities Activity[]
+
+  @@index([customerId])
+  @@index([deletedAt])
+  @@map("contact")
+}
+
+// ───────── Tuong tac (TT-xxxxxx) ─────────
+model Activity {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String       @unique @default(dbgenerated("fn_next_activity_code()")) @db.VarChar(20)
+  customerId    String       @map("customer_id") @db.Uuid
+  contactId     String?      @map("contact_id") @db.Uuid
+  type          ActivityType
+  occurredAt    DateTime     @map("occurred_at") @db.Timestamptz(3)
+  content       String
+  outcome       String?
+  nextActionAt  DateTime?    @map("next_action_at") @db.Timestamptz(3)
+  performedById String?      @map("performed_by") @db.Uuid
+  isDemo        Boolean      @default(false) @map("is_demo")
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById String?   @map("created_by") @db.Uuid
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById String?   @map("updated_by") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById String?   @map("deleted_by") @db.Uuid
+
+  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contact     Contact?  @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  performedBy Employee? @relation("ActivityPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  createdBy   Employee? @relation("ActivityCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy   Employee? @relation("ActivityUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  deletedBy   Employee? @relation("ActivityDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+
+  @@index([customerId, occurredAt(sort: Desc)])
+  @@index([nextActionAt])
+  @@index([performedById])
+  @@index([contactId])
+  @@map("activity")
+}
+
+// ───────── Phan cong (lich su). Partial unique "1 OWNER dang hieu luc / khach hang" o HAND_SQL ─────────
+model CustomerAssignment {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId   String         @map("customer_id") @db.Uuid
+  employeeId   String         @map("employee_id") @db.Uuid
+  role         AssignmentRole @default(OWNER)
+  assignedAt   DateTime       @default(now()) @map("assigned_at") @db.Timestamptz(3)
+  assignedById String?        @map("assigned_by") @db.Uuid
+  endedAt      DateTime?      @map("ended_at") @db.Timestamptz(3)
+  reason       String?
+
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  employee   Employee  @relation("AssignmentEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  assignedBy Employee? @relation("AssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@index([customerId])
+  @@index([employeeId])
+  @@map("customer_assignment")
+}
+
+// ───────── Nhat ky (chi them; trigger chan UPDATE/DELETE/TRUNCATE o HAND_SQL) ─────────
+// id BigInt: API phai tra ve dang chuoi khi serialize JSON.
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  actorType  String   @default("USER") @map("actor_type") @db.VarChar(12)
+  actorId    String?  @map("actor_employee_id") @db.Uuid
+  actorRole  String?  @map("actor_role") @db.VarChar(40)
+  action     String   @db.VarChar(40)
+  entityType String   @map("entity_type") @db.VarChar(40)
+  entityId   String?  @map("entity_id") @db.Uuid
+  entityCode String?  @map("entity_code") @db.VarChar(40)
+  summary    String?
+  changes    Json?
+  requestId  String?  @map("request_id") @db.VarChar(64)
+
+  actor Employee? @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId])
+  @@index([entityType, entityCode])
+  @@index([occurredAt])
+  @@index([actorId])
+  @@map("audit_log")
+}
