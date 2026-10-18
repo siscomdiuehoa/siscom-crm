@@ -20,6 +20,12 @@ coverage/
 # Database and backups
 backups/
 *.sql
+
+# Track Prisma migrations, but continue ignoring other SQL files
+!/backend/prisma/migrations/
+!/backend/prisma/migrations/**/
+!/backend/prisma/migrations/**/migration.sql
+
 *.dump
 *.backup
 *.bak
