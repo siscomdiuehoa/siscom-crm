@@ -1,0 +1,115 @@
+name: CI
+
+# Kiem tra thiet yeu cho moi Pull Request. KHONG dung PostgreSQL, KHONG chay migration/seed/reset/restore, KHONG chay benchmark/integration.
+# Moi PR chay dung mot lan (su kien pull_request); sau khi merge, chay lai tren main (push). Huy lan chay cu khi co commit moi.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  NODE_ENV: test
+
+jobs:
+  backend:
+    name: Backend (build, tsc, unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Chi de `prisma generate` doc duoc prisma.config.ts. KHONG ket noi: cong 1, khong mat khau, khong phai database that.
+      DATABASE_URL: postgresql://ci_placeholder@127.0.0.1:1/ci_placeholder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Bao dam npm 11.x (backend khai bao engines npm >=11.6, engine-strict)
+        run: npm install -g npm@11
+      - name: Phien ban
+        run: |
+          node -v
+          npm -v
+      - name: Cai dependency (npm ci)
+        run: npm ci
+      - name: Build (prisma generate + nest build + kiem tra dist/main.js)
+        run: npm run build
+      - name: Kiem tra kieu TypeScript (gom ca test)
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Unit test
+        run: npm run test:unit
+
+  frontend:
+    name: Frontend (build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend/siscom-crm-web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/siscom-crm-web/package-lock.json
+      - name: Phien ban
+        run: |
+          node -v
+          npm -v
+      - name: Cai dependency (npm ci)
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  secret-scan:
+    name: Quet bi mat (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Cai gitleaks (ghim phien ban, kiem tra SHA-256)
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o gitleaks.tar.gz
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks version
+      - name: Quet lich su Git (an gia tri bi mat trong log)
+        run: ./gitleaks git --config .gitleaks.toml --redact --no-banner --verbose .
+
+  ci-gate:
+    name: CI gate
+    if: ${{ always() }}
+    needs: [backend, frontend, secret-scan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Tat ca kiem tra bat buoc phai dat
+        run: |
+          echo "backend=${{ needs.backend.result }} frontend=${{ needs.frontend.result }} secret-scan=${{ needs.secret-scan.result }}"
+          test "${{ needs.backend.result }}" = "success"
+          test "${{ needs.frontend.result }}" = "success"
+          test "${{ needs.secret-scan.result }}" = "success"
