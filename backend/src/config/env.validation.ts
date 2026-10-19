@@ -54,7 +54,78 @@ export function validateEnv(raw: Record<string, unknown>): Record<string, unknow
   const level = (str('LOG_LEVEL') || 'log').toLowerCase();
   if (!LEVELS[level]) errors.push('LOG_LEVEL phải là error, warn, log, debug hoặc verbose');
 
+  const auth = validateAuthEnv(str, nodeEnv, corsList, errors);
+
   if (errors.length) throw new Error('Cấu hình không hợp lệ:\n - ' + errors.join('\n - '));
 
-  return { ...raw, NODE_ENV: nodeEnv, HOST: host, PORT: port, DATABASE_URL: dbUrl, CORS_ORIGIN_LIST: corsList, LOG_LEVELS: LEVELS[level] };
+  return { ...raw, NODE_ENV: nodeEnv, HOST: host, PORT: port, DATABASE_URL: dbUrl, CORS_ORIGIN_LIST: corsList, LOG_LEVELS: LEVELS[level], ...auth };
+}
+
+// B1.3.2-A: JWT_ACCESS_SECRET chưa bắt buộc (module auth chưa bật). Gói C đổi thành true khi nhập AuthApiModule.
+const AUTH_SECRET_REQUIRED = false;
+const MIN_SECRET_BYTES = 32;
+
+// Bien moi truong cho xac thuc (B1.3.1_FINAL_DESIGN). Chỉ kiểm tra khi có khai báo; mặc định an toàn. Không in giá trị.
+function validateAuthEnv(str: (k: string) => string, nodeEnv: string, corsList: string[], errors: string[]): Record<string, unknown> {
+  const intIn = (k: string, def: number, min: number, max: number): number => {
+    const v = str(k);
+    const n = v ? Number(v) : def;
+    if (!Number.isInteger(n) || n < min || n > max) errors.push(`${k} phải là số nguyên từ ${min} đến ${max}`);
+    return n;
+  };
+  const secretOk = (k: string, v: string): boolean => {
+    if (Buffer.byteLength(v, 'utf8') < MIN_SECRET_BYTES) { errors.push(`${k} phải dài tối thiểu ${MIN_SECRET_BYTES} byte`); return false; }
+    if (v.includes('CHANGE_ME')) { errors.push(`${k} vẫn là giá trị mẫu; hãy sinh khóa ngẫu nhiên`); return false; }
+    return true;
+  };
+
+  const secret = str('JWT_ACCESS_SECRET');
+  const secretPrev = str('JWT_ACCESS_SECRET_PREV');
+  if (!secret) {
+    if (AUTH_SECRET_REQUIRED) errors.push('Thiếu JWT_ACCESS_SECRET');
+    if (secretPrev) errors.push('JWT_ACCESS_SECRET_PREV chỉ dùng khi đã có JWT_ACCESS_SECRET');
+  } else {
+    secretOk('JWT_ACCESS_SECRET', secret);
+    if (secretPrev && secretOk('JWT_ACCESS_SECRET_PREV', secretPrev) && secretPrev === secret) errors.push('JWT_ACCESS_SECRET_PREV phải khác JWT_ACCESS_SECRET');
+  }
+
+  const accessTtl = intIn('ACCESS_TTL_SECONDS', 600, 60, 3600);
+  const idleDays = intIn('REFRESH_IDLE_DAYS', 7, 1, 30);
+  const absDays = intIn('REFRESH_ABS_DAYS', 30, 1, 90);
+  if (idleDays > absDays) errors.push('REFRESH_IDLE_DAYS không được lớn hơn REFRESH_ABS_DAYS');
+
+  const cookieRaw = (str('COOKIE_SECURE') || 'true').toLowerCase();
+  if (cookieRaw !== 'true' && cookieRaw !== 'false') errors.push('COOKIE_SECURE phải là true hoặc false');
+  if (nodeEnv === 'production' && cookieRaw === 'false') errors.push('Môi trường production không được đặt COOKIE_SECURE=false');
+
+  // Mặc định trùng CORS_ORIGINS (proxy cùng origin, D7).
+  const originsRaw = str('AUTH_ALLOWED_ORIGINS');
+  const origins = originsRaw ? originsRaw.split(',').map((s) => s.trim()).filter(Boolean) : corsList;
+  for (const o of origins) {
+    if (o === '*') { errors.push('AUTH_ALLOWED_ORIGINS không được dùng *'); continue; }
+    try {
+      const u = new URL(o);
+      if ((u.protocol !== 'http:' && u.protocol !== 'https:') || u.pathname !== '/') errors.push('AUTH_ALLOWED_ORIGINS có giá trị sai định dạng (cần dạng http://host:cổng, không có đường dẫn)');
+    } catch {
+      errors.push('AUTH_ALLOWED_ORIGINS có giá trị không phải URL hợp lệ');
+    }
+  }
+
+  // Không nhận "true" (tin mọi proxy => giả mạo IP, vô hiệu throttle). Chỉ false, loopback hoặc số hop 1..5.
+  const proxyRaw = (str('TRUST_PROXY') || 'false').toLowerCase();
+  let trustProxy: false | 'loopback' | number = false;
+  if (proxyRaw === 'loopback') trustProxy = 'loopback';
+  else if (/^[1-5]$/.test(proxyRaw)) trustProxy = Number(proxyRaw);
+  else if (proxyRaw !== 'false') errors.push('TRUST_PROXY phải là false, loopback hoặc số nguyên từ 1 đến 5');
+
+  return {
+    JWT_ACCESS_SECRET: secret || undefined,
+    JWT_ACCESS_SECRET_PREV: secretPrev || undefined,
+    ACCESS_TTL_SECONDS: accessTtl,
+    REFRESH_IDLE_DAYS: idleDays,
+    REFRESH_ABS_DAYS: absDays,
+    COOKIE_SECURE: cookieRaw !== 'false',
+    AUTH_ALLOWED_ORIGIN_LIST: origins,
+    TRUST_PROXY: trustProxy,
+  };
 }
