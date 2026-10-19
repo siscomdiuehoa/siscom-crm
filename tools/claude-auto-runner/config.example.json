@@ -7,6 +7,6 @@
   "githubPollSeconds": 15,
   "port": 45871,
   "claudeCommand": "claude",
-  "claudeArgs": ["-p", "{prompt}"],
+  "claudeArgs": ["-p", "{prompt}", "--permission-mode", "auto"],
   "maxTaskMinutes": 30
 }
