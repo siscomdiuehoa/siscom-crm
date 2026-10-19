@@ -4,6 +4,8 @@ $Tool = Join-Path $Repo "tools\claude-auto-runner\runner.mjs"
 $Local = Join-Path $env:LOCALAPPDATA "SISCOM-ClaudeRunner"
 $Config = Join-Path $Local "config.json"
 $TaskName = "SISCOM-Claude-AutoRunner"
+$StartupDir = [Environment]::GetFolderPath("Startup")
+$StartupCmd = Join-Path $StartupDir "SISCOM-Claude-AutoRunner.cmd"
 Write-Host "SISCOM Claude Auto-Runner installer" -ForegroundColor Cyan
 
 function Find-ClaudeExe {
@@ -39,12 +41,10 @@ Write-Host ("[OK] claude -> "+$claudeExe) -ForegroundColor Green
 & $ghCmd.Source auth status
 if ($LASTEXITCODE -ne 0) { throw "gh chua dang nhap." }
 
-# Test Claude auth. Neu chua login, installer dung lai va huong dan 1 lan duy nhat.
 $smoke = & $claudeExe -p "Chi tra loi dung mot tu: OK" 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0 -or $smoke -match "Not logged in|Please run /login") {
   Write-Host ""
   Write-Host "Claude Code CLI chua dang nhap." -ForegroundColor Yellow
-  Write-Host "Chi can dang nhap 1 lan: installer se mo Claude Code ngay bay gio." -ForegroundColor Yellow
   Write-Host "Trong cua so Claude Code, go /login va hoan tat dang nhap, sau do chay lai installer." -ForegroundColor Yellow
   & $claudeExe
   exit 3
@@ -60,13 +60,32 @@ $cfg=@{
 Set-Content -LiteralPath $Config -Value $cfg -Encoding UTF8
 Write-Host ("[OK] Config -> "+$Config) -ForegroundColor Green
 
-$action=New-ScheduledTaskAction -Execute $nodeCmd.Source -Argument ('"'+$Tool+'"') -WorkingDirectory $Repo
-$trigger=New-ScheduledTaskTrigger -AtLogOn
-$principal=New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-$settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 7)
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Start-ScheduledTask -TaskName $TaskName
+$startupLine = '@echo off' + [Environment]::NewLine +
+  'cd /d "' + $Repo + '"' + [Environment]::NewLine +
+  'start "" /min "' + $nodeCmd.Source + '" "' + $Tool + '"' + [Environment]::NewLine
+Set-Content -LiteralPath $StartupCmd -Value $startupLine -Encoding ASCII
+Write-Host ("[OK] Startup fallback -> "+$StartupCmd) -ForegroundColor Green
+
+$registered = $false
+try {
+  $action=New-ScheduledTaskAction -Execute $nodeCmd.Source -Argument ('"'+$Tool+'"') -WorkingDirectory $Repo
+  $trigger=New-ScheduledTaskTrigger -AtLogOn
+  $principal=New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+  $settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 7)
+  Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+  Start-ScheduledTask -TaskName $TaskName
+  $registered = $true
+  Write-Host ("[OK] Scheduled Task: "+$TaskName) -ForegroundColor Green
+} catch {
+  Write-Host "[WARN] Khong dang ky duoc Scheduled Task. Dung Startup folder thay the, khong can Administrator." -ForegroundColor Yellow
+}
+
+$existing = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like "*claude-auto-runner\runner.mjs*" }
+if (-not $existing) {
+  Start-Process -FilePath $nodeCmd.Source -ArgumentList @($Tool) -WorkingDirectory $Repo -WindowStyle Hidden
+}
 Start-Sleep -Seconds 2
-Write-Host ("[OK] Scheduled Task: "+$TaskName) -ForegroundColor Green
+Write-Host "[OK] Auto-Runner dang chay." -ForegroundColor Green
 Write-Host "Dashboard: http://127.0.0.1:45871" -ForegroundColor Cyan
 Start-Process "http://127.0.0.1:45871"
