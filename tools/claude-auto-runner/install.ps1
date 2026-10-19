@@ -57,7 +57,7 @@ $cfg=@{
   claudeCommand=$claudeExe;ghCommand=$ghCmd.Source;gitCommand=$gitCmd.Source;
   claudeArgs=@("-p","{prompt}");maxTaskMinutes=30
 } | ConvertTo-Json -Depth 4
-Set-Content -LiteralPath $Config -Value $cfg -Encoding UTF8
+[System.IO.File]::WriteAllText($Config, $cfg, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host ("[OK] Config -> "+$Config) -ForegroundColor Green
 
 $startupLine = '@echo off' + [Environment]::NewLine +
@@ -83,9 +83,24 @@ try {
 $existing = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
   Where-Object { $_.CommandLine -like "*claude-auto-runner\runner.mjs*" }
 if (-not $existing) {
-  Start-Process -FilePath $nodeCmd.Source -ArgumentList @($Tool) -WorkingDirectory $Repo -WindowStyle Hidden
+  $OutLog = Join-Path $Local "runner.out.log"
+  $ErrLog = Join-Path $Local "runner.err.log"
+  Start-Process -FilePath $nodeCmd.Source -ArgumentList @($Tool) -WorkingDirectory $Repo -WindowStyle Hidden -RedirectStandardOutput $OutLog -RedirectStandardError $ErrLog
 }
-Start-Sleep -Seconds 2
-Write-Host "[OK] Auto-Runner dang chay." -ForegroundColor Green
+$healthy = $false
+for($i=0; $i -lt 10; $i++){
+  Start-Sleep -Seconds 1
+  try {
+    $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:45871/api/status" -TimeoutSec 2
+    if($r.StatusCode -eq 200){$healthy=$true;break}
+  } catch {}
+}
+if(-not $healthy){
+  Write-Host "[ERROR] Auto-Runner chua mo duoc cong 45871." -ForegroundColor Red
+  $ErrLog = Join-Path $Local "runner.err.log"
+  if(Test-Path $ErrLog){ Get-Content -LiteralPath $ErrLog -Tail 20 }
+  throw "Auto-Runner health check failed."
+}
+Write-Host "[OK] Auto-Runner dang chay va health check PASS." -ForegroundColor Green
 Write-Host "Dashboard: http://127.0.0.1:45871" -ForegroundColor Cyan
 Start-Process "http://127.0.0.1:45871"

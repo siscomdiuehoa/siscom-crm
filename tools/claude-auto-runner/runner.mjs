@@ -9,9 +9,10 @@ const configPath=path.join(appDir,"config.json");
 const statePath=path.join(appDir,"state.json");
 fs.mkdirSync(appDir,{recursive:true});
 if(!fs.existsSync(configPath)){console.error("Missing config: "+configPath);process.exit(2)}
-const cfg=JSON.parse(fs.readFileSync(configPath,"utf8"));
+function readJson(p){const raw=fs.readFileSync(p,"utf8").replace(/^\\uFEFF/,"");return JSON.parse(raw)}
+const cfg=readJson(configPath);
 const dashboardPath=path.join(cfg.repoPath,"tools","claude-auto-runner","dashboard.html");
-const state=fs.existsSync(statePath)?JSON.parse(fs.readFileSync(statePath,"utf8")):{processed:[],claude:{state:"idle",task:""},git:{},github:{},approval:{needed:false,message:""},timeline:[]};
+const state=fs.existsSync(statePath)?readJson(statePath):{processed:[],claude:{state:"idle",task:""},git:{},github:{},approval:{needed:false,message:""},timeline:[]};
 const clients=new Set();
 let activeTask=false;
 const now=()=>new Date().toISOString();
