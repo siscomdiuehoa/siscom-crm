@@ -41,7 +41,7 @@ Write-Host ("[OK] claude -> "+$claudeExe) -ForegroundColor Green
 & $ghCmd.Source auth status
 if ($LASTEXITCODE -ne 0) { throw "gh chua dang nhap." }
 
-$smoke = & $claudeExe -p "Chi tra loi dung mot tu: OK" 2>&1 | Out-String
+$smoke = & $claudeExe -p "Chi tra loi dung mot tu: OK" --permission-mode auto 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0 -or $smoke -match "Not logged in|Please run /login") {
   Write-Host ""
   Write-Host "Claude Code CLI chua dang nhap." -ForegroundColor Yellow
@@ -55,7 +55,7 @@ New-Item -ItemType Directory -Force -Path $Local | Out-Null
 $cfg=@{
   repo="siscomdiuehoa/siscom-crm";repoPath=$Repo;queueIssue=8;trustedLogin="siscomdiuehoa";pollSeconds=10;githubPollSeconds=15;port=45871;
   claudeCommand=$claudeExe;ghCommand=$ghCmd.Source;gitCommand=$gitCmd.Source;
-  claudeArgs=@("-p","{prompt}");maxTaskMinutes=30
+  claudeArgs=@("-p","{prompt}","--permission-mode","auto");maxTaskMinutes=30
 } | ConvertTo-Json -Depth 4
 [System.IO.File]::WriteAllText($Config, $cfg, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host ("[OK] Config -> "+$Config) -ForegroundColor Green
