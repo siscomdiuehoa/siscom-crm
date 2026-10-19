@@ -1,0 +1,12 @@
+{
+  "repo": "siscomdiuehoa/siscom-crm",
+  "repoPath": "D:\\SISCOM-CRM",
+  "queueIssue": 8,
+  "trustedLogin": "siscomdiuehoa",
+  "pollSeconds": 10,
+  "githubPollSeconds": 15,
+  "port": 45871,
+  "claudeCommand": "claude",
+  "claudeArgs": ["-p", "{prompt}"],
+  "maxTaskMinutes": 30
+}
