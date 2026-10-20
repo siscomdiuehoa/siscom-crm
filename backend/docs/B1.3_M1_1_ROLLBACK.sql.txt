@@ -1,0 +1,45 @@
+-- SISCOM CRM - ROLLBACK B1.3 M1.1 (20261020120000_b1_3_auth_m1_1_guards). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_M1_1_ROLLBACK.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) - qua scripts\windows\auth-m11-verify.bat -Step rollback.
+-- Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu + kiem tra khoi phuc.
+-- THU TU: rollback M1.1 TRUOC, roi moi den B1.3_M1_ROLLBACK.sql.txt (M1). Rollback M1 khi M1.1 con se tu choi (con ham fn_auth_* la) - fail-closed.
+-- Tu choi neu da co app_meta.auth_bootstrap_done (= da khoi tao xac thuc; go M1.1 luc do la ha bao ve S4/S5).
+-- Lam trong 1 transaction: go 2 trigger -> xoa 2 ham -> xoa dong _prisma_migrations cua M1.1. KHONG dong toi du lieu va doi tuong cua M1.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback M1.1.', current_database();
+  END IF;
+  IF to_regprocedure('public.fn_auth_employee_status_guard()') IS NULL AND to_regprocedure('public.fn_pcr_exec_guard()') IS NULL THEN
+    RAISE EXCEPTION 'M1.1 chua duoc ap. Khong co gi de rollback.';
+  END IF;
+  IF to_regclass('public.app_meta') IS NOT NULL AND EXISTS (SELECT 1 FROM public.app_meta WHERE key = 'auth_bootstrap_done') THEN
+    RAISE EXCEPTION 'TU CHOI: da co app_meta.auth_bootstrap_done (da khoi tao xac thuc).';
+  END IF;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_pcr_exec_guard        ON public.privileged_change_request;
+DROP TRIGGER IF EXISTS trg_employee_status_guard ON public.employee;
+DROP FUNCTION IF EXISTS public.fn_pcr_exec_guard();
+DROP FUNCTION IF EXISTS public.fn_auth_employee_status_guard();
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261020120000_b1_3_auth_m1_1_guards';
+
+CREATE TEMP VIEW v_m11_left AS SELECT
+  (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+     AND p.proname IN ('fn_auth_employee_status_guard', 'fn_pcr_exec_guard')) AS ham_con,
+  (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_employee_status_guard', 'trg_pcr_exec_guard')) AS trigger_con,
+  (SELECT count(*) FROM public._prisma_migrations WHERE migration_name = '20261020120000_b1_3_auth_m1_1_guards') AS lich_su_con;
+SELECT * FROM v_m11_left;
+DO $$ BEGIN
+  IF (SELECT ham_con + trigger_con + lich_su_con FROM v_m11_left) <> 0 THEN
+    RAISE EXCEPTION 'Rollback M1.1 chua sach. Huy transaction.';
+  END IF;
+END $$;
+DROP VIEW v_m11_left;
+COMMIT;
+SELECT 'ROLLBACK M1.1 XONG' AS ket_qua;
