@@ -1,0 +1,111 @@
+-- SISCOM CRM - B1.3 S1/S2/S3: kiem thu QUYEN sau tach role. CHI CHAY TREN BAN SAO THU sau B1.3_S1_ROLE_SPLIT + B1.3_S1_APP_GRANTS.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_S1_PRIVILEGE_TESTS.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- Chay bang SUPERUSER (postgres) de SET ROLE sang siscom_app / siscom_migrator. Qua: scripts\windows\auth-s1s3-verify.bat -Step privs.
+-- Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai gi). Moi ca "bi chan" kiem SQLSTATE 42501 (khong du quyen / khong phai chu so huu).
+-- Ky vong: cuoi file bao 0 dong FAIL. CHUA CHAY - ket qua that do nguoi dung cung cap.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN RAISE EXCEPTION 'Can chay bang superuser (de SET ROLE).'; END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'Chua tach role (chu so huu database khong phai siscom_migrator).';
+  END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text);
+-- Chay p_stmt duoi vai p_role (SET LOCAL ROLE trong khoi con; loi => khoi con huy, vai tro tu tro ve superuser).
+CREATE FUNCTION pg_temp.as_err(p_role text, p_label text, p_stmt text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', p_role);
+    EXECUTE p_stmt;
+    EXECUTE 'RESET ROLE';
+    INSERT INTO res VALUES (false, p_role || ': ' || p_label || ' - KHONG bi chan');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = p_state THEN INSERT INTO res VALUES (true, p_role || ': ' || p_label);
+    ELSE INSERT INTO res VALUES (false, p_role || ': ' || p_label || ' - SQLSTATE ' || SQLSTATE || ' (' || SQLERRM || '), can ' || p_state); END IF;
+  END;
+END $$;
+CREATE FUNCTION pg_temp.as_ok(p_role text, p_label text, p_stmt text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', p_role);
+    EXECUTE p_stmt;
+    EXECUTE 'RESET ROLE';
+    INSERT INTO res VALUES (true, p_role || ': ' || p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_role || ': ' || p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_expr text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE r boolean;
+BEGIN
+  BEGIN EXECUTE 'SELECT (' || p_expr || ')' INTO r; INSERT INTO res VALUES (r IS TRUE, p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+
+-- 1. Role va chu so huu (catalog)
+SELECT pg_temp.expect_true('DB thuoc siscom_migrator', $q$ (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) = 'siscom_migrator' $q$);
+SELECT pg_temp.expect_true('khong con doi tuong (ngoai extension) thuoc siscom_app', $q$ NOT EXISTS (SELECT 1 FROM pg_shdepend d WHERE d.dbid = (SELECT oid FROM pg_database WHERE datname = current_database()) AND d.refclassid = 'pg_authid'::regclass AND d.refobjid = (SELECT oid FROM pg_roles WHERE rolname = 'siscom_app') AND d.deptype = 'o' AND d.classid <> 'pg_extension'::regclass) $q$);
+SELECT pg_temp.expect_true('moi bang public thuoc siscom_migrator', $q$ NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'S', 'v', 'm') AND pg_get_userbyid(c.relowner) <> 'siscom_migrator') $q$);
+SELECT pg_temp.expect_true('3 role khong co thuoc tinh dac quyen', $q$ (SELECT count(*) FROM pg_roles WHERE rolname IN ('siscom_app', 'siscom_migrator', 'siscom_auth_rt') AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolbypassrls AND NOT rolreplication) = 3 $q$);
+SELECT pg_temp.expect_true('siscom_auth_rt khong LOGIN; siscom_app khong la thanh vien siscom_migrator', $q$ NOT (SELECT rolcanlogin FROM pg_roles WHERE rolname = 'siscom_auth_rt') AND NOT pg_has_role('siscom_app', 'siscom_migrator', 'MEMBER') $q$);
+SELECT pg_temp.expect_true('siscom_app/PUBLIC khong CREATE tren schema public va database', $q$ NOT has_schema_privilege('siscom_app', 'public', 'CREATE') AND NOT has_schema_privilege('public', 'public', 'CREATE') AND NOT has_database_privilege('siscom_app', current_database(), 'CREATE') $q$);
+SELECT pg_temp.expect_true('siscom_app khong SET duoc session_replication_role', $q$ NOT has_parameter_privilege('siscom_app', 'session_replication_role', 'SET') $q$);
+
+-- 2. Quyen bang/cot (catalog)
+SELECT pg_temp.expect_true('app: khong ghi employee_role/role_permission/role/permission/app_meta', $q$ NOT has_table_privilege('siscom_app', 'public.employee_role', 'INSERT, UPDATE, DELETE, TRUNCATE') AND NOT has_table_privilege('siscom_app', 'public.role_permission', 'INSERT, UPDATE, DELETE, TRUNCATE') AND NOT has_table_privilege('siscom_app', 'public.role', 'INSERT, UPDATE, DELETE, TRUNCATE') AND NOT has_table_privilege('siscom_app', 'public.permission', 'INSERT, UPDATE, DELETE, TRUNCATE') AND NOT has_table_privilege('siscom_app', 'public.app_meta', 'INSERT, UPDATE, DELETE, TRUNCATE') $q$);
+SELECT pg_temp.expect_true('app: khong ghi privileged_change_request; khong dong vao password_reset_token, _prisma_migrations', $q$ NOT has_table_privilege('siscom_app', 'public.privileged_change_request', 'INSERT, UPDATE, DELETE, TRUNCATE') AND NOT has_table_privilege('siscom_app', 'public.password_reset_token', 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE') AND NOT has_table_privilege('siscom_app', 'public._prisma_migrations', 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE') $q$);
+SELECT pg_temp.expect_true('app: credential khong INSERT/DELETE; khong UPDATE cot bi mat/trang thai', $q$ NOT has_table_privilege('siscom_app', 'public.employee_credential', 'INSERT, DELETE, TRUNCATE') AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'password_hash', 'UPDATE') AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'password_algo', 'UPDATE') AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'password_params', 'UPDATE') AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'status', 'UPDATE') AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'must_change_password', 'UPDATE') AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'password_changed_at', 'UPDATE') AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'employee_id', 'UPDATE') $q$);
+SELECT pg_temp.expect_true('app: credential UPDATE duoc cot dem dang nhap + token_version', $q$ has_column_privilege('siscom_app', 'public.employee_credential', 'failed_count', 'UPDATE') AND has_column_privilege('siscom_app', 'public.employee_credential', 'locked_until', 'UPDATE') AND has_column_privilege('siscom_app', 'public.employee_credential', 'token_version', 'UPDATE') AND has_column_privilege('siscom_app', 'public.employee_credential', 'updated_at', 'UPDATE') $q$);
+SELECT pg_temp.expect_true('app: audit_log chi SELECT/INSERT', $q$ has_table_privilege('siscom_app', 'public.audit_log', 'SELECT') AND has_table_privilege('siscom_app', 'public.audit_log', 'INSERT') AND NOT has_table_privilege('siscom_app', 'public.audit_log', 'UPDATE, DELETE, TRUNCATE') $q$);
+SELECT pg_temp.expect_true('app: bang nghiep vu SELECT/INSERT/UPDATE/DELETE; auth_session day du', $q$ has_table_privilege('siscom_app', 'public.customer', 'SELECT') AND has_table_privilege('siscom_app', 'public.customer', 'INSERT') AND has_table_privilege('siscom_app', 'public.customer', 'UPDATE') AND has_table_privilege('siscom_app', 'public.contact', 'DELETE') AND has_table_privilege('siscom_app', 'public.auth_session', 'INSERT') AND has_table_privilege('siscom_app', 'public.auth_session', 'UPDATE') $q$);
+SELECT pg_temp.expect_true('app: khong co TRUNCATE/REFERENCES/TRIGGER tren bang nao', $q$ NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r' AND has_table_privilege('siscom_app', c.oid, 'TRUNCATE, REFERENCES, TRIGGER')) $q$);
+
+-- 3. Quyen ham (catalog)
+SELECT pg_temp.expect_true('app EXECUTE 11 ham API (qua siscom_auth_rt)', $q$ (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'fn\_auth\_api\_%' AND p.prosecdef AND has_function_privilege('siscom_app', p.oid, 'EXECUTE')) = 11 $q$);
+SELECT pg_temp.expect_true('app KHONG EXECUTE ham noi bo va dong khoi tao', $q$ NOT has_function_privilege('siscom_app', 'public.fn_auth_bootstrap_close(text)', 'EXECUTE') AND NOT has_function_privilege('siscom_app', 'public.fn_auth_api_actor(uuid, text)', 'EXECUTE') AND NOT has_function_privilege('siscom_app', 'public.fn_auth_api_audit(text, uuid, text, text, uuid, text, jsonb)', 'EXECUTE') $q$);
+SELECT pg_temp.expect_true('ham API thuoc siscom_migrator, SECURITY DEFINER, search_path co dinh', $q$ (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'fn\_auth\_api\_%' AND p.prosecdef AND pg_get_userbyid(p.proowner) = 'siscom_migrator' AND 'search_path=pg_catalog, public, pg_temp' = ANY (p.proconfig)) = 11 $q$);
+SELECT pg_temp.expect_true('khong ham SECURITY DEFINER nao trong public cho PUBLIC EXECUTE', $q$ NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('public', p.oid, 'EXECUTE')) $q$);
+
+-- 4. Hanh vi duoi vai siscom_app (S1: khong DDL/vo hieu trigger; S2: khong ghi RBAC/PCR truc tiep; S3: khong ghi bi mat credential)
+SELECT pg_temp.as_err('siscom_app', 'DISABLE TRIGGER employee_role', $q$ ALTER TABLE public.employee_role DISABLE TRIGGER trg_employee_role_guard $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'DROP TRIGGER S5', $q$ DROP TRIGGER trg_pcr_exec_guard ON public.privileged_change_request $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'DISABLE TRIGGER audit_log', $q$ ALTER TABLE public.audit_log DISABLE TRIGGER ALL $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'CREATE TABLE trong public', $q$ CREATE TABLE public.s1_thu (i int) $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'thay ham M1 (trojan)', $q$ CREATE OR REPLACE FUNCTION public.fn_auth_bootstrap_open() RETURNS boolean LANGUAGE sql AS 'SELECT true' $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'doi ham API thanh SECURITY INVOKER', $q$ ALTER FUNCTION public.fn_auth_api_role_grant(uuid, uuid) SECURITY INVOKER $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'INSERT employee_role (du dat GUC gia)', $q$ SELECT set_config('app.priv_request_id', '00000000-0000-4000-8000-000000000001', true); INSERT INTO public.employee_role (employee_id, role_id) SELECT id, id FROM public.employee LIMIT 1 $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'DELETE role_permission', $q$ DELETE FROM public.role_permission $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'INSERT privileged_change_request', $q$ INSERT INTO public.privileged_change_request (type, payload, payload_hash, requested_by, expires_at) VALUES ('PASSWORD_RESET', '{}', repeat('a', 64), '00000000-0000-4000-8000-000000000001', now()) $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'UPDATE privileged_change_request', $q$ UPDATE public.privileged_change_request SET status = status $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'SELECT password_reset_token', $q$ SELECT count(*) FROM public.password_reset_token $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'UPDATE credential.password_hash', $q$ UPDATE public.employee_credential SET password_hash = 'x' $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'UPDATE credential.status', $q$ UPDATE public.employee_credential SET status = 'ACTIVE' $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'INSERT credential', $q$ INSERT INTO public.employee_credential (employee_id, password_hash, password_algo, password_params) SELECT id, 'x', 'argon2id', '{}' FROM public.employee LIMIT 1 $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'INSERT app_meta (dong/mo khoi tao)', $q$ INSERT INTO public.app_meta (key, value) VALUES ('s1_thu', 'x') $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'UPDATE audit_log', $q$ UPDATE public.audit_log SET summary = summary $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'SET session_replication_role = replica', $q$ SET LOCAL session_replication_role = replica $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'goi fn_auth_bootstrap_close', $q$ SELECT public.fn_auth_bootstrap_close('x') $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'GRANT quyen cho chinh minh', $q$ GRANT INSERT ON public.employee_role TO siscom_app $q$, '42501');
+SELECT pg_temp.as_ok('siscom_app', 'SELECT customer', $q$ SELECT count(*) FROM public.customer $q$);
+SELECT pg_temp.as_ok('siscom_app', 'SELECT RBAC (tinh quyen)', $q$ SELECT count(*) FROM public.employee_role er JOIN public.role_permission rp ON rp.role_id = er.role_id JOIN public.permission p ON p.id = rp.permission_id $q$);
+SELECT pg_temp.as_ok('siscom_app', 'UPDATE credential.failed_count (cot duoc phep)', $q$ UPDATE public.employee_credential SET failed_count = failed_count WHERE false $q$);
+SELECT pg_temp.as_ok('siscom_app', 'nextval sequence ma khach hang', $q$ SELECT nextval('public.customer_code_seq') $q$);
+SELECT pg_temp.as_ok('siscom_app', 'goi ham API (SECURITY DEFINER) qua siscom_auth_rt', $q$ SELECT public.fn_auth_api_request_expire('00000000-0000-4000-8000-000000000001') $q$);
+SELECT pg_temp.as_ok('siscom_app', 'INSERT audit_log', $q$ INSERT INTO public.audit_log (actor_type, action, entity_type, summary) VALUES ('SYSTEM', 'S1_PRIV_TEST', 's1', 'ROLLBACK') $q$);
+
+-- 5. siscom_migrator: chu so huu nhung KHONG co quyen cap cluster
+SELECT pg_temp.as_err('siscom_migrator', 'CREATE ROLE', $q$ CREATE ROLE s1_thu_role $q$, '42501');
+SELECT pg_temp.as_err('siscom_migrator', 'ALTER ROLE siscom_app SUPERUSER', $q$ ALTER ROLE siscom_app SUPERUSER $q$, '42501');
+SELECT pg_temp.as_err('siscom_migrator', 'SET session_replication_role = replica', $q$ SET LOCAL session_replication_role = replica $q$, '42501');
+SELECT pg_temp.as_ok('siscom_migrator', 'tao bang trong public (DDL cua migration)', $q$ CREATE TABLE public.s1_thu_ddl (i int); DROP TABLE public.s1_thu_ddl $q$);
+
+-- Tong ket
+SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS ket_qua, count(*) AS so_luong FROM res GROUP BY ok ORDER BY ok;
+SELECT label AS can_xem_lai FROM res WHERE NOT ok;
+ROLLBACK;

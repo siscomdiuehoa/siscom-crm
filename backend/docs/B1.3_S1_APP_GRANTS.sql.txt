@@ -1,0 +1,129 @@
+-- SISCOM CRM - B1.3 S1/S2/S3: cap quyen DOI TUONG toi thieu cho siscom_app va nhom siscom_auth_rt. VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_S1_APP_GRANTS.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- Chay SAU B1.3_S1_ROLE_SPLIT.sql.txt, bang siscom_migrator (chu so huu) hoac superuser. CHAY LAI duoc (dat lai tu dau: REVOKE het roi GRANT dung danh sach).
+-- PHAI chay lai sau MOI lan `prisma migrate deploy` co them bang/sequence/ham (bang moi chua phan loai => script tu choi, fail-closed).
+-- Dich hop le giong B1.3_S1_ROLE_SPLIT.sql.txt (ban sao thu; database that can -v confirm_db=<ten> + phe duyet rieng).
+-- Mo hinh (mac dinh tu choi):
+--   siscom_app (runtime nghiep vu): SELECT/INSERT/UPDATE/DELETE bang nghiep vu; audit_log chi SELECT/INSERT; RBAC + app_meta chi SELECT;
+--     USAGE/SELECT moi sequence; KHONG ghi employee_role/role_permission/role/permission/app_meta/privileged_change_request/password_reset_token;
+--     KHONG doc password_reset_token, _prisma_migrations.
+--   siscom_auth_rt (runtime auth; giai doan 1 = siscom_app thua huong): SELECT privileged_change_request; SELECT + UPDATE CHI cot dem dang nhap/
+--     token_version cua employee_credential (KHONG password_hash/algo/params/status/must_change_password); SELECT/INSERT/UPDATE/DELETE auth_session;
+--     EXECUTE 11 ham fn_auth_api_* (M1.2). KHONG EXECUTE fn_auth_bootstrap_close va ham noi bo.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+\if :{?confirm_db}
+\else
+\set confirm_db ''
+\endif
+SELECT current_database() AS db_cap_quyen, current_user AS chay_bang;
+BEGIN;
+SELECT set_config('siscom.confirm_db', :'confirm_db', true) IS NOT NULL AS confirm_da_doc;
+DO $$
+DECLARE v_db text := current_database(); v_confirm text := current_setting('siscom.confirm_db', true);
+BEGIN
+  IF current_user <> 'siscom_migrator' AND NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'TU CHOI: chay bang siscom_migrator hoac superuser.';
+  END IF;
+  IF v_db IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948', 'postgres', 'template0', 'template1') THEN
+    RAISE EXCEPTION 'TU CHOI: % la database khoa/he thong.', v_db;
+  END IF;
+  IF v_db !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$' AND v_confirm IS DISTINCT FROM v_db THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu; database that can phe duyet rieng va -v confirm_db=%.', v_db, v_db;
+  END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = v_db) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'TU CHOI: chu so huu database chua phai siscom_migrator (chay B1.3_S1_ROLE_SPLIT.sql.txt truoc).';
+  END IF;
+  IF NOT pg_has_role('siscom_app', 'siscom_auth_rt', 'MEMBER') AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') THEN
+    RAISE EXCEPTION 'TU CHOI: siscom_auth_rt chua duoc cap cho pool nao (siscom_app hoac siscom_auth).';
+  END IF;
+  IF to_regprocedure('public.fn_auth_api_role_grant(uuid, uuid)') IS NULL THEN
+    RAISE EXCEPTION 'TU CHOI: chua ap M1.2 (20261020180000_b1_3_auth_m1_2_priv_api).';
+  END IF;
+END $$;
+
+-- Phan loai bang (them bang moi = sua danh sach nay trong cung PR voi migration).
+CREATE TEMP TABLE s1_class (tbl text PRIMARY KEY, cls text NOT NULL) ON COMMIT DROP;
+INSERT INTO s1_class VALUES
+ ('lookup_item', 'BIZ'), ('department', 'BIZ'), ('employee', 'BIZ'), ('customer', 'BIZ'), ('contact', 'BIZ'), ('activity', 'BIZ'),
+ ('customer_assignment', 'BIZ'), ('audit_log', 'AUDIT'),
+ ('app_meta', 'READ'), ('role', 'READ'), ('permission', 'READ'), ('role_permission', 'READ'), ('employee_role', 'READ'),
+ ('privileged_change_request', 'AUTH_READ'), ('employee_credential', 'AUTH_CRED'), ('auth_session', 'AUTH_SESSION'),
+ ('password_reset_token', 'NONE'), ('_prisma_migrations', 'NONE');
+DO $$
+DECLARE v_missing text;
+BEGIN
+  SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_missing
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f') AND c.relname NOT IN (SELECT tbl FROM s1_class);
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'TU CHOI: bang/view chua phan loai quyen: %. Cap nhat B1.3_S1_APP_GRANTS.sql.txt.', v_missing;
+  END IF;
+  SELECT string_agg(tbl, ', ') INTO v_missing FROM s1_class WHERE to_regclass('public.' || quote_ident(tbl)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'TU CHOI: bang trong danh sach khong ton tai: %.', v_missing;
+  END IF;
+END $$;
+
+-- 1. Dat lai (mac dinh tu choi)
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC, siscom_app, siscom_auth_rt;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC, siscom_app, siscom_auth_rt;
+GRANT USAGE ON SCHEMA public TO siscom_app, siscom_auth_rt;
+
+-- 2. siscom_app
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT tbl, cls FROM s1_class ORDER BY tbl LOOP
+    IF r.cls = 'BIZ' THEN EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO siscom_app', r.tbl);
+    ELSIF r.cls = 'AUDIT' THEN EXECUTE format('GRANT SELECT, INSERT ON public.%I TO siscom_app', r.tbl);
+    ELSIF r.cls = 'READ' THEN EXECUTE format('GRANT SELECT ON public.%I TO siscom_app', r.tbl);
+    END IF;
+  END LOOP;
+END $$;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO siscom_app;
+
+-- 3. siscom_auth_rt
+GRANT SELECT ON public.privileged_change_request TO siscom_auth_rt;
+GRANT SELECT ON public.employee_credential TO siscom_auth_rt;
+GRANT UPDATE (failed_count, window_started_at, locked_until, lock_level, last_login_at, updated_at, token_version) ON public.employee_credential TO siscom_auth_rt;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.auth_session TO siscom_auth_rt;
+
+-- 4. Ham: 11 API cho siscom_auth_rt; ham noi bo va dong khoi tao: khong ai (ngoai chu so huu).
+REVOKE ALL ON FUNCTION public.fn_auth_api_actor(uuid, text), public.fn_auth_api_audit(text, uuid, text, text, uuid, text, jsonb),
+  public.fn_auth_api_check_secret(text, text, jsonb), public.fn_auth_bootstrap_close(text) FROM PUBLIC, siscom_app, siscom_auth_rt;
+REVOKE ALL ON FUNCTION
+  public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer), public.fn_auth_api_request_decide(uuid, uuid, boolean),
+  public.fn_auth_api_request_expire(uuid), public.fn_auth_api_role_grant(uuid, uuid), public.fn_auth_api_role_revoke(uuid, uuid, uuid, uuid),
+  public.fn_auth_api_role_permission_change(uuid, uuid), public.fn_auth_api_reset_token_issue(uuid, uuid, text, integer),
+  public.fn_auth_api_reset_password(uuid, text, text, text, jsonb), public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb),
+  public.fn_auth_api_credential_create(uuid, uuid), public.fn_auth_api_credential_disable(uuid, uuid, text) FROM PUBLIC, siscom_app;
+GRANT EXECUTE ON FUNCTION
+  public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer), public.fn_auth_api_request_decide(uuid, uuid, boolean),
+  public.fn_auth_api_request_expire(uuid), public.fn_auth_api_role_grant(uuid, uuid), public.fn_auth_api_role_revoke(uuid, uuid, uuid, uuid),
+  public.fn_auth_api_role_permission_change(uuid, uuid), public.fn_auth_api_reset_token_issue(uuid, uuid, text, integer),
+  public.fn_auth_api_reset_password(uuid, text, text, text, jsonb), public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb),
+  public.fn_auth_api_credential_create(uuid, uuid), public.fn_auth_api_credential_disable(uuid, uuid, text) TO siscom_auth_rt;
+
+-- 5. Kiem nhanh (trong transaction). Bo test day du: B1.3_S1_PRIVILEGE_TESTS.sql.txt.
+CREATE TEMP VIEW v_s1_grants AS SELECT
+  has_table_privilege('siscom_app', 'public.employee_role', 'INSERT, UPDATE, DELETE, TRUNCATE')
+   OR has_table_privilege('siscom_app', 'public.role_permission', 'INSERT, UPDATE, DELETE, TRUNCATE')
+   OR has_table_privilege('siscom_app', 'public.privileged_change_request', 'INSERT, UPDATE, DELETE, TRUNCATE')
+   OR has_table_privilege('siscom_app', 'public.password_reset_token', 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE')
+   OR has_column_privilege('siscom_app', 'public.employee_credential', 'password_hash', 'UPDATE')
+   OR has_table_privilege('siscom_app', 'public.employee_credential', 'INSERT, DELETE, TRUNCATE')
+   OR has_table_privilege('siscom_app', 'public.audit_log', 'UPDATE, DELETE, TRUNCATE') AS app_ghi_dac_quyen,
+  has_table_privilege('siscom_app', 'public.customer', 'SELECT, INSERT, UPDATE, DELETE') AND has_table_privilege('siscom_app', 'public.auth_session', 'INSERT')
+   AND has_function_privilege('siscom_app', 'public.fn_auth_api_role_grant(uuid, uuid)', 'EXECUTE') AS app_quyen_can_thiet,
+  has_function_privilege('siscom_app', 'public.fn_auth_bootstrap_close(text)', 'EXECUTE') AS app_dong_khoi_tao;
+SELECT app_ghi_dac_quyen || '|' || app_quyen_can_thiet || '|' || app_dong_khoi_tao AS grants_state FROM v_s1_grants;
+DO $$ BEGIN
+  IF (SELECT app_ghi_dac_quyen OR NOT app_quyen_can_thiet OR app_dong_khoi_tao FROM v_s1_grants) THEN
+    RAISE EXCEPTION 'Cap quyen chua dat (xem grants_state; ky vong false|true|false). Huy transaction.';
+  END IF;
+END $$;
+DROP VIEW v_s1_grants;
+COMMIT;
+SELECT 'CAP QUYEN XONG' AS ket_qua;

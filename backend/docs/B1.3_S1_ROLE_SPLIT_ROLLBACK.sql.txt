@@ -1,0 +1,97 @@
+-- SISCOM CRM - ROLLBACK B1.3 S1 (tach role). VIET SAN, KHONG TU CHAY. Chay bang SUPERUSER (postgres), mot database moi lan.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- Chay qua: scripts\windows\auth-s1s3-verify.bat -Step unsplit (ban sao thu). Database that: phe duyet rieng + -v confirm_db=<ten>.
+-- Dua ve trang thai truoc S1: siscom_app so huu database va moi doi tuong ma siscom_migrator dang so huu TRONG DATABASE NAY (ke ca doi tuong do
+--   migration sau tach tao ra); go GRANT siscom_auth_rt TO siscom_app; thu moi quyen cua siscom_auth_rt trong database nay.
+-- KHONG xoa role siscom_migrator/siscom_auth_rt (dung chung cluster; co the dang dung o database khac). Xoa role = buoc tay rieng (runbook muc 6).
+-- KHONG cap lai CREATE tren schema public cho PUBLIC (an toan hon trang thai cu; siscom_app la chu so huu nen van tao duoc).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+\if :{?confirm_db}
+\else
+\set confirm_db ''
+\endif
+SELECT current_database() AS db_hoan_tac_tach_role, current_user AS chay_bang;
+BEGIN;
+SELECT set_config('siscom.confirm_db', :'confirm_db', true) IS NOT NULL AS confirm_da_doc;
+DO $$
+DECLARE v_db text := current_database(); v_confirm text := current_setting('siscom.confirm_db', true);
+BEGIN
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'TU CHOI: can chay bang superuser (postgres).';
+  END IF;
+  IF v_db IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948', 'postgres', 'template0', 'template1') THEN
+    RAISE EXCEPTION 'TU CHOI: % la database khoa/he thong.', v_db;
+  END IF;
+  IF v_db !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$' AND v_confirm IS DISTINCT FROM v_db THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu; database that can phe duyet rieng va -v confirm_db=%.', v_db, v_db;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator') OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app') THEN
+    RAISE EXCEPTION 'TU CHOI: thieu siscom_migrator hoac siscom_app.';
+  END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = v_db) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'TU CHOI: database % chua tach role (chu so huu khong phai siscom_migrator).', v_db;
+  END IF;
+END $$;
+
+-- 1. Thu quyen da cap (truoc khi doi chu so huu, de khong xoa nham quyen cua chu so huu moi)
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM siscom_app, siscom_auth_rt;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM siscom_app, siscom_auth_rt;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM siscom_auth_rt;
+REVOKE ALL ON SCHEMA public FROM siscom_auth_rt;
+
+-- 2. Chu so huu ve siscom_app
+DO $$ BEGIN EXECUTE format('ALTER DATABASE %I OWNER TO siscom_app', current_database()); END $$;
+DO $$
+DECLARE
+  v_mig oid := (SELECT oid FROM pg_roles WHERE rolname = 'siscom_migrator');
+  v_dbid oid := (SELECT oid FROM pg_database WHERE datname = current_database());
+  rec record; v_kw text; n integer := 0;
+BEGIN
+  LOOP
+    SELECT o.type, o.identity INTO rec
+      FROM pg_shdepend d CROSS JOIN LATERAL pg_identify_object(d.classid, d.objid, 0) o
+     WHERE d.dbid = v_dbid AND d.refclassid = 'pg_authid'::regclass AND d.refobjid = v_mig AND d.deptype = 'o'
+       AND d.classid <> 'pg_extension'::regclass
+     ORDER BY CASE o.type WHEN 'schema' THEN 0 WHEN 'table' THEN 1 WHEN 'view' THEN 2 WHEN 'materialized view' THEN 2 WHEN 'sequence' THEN 3 ELSE 4 END, o.identity
+     LIMIT 1;
+    EXIT WHEN NOT FOUND;
+    n := n + 1;
+    IF n > 5000 THEN RAISE EXCEPTION 'Qua 5000 doi tuong hoac ALTER khong doi duoc chu so huu (%: %). Huy.', rec.type, rec.identity; END IF;
+    v_kw := CASE rec.type
+      WHEN 'schema' THEN 'SCHEMA' WHEN 'table' THEN 'TABLE' WHEN 'sequence' THEN 'SEQUENCE' WHEN 'view' THEN 'VIEW'
+      WHEN 'materialized view' THEN 'MATERIALIZED VIEW' WHEN 'function' THEN 'FUNCTION' WHEN 'procedure' THEN 'PROCEDURE'
+      WHEN 'aggregate' THEN 'AGGREGATE' WHEN 'type' THEN 'TYPE' WHEN 'domain' THEN 'DOMAIN' WHEN 'operator' THEN 'OPERATOR'
+      WHEN 'operator class' THEN 'OPERATOR CLASS' WHEN 'operator family' THEN 'OPERATOR FAMILY'
+      WHEN 'text search dictionary' THEN 'TEXT SEARCH DICTIONARY' WHEN 'text search configuration' THEN 'TEXT SEARCH CONFIGURATION'
+      WHEN 'statistics object' THEN 'STATISTICS' WHEN 'collation' THEN 'COLLATION' WHEN 'conversion' THEN 'CONVERSION'
+      ELSE NULL END;
+    IF v_kw IS NULL THEN
+      RAISE EXCEPTION 'Loai doi tuong "%" (%) chua duoc ho tro chuyen chu so huu. Huy (fail-closed).', rec.type, rec.identity;
+    END IF;
+    EXECUTE 'ALTER ' || v_kw || ' ' || rec.identity || ' OWNER TO siscom_app';
+  END LOOP;
+  RAISE NOTICE 'Da tra % doi tuong ve siscom_app.', n;
+END $$;
+
+-- 3. Thanh vien nhom va quyen database
+REVOKE siscom_auth_rt FROM siscom_app;
+DO $$ BEGIN
+  EXECUTE format('REVOKE ALL ON DATABASE %I FROM siscom_auth_rt', current_database());
+END $$;
+
+CREATE TEMP VIEW v_s1_unsplit AS SELECT
+  (SELECT count(*) FROM pg_shdepend d WHERE d.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+     AND d.refclassid = 'pg_authid'::regclass AND d.refobjid = (SELECT oid FROM pg_roles WHERE rolname = 'siscom_migrator')) AS con_lien_quan_migrator,
+  (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) AS chu_db,
+  pg_has_role('siscom_app', 'siscom_auth_rt', 'MEMBER') AS app_con_trong_nhom;
+SELECT con_lien_quan_migrator || '|' || chu_db || '|' || app_con_trong_nhom AS unsplit_state FROM v_s1_unsplit;
+DO $$ BEGIN
+  IF (SELECT con_lien_quan_migrator <> 0 OR chu_db <> 'siscom_app' OR app_con_trong_nhom FROM v_s1_unsplit) THEN
+    RAISE EXCEPTION 'Hoan tac tach role chua sach (xem unsplit_state; ky vong 0|siscom_app|false). Huy transaction.';
+  END IF;
+END $$;
+DROP VIEW v_s1_unsplit;
+COMMIT;
+SELECT 'HOAN TAC TACH ROLE XONG' AS ket_qua;
