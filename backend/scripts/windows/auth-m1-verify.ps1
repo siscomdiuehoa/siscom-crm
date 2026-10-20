@@ -2,8 +2,9 @@
 # Dich: D:\SISCOM-CRM\backend\scripts\windows\auth-m1-verify.ps1 (file moi). Chi lam viec voi -DatabaseName = ban sao tao boi make-stats-clone
 #   (co nhan SISCOM_STATS_CLONE_OF:<TemplateDb>). Mau duoc duyet: siscom_crm_restore_20261015_214948 (CHI DOC, khong bao gio la dich).
 # Tuyet doi KHONG: siscom_crm_dev, siscom_crm_restore_20261014_214105, siscom_crm_restore_20261015_214948 lam DICH (danh sach cam trong script).
-# Steps: guard (chi doc) | apply (prisma migrate deploy tren ban sao) | constraints (B1.3_M1_CONSTRAINT_TESTS.sql, tu ROLLBACK)
-#        | regress (B1.2.2_CONSTRAINT_TESTS.sql, tu ROLLBACK) | rollback (B1.3_M1_ROLLBACK.sql roi migrate deploy lai) | drift (prisma migrate diff/status)
+# Steps: guard (chi doc) | apply (prisma migrate deploy tren ban sao) | constraints (B1.3_M1_CONSTRAINT_TESTS.sql.txt, tu ROLLBACK)
+#        | regress (B1.2.2_CONSTRAINT_TESTS.sql, tu ROLLBACK) | rollback (B1.3_M1_ROLLBACK.sql.txt roi migrate deploy lai) | drift (prisma migrate diff/status)
+# Hai file M1 *.sql.txt la SQL thuan (duoi .txt de Git theo doi ma khong doi .gitignore); psql -f doc binh thuong.
 # Mat khau siscom_app doc tu DATABASE_URL trong .env (CHI DOC, khong in); DATABASE_URL chi dat cho tien trinh con tro DUNG ban sao roi xoa.
 [CmdletBinding()]
 param(
@@ -99,11 +100,15 @@ try {
   Set-Content -LiteralPath $script:log -Value ('auth-m1-verify step=' + $Step + ' db=' + $DatabaseName + ' template=' + $TemplateDb + ' at ' + (Get-Date -Format 'o')) -Encoding UTF8
   $script:root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
   $migFile = Join-Path $script:root ('prisma\migrations\' + $M1 + '\migration.sql')
-  $testFile = Join-Path $script:root 'docs\B1.3_M1_CONSTRAINT_TESTS.sql'
-  $rbFile = Join-Path $script:root 'docs\B1.3_M1_ROLLBACK.sql'
+  $testFile = Join-Path $script:root 'docs\B1.3_M1_CONSTRAINT_TESTS.sql.txt'
+  $rbFile = Join-Path $script:root 'docs\B1.3_M1_ROLLBACK.sql.txt'
   foreach ($f in @($migFile, $testFile, $rbFile)) {
     if (-not (Test-Path -LiteralPath $f)) { Fail ('Thieu file: ' + $f) }
-    Say ('SHA-256 ' + (Split-Path $f -Leaf) + ' = ' + (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash)
+    # core.autocrlf co the doi LF -> CRLF khi checkout: in them SHA-256 sau khi chuan hoa CRLF -> LF (= so trong B1.3.2B_REPORT.md).
+    $lf = [System.IO.File]::ReadAllBytes($f); $lf = [byte[]]@(for ($i = 0; $i -lt $lf.Length; $i++) { if (-not ($lf[$i] -eq 13 -and $i + 1 -lt $lf.Length -and $lf[$i + 1] -eq 10)) { $lf[$i] } })
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $lfHash = -join ($sha.ComputeHash($lf) | ForEach-Object { $_.ToString('X2') }) } finally { $sha.Dispose() }
+    Say ('SHA-256 ' + (Split-Path $f -Leaf) + ' = ' + (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash + ' | sau chuan hoa LF = ' + $lfHash)
   }
   $script:psql = Find-Tool 'psql.exe'; if (-not $script:psql) { Fail 'Khong tim thay psql.exe.' }
   Say ('Ban sao: ' + $DatabaseName + ' | Buoc: ' + $Step + ' | ' + $(if (@('guard', 'drift') -contains $Step) { 'chi doc' } elseif (@('constraints', 'regress') -contains $Step) { 'ghi tam trong transaction, tu ROLLBACK' } else { 'GHI cau truc ban sao (khong dung toi DB mau/siscom_crm_dev)' })) 'Yellow'
@@ -144,7 +149,7 @@ try {
       $pass = ([regex]::Match($r.Out, '(?m)^PASS\|(\d+)')).Groups[1].Value
       $failN = ([regex]::Match($r.Out, '(?m)^FAIL\|(\d+)')).Groups[1].Value
       Say ('Ket qua: PASS=' + $pass + ' FAIL=' + $(if ($failN) { $failN } else { '0' }) + ' (ma psql ' + $r.Code + ')')
-      if ($r.Code -ne 0 -or -not $pass -or $failN) { Bad 'B1.3_M1_CONSTRAINT_TESTS KHONG dat (xem log: dong "can_xem_lai").'; Say $r.Out } else { Ok 'B1.3_M1_CONSTRAINT_TESTS: 0 FAIL.' }
+      if ($r.Code -ne 0 -or -not $pass -or $failN) { Bad 'B1.3_M1_CONSTRAINT_TESTS.sql.txt KHONG dat (xem log: dong "can_xem_lai").'; Say $r.Out } else { Ok 'B1.3_M1_CONSTRAINT_TESTS.sql.txt: 0 FAIL.' }
       if ((M1State) -ne '4|10|1') { Bad 'Trang thai M1 doi sau test (khong mong doi).' }
       if ((Psql "SELECT (SELECT count(*) FROM privileged_change_request) + (SELECT count(*) FROM employee_role) + (SELECT count(*) FROM role) + (SELECT count(*) FROM app_meta WHERE key = 'auth_bootstrap_done');") -ne '0') { Bad 'Con du lieu sau ROLLBACK cua test.' } else { Ok 'ROLLBACK sach: khong de lai du lieu.' }
     }
@@ -161,7 +166,7 @@ try {
       if ($state -ne '4|10|1') { Fail ('M1 chua ap day du (' + $state + ').') }
       $r = TryPsql '' $rbFile
       Add-Content -LiteralPath $script:log -Value $r.Out -Encoding UTF8
-      if ($r.Code -ne 0) { Bad ('B1.3_M1_ROLLBACK.sql loi: ' + $r.Out) }
+      if ($r.Code -ne 0) { Bad ('B1.3_M1_ROLLBACK.sql.txt loi: ' + $r.Out) }
       elseif ($r.Out -notmatch '(?m)^0\|0\|0\|0\|0$') { Bad ('Sau rollback van con doi tuong M1: ' + $r.Out) }
       else { Ok 'Rollback: 0 bang/enum/ham/trigger/lich su M1 con lai.' }
       $s = M1State; if ($s -ne '0|0|0') { Bad ('Trang thai sau rollback = ' + $s + ' (ky vong 0|0|0).') } else { Ok 'Trang thai sau rollback = 0|0|0.' }
