@@ -1,0 +1,143 @@
+-- SISCOM CRM — B1.2.2: bo kiem thu rang buoc. CHI CHAY TREN DATABASE NHAP (siscom_crm_restore_<ngay_gio>) SAU KHI AP MIGRATION DIEN TAP.
+-- TUYET DOI KHONG chay tren siscom_crm_dev. File chay trong 1 transaction va ROLLBACK o cuoi (khong de lai du lieu; sequence van tang).
+-- Luu file UTF-8. Chay: psql -h 127.0.0.1 -U siscom_app -d <db_nhap> -f B1.2.2_CONSTRAINT_TESTS.sql
+-- Ky vong: cuoi file bao 0 dong FAIL. CHUA CHAY — ket qua that do ban cung cap.
+-- BAN THU HEP PHAM VI (B1.3.2-B regress, PR rieng): giong het B1.2.2_CONSTRAINT_TESTS.sql (ban goc cuc bo, KHONG sua), chi khac:
+--  (1) khoi B122_SCOPE_GUARD: dung ngay neu UUID / ma danh muc / MST thu da ton tai (ban sao co du lieu) => moi ban ghi mang UUID thu deu do file nay tao;
+--  (2) 6 assertion dem/kiem toan bang (dong 47/56/57/84/87/99 cua ban goc) chi xet ban ghi thu (UUID co dinh; activity theo customer_id thu),
+--      kem dieu kien so dong de khong dung "rong la dung". Nhan (label) va so assertion (57) giu nguyen de doi chieu ket qua.
+-- Ten .sql.txt de Git theo doi ma khong doi .gitignore; psql -f doc binh thuong.
+\set ON_ERROR_STOP off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, (SELECT value FROM app_meta WHERE key = 'schema_baseline') AS baseline;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text);
+CREATE FUNCTION pg_temp.expect_err(p_label text, p_stmt text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_stmt;
+    INSERT INTO res VALUES (false, p_label || ' — KHONG bi chan');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = p_state THEN INSERT INTO res VALUES (true, p_label);
+    ELSE INSERT INTO res VALUES (false, p_label || ' — SQLSTATE ' || SQLSTATE || ' (' || SQLERRM || '), can ' || p_state); END IF;
+  END;
+END $$;
+CREATE FUNCTION pg_temp.expect_ok(p_label text, p_stmt text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN EXECUTE p_stmt; INSERT INTO res VALUES (true, p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' — loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_expr text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE r boolean;
+BEGIN
+  BEGIN EXECUTE 'SELECT (' || p_expr || ')' INTO r; INSERT INTO res VALUES (r IS TRUE, p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' — loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+
+-- Kiem tra pham vi: UUID/ma thu khong duoc ton tai truoc (neu co => loi B122_SCOPE_GUARD, transaction huy, khong co dong PASS).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM lookup_item WHERE id IN ('a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000005')
+             OR code IN ('TEST_TIER', 'TEST_STATUS', 'TEST_IND', 'TEST_TIER_OFF', 'TEST_TIER_2'))
+  OR EXISTS (SELECT 1 FROM employee WHERE id IN ('b0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000002'))
+  OR EXISTS (SELECT 1 FROM customer WHERE id IN ('c0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000005')
+             OR tax_id IN ('0100000001', '0100000002'))
+  OR EXISTS (SELECT 1 FROM contact WHERE id IN ('d0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002')) THEN
+    RAISE EXCEPTION 'B122_SCOPE_GUARD: UUID/ma thu da ton tai trong database, khong the xac dinh ban ghi thu. Dung lai.';
+  END IF;
+END $$;
+
+-- Du lieu nen (phai thanh cong; neu loi o day thi dung lai va bao toi)
+INSERT INTO lookup_item (id, type, code, label_vi, is_active) VALUES
+ ('a0000000-0000-0000-0000-000000000001', 'customer_tier',   'TEST_TIER',     'Hạng thử', true),
+ ('a0000000-0000-0000-0000-000000000002', 'customer_status', 'TEST_STATUS',   'Trạng thái thử', true),
+ ('a0000000-0000-0000-0000-000000000003', 'industry',        'TEST_IND',      'Ngành thử', true),
+ ('a0000000-0000-0000-0000-000000000004', 'customer_tier',   'TEST_TIER_OFF', 'Hạng đã ngừng', false),
+ ('a0000000-0000-0000-0000-000000000005', 'customer_tier',   'TEST_TIER_2',   'Hạng thử 2', true);
+INSERT INTO employee (id, full_name) VALUES ('b0000000-0000-0000-0000-000000000001', 'Nhân viên A'), ('b0000000-0000-0000-0000-000000000002', 'Nhân viên B');
+INSERT INTO customer (id, name, short_name, tax_id, phone, tier_id, status_id) VALUES
+ ('c0000000-0000-0000-0000-000000000001', 'Công ty TNHH Điện tử Kim Sơn', 'Điện tử Kim Sơn', '0100000001', '028 3700 1000', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002'),
+ ('c0000000-0000-0000-0000-000000000002', 'Công ty Cổ phần Đường Lê Lợi', NULL, NULL, '024 3800 2000', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002'),
+ ('c0000000-0000-0000-0000-000000000003', 'Khách ba', NULL, NULL, '0901234567', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002');
+
+-- 1. Khach hang: name/phone/MST
+SELECT pg_temp.expect_true('MST NULL nhieu dong (c2,c3) hop le', $q$ (SELECT count(*) = 2 AND bool_and(id IN ('c0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003')) FROM customer WHERE tax_id IS NULL AND id IN ('c0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003')) $q$);
+SELECT pg_temp.expect_err('MST rong "" bi chan', $q$ INSERT INTO customer (name, phone, tax_id, tier_id, status_id) VALUES ('x', '1', '', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002') $q$, '23514');
+SELECT pg_temp.expect_err('MST sai dinh dang bi chan', $q$ INSERT INTO customer (name, phone, tax_id, tier_id, status_id) VALUES ('x', '1', 'abc', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002') $q$, '23514');
+SELECT pg_temp.expect_err('MST trung bi chan', $q$ INSERT INTO customer (name, phone, tax_id, tier_id, status_id) VALUES ('x', '1', '0100000001', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002') $q$, '23505');
+SELECT pg_temp.expect_err('ten trong bi chan', $q$ INSERT INTO customer (name, phone, tier_id, status_id) VALUES ('  ', '1', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002') $q$, '23514');
+SELECT pg_temp.expect_err('dien thoai trong bi chan', $q$ INSERT INTO customer (name, phone, tier_id, status_id) VALUES ('x', ' ', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002') $q$, '23514');
+SELECT pg_temp.expect_err('ma sai dinh dang bi chan', $q$ INSERT INTO customer (code, name, phone, tier_id, status_id) VALUES ('XX-1', 'x', '1', 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002') $q$, '23514');
+SELECT pg_temp.expect_err('doi ma khach hang bi chan', $q$ UPDATE customer SET code = 'KH-99999' WHERE id = 'c0000000-0000-0000-0000-000000000001' $q$, '23001');
+SELECT pg_temp.expect_err('deleted_by khi chua xoa bi chan', $q$ UPDATE customer SET deleted_by = 'b0000000-0000-0000-0000-000000000001' WHERE id = 'c0000000-0000-0000-0000-000000000003' $q$, '23514');
+SELECT pg_temp.expect_true('ma tu sinh dung dinh dang & khac nhau', $q$ (SELECT count(*) = 3 AND count(DISTINCT code) = 3 AND bool_and(code ~ '^KH-[0-9]{5,}$') FROM customer WHERE id IN ('c0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003')) $q$);
+SELECT pg_temp.expect_true('updated_at co DEFAULT (insert khong can cung cap)', $q$ (SELECT count(*) = 3 FROM customer WHERE updated_at IS NOT NULL AND id IN ('c0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003')) $q$);
+
+-- 2. Danh muc
+SELECT pg_temp.expect_err('tier tro toi danh muc sai loai bi chan (INSERT)', $q$ INSERT INTO customer (name, phone, tier_id, status_id) VALUES ('x', '1', 'a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000002') $q$, '23503');
+SELECT pg_temp.expect_err('tier da ngung dung bi chan khi gan moi (INSERT)', $q$ INSERT INTO customer (name, phone, tier_id, status_id) VALUES ('x', '1', 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000002') $q$, '23503');
+SELECT pg_temp.expect_err('doi tier sang loai sai bi chan (UPDATE)', $q$ UPDATE customer SET tier_id = 'a0000000-0000-0000-0000-000000000003' WHERE id = 'c0000000-0000-0000-0000-000000000003' $q$, '23503');
+SELECT pg_temp.expect_err('doi tier sang gia tri da ngung bi chan (UPDATE)', $q$ UPDATE customer SET tier_id = 'a0000000-0000-0000-0000-000000000004' WHERE id = 'c0000000-0000-0000-0000-000000000003' $q$, '23503');
+SELECT pg_temp.expect_ok('vo hieu hoa danh muc dang duoc dung', $q$ UPDATE lookup_item SET is_active = false WHERE id = 'a0000000-0000-0000-0000-000000000001' $q$);
+SELECT pg_temp.expect_ok('sua ghi chu khach co tier da ngung van duoc', $q$ UPDATE customer SET note = 'x' WHERE id = 'c0000000-0000-0000-0000-000000000001' $q$);
+SELECT pg_temp.expect_ok('doi ten hien thi danh muc', $q$ UPDATE lookup_item SET label_vi = 'Hạng đổi tên' WHERE id = 'a0000000-0000-0000-0000-000000000001' $q$);
+SELECT pg_temp.expect_err('doi code danh muc bi chan', $q$ UPDATE lookup_item SET code = 'OTHER' WHERE id = 'a0000000-0000-0000-0000-000000000001' $q$, '23001');
+SELECT pg_temp.expect_err('doi type danh muc bi chan', $q$ UPDATE lookup_item SET type = 'industry' WHERE id = 'a0000000-0000-0000-0000-000000000001' $q$, '23001');
+SELECT pg_temp.expect_err('xoa danh muc dang duoc dung bi chan (FK)', $q$ DELETE FROM lookup_item WHERE id = 'a0000000-0000-0000-0000-000000000002' $q$, '23001');
+SELECT pg_temp.expect_err('code danh muc viet thuong bi chan', $q$ INSERT INTO lookup_item (type, code, label_vi) VALUES ('industry', 'abc', 'x') $q$, '23514');
+
+-- 3. Xoa mem & khoi phuc (MST)
+INSERT INTO customer (id, name, tax_id, phone, tier_id, status_id) VALUES ('c0000000-0000-0000-0000-000000000004', 'Cong ty Da Xoa', '0100000002', '1', 'a0000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000002');
+UPDATE customer SET deleted_at = now(), deleted_by = 'b0000000-0000-0000-0000-000000000001' WHERE id = 'c0000000-0000-0000-0000-000000000004';
+SELECT pg_temp.expect_ok('MST cua khach da xoa mem dung lai duoc', $q$ INSERT INTO customer (id, name, tax_id, phone, tier_id, status_id) VALUES ('c0000000-0000-0000-0000-000000000005', 'Khach moi cung MST', '0100000002', '1', 'a0000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000002') $q$);
+SELECT pg_temp.expect_err('khoi phuc khach bi trung MST bi chan', $q$ UPDATE customer SET deleted_at = NULL, deleted_by = NULL, restored_at = now() WHERE id = 'c0000000-0000-0000-0000-000000000004' $q$, '23505');
+SELECT pg_temp.expect_true('fn_customer_restore_conflicts liet ke dung KH dang chiem MST', $q$ (SELECT count(*) = 1 FROM public.fn_customer_restore_conflicts('c0000000-0000-0000-0000-000000000004')) $q$);
+
+-- 4. Lien he & hoat dong
+INSERT INTO contact (id, customer_id, full_name, phone, is_primary) VALUES ('d0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'Nguyễn Văn Đạt', '0912345678', true);
+INSERT INTO contact (id, customer_id, full_name, email) VALUES ('d0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000002', 'Lê Thị Ánh', 'anh@example.vn');
+SELECT pg_temp.expect_err('lien he khong co dien thoai lan email bi chan', $q$ INSERT INTO contact (customer_id, full_name) VALUES ('c0000000-0000-0000-0000-000000000001', 'Khong lien lac') $q$, '23514');
+SELECT pg_temp.expect_err('2 lien he chinh bi chan', $q$ INSERT INTO contact (customer_id, full_name, phone, is_primary) VALUES ('c0000000-0000-0000-0000-000000000001', 'Chinh thu hai', '1', true) $q$, '23505');
+SELECT pg_temp.expect_true('ma lien he dung dinh dang', $q$ (SELECT count(*) = 2 AND bool_and(code ~ '^LH-[0-9]{6,}$') FROM contact WHERE id IN ('d0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002')) $q$);
+SELECT pg_temp.expect_err('hoat dong tro toi lien he cua khach khac bi chan', $q$ INSERT INTO activity (customer_id, contact_id, type, occurred_at, content) VALUES ('c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002', 'CALL', now(), 'x') $q$, '23503');
+SELECT pg_temp.expect_ok('hoat dong cung khach hang hop le', $q$ INSERT INTO activity (customer_id, contact_id, type, occurred_at, content) VALUES ('c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'CALL', now(), 'Trao doi') $q$);
+SELECT pg_temp.expect_true('ma hoat dong dung dinh dang', $q$ (SELECT bool_and(code ~ '^TT-[0-9]{6,}$') AND count(*) = 1 FROM activity WHERE customer_id IN ('c0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000005')) $q$);
+SELECT pg_temp.expect_err('doi khach hang cua lien he da co hoat dong bi chan', $q$ UPDATE contact SET customer_id = 'c0000000-0000-0000-0000-000000000003' WHERE id = 'd0000000-0000-0000-0000-000000000001' $q$, '23001');
+SELECT pg_temp.expect_err('noi dung hoat dong rong bi chan', $q$ INSERT INTO activity (customer_id, type, occurred_at, content) VALUES ('c0000000-0000-0000-0000-000000000001', 'NOTE', now(), '  ') $q$, '23514');
+
+-- 5. Phan cong
+INSERT INTO customer_assignment (customer_id, employee_id, role) VALUES ('c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'OWNER');
+SELECT pg_temp.expect_err('2 OWNER dang hieu luc bi chan', $q$ INSERT INTO customer_assignment (customer_id, employee_id, role) VALUES ('c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000002', 'OWNER') $q$, '23505');
+SELECT pg_temp.expect_ok('SUPPORT song song voi OWNER hop le', $q$ INSERT INTO customer_assignment (customer_id, employee_id, role) VALUES ('c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000002', 'SUPPORT') $q$);
+SELECT pg_temp.expect_err('ended_at truoc assigned_at bi chan', $q$ INSERT INTO customer_assignment (customer_id, employee_id, role, assigned_at, ended_at) VALUES ('c0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'OWNER', now(), now() - interval '1 day') $q$, '23514');
+
+-- 6. Nhan vien & nhat ky
+SELECT pg_temp.expect_err('xoa cung nhan vien bi chan', $q$ DELETE FROM employee WHERE id = 'b0000000-0000-0000-0000-000000000002' $q$, '42501');
+SELECT pg_temp.expect_true('ma nhan vien dung dinh dang', $q$ (SELECT count(*) = 2 AND bool_and(code ~ '^NV-[0-9]{4,}$') FROM employee WHERE id IN ('b0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000002')) $q$);
+SELECT pg_temp.expect_ok('audit: USER co actor hop le', $q$ INSERT INTO audit_log (actor_type, actor_employee_id, action, entity_type) VALUES ('USER', 'b0000000-0000-0000-0000-000000000001', 'create', 'customer') $q$);
+SELECT pg_temp.expect_ok('audit: ANONYMOUS khong can actor', $q$ INSERT INTO audit_log (actor_type, action, entity_type) VALUES ('ANONYMOUS', 'login-failed', 'auth') $q$);
+SELECT pg_temp.expect_err('audit: USER thieu actor bi chan', $q$ INSERT INTO audit_log (actor_type, action, entity_type) VALUES ('USER', 'create', 'customer') $q$, '23514');
+SELECT pg_temp.expect_err('audit: actor_type la bi chan', $q$ INSERT INTO audit_log (actor_type, action, entity_type) VALUES ('ROBOT', 'x', 'y') $q$, '23514');
+SELECT pg_temp.expect_err('audit: UPDATE bi chan', $q$ UPDATE audit_log SET summary = 'sua' $q$, '42501');
+SELECT pg_temp.expect_err('audit: DELETE bi chan', $q$ DELETE FROM audit_log $q$, '42501');
+SELECT pg_temp.expect_err('audit: TRUNCATE bi chan', $q$ TRUNCATE audit_log $q$, '42501');
+
+-- 7. Tim kiem khong dau
+SELECT pg_temp.expect_true('f_vn_fold: dau, d gach, hoa/thuong', $q$ public.f_vn_fold('Đường Lê Lợi Ế') = 'duong le loi e' $q$);
+SELECT pg_temp.expect_true('f_vn_fold: chuoi to hop (NFD) = chuoi dung san', $q$ public.f_vn_fold(normalize('Điện tử Kim Sơn', NFD)) = public.f_vn_fold('Điện tử Kim Sơn') $q$);
+SELECT pg_temp.expect_true('tim ten cong ty khong dau', $q$ EXISTS (SELECT 1 FROM public.fn_customer_search('dien tu kim son') WHERE id = 'c0000000-0000-0000-0000-000000000001') $q$);
+SELECT pg_temp.expect_true('tim ten cong ty viet hoa co dau', $q$ EXISTS (SELECT 1 FROM public.fn_customer_search('KIM SƠN') WHERE id = 'c0000000-0000-0000-0000-000000000001') $q$);
+SELECT pg_temp.expect_true('tim theo ten viet tat', $q$ EXISTS (SELECT 1 FROM public.fn_customer_search('dien tu') WHERE id = 'c0000000-0000-0000-0000-000000000001') $q$);
+SELECT pg_temp.expect_true('tim theo ten lien he khong dau tra ve cong ty', $q$ EXISTS (SELECT 1 FROM public.fn_customer_search('nguyen van dat') WHERE id = 'c0000000-0000-0000-0000-000000000001') $q$);
+SELECT pg_temp.expect_true('tim theo ten lien he co d gach', $q$ EXISTS (SELECT 1 FROM public.fn_customer_search('Đạt') WHERE id = 'c0000000-0000-0000-0000-000000000001') $q$);
+SELECT pg_temp.expect_true('tim theo MST', $q$ EXISTS (SELECT 1 FROM public.fn_customer_search('0100000001') WHERE id = 'c0000000-0000-0000-0000-000000000001') $q$);
+SELECT pg_temp.expect_true('khach da xoa mem khong xuat hien', $q$ NOT EXISTS (SELECT 1 FROM public.fn_customer_search('da xoa') WHERE id = 'c0000000-0000-0000-0000-000000000004') $q$);
+SELECT pg_temp.expect_true('tu khoa 1 ky tu tra ve rong', $q$ (SELECT count(*) = 0 FROM public.fn_customer_search('a')) $q$);
+SELECT pg_temp.expect_true('ky tu % _ khong phai ky tu thay the', $q$ (SELECT count(*) = 0 FROM public.fn_customer_search('%%')) AND (SELECT count(*) = 0 FROM public.fn_customer_search('__')) $q$);
+SELECT pg_temp.expect_true('khong co ket qua trung lap', $q$ (SELECT count(*) = count(DISTINCT id) FROM public.fn_customer_search('kim')) $q$);
+
+-- Tong ket
+SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS ket_qua, count(*) AS so_luong FROM res GROUP BY ok ORDER BY ok;
+SELECT label AS can_xem_lai FROM res WHERE NOT ok;
+ROLLBACK;

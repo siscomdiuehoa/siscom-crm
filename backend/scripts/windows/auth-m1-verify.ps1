@@ -3,7 +3,7 @@
 #   (co nhan SISCOM_STATS_CLONE_OF:<TemplateDb>). Mau duoc duyet: siscom_crm_restore_20261015_214948 (CHI DOC, khong bao gio la dich).
 # Tuyet doi KHONG: siscom_crm_dev, siscom_crm_restore_20261014_214105, siscom_crm_restore_20261015_214948 lam DICH (danh sach cam trong script).
 # Steps: guard (chi doc) | apply (prisma migrate deploy tren ban sao) | constraints (B1.3_M1_CONSTRAINT_TESTS.sql.txt, tu ROLLBACK)
-#        | regress (B1.2.2_CONSTRAINT_TESTS.sql, tu ROLLBACK) | rollback (B1.3_M1_ROLLBACK.sql.txt roi migrate deploy lai) | drift (prisma migrate diff/status)
+#        | regress (B1.2.2_CONSTRAINT_TESTS_SCOPED.sql.txt, tu ROLLBACK, can dung PASS|57) | rollback (B1.3_M1_ROLLBACK.sql.txt roi migrate deploy lai) | drift (prisma migrate diff/status)
 # Hai file M1 *.sql.txt la SQL thuan (duoi .txt de Git theo doi ma khong doi .gitignore); psql -f doc binh thuong.
 # Mat khau siscom_app doc tu DATABASE_URL trong .env (CHI DOC, khong in); DATABASE_URL chi dat cho tien trinh con tro DUNG ban sao roi xoa.
 [CmdletBinding()]
@@ -102,7 +102,9 @@ try {
   $migFile = Join-Path $script:root ('prisma\migrations\' + $M1 + '\migration.sql')
   $testFile = Join-Path $script:root 'docs\B1.3_M1_CONSTRAINT_TESTS.sql.txt'
   $rbFile = Join-Path $script:root 'docs\B1.3_M1_ROLLBACK.sql.txt'
-  foreach ($f in @($migFile, $testFile, $rbFile)) {
+  $regFile = Join-Path $script:root 'docs\B1.2.2_CONSTRAINT_TESTS_SCOPED.sql.txt'
+  $hashFiles = @($migFile, $testFile, $rbFile); if ($Step -eq 'regress') { $hashFiles += $regFile }
+  foreach ($f in $hashFiles) {
     if (-not (Test-Path -LiteralPath $f)) { Fail ('Thieu file: ' + $f) }
     # core.autocrlf co the doi LF -> CRLF khi checkout: in them SHA-256 sau khi chuan hoa CRLF -> LF (= so trong B1.3.2B_REPORT.md).
     $lf = [System.IO.File]::ReadAllBytes($f); $lf = [byte[]]@(for ($i = 0; $i -lt $lf.Length; $i++) { if (-not ($lf[$i] -eq 13 -and $i + 1 -lt $lf.Length -and $lf[$i + 1] -eq 10)) { $lf[$i] } })
@@ -155,12 +157,13 @@ try {
     }
     'regress' {
       if ($state -ne '4|10|1') { Fail ('M1 chua ap day du (' + $state + ').') }
-      $old = Join-Path $script:root 'docs\B1.2.2_CONSTRAINT_TESTS.sql'
-      if (-not (Test-Path -LiteralPath $old)) { Fail ('Khong thay ' + $old + ' (file cuc bo, khong nam trong Git).') }
-      $r = TryPsql '' $old
+      # Ban thu hep pham vi (Git theo doi): 57 assertion chi xet ban ghi thu; B122_SCOPE_GUARD dung neu UUID/ma/MST thu da ton tai.
+      $r = TryPsql '' $regFile
       Add-Content -LiteralPath $script:log -Value $r.Out -Encoding UTF8
+      $pass = ([regex]::Match($r.Out, '(?m)^PASS\|(\d+)')).Groups[1].Value
       $failN = ([regex]::Match($r.Out, '(?m)^FAIL\|(\d+)')).Groups[1].Value
-      if ($r.Code -ne 0 -or $failN -or $r.Out -match '(?m)^(psql:.*)?ERROR') { Bad 'B1.2.2_CONSTRAINT_TESTS co FAIL/ERROR sau M1 (hoi quy).'; Say $r.Out } else { Ok 'B1.2.2_CONSTRAINT_TESTS: khong FAIL sau M1.' }
+      Say ('Ket qua: PASS=' + $pass + ' FAIL=' + $(if ($failN) { $failN } else { '0' }) + ' (ma psql ' + $r.Code + ', ky vong PASS=57)')
+      if ($r.Code -ne 0 -or $failN -or $pass -ne '57' -or $r.Out -match '(?m)^(psql:.*)?ERROR') { Bad 'B1.2.2_CONSTRAINT_TESTS_SCOPED co FAIL/ERROR hoac khong du 57 PASS sau M1 (hoi quy).'; Say $r.Out } else { Ok 'B1.2.2_CONSTRAINT_TESTS_SCOPED: 57/57 PASS sau M1.' }
     }
     'rollback' {
       if ($state -ne '4|10|1') { Fail ('M1 chua ap day du (' + $state + ').') }
