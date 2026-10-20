@@ -152,7 +152,7 @@ SELECT pg_temp.expect_ok('yeu cau P10: ROLE_GRANT S2 -> sales (A1 yeu cau)', $q$
 SELECT pg_temp.expect_err('yeu cau: trung yeu cau PENDING', $q$ SELECT pg_temp.pcr('f1330000-0000-4000-8000-000000000011', 'ROLE_GRANT', 'f1320000-0000-4000-8000-000000000006', 'f1310000-0000-4000-8000-000000000003', '{"n":10}', 'f1320000-0000-4000-8000-000000000002') $q$, '23505');
 
 -- 5. Dong che do khoi tao (vinh vien)
-INSERT INTO app_meta (key, value) VALUES ('auth_bootstrap_done', 'b13-constraint-test');
+INSERT INTO app_meta (key, value) VALUES ('auth_bootstrap_done', 'b13-test');
 SELECT pg_temp.expect_true('che do khoi tao da dong', $q$ NOT fn_auth_bootstrap_open() $q$);
 SELECT pg_temp.expect_err('bootstrap: xoa khoa auth_bootstrap_done', $q$ DELETE FROM app_meta WHERE key = 'auth_bootstrap_done' $q$, '42501');
 SELECT pg_temp.expect_err('bootstrap: sua khoa auth_bootstrap_done', $q$ UPDATE app_meta SET value = 'x' WHERE key = 'auth_bootstrap_done' $q$, '42501');
