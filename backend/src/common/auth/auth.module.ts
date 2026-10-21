@@ -1,12 +1,15 @@
 import { Inject, Logger, Module, OnModuleInit } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { AccessGuard } from './access.guard';
 import { ACTOR_PROVIDER, ActorProvider } from './actor';
 import { ActorGuard } from './actor.guard';
 import { DenyAllActorProvider } from './deny-all-actor.provider';
 
 // Cho tới khi có đăng nhập thật (B1.3), provider là DenyAll: mọi route dùng ActorGuard trả 401.
 // Chỉ test mới thay provider (overrideProvider); không có đường cấu hình nào ở production.
+// B1.3 M1.3: AccessGuard là APP_GUARD (toàn cục): route không khai báo @RequirePermissions(...) / @Public() => 403 (fail-closed).
 @Module({
-  providers: [{ provide: ACTOR_PROVIDER, useClass: DenyAllActorProvider }, ActorGuard],
+  providers: [{ provide: ACTOR_PROVIDER, useClass: DenyAllActorProvider }, ActorGuard, { provide: APP_GUARD, useClass: AccessGuard }],
   exports: [ACTOR_PROVIDER, ActorGuard],
 })
 export class AuthModule implements OnModuleInit {

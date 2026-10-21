@@ -1,0 +1,21 @@
+-- SISCOM CRM - B1.3 M1.3: kiem tra CAU TRUC (chi doc catalog, KHONG ghi du lieu). Chay bang psql -f tren BAN SAO THU sau khi ap M1.3.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_M1_3_STRUCTURE_TESTS.sql.txt (file moi). Ky vong: moi dong ok = true. CHUA CHAY.
+-- GIOI HAN (khong che): chua co test CHUC NANG (doi mat khau => ma reset bi thu hoi) vi can du lieu nhan vien/credential day du; de xuat bo sung
+--   vao B1.3_M1_2_CONSTRAINT_TESTS.sql.txt trong buoc xac minh tren ban sao (xem B1.3.2B_M1_3_SEC_REMEDIATION.md muc 6).
+\set ON_ERROR_STOP on
+\pset pager off
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+END $$;
+SELECT label, ok FROM (VALUES
+  ('ham ton tai', to_regprocedure('public.fn_cred_revoke_reset_tokens()') IS NOT NULL),
+  ('ham SECURITY DEFINER', COALESCE((SELECT p.prosecdef FROM pg_proc p WHERE p.oid = to_regprocedure('public.fn_cred_revoke_reset_tokens()')), false)),
+  ('search_path co dinh, pg_temp cuoi', COALESCE((SELECT p.proconfig::text LIKE '%search_path=pg_catalog, public, pg_temp%' FROM pg_proc p WHERE p.oid = to_regprocedure('public.fn_cred_revoke_reset_tokens()')), false)),
+  ('PUBLIC khong co EXECUTE', NOT has_function_privilege('public', 'public.fn_cred_revoke_reset_tokens()', 'EXECUTE')),
+  ('trigger AFTER UPDATE OF token_version co WHEN', EXISTS (SELECT 1 FROM pg_trigger t WHERE NOT t.tgisinternal AND t.tgname = 'trg_cred_revoke_reset_tokens'
+      AND t.tgrelid = 'public.employee_credential'::regclass AND pg_get_triggerdef(t.oid) LIKE '%AFTER UPDATE OF token_version%' AND pg_get_triggerdef(t.oid) LIKE '%WHEN%')),
+  ('trigger M1.2 trg_cred_revoke_sessions con nguyen', EXISTS (SELECT 1 FROM pg_trigger t WHERE NOT t.tgisinternal AND t.tgname = 'trg_cred_revoke_sessions'))
+) AS v(label, ok);
