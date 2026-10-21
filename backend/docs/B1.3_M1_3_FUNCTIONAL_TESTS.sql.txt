@@ -1,0 +1,174 @@
+-- SISCOM CRM - B1.3 M1.3 (20261021000000_b1_3_auth_m1_3_reset_revocation): kiem thu CHUC NANG thu hoi ma reset + ca am tinh.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_M1_3_FUNCTIONAL_TESTS.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI CHAY TREN BAN SAO THU MOI (siscom_crm_restore_* / siscom_crm_test_*) SAU KHI AP M1 + M1.1 + M1.2 + M1.3 va TRUOC khi tach role (S1),
+--   bang chu so huu bang. Qua: scripts\windows\auth-m13-verify.bat -Step functional13. KHONG chay tay, KHONG tu chay (can phe duyet rieng).
+-- Tien dieu kien: role/permission/role_permission/employee_role va cac bang M1 RONG, chua co app_meta.auth_bootstrap_done.
+-- Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu). Co pg_sleep ~2,5 giay (ma het han).
+-- Quy uoc BAT BUOC (script xac minh dem): moi phep kiem la MOT dong bat dau bang "SELECT pg_temp.expect_(ok|err|true)(" ;
+--   so PASS bao cao phai bang so dong do. Them/bot phep kiem phai giu quy uoc nay.
+-- Ky vong: cuoi file bao 0 dong FAIL. CHUA CHAY - ket qua that do nguoi dung cung cap.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_dev', 'siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF to_regprocedure('public.fn_cred_revoke_reset_tokens()') IS NULL THEN RAISE EXCEPTION 'Chua ap M1.3 (thieu fn_cred_revoke_reset_tokens).'; END IF;
+  IF to_regprocedure('public.fn_auth_api_reset_password(uuid, text, text, text, jsonb)') IS NULL THEN RAISE EXCEPTION 'Chua ap M1.2.'; END IF;
+  IF NOT has_table_privilege(current_user, 'public.employee_role', 'INSERT') OR NOT has_function_privilege(current_user, 'public.fn_auth_bootstrap_close(text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Phai chay bang chu so huu bang (siscom_app truoc S1), khong phai role ung dung da bi thu quyen.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM role) OR EXISTS (SELECT 1 FROM permission) OR EXISTS (SELECT 1 FROM role_permission) OR EXISTS (SELECT 1 FROM employee_role)
+     OR EXISTS (SELECT 1 FROM employee_credential) OR EXISTS (SELECT 1 FROM auth_session) OR EXISTS (SELECT 1 FROM password_reset_token)
+     OR EXISTS (SELECT 1 FROM privileged_change_request) OR EXISTS (SELECT 1 FROM app_meta WHERE key = 'auth_bootstrap_done') THEN
+    RAISE EXCEPTION 'Tien dieu kien: bang RBAC/auth phai rong va chua co auth_bootstrap_done.';
+  END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text);
+CREATE TEMP TABLE ids (name text PRIMARY KEY, id uuid);
+CREATE FUNCTION pg_temp.expect_err(p_label text, p_stmt text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_stmt;
+    INSERT INTO res VALUES (false, p_label || ' - KHONG bi chan');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = p_state THEN INSERT INTO res VALUES (true, p_label);
+    ELSE INSERT INTO res VALUES (false, p_label || ' - SQLSTATE ' || SQLSTATE || ' (' || SQLERRM || '), can ' || p_state); END IF;
+  END;
+END $$;
+CREATE FUNCTION pg_temp.expect_ok(p_label text, p_stmt text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN EXECUTE p_stmt; INSERT INTO res VALUES (true, p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_expr text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE r boolean;
+BEGIN
+  BEGIN EXECUTE 'SELECT (' || p_expr || ')' INTO r; INSERT INTO res VALUES (r IS TRUE, p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+CREATE FUNCTION pg_temp.q(p_name text) RETURNS uuid LANGUAGE sql AS $$ SELECT id FROM ids WHERE name = p_name $$;
+CREATE FUNCTION pg_temp.h(p_text text) RETURNS text LANGUAGE sql AS $$ SELECT encode(sha256(convert_to(p_text, 'UTF8')), 'hex') $$;
+-- Tao + duyet yeu cau PASSWORD_RESET cho p_emp (A1 yeu cau, D1 duyet) roi A1 phat ma goc p_tok (TTL 20 phut). Luu id ma vao ids(p_name).
+CREATE FUNCTION pg_temp.issue(p_name text, p_emp uuid, p_tok text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_req uuid;
+BEGIN
+  v_req := fn_auth_api_request_create('f1396200-0000-4000-8000-000000000001', 'PASSWORD_RESET'::privileged_change_type, p_emp, NULL, jsonb_build_object('n', p_name), 60);
+  PERFORM fn_auth_api_request_decide('f1396200-0000-4000-8000-000000000003', v_req, true);
+  INSERT INTO ids VALUES (p_name, fn_auth_api_reset_token_issue('f1396200-0000-4000-8000-000000000001', v_req, pg_temp.h(p_tok), 20));
+END $$;
+
+CREATE FUNCTION pg_temp.ctx(p_req uuid, p_actor uuid) RETURNS void LANGUAGE sql AS $$
+  SELECT set_config('app.priv_request_id', coalesce(p_req::text, ''), true), set_config('app.actor_employee_id', coalesce(p_actor::text, ''), true) $$;
+-- Tao + duyet yeu cau PASSWORD_RESET (A1 yeu cau, D1 duyet), CHUA phat ma. Luu id yeu cau vao ids(p_name).
+CREATE FUNCTION pg_temp.req_ok(p_name text, p_emp uuid) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_req uuid;
+BEGIN
+  v_req := fn_auth_api_request_create('f1396200-0000-4000-8000-000000000001', 'PASSWORD_RESET'::privileged_change_type, p_emp, NULL, jsonb_build_object('n', p_name), 60);
+  PERFORM fn_auth_api_request_decide('f1396200-0000-4000-8000-000000000003', v_req, true);
+  INSERT INTO ids VALUES (p_name, v_req);
+END $$;
+
+-- Ky hieu id: quyen f1396000-..-0N | vai tro f1396100-..-0N | nhan vien f1396200-..-0N | phien f1396400-..-0N
+--   E1 A1, E2 A2 (admin, credential) | E3 D1, E4 D2 (director: access.approve) | E5 S1, E6 S2 (sales, credential) | E7 N1 (khong credential)
+-- 0. Du lieu nen o CHE DO KHOI TAO
+INSERT INTO permission (id, code) VALUES
+ ('f1396000-0000-4000-8000-000000000001', 'access.approve'), ('f1396000-0000-4000-8000-000000000002', 'access.request'),
+ ('f1396000-0000-4000-8000-000000000003', 'role.manage'),    ('f1396000-0000-4000-8000-000000000004', 'auth.credential.manage'),
+ ('f1396000-0000-4000-8000-000000000005', 'customer.read');
+INSERT INTO role (id, code, name, is_system) VALUES
+ ('f1396100-0000-4000-8000-000000000001', 'admin', 'System Admin (thu M1.3)', true), ('f1396100-0000-4000-8000-000000000002', 'director', 'Giam doc (thu M1.3)', true),
+ ('f1396100-0000-4000-8000-000000000003', 'sales', 'Kinh doanh (thu M1.3)', true);
+INSERT INTO role_permission (role_id, permission_id, scope) VALUES
+ ('f1396100-0000-4000-8000-000000000001', 'f1396000-0000-4000-8000-000000000002', 'ALL'), ('f1396100-0000-4000-8000-000000000001', 'f1396000-0000-4000-8000-000000000003', 'ALL'),
+ ('f1396100-0000-4000-8000-000000000001', 'f1396000-0000-4000-8000-000000000004', 'ALL'),
+ ('f1396100-0000-4000-8000-000000000002', 'f1396000-0000-4000-8000-000000000001', 'ALL'), ('f1396100-0000-4000-8000-000000000002', 'f1396000-0000-4000-8000-000000000005', 'ALL'),
+ ('f1396100-0000-4000-8000-000000000003', 'f1396000-0000-4000-8000-000000000005', 'OWN');
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('f1396200-0000-4000-8000-000000000001', 'B133 Admin 1', 'b133.a1@example.invalid', 'ACTIVE', true),
+ ('f1396200-0000-4000-8000-000000000002', 'B133 Admin 2', 'b133.a2@example.invalid', 'ACTIVE', true),
+ ('f1396200-0000-4000-8000-000000000003', 'B133 Director 1', 'b133.d1@example.invalid', 'ACTIVE', true),
+ ('f1396200-0000-4000-8000-000000000004', 'B133 Director 2', 'b133.d2@example.invalid', 'ACTIVE', true),
+ ('f1396200-0000-4000-8000-000000000005', 'B133 Sales 1', 'b133.s1@example.invalid', 'ACTIVE', true),
+ ('f1396200-0000-4000-8000-000000000006', 'B133 Sales 2', 'b133.s2@example.invalid', 'ACTIVE', true),
+ ('f1396200-0000-4000-8000-000000000007', 'B133 Nhan vien khong credential', 'b133.n1@example.invalid', 'ACTIVE', true);
+INSERT INTO employee_credential (employee_id, password_hash, password_algo, password_params) VALUES
+ ('f1396200-0000-4000-8000-000000000001', '$argon2id$v=19$thu-a1', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1396200-0000-4000-8000-000000000002', '$argon2id$v=19$thu-a2', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1396200-0000-4000-8000-000000000003', '$argon2id$v=19$thu-d1', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1396200-0000-4000-8000-000000000004', '$argon2id$v=19$thu-d2', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1396200-0000-4000-8000-000000000005', '$argon2id$v=19$thu-s1', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1396200-0000-4000-8000-000000000006', '$argon2id$v=19$thu-s2', 'argon2id', '{"m":65536,"t":3,"p":1}');
+INSERT INTO employee_role (employee_id, role_id) VALUES
+ ('f1396200-0000-4000-8000-000000000001', 'f1396100-0000-4000-8000-000000000001'), ('f1396200-0000-4000-8000-000000000002', 'f1396100-0000-4000-8000-000000000001'),
+ ('f1396200-0000-4000-8000-000000000003', 'f1396100-0000-4000-8000-000000000002'), ('f1396200-0000-4000-8000-000000000004', 'f1396100-0000-4000-8000-000000000002'),
+ ('f1396200-0000-4000-8000-000000000005', 'f1396100-0000-4000-8000-000000000003'), ('f1396200-0000-4000-8000-000000000006', 'f1396100-0000-4000-8000-000000000003');
+SELECT pg_temp.expect_ok('dong khoi tao (co admin + nguoi duyet co credential)', $q$ SELECT fn_auth_bootstrap_close('b1313') $q$);
+SELECT pg_temp.expect_true('khoi tao: da dong', $q$ NOT fn_auth_bootstrap_open() $q$);
+
+-- 1. Doi mat khau CUA CHINH MINH => moi ma reset chua dung bi thu hoi; ma cua nguoi khac khong dong toi
+SELECT pg_temp.expect_ok('T1 phat cho S1 (ma tok-1)', $q$ SELECT pg_temp.issue('T1', 'f1396200-0000-4000-8000-000000000005', 'tok-1') $q$);
+SELECT pg_temp.expect_ok('T2 phat cho S2 (ma tok-2)', $q$ SELECT pg_temp.issue('T2', 'f1396200-0000-4000-8000-000000000006', 'tok-2') $q$);
+SELECT pg_temp.expect_true('truoc khi doi: T1, T2 con hieu luc', $q$ (SELECT count(*) FROM password_reset_token WHERE id IN (pg_temp.q('T1'), pg_temp.q('T2')) AND used_at IS NULL AND revoked_at IS NULL) = 2 $q$);
+SELECT pg_temp.expect_true('S1 doi mat khau => token_version 2', $q$ fn_auth_api_change_own_password('f1396200-0000-4000-8000-000000000005', 1, '$argon2id$v=19$moi-s1', 'argon2id', '{"m":65536,"t":3,"p":1}') = 2 $q$);
+SELECT pg_temp.expect_true('T1 (cua S1) bi thu hoi, chua dung', $q$ (SELECT revoked_at IS NOT NULL AND used_at IS NULL FROM password_reset_token WHERE id = pg_temp.q('T1')) $q$);
+SELECT pg_temp.expect_true('T2 (cua S2) KHONG bi anh huong (co lap theo nhan vien)', $q$ (SELECT revoked_at IS NULL AND used_at IS NULL FROM password_reset_token WHERE id = pg_temp.q('T2')) $q$);
+SELECT pg_temp.expect_true('ma cu tok-1 sau khi doi mat khau => NO_TOKEN, credential S1 khong doi', $q$ fn_auth_api_reset_password('f1396200-0000-4000-8000-000000000005', 'tok-1', '$argon2id$v=19$chiem', 'argon2id', '{}') = 'NO_TOKEN' AND (SELECT password_hash = '$argon2id$v=19$moi-s1' AND token_version = 2 FROM employee_credential WHERE employee_id = 'f1396200-0000-4000-8000-000000000005') $q$);
+
+-- 2. Luong hop le KHONG bi thu hoi lan nua: ma da dung (used_at) giu nguyen, khong co revoked_at
+SELECT pg_temp.expect_true('S2: reset bang tok-2 => OK', $q$ fn_auth_api_reset_password('f1396200-0000-4000-8000-000000000006', 'tok-2', '$argon2id$v=19$moi-s2', 'argon2id', '{"m":65536,"t":3,"p":1}') = 'OK' $q$);
+SELECT pg_temp.expect_true('T2 da dung va KHONG bi danh dau thu hoi (used_at dat truoc khi tang token_version)', $q$ (SELECT used_at IS NOT NULL AND revoked_at IS NULL FROM password_reset_token WHERE id = pg_temp.q('T2')) $q$);
+SELECT pg_temp.expect_true('S2: token_version 2 sau reset hop le', $q$ (SELECT token_version = 2 FROM employee_credential WHERE employee_id = 'f1396200-0000-4000-8000-000000000006') $q$);
+
+-- 3. Ma phat hanh SAU khi doi mat khau KHONG bi anh huong (trigger chi chay luc token_version tang)
+SELECT pg_temp.expect_ok('T3 phat cho S1 sau khi doi mat khau (tok-3)', $q$ SELECT pg_temp.issue('T3', 'f1396200-0000-4000-8000-000000000005', 'tok-3') $q$);
+SELECT pg_temp.expect_true('T3 con hieu luc', $q$ (SELECT used_at IS NULL AND revoked_at IS NULL FROM password_reset_token WHERE id = pg_temp.q('T3')) $q$);
+SELECT pg_temp.expect_true('S1: reset bang tok-3 => OK (ma moi dung duoc)', $q$ fn_auth_api_reset_password('f1396200-0000-4000-8000-000000000005', 'tok-3', '$argon2id$v=19$moi-s1b', 'argon2id', '{"m":65536,"t":3,"p":1}') = 'OK' $q$);
+
+-- 4. Khoa credential (token_version tang) => thu hoi ma chua dung cua nhan vien do, ke ca khi doi mat khau KHONG di qua duong ung dung
+SELECT pg_temp.expect_ok('T4 phat cho S2 (tok-4)', $q$ SELECT pg_temp.issue('T4', 'f1396200-0000-4000-8000-000000000006', 'tok-4') $q$);
+SELECT pg_temp.expect_ok('A1 khoa credential S2', $q$ SELECT fn_auth_api_credential_disable('f1396200-0000-4000-8000-000000000001', 'f1396200-0000-4000-8000-000000000006', 'thu M1.3') $q$);
+SELECT pg_temp.expect_true('T4 bi thu hoi sau khi khoa credential', $q$ (SELECT revoked_at IS NOT NULL AND used_at IS NULL FROM password_reset_token WHERE id = pg_temp.q('T4')) $q$);
+SELECT pg_temp.expect_true('T2 (da dung truoc do) KHONG bi dong toi khi S2 bi khoa', $q$ (SELECT used_at IS NOT NULL AND revoked_at IS NULL FROM password_reset_token WHERE id = pg_temp.q('T2')) $q$);
+SELECT pg_temp.expect_true('khoa roi, tok-4 => NO_TOKEN (khong the kich hoat lai bang ma cu), credential van DISABLED', $q$ fn_auth_api_reset_password('f1396200-0000-4000-8000-000000000006', 'tok-4', '$argon2id$v=19$chiem2', 'argon2id', '{}') = 'NO_TOKEN' AND (SELECT status = 'DISABLED' FROM employee_credential WHERE employee_id = 'f1396200-0000-4000-8000-000000000006') $q$);
+
+-- 5. Trigger chi chay khi token_version TANG: cap nhat khac khong thu hoi
+SELECT pg_temp.expect_ok('T5 phat cho S1 (tok-5)', $q$ SELECT pg_temp.issue('T5', 'f1396200-0000-4000-8000-000000000005', 'tok-5') $q$);
+SELECT pg_temp.expect_ok('cap nhat dem dang nhap sai cua S1 (khong doi token_version)', $q$ UPDATE employee_credential SET failed_count = 1, window_started_at = now() WHERE employee_id = 'f1396200-0000-4000-8000-000000000005' $q$);
+SELECT pg_temp.expect_true('T5 van con hieu luc sau cap nhat failed_count', $q$ (SELECT used_at IS NULL AND revoked_at IS NULL FROM password_reset_token WHERE id = pg_temp.q('T5')) $q$);
+
+-- 6. Ma da thu hoi tu truoc khong bi ghi de revoked_at (dat revoked_at lui 1 gio truc tiep bang chu so huu roi tang token_version)
+UPDATE password_reset_token SET revoked_at = now() - interval '1 hour' WHERE id = pg_temp.q('T1');
+SELECT pg_temp.expect_ok('S1 doi mat khau lan 2 (token_version 3 -> 4 qua change_own)', $q$ SELECT fn_auth_api_change_own_password('f1396200-0000-4000-8000-000000000005', 3, '$argon2id$v=19$moi-s1c', 'argon2id', '{}') $q$);
+SELECT pg_temp.expect_true('T5 bi thu hoi; T1 (da thu hoi tu truoc) giu nguyen revoked_at cu', $q$ (SELECT revoked_at IS NOT NULL FROM password_reset_token WHERE id = pg_temp.q('T5')) AND (SELECT revoked_at < now() - interval '30 minutes' FROM password_reset_token WHERE id = pg_temp.q('T1')) $q$);
+
+-- 7. Ca am tinh
+SELECT pg_temp.expect_err('change_own: token_version cu (7) => STALE, ma khong bi thu hoi nham', $q$ SELECT fn_auth_api_change_own_password('f1396200-0000-4000-8000-000000000005', 7, '$argon2id$v=19$x', 'argon2id', '{}') $q$, '23514');
+SELECT pg_temp.expect_err('change_own: algo none bi chan', $q$ SELECT fn_auth_api_change_own_password('f1396200-0000-4000-8000-000000000005', 4, '!', 'none', '{}') $q$, '23514');
+SELECT pg_temp.expect_err('change_own: nhan vien khong credential', $q$ SELECT fn_auth_api_change_own_password('f1396200-0000-4000-8000-000000000007', 1, '$argon2id$v=19$x', 'argon2id', '{}') $q$, '42501');
+SELECT pg_temp.expect_err('reset_pw: algo none bi chan', $q$ SELECT fn_auth_api_reset_password('f1396200-0000-4000-8000-000000000005', 'tok-5', '!', 'none', '{}') $q$, '23514');
+SELECT pg_temp.expect_true('reset_pw: nhan vien khong co ma nao => NO_TOKEN', $q$ fn_auth_api_reset_password('f1396200-0000-4000-8000-000000000007', 'bat-ky', '$argon2id$v=19$x', 'argon2id', '{}') = 'NO_TOKEN' $q$);
+SELECT pg_temp.expect_err('reset_issue: nguoi thao tac khong co quyen REQUEST (director)', $q$ SELECT fn_auth_api_reset_token_issue('f1396200-0000-4000-8000-000000000003', pg_temp.q('T1'), pg_temp.h('x'), 20) $q$, '42501');
+SELECT pg_temp.expect_err('ham trigger khong goi truc tiep duoc (khong phai trigger)', $q$ SELECT fn_cred_revoke_reset_tokens() $q$, '0A000');
+SELECT pg_temp.expect_true('PUBLIC khong co EXECUTE fn_cred_revoke_reset_tokens', $q$ NOT has_function_privilege('public', 'public.fn_cred_revoke_reset_tokens()', 'EXECUTE') $q$);
+
+-- 8. Ma het han van duoc thu hoi (EXPIRED) va khong the dung lai sau khi doi mat khau
+SELECT pg_temp.expect_ok('Q6 PASSWORD_RESET (S1) da duyet, chua phat ma', $q$ SELECT pg_temp.req_ok('Q6', 'f1396200-0000-4000-8000-000000000005') $q$);
+SELECT pg_temp.ctx(pg_temp.q('Q6'), 'f1396200-0000-4000-8000-000000000001');
+SELECT pg_temp.expect_ok('T6 han 2 giay (ghi truc tiep, ctx dung yeu cau Q6)', $q$ INSERT INTO password_reset_token (id, employee_id, token_hash, request_id, created_by, expires_at) VALUES ('f1396500-0000-4000-8000-000000000006', 'f1396200-0000-4000-8000-000000000005', pg_temp.h('tok-6'), pg_temp.q('Q6'), 'f1396200-0000-4000-8000-000000000001', now() + interval '2 seconds') $q$);
+SELECT pg_temp.ctx(NULL, NULL);
+SELECT pg_sleep(greatest(0, extract(epoch FROM (now() + interval '2.5 seconds' - clock_timestamp()))::double precision));
+SELECT pg_temp.expect_true('T6 het han => EXPIRED va bi thu hoi', $q$ fn_auth_api_reset_password('f1396200-0000-4000-8000-000000000005', 'tok-6', '$argon2id$v=19$x', 'argon2id', '{}') = 'EXPIRED' AND (SELECT revoked_at IS NOT NULL FROM password_reset_token WHERE id = 'f1396500-0000-4000-8000-000000000006') $q$);
+
+-- 9. Tong the
+SELECT pg_temp.expect_true('khong con ma reset nao chua dung/chua thu hoi cua nhan vien da doi/khoa credential sau cung', $q$ NOT EXISTS (SELECT 1 FROM password_reset_token WHERE employee_id IN ('f1396200-0000-4000-8000-000000000005', 'f1396200-0000-4000-8000-000000000006') AND used_at IS NULL AND revoked_at IS NULL) $q$);
+SELECT pg_temp.expect_true('moi credential ACTIVE deu khong dung algo none', $q$ NOT EXISTS (SELECT 1 FROM employee_credential WHERE status = 'ACTIVE' AND password_algo = 'none') $q$);
+
+-- Tong ket
+SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS ket_qua, count(*) AS so_luong FROM res GROUP BY ok ORDER BY ok;
+SELECT label AS can_xem_lai FROM res WHERE NOT ok;
+ROLLBACK;
