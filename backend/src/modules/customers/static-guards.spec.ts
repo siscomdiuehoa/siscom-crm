@@ -44,6 +44,30 @@ describe('kiểm tra tĩnh mã production (src, không tính *.spec.ts)', () => 
   it('UnverifiedLinksChecker không bao giờ trả verified: true', () => {
     expect(text(join(SRC, 'modules', 'customers', 'customers.deletion-guard.ts'))).not.toMatch(/verified:\s*true/);
   });
+  it('AccessGuard là APP_GUARD duy nhất ở AuthModule; AuthModule được nạp trực tiếp ở AppModule (B1.3 M1.3)', () => {
+    expect(prod.filter((p) => /provide: APP_GUARD/.test(text(p)))).toEqual([join(SRC, 'common', 'auth', 'auth.module.ts')]);
+    expect(text(join(SRC, 'common', 'auth', 'auth.module.ts'))).toMatch(/provide: APP_GUARD, useClass: AccessGuard/);
+    expect(text(join(SRC, 'app.module.ts'))).toMatch(/imports: \[[^\]]*AuthModule/);
+  });
+  it('MỌI route của mọi controller khai báo @RequirePermissions(...) hoặc @Public() (không route nào dựa vào mặc định)', () => {
+    const controllers = prod.filter((p) => p.endsWith('.controller.ts'));
+    expect(controllers.length).toBeGreaterThanOrEqual(4);
+    const bad: string[] = [];
+    for (const f of controllers) {
+      const t = text(f);
+      const classPublic = /@Public\(\)\s*\n\s*export class/.test(t) || /@Public\(\)\s*\n@[A-Za-z]+\([^)]*\)\s*\nexport class/.test(t) || /@Controller\([^)]*\)\s*\n@Public\(\)/.test(t);
+      for (const m of t.matchAll(/@(Get|Post|Patch|Put|Delete)\([^)]*\)([\s\S]*?)(?=\n\s*(?:async\s+)?[A-Za-z_]+\()/g)) {
+        if (!classPublic && !/@RequirePermissions\(/.test(m[2])) bad.push(f + ' :: @' + m[1]);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+  it('@Public() chỉ được dùng ở health', () => {
+    expect(prod.filter((p) => /^\s*@Public\(\)/m.test(text(p)) && !p.endsWith('permissions.decorator.ts')).map((p) => p.split(/[\\/]/).pop())).toEqual(['health.controller.ts']);
+  });
+  it('AccessGuard không đọc danh tính từ header/body/query', () => {
+    expect(text(join(SRC, 'common', 'auth', 'access.guard.ts'))).not.toMatch(/\.headers|\.body|\.query|\.params/);
+  });
   it('controller chỉ có đúng các route của Contract B-1 (không PUT)', () => {
     const c = text(join(SRC, 'modules', 'customers', 'customers.controller.ts'));
     expect([...c.matchAll(/@(Get|Post|Patch|Put|Delete)\(/g)].map((m) => m[1]).sort()).toEqual(['Delete', 'Get', 'Get', 'Patch', 'Post', 'Post']);

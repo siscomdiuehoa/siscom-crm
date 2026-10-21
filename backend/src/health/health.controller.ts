@@ -1,8 +1,11 @@
 import { Controller, Get, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { Public } from '../common/auth/permissions.decorator';
 import { HealthService } from './health.service';
 
+// B1.3 M1.3: health khong can danh tinh => khai bao @Public() ro rang (AccessGuard toan cuc tu choi route khong khai bao).
 @Controller('health')
+@Public()
 export class HealthController {
   constructor(private readonly health: HealthService) {}
 
