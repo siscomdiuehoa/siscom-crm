@@ -86,7 +86,7 @@ describe('IDOR / cách ly theo phạm vi trên DB thật', () => {
     const theirs = await makeCustomer(prisma, fx, { ownerId: fx.empB, name: 'KH thử cách ly ' + uniq() });
     const res = await a('ownA').get(URL + '?pageSize=100&q=' + encodeURIComponent('KH thử cách ly'));
     expect(res.status).toBe(200);
-    const ids = (res.body.data as { id: string }[]).map((x) => x.id);
+    const ids = (res.body.data.items as { id: string }[]).map((x) => x.id);
     expect(ids).toContain(mine.id);
     expect(ids).not.toContain(theirs.id);
   });
@@ -111,8 +111,13 @@ describe('leo thang đặc quyền qua body/query bị chặn trước khi ghi',
     }
     expect(await countCustomers()).toBe(before);
   });
-  it('query scope=ALL / ownerId / actorId không mở rộng phạm vi => 400', async () => {
-    for (const q of ['scope=ALL', 'ownerId=' + fx.empB, 'actorId=' + fx.empB]) expect((await a('ownA').get(URL + '?' + q)).status).toBe(400);
+  it('query scope=ALL / actorId (tham số lạ) => 400; ownerId=<uuid> là bộ lọc hợp lệ nhưng KHÔNG mở rộng phạm vi OWN', async () => {
+    for (const q of ['scope=ALL', 'actorId=' + fx.empB, 'employeeId=' + fx.empB]) expect((await a('ownA').get(URL + '?' + q)).status).toBe(400);
+    const theirs = await makeCustomer(prisma, fx, { ownerId: fx.empB, name: 'KH thử cách ly ' + uniq() });
+    const res = await a('ownA').get(URL + '?pageSize=100&ownerId=' + fx.empB); // ownerId nằm trong QueryCustomersDto; phạm vi OWN được AND thêm ở service
+    expect(res.status).toBe(200);
+    expect((res.body.data.items as { id: string }[]).map((x) => x.id)).not.toContain(theirs.id);
+    expect(res.body.data.items).toHaveLength(0);
   });
   it('header danh tính giả không thay được actor: không có x-test-actor => 401 dù có x-actor-id', async () => {
     const { default: request } = await import('supertest');

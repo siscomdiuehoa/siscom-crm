@@ -17,7 +17,8 @@ const jestAuth = JSON.parse(read('test/jest-auth-int.json')) as { testRegex: str
 describe.each([['auth-m13-verify.ps1', verify], ['run-auth-int-tests.ps1', runner]])('hàng rào database của %s', (_name, src) => {
   const code = noComment(src);
   it('chỉ chấp nhận siscom_crm_(restore|test)_YYYYMMDD_HHMMSS, có danh sách cấm và từ khóa cấm', () => {
-    expect(code).toContain("'^siscom_crm_(restore|test)_\\d{8}_\\d{6}$'");
+    // [0-9] (không \d: .NET khớp cả chữ số Unicode) và \z (không $: .NET cho phép một xuống dòng ở cuối)
+    expect(code).toContain("'^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}\\z'");
     for (const d of ['siscom_crm_dev', 'siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948']) expect(code).toContain("'" + d + "'");
     expect(code).toContain('(dev|prod|production|baseline|live)');
   });

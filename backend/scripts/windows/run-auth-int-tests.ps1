@@ -14,7 +14,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $script:fail = $false; $script:pw = $null; $script:log = $null
-$DB_ALLOW = '^siscom_crm_(restore|test)_\d{8}_\d{6}$'
+$DB_ALLOW = '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}\z'
 $DB_DENY = @('siscom_crm_dev', 'siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948')
 $DB_DENY_WORDS = '(?i)(dev|prod|production|baseline|live)'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -62,7 +62,7 @@ try {
   if ($DatabaseName -notmatch $DB_ALLOW) { Fail 'Ten database phai la siscom_crm_restore_YYYYMMDD_HHMMSS hoac siscom_crm_test_YYYYMMDD_HHMMSS.' }
   if ($DB_DENY -contains $DatabaseName) { Fail ('CAM: "' + $DatabaseName + '" khong duoc dung lam dich.') }
   if ($DatabaseName -match $DB_DENY_WORDS) { Fail ('CAM: ten "' + $DatabaseName + '" chua tu khoa dev/prod/production/baseline/live.') }
-  if ($TemplateDb -notmatch '^siscom_crm_restore_\d{8}_\d{6}$' -or $TemplateDb -eq $DatabaseName) { Fail 'TemplateDb phai la database nguon cua ban sao (khac ban sao).' }
+  if ($TemplateDb -notmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z' -or $TemplateDb -eq $DatabaseName) { Fail 'TemplateDb phai la database nguon cua ban sao (khac ban sao).' }
   if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
   $script:log = Join-Path $LogDir ('auth_int_' + $DatabaseName + '_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.txt')
   Set-Content -LiteralPath $script:log -Value ('run-auth-int-tests db=' + $DatabaseName + ' template=' + $TemplateDb + ' at ' + (Get-Date -Format 'o')) -Encoding UTF8
