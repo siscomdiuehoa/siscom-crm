@@ -4,6 +4,7 @@
 # (3) CREATE DATABASE <ban sao> TEMPLATE <nguon> OWNER siscom_app (can mat khau postgres, hoi luc chay, khong luu); (4) gan nhan 'SISCOM_STATS_CLONE_OF:<nguon>' (run-search-bench.ps1 -StatsClone chi chap nhan database co nhan nay);
 # (5) doi chieu so dong + thong ke planner (pg_stats, reltuples) giua nguon va ban sao CHI DOC bang siscom_app.
 # Khong sua database nguon, khong DROP/TRUNCATE/DELETE, khong dung toi siscom_crm_dev.
+# Ham bao ve (ten database, DATABASE_URL) nam o make-stats-clone.guards.ps1 (cung thu muc, BAT BUOC co): chu so [0-9], -cmatch, neo \z.
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$SourceDatabase,
@@ -12,6 +13,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $script:fail = $false; $script:log = $null
+$guards = Join-Path $PSScriptRoot 'make-stats-clone.guards.ps1'
+if (-not (Test-Path -LiteralPath $guards)) { Write-Host ('[LOI] Thieu file bao ve: ' + $guards + ' (phai chep cung make-stats-clone.ps1). Dung lai.') -ForegroundColor Red; exit 1 }
+. $guards
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 function Fail([string]$m) { throw (New-Object System.ApplicationException -ArgumentList $m) }
 function Say([string]$m, [string]$c = 'Gray') { Write-Host $m -ForegroundColor $c; if ($script:log) { Add-Content -LiteralPath $script:log -Value $m -Encoding UTF8 } }
@@ -35,15 +39,8 @@ function Get-AppPasswordFromEnv([string]$envPath) {
   if (-not $line) { Fail 'Khong co dong DATABASE_URL trong .env.' }
   $val = ($line -replace '^\s*DATABASE_URL\s*=\s*', '').Trim()
   if ($val.Length -ge 2 -and (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'")))) { $val = $val.Substring(1, $val.Length - 2) }
-  $u = $null
-  try { $u = New-Object System.Uri -ArgumentList $val } catch { Fail 'DATABASE_URL trong .env khong phai URL hop le (noi dung bi an).' }
-  $ui = $u.UserInfo; $ix = $ui.IndexOf(':')
-  if ($ix -lt 1) { Fail 'DATABASE_URL khong co dang user:matkhau.' }
-  $user = [uri]::UnescapeDataString($ui.Substring(0, $ix)); $pw = [uri]::UnescapeDataString($ui.Substring($ix + 1))
-  if ($user -ne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
-  if ($u.Host -ne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
-  if (-not $pw) { Fail 'DATABASE_URL khong co mat khau.' }
-  $val = $null; $line = $null; $ui = $null; $u = $null
+  $pw = Get-AppPasswordFromUrl $val
+  $val = $null; $line = $null
   return $pw
 }
 function Run-Psql([string]$user, [string]$pw, [string]$db, [string]$sql) {
@@ -56,20 +53,18 @@ function Run-Psql([string]$user, [string]$pw, [string]$db, [string]$sql) {
 }
 $adminPw = $null; $appPw = $null
 try {
-  $pat = '^siscom_crm_restore_\d{8}_\d{6}$'
-  if ($CloneDatabase -eq '') { $CloneDatabase = 'siscom_crm_restore_' + (Get-Date -Format 'yyyyMMdd_HHmmss') }
-  if ($SourceDatabase -notmatch $pat) { Fail 'Database nguon phai la siscom_crm_restore_YYYYMMDD_HHMMSS. siscom_crm_dev bi tu choi.' }
-  if ($CloneDatabase -notmatch $pat) { Fail 'Ten ban sao phai la siscom_crm_restore_YYYYMMDD_HHMMSS.' }
-  if ($SourceDatabase -eq $CloneDatabase) { Fail 'Ten ban sao trung database nguon.' }
+  if ($CloneDatabase -eq '') { $CloneDatabase = 'siscom_crm_restore_' + (New-CloneTimestamp) }
+  Assert-CloneNames $SourceDatabase $CloneDatabase
   if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
-  $script:log = Join-Path $LogDir ('make_stats_clone_' + $CloneDatabase + '_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.txt')
+  $script:log = Join-Path $LogDir ('make_stats_clone_' + $CloneDatabase + '_' + (New-CloneTimestamp) + '.txt')
   Set-Content -LiteralPath $script:log -Value ('make-stats-clone source=' + $SourceDatabase + ' clone=' + $CloneDatabase + ' at ' + (Get-Date -Format 'o')) -Encoding UTF8
   $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
   $script:psql = Find-Tool 'psql.exe'; if (-not $script:psql) { Fail 'Khong tim thay psql.exe.' }
   Say ('Se TAO ban sao ' + $CloneDatabase + ' tu ' + $SourceDatabase + ' (CREATE DATABASE ... TEMPLATE). Khong sua database nguon.') 'Yellow'
-  if ((Read-Host 'Go lai CHINH XAC ten database NGUON') -ne $SourceDatabase) { Fail 'Ten nguon khong khop.' }
-  if ((Read-Host 'Go lai CHINH XAC ten BAN SAO se tao') -ne $CloneDatabase) { Fail 'Ten ban sao khong khop.' }
-  if ((Read-Host 'Go TAO-BAN-SAO de xac nhan') -ne 'TAO-BAN-SAO') { Fail 'Khong xac nhan. Dung lai.' }
+  if ((Read-Host 'Go lai CHINH XAC ten database NGUON') -cne $SourceDatabase) { Fail 'Ten nguon khong khop.' }
+  if ((Read-Host 'Go lai CHINH XAC ten BAN SAO se tao') -cne $CloneDatabase) { Fail 'Ten ban sao khong khop.' }
+  if ((Read-Host 'Go TAO-BAN-SAO de xac nhan') -cne 'TAO-BAN-SAO') { Fail 'Khong xac nhan. Dung lai.' }
+  Assert-CloneNames $SourceDatabase $CloneDatabase  # kiem lai ngay truoc khi ghep ten vao SQL
   $adminPw = Read-Secret 'Mat khau tai khoan postgres (chi de TAO ban sao; khong luu)'
   $chk = (Run-Psql 'postgres' $adminPw 'postgres' ("SELECT (SELECT count(*) FROM pg_database WHERE datname='" + $SourceDatabase + "') || '|' || (SELECT count(*) FROM pg_database WHERE datname='" + $CloneDatabase + "') || '|' || (SELECT count(*) FROM pg_stat_activity WHERE datname='" + $SourceDatabase + "');")).Split('|')
   if ($chk[0] -ne '1') { Fail 'Database nguon khong ton tai.' }
