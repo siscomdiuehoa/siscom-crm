@@ -42,10 +42,10 @@ function Get-AppPasswordFromEnv([string]$envPath) {
   $user = [uri]::UnescapeDataString($ui.Substring(0, $ix)); $pw = [uri]::UnescapeDataString($ui.Substring($ix + 1))
   $port = $u.Port; if ($port -lt 0) { $port = 5432 }
   $src = [uri]::UnescapeDataString($u.AbsolutePath.TrimStart('/'))
-  if ($user -ne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
-  if ($u.Host -ne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
+  if ($user -cne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
+  if ($u.Host -cne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
   if ($port -ne 5432) { Fail ('DATABASE_URL dung port ' + $port + ', can 5432.') }
-  if ($src -ne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi "' + $src + '", ky vong siscom_crm_dev (chi de lay mat khau, KHONG dung lam dich).') }
+  if ($src -cne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi "' + $src + '", ky vong siscom_crm_dev (chi de lay mat khau, KHONG dung lam dich).') }
   if (-not $pw) { Fail 'DATABASE_URL khong co mat khau.' }
   $val = $null; $line = $null; $ui = $null; $u = $null
   return $pw
@@ -59,10 +59,10 @@ function Psql([string]$sql) {
   return (($out | ForEach-Object { $_.ToString() }) -join "`n").Trim()
 }
 try {
-  if ($DatabaseName -notmatch $DB_ALLOW) { Fail 'Ten database phai la siscom_crm_restore_YYYYMMDD_HHMMSS hoac siscom_crm_test_YYYYMMDD_HHMMSS.' }
+  if ($DatabaseName -cnotmatch $DB_ALLOW) { Fail 'Ten database phai la siscom_crm_restore_YYYYMMDD_HHMMSS hoac siscom_crm_test_YYYYMMDD_HHMMSS.' }
   if ($DB_DENY -contains $DatabaseName) { Fail ('CAM: "' + $DatabaseName + '" khong duoc dung lam dich.') }
   if ($DatabaseName -match $DB_DENY_WORDS) { Fail ('CAM: ten "' + $DatabaseName + '" chua tu khoa dev/prod/production/baseline/live.') }
-  if ($TemplateDb -notmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z' -or $TemplateDb -eq $DatabaseName) { Fail 'TemplateDb phai la database nguon cua ban sao (khac ban sao).' }
+  if ($TemplateDb -cnotmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z' -or $TemplateDb -eq $DatabaseName) { Fail 'TemplateDb phai la database nguon cua ban sao (khac ban sao).' }
   if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
   $script:log = Join-Path $LogDir ('auth_int_' + $DatabaseName + '_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.txt')
   Set-Content -LiteralPath $script:log -Value ('run-auth-int-tests db=' + $DatabaseName + ' template=' + $TemplateDb + ' at ' + (Get-Date -Format 'o')) -Encoding UTF8
@@ -74,7 +74,7 @@ try {
   $info = (Psql "SELECT current_database() || '|' || current_user || '|' || pg_get_userbyid(datdba) || '|' || coalesce(shobj_description(oid, 'pg_database'), '') || '|' || (to_regclass('public.customer') IS NOT NULL AND to_regclass('public.lookup_item') IS NOT NULL AND to_regclass('public.audit_log') IS NOT NULL)::text || '|' || (SELECT count(*) FROM public._prisma_migrations WHERE migration_name = '20261012000000_b1_2_crm_core' AND finished_at IS NOT NULL AND rolled_back_at IS NULL)::text || '|' || (SELECT count(*) FROM public._prisma_migrations WHERE migration_name LIKE '2026102%_b1_3_%' AND finished_at IS NOT NULL AND rolled_back_at IS NULL)::text || '|' || (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid())::text FROM pg_database WHERE datname = current_database();").Split('|')
   if ($info[0] -ne $DatabaseName) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $DatabaseName + '".') }
   if ($info[1] -ne 'siscom_app' -or $info[2] -ne 'siscom_app') { Fail 'Tai khoan hoac chu so huu database khong phai siscom_app.' }
-  if ($info[3] -ne ('SISCOM_STATS_CLONE_OF:' + $TemplateDb)) { Fail 'Database KHONG co nhan ban sao cua make-stats-clone khop -TemplateDb. TU CHOI.' }
+  if ($info[3] -cne ('SISCOM_STATS_CLONE_OF:' + $TemplateDb)) { Fail 'Database KHONG co nhan ban sao cua make-stats-clone khop -TemplateDb. TU CHOI.' }
   if ($info[4] -ne 'true' -or $info[5] -ne '1') { Fail 'Database thu chua co schema B1.2 / lich su migration b1_2_crm_core.' }
   if ($RequireAuthSchema -and $info[6] -ne '4') { Fail ('Co ' + $info[6] + '/4 migration auth (M1..M1.3) da ap; can du 4 khi dung -RequireAuthSchema.') }
   if ($info[7] -ne '0') { Fail ('Co ' + $info[7] + ' phien khac dang ket noi toi database thu. Dung.') }

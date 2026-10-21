@@ -48,8 +48,17 @@ describe.each(SCRIPTS)('ca từ chối tên database của %s', (_n, src) => {
     expect(accepted(src, 'siscom_crm_test_٢٠٢٦١٠٢٢_١٠١٥٠٠')).toBe(false);
   });
   it.each(['siscom_crm_restore_20261022_101500', 'siscom_crm_test_20261022_101500'])('chấp nhận định dạng hợp lệ %s (chưa nghĩa là bản sao tồn tại)', (name) => expect(accepted(src, name)).toBe(true));
+  // PowerShell -match/-notmatch KHÔNG phân biệt hoa/thường (khác regex JS ở trên), nên bắt buộc dùng -cnotmatch/-cne.
+  // Kiểm tra chạy thật bằng PowerShell: scripts/windows/tests/auth-db-guard-case.tests.ps1.
+  it('allowlist/template/.env dùng toán tử phân biệt hoa/thường (-cnotmatch/-cne)', () => {
+    const code = noComment(src);
+    expect(code).toContain('$DatabaseName -cnotmatch $DB_ALLOW');
+    expect(code).toContain("$TemplateDb -cnotmatch '^siscom_crm_restore_");
+    for (const needle of ["$user -cne 'siscom_app'", "$u.Host -cne '127.0.0.1'", "$src -cne 'siscom_crm_dev'", "$info[3] -cne ('SISCOM_STATS_CLONE_OF:'"]) expect(code).toContain(needle);
+    expect(code).not.toMatch(/\$DatabaseName -notmatch \$DB_ALLOW/);
+  });
   it('TemplateDb chỉ nhận siscom_crm_restore_<8 số>_<6 số>, kết thúc \\z, và phải khác bản sao', () => {
-    expect(noComment(src)).toContain("$TemplateDb -notmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\\z' -or $TemplateDb -eq $DatabaseName");
+    expect(noComment(src)).toContain("$TemplateDb -cnotmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\\z' -or $TemplateDb -eq $DatabaseName");
   });
 });
 
@@ -57,10 +66,10 @@ describe.each(SCRIPTS)('ca từ chối host/tài khoản/nguồn mật khẩu c�
   const code = noComment(src);
   const body = code.slice(code.indexOf('function Get-AppPasswordFromEnv'), code.indexOf('return $pw'));
   it('.env chỉ để lấy mật khẩu: bắt buộc user siscom_app, host 127.0.0.1, cổng 5432, nguồn siscom_crm_dev; mật khẩu rỗng bị từ chối', () => {
-    expect(body).toContain("if ($user -ne 'siscom_app') { Fail");
-    expect(body).toContain("if ($u.Host -ne '127.0.0.1') { Fail");
+    expect(body).toContain("if ($user -cne 'siscom_app') { Fail");
+    expect(body).toContain("if ($u.Host -cne '127.0.0.1') { Fail");
     expect(body).toContain('if ($port -ne 5432) { Fail');
-    expect(body).toContain("if ($src -ne 'siscom_crm_dev') { Fail");
+    expect(body).toContain("if ($src -cne 'siscom_crm_dev') { Fail");
     expect(body).toContain('if (-not $pw) { Fail');
   });
   it('lỗi đọc .env không in nội dung (Fail không nối $val/$line/$pw/$ui) và biến nhạy cảm được xóa', () => {

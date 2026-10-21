@@ -60,10 +60,10 @@ function Get-AppPasswordFromEnv([string]$envPath) {
   $user = [uri]::UnescapeDataString($ui.Substring(0, $ix)); $pw = [uri]::UnescapeDataString($ui.Substring($ix + 1))
   $port = $u.Port; if ($port -lt 0) { $port = 5432 }
   $src = [uri]::UnescapeDataString($u.AbsolutePath.TrimStart('/'))
-  if ($user -ne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
-  if ($u.Host -ne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
+  if ($user -cne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
+  if ($u.Host -cne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
   if ($port -ne 5432) { Fail ('DATABASE_URL dung port ' + $port + ', can 5432.') }
-  if ($src -ne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi "' + $src + '", ky vong siscom_crm_dev (chi de lay mat khau, KHONG dung lam dich).') }
+  if ($src -cne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi "' + $src + '", ky vong siscom_crm_dev (chi de lay mat khau, KHONG dung lam dich).') }
   if (-not $pw) { Fail 'DATABASE_URL khong co mat khau.' }
   $val = $null; $line = $null; $ui = $null; $u = $null
   return $pw
@@ -215,10 +215,10 @@ function Static-Checks([string]$root) {
 }
 try {
   # ---- Guard ten database (chay TRUOC moi thao tac khac) ----
-  if ($DatabaseName -notmatch $DB_ALLOW) { Fail 'DatabaseName phai la siscom_crm_restore_YYYYMMDD_HHMMSS hoac siscom_crm_test_YYYYMMDD_HHMMSS (ban sao moi).' }
+  if ($DatabaseName -cnotmatch $DB_ALLOW) { Fail 'DatabaseName phai la siscom_crm_restore_YYYYMMDD_HHMMSS hoac siscom_crm_test_YYYYMMDD_HHMMSS (ban sao moi).' }
   if ($DB_DENY -contains $DatabaseName) { Fail ('CAM: "' + $DatabaseName + '" khong duoc dung lam dich.') }
   if ($DatabaseName -match $DB_DENY_WORDS) { Fail ('CAM: ten "' + $DatabaseName + '" chua tu khoa dev/prod/production/baseline/live.') }
-  if ($TemplateDb -notmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z' -or $TemplateDb -eq $DatabaseName) { Fail 'TemplateDb phai la database nguon cua ban sao (khac ban sao).' }
+  if ($TemplateDb -cnotmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z' -or $TemplateDb -eq $DatabaseName) { Fail 'TemplateDb phai la database nguon cua ban sao (khac ban sao).' }
   $script:root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
   if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
   $script:stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
@@ -255,7 +255,7 @@ try {
     $info = (Psql "SELECT current_database() || '|' || current_user || '|' || pg_get_userbyid(datdba) || '|' || coalesce(shobj_description(oid, 'pg_database'), '') || '|' || (SELECT count(*) FROM public._prisma_migrations WHERE migration_name IN ('20261011000000_init', '20261012000000_b1_2_crm_core') AND finished_at IS NOT NULL AND rolled_back_at IS NULL)::text || '|' || current_setting('server_version_num') FROM pg_database WHERE datname = current_database();").Split('|')
     if ($info[0] -ne $DatabaseName) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $DatabaseName + '".') }
     if ($info[1] -ne 'siscom_app' -or $info[2] -ne 'siscom_app') { Fail 'Tai khoan hoac chu so huu khong phai siscom_app (da tach role? dung auth-s1s3-verify cho cac buoc sau tach).' }
-    if ($info[3] -ne ('SISCOM_STATS_CLONE_OF:' + $TemplateDb)) { Fail 'Database KHONG co nhan ban sao cua make-stats-clone khop -TemplateDb. TU CHOI.' }
+    if ($info[3] -cne ('SISCOM_STATS_CLONE_OF:' + $TemplateDb)) { Fail 'Database KHONG co nhan ban sao cua make-stats-clone khop -TemplateDb. TU CHOI.' }
     if ($info[4] -ne '2') { Fail 'Thieu migration init / b1_2_crm_core da ap.' }
     if ([int]$info[5] -lt 150000) { Fail ('PostgreSQL ' + $info[5] + ' < 15: khong ho tro NULLS NOT DISTINCT (uq_pcr_pending).') }
     Ok ('Guard: ban sao co nhan, khong nam trong danh sach cam, chu so huu siscom_app, PostgreSQL ' + $info[5] + '.')
