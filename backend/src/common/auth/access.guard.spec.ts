@@ -88,4 +88,25 @@ describe('AccessGuard — fail-closed theo từng endpoint', () => {
     await expect(guard.canActivate(ctxOf(C, {}))).resolves.toBe(true);
     expect(scopeFor).toHaveBeenCalledWith(actor, 'lookup.read');
   });
+  it('scope ngoài ALL/DEPARTMENT/OWN (giá trị lạ) => 403, không gắn actor', async () => {
+    const C = target((h) => RequirePermissions('customer.read')(h as never, 'h', { value: h } as never));
+    for (const bad of ['ADMIN', '', true, 1]) {
+      const req: Record<string, unknown> = {};
+      await expectDomain(makeGuard({ scopeFor: () => bad as unknown as Scope }).guard.canActivate(ctxOf(C, req)), 403, 'FORBIDDEN');
+      expect(req.actor).toBeUndefined();
+    }
+  });
+  it('actor sai hình dạng (employeeId rỗng/thiếu/không phải chuỗi) => 401, không hỏi phạm vi', async () => {
+    const C = target((h) => RequirePermissions('customer.read')(h as never, 'h', { value: h } as never));
+    for (const bad of [{ employeeId: '', departmentId: null }, { departmentId: 'd1' }, { employeeId: 7 }]) {
+      const { guard, scopeFor } = makeGuard({ resolve: async () => bad as unknown as Actor });
+      await expectDomain(guard.canActivate(ctxOf(C, {})), 401, 'UNAUTHENTICATED');
+      expect(scopeFor).not.toHaveBeenCalled();
+    }
+  });
+  it('scopeFor ném lỗi => guard ném lỗi (không mặc định cho qua)', async () => {
+    const C = target((h) => RequirePermissions('customer.read')(h as never, 'h', { value: h } as never));
+    const { guard } = makeGuard({ scopeFor: () => { throw new Error('boom'); } });
+    await expect(guard.canActivate(ctxOf(C, {}))).rejects.toThrow('boom');
+  });
 });

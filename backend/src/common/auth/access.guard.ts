@@ -23,9 +23,11 @@ export class AccessGuard implements CanActivate {
     if (!declared || isPublic) throw new DomainException(403, 'FORBIDDEN', 'Không có quyền thực hiện thao tác này.');
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     const actor = await this.provider.resolve(req);
-    if (!actor) throw new DomainException(401, 'UNAUTHENTICATED', 'Chưa xác thực.');
+    // Fail-closed: actor sai hình dạng (thiếu/rỗng employeeId) coi như chưa xác thực; scope lạ (ngoài ALL/DEPARTMENT/OWN) coi như không có quyền.
+    if (!actor || typeof actor.employeeId !== 'string' || actor.employeeId.length === 0) throw new DomainException(401, 'UNAUTHENTICATED', 'Chưa xác thực.');
     for (const p of perms) {
-      if (!this.provider.scopeFor(actor, p)) throw new DomainException(403, 'FORBIDDEN', 'Không có quyền thực hiện thao tác này.');
+      const scope = this.provider.scopeFor(actor, p);
+      if (scope !== 'ALL' && scope !== 'DEPARTMENT' && scope !== 'OWN') throw new DomainException(403, 'FORBIDDEN', 'Không có quyền thực hiện thao tác này.');
     }
     req.actor = actor;
     return true;
