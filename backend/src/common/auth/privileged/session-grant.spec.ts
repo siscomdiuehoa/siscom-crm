@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import type { ExecutionContext } from '@nestjs/common';
 import { DomainException } from '../../errors/domain.exception';
-import { newSecret, sha256Hex, SECRET_RE } from './grant-secret';
+import { newSecret, sha256Hex, SECRET_RE } from './grant-token';
 import { PrivilegedApiClient, PRIVILEGED_OPS, privilegedOpSql, toDomainError } from './privileged-api.client';
 import { PrivilegedReadyGuard } from './privileged-ready.guard';
 import { SessionBoundActor } from './privileged.types';
@@ -16,7 +16,7 @@ const EMP_OTHER = 'f1397200-0000-4000-8000-000000000002';
 const GRANT = newSecret();
 const reqOf = (headers: Record<string, unknown>, body: unknown = {}) => ({ headers, body, query: {} }) as never;
 
-describe('grant-secret', () => {
+describe('grant-token', () => {
   it('newSecret: 256 bit base64url (43 ký tự), khớp regex hàm SQL, không trùng', () => {
     const a = newSecret();
     expect(a).toMatch(SECRET_RE);

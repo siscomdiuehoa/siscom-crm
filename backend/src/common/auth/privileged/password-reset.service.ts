@@ -1,5 +1,5 @@
 import { DomainException } from '../../errors/domain.exception';
-import { SECRET_RE } from './grant-secret';
+import { SECRET_RE } from './grant-token';
 import { ParamSqlRunner } from './privileged.types';
 import { ResetAbusePolicy } from './reset-abuse.policy';
 
