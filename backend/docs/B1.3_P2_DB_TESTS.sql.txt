@@ -1,0 +1,285 @@
+-- SISCOM CRM - B1.3 P2: kiem thu DB cho danh tinh rang buoc phien (F-01), ham dang nhap hep (F-03), dat lai mat khau chung (F-04), tach role. DRAFT - CHUA CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_P2_DB_TESTS.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI CHAY TREN BAN SAO THU MOI (siscom_crm_restore_* / siscom_crm_test_*) do nguoi co tham quyen tao (F-09 van BLOCKED), SAU KHI: M1..M1.3 + migration P2 +
+--   B1.3_S1_ROLE_SPLIT + B1.3_S1_APP_GRANTS + B1.3_P2_ROLE_SPLIT + B1.3_P2_GRANTS. Chay bang SUPERUSER (de SET ROLE sang siscom_app / siscom_auth).
+-- Tien dieu kien: bang RBAC/auth RONG, chua co app_meta.auth_bootstrap_done (script tu tao du lieu thu o che do khoi tao roi dong khoi tao TRONG transaction).
+-- Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu). Khong co pg_sleep (het han duoc dung bang cach ghi truc tiep dong het han).
+-- Quy uoc BAT BUOC (test tinh dem): moi phep kiem la MOT dong bat dau bang "SELECT pg_temp.(expect|as)_(ok|err|true|cap)(".
+-- Ky vong: cuoi file bao 0 dong FAIL. CHUA CHAY - ket qua that do nguoi dung cung cap. KHONG co phep kiem ma reset het han (xem tai lieu: khoang trong da biet).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_dev', 'siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN RAISE EXCEPTION 'Can chay bang superuser (de SET ROLE).'; END IF;
+  IF to_regprocedure('public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer)') IS NULL THEN RAISE EXCEPTION 'Chua ap migration P2.'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app') THEN
+    RAISE EXCEPTION 'Chua tach pool (thieu siscom_auth/siscom_app).';
+  END IF;
+  IF EXISTS (SELECT 1 FROM role) OR EXISTS (SELECT 1 FROM permission) OR EXISTS (SELECT 1 FROM role_permission) OR EXISTS (SELECT 1 FROM employee_role)
+     OR EXISTS (SELECT 1 FROM employee_credential) OR EXISTS (SELECT 1 FROM auth_session) OR EXISTS (SELECT 1 FROM password_reset_token)
+     OR EXISTS (SELECT 1 FROM privileged_change_request) OR EXISTS (SELECT 1 FROM app_meta WHERE key = 'auth_bootstrap_done') THEN
+    RAISE EXCEPTION 'Tien dieu kien: bang RBAC/auth phai rong va chua co auth_bootstrap_done.';
+  END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text);
+CREATE TEMP TABLE ids (name text PRIMARY KEY, id uuid);
+-- Chay duoi quyen superuser (chu so huu)
+CREATE FUNCTION pg_temp.expect_err(p_label text, p_stmt text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_stmt;
+    INSERT INTO res VALUES (false, p_label || ' - KHONG bi chan');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = p_state THEN INSERT INTO res VALUES (true, p_label);
+    ELSE INSERT INTO res VALUES (false, p_label || ' - SQLSTATE ' || SQLSTATE || ' (' || SQLERRM || '), can ' || p_state); END IF;
+  END;
+END $$;
+CREATE FUNCTION pg_temp.expect_ok(p_label text, p_stmt text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN EXECUTE p_stmt; INSERT INTO res VALUES (true, p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_expr text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE r boolean;
+BEGIN
+  BEGIN EXECUTE 'SELECT (' || p_expr || ')' INTO r; INSERT INTO res VALUES (r IS TRUE, p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+-- Chay duoi vai p_role (SET LOCAL ROLE trong khoi con; loi => khoi con huy, vai tro tro ve superuser). Ghi ket qua SAU KHI RESET ROLE.
+CREATE FUNCTION pg_temp.as_err(p_role text, p_label text, p_stmt text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', p_role);
+    EXECUTE p_stmt;
+    EXECUTE 'RESET ROLE';
+    INSERT INTO res VALUES (false, p_role || ': ' || p_label || ' - KHONG bi chan');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = p_state THEN INSERT INTO res VALUES (true, p_role || ': ' || p_label);
+    ELSE INSERT INTO res VALUES (false, p_role || ': ' || p_label || ' - SQLSTATE ' || SQLSTATE || ' (' || SQLERRM || '), can ' || p_state); END IF;
+  END;
+END $$;
+CREATE FUNCTION pg_temp.as_ok(p_role text, p_label text, p_stmt text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', p_role);
+    EXECUTE p_stmt;
+    EXECUTE 'RESET ROLE';
+    INSERT INTO res VALUES (true, p_role || ': ' || p_label);
+  EXCEPTION WHEN OTHERS THEN
+    INSERT INTO res VALUES (false, p_role || ': ' || p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')');
+  END;
+END $$;
+CREATE FUNCTION pg_temp.as_true(p_role text, p_label text, p_expr text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE r boolean;
+BEGIN
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', p_role);
+    EXECUTE 'SELECT (' || p_expr || ')' INTO r;
+    EXECUTE 'RESET ROLE';
+    INSERT INTO res VALUES (r IS TRUE, p_role || ': ' || p_label);
+  EXCEPTION WHEN OTHERS THEN
+    INSERT INTO res VALUES (false, p_role || ': ' || p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')');
+  END;
+END $$;
+-- Chay duoi vai p_role, luu ket qua uuid (hoac text) cua p_stmt (SELECT mot gia tri) vao ids(p_name)
+CREATE FUNCTION pg_temp.as_cap(p_role text, p_label text, p_name text, p_stmt text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE r uuid;
+BEGIN
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', p_role);
+    EXECUTE p_stmt INTO r;
+    EXECUTE 'RESET ROLE';
+    INSERT INTO ids VALUES (p_name, r);
+    INSERT INTO res VALUES (r IS NOT NULL, p_role || ': ' || p_label);
+  EXCEPTION WHEN OTHERS THEN
+    INSERT INTO res VALUES (false, p_role || ': ' || p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')');
+  END;
+END $$;
+CREATE FUNCTION pg_temp.q(p_name text) RETURNS uuid LANGUAGE sql AS $$ SELECT id FROM ids WHERE name = p_name $$;
+CREATE FUNCTION pg_temp.h(p_text text) RETURNS text LANGUAGE sql AS $$ SELECT encode(sha256(convert_to(p_text, 'UTF8')), 'hex') $$;
+-- Id co dinh: nhan vien f1397200-..-0N | phien f1397400-..-NN. Chuoi bang chung dung cho ca grant/refresh/ma reset (>= 43 ky tu, ky tu base64url).
+CREATE FUNCTION pg_temp.eid(n integer) RETURNS uuid LANGUAGE sql AS $$ SELECT ('f1397200-0000-4000-8000-00000000000' || n::text)::uuid $$;
+CREATE FUNCTION pg_temp.sid(n integer) RETURNS uuid LANGUAGE sql AS $$ SELECT ('f1397400-0000-4000-8000-0000000000' || lpad(n::text, 2, '0'))::uuid $$;
+CREATE FUNCTION pg_temp.rp(n integer) RETURNS text LANGUAGE sql AS $$ SELECT rpad('refresh-' || n::text || '-', 40, 'x') $$;
+CREATE FUNCTION pg_temp.gs(l text) RETURNS text LANGUAGE sql AS $$ SELECT rpad('grant-' || l || '-', 48, 'x') $$;
+CREATE FUNCTION pg_temp.rt(l text) RETURNS text LANGUAGE sql AS $$ SELECT rpad('reset-' || l || '-', 48, 'y') $$;
+-- Cap grant (goi duoi siscom_auth): phien n, ma l, ttl 120 giay, 1 luot
+CREATE FUNCTION pg_temp.issue_sql(n integer, l text) RETURNS text LANGUAGE sql AS $$
+  SELECT format('SELECT fn_auth_priv_grant_issue(%L::uuid, %L, %L, 120, 1)', pg_temp.sid(n), pg_temp.rp(n), pg_temp.h(pg_temp.gs(l))) $$;
+
+-- Ky hieu: E1 A1, E2 A2 (admin) | E3 D1, E4 D2 (director: access.approve) | E5 S1, E6 S2, E8 S3 (sales) | E7 N1 (khong credential)
+-- Phien: 1 (E1) 2 (E2) 3 (E3) 4 (E4) 5 (E5) 6 (E6) 8 (E8) 11 (E5, da thu hoi) 12 (E5, het han idle)
+INSERT INTO permission (id, code) VALUES
+ ('f1397000-0000-4000-8000-000000000001', 'access.approve'), ('f1397000-0000-4000-8000-000000000002', 'access.request'),
+ ('f1397000-0000-4000-8000-000000000003', 'role.manage'),    ('f1397000-0000-4000-8000-000000000004', 'auth.credential.manage'),
+ ('f1397000-0000-4000-8000-000000000005', 'customer.read');
+INSERT INTO role (id, code, name, is_system) VALUES
+ ('f1397100-0000-4000-8000-000000000001', 'admin', 'System Admin (thu P2)', true), ('f1397100-0000-4000-8000-000000000002', 'director', 'Giam doc (thu P2)', true),
+ ('f1397100-0000-4000-8000-000000000003', 'sales', 'Kinh doanh (thu P2)', true);
+INSERT INTO role_permission (role_id, permission_id, scope) VALUES
+ ('f1397100-0000-4000-8000-000000000001', 'f1397000-0000-4000-8000-000000000002', 'ALL'), ('f1397100-0000-4000-8000-000000000001', 'f1397000-0000-4000-8000-000000000003', 'ALL'),
+ ('f1397100-0000-4000-8000-000000000001', 'f1397000-0000-4000-8000-000000000004', 'ALL'),
+ ('f1397100-0000-4000-8000-000000000002', 'f1397000-0000-4000-8000-000000000001', 'ALL'), ('f1397100-0000-4000-8000-000000000002', 'f1397000-0000-4000-8000-000000000005', 'ALL'),
+ ('f1397100-0000-4000-8000-000000000003', 'f1397000-0000-4000-8000-000000000005', 'OWN');
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('f1397200-0000-4000-8000-000000000001', 'P2 Admin 1', 'p2.a1@example.invalid', 'ACTIVE', true),
+ ('f1397200-0000-4000-8000-000000000002', 'P2 Admin 2', 'p2.a2@example.invalid', 'ACTIVE', true),
+ ('f1397200-0000-4000-8000-000000000003', 'P2 Director 1', 'p2.d1@example.invalid', 'ACTIVE', true),
+ ('f1397200-0000-4000-8000-000000000004', 'P2 Director 2', 'p2.d2@example.invalid', 'ACTIVE', true),
+ ('f1397200-0000-4000-8000-000000000005', 'P2 Sales 1', 'p2.s1@example.invalid', 'ACTIVE', true),
+ ('f1397200-0000-4000-8000-000000000006', 'P2 Sales 2', 'p2.s2@example.invalid', 'ACTIVE', true),
+ ('f1397200-0000-4000-8000-000000000007', 'P2 Nhan vien khong credential', 'p2.n1@example.invalid', 'ACTIVE', true),
+ ('f1397200-0000-4000-8000-000000000008', 'P2 Sales 3', 'p2.s3@example.invalid', 'ACTIVE', true);
+INSERT INTO employee_credential (employee_id, password_hash, password_algo, password_params) VALUES
+ ('f1397200-0000-4000-8000-000000000001', '$argon2id$v=19$thu-a1', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1397200-0000-4000-8000-000000000002', '$argon2id$v=19$thu-a2', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1397200-0000-4000-8000-000000000003', '$argon2id$v=19$thu-d1', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1397200-0000-4000-8000-000000000004', '$argon2id$v=19$thu-d2', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1397200-0000-4000-8000-000000000005', '$argon2id$v=19$thu-s1', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1397200-0000-4000-8000-000000000006', '$argon2id$v=19$thu-s2', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1397200-0000-4000-8000-000000000008', '$argon2id$v=19$thu-s3', 'argon2id', '{"m":65536,"t":3,"p":1}');
+INSERT INTO employee_role (employee_id, role_id) VALUES
+ ('f1397200-0000-4000-8000-000000000001', 'f1397100-0000-4000-8000-000000000001'), ('f1397200-0000-4000-8000-000000000002', 'f1397100-0000-4000-8000-000000000001'),
+ ('f1397200-0000-4000-8000-000000000003', 'f1397100-0000-4000-8000-000000000002'), ('f1397200-0000-4000-8000-000000000004', 'f1397100-0000-4000-8000-000000000002'),
+ ('f1397200-0000-4000-8000-000000000005', 'f1397100-0000-4000-8000-000000000003'), ('f1397200-0000-4000-8000-000000000006', 'f1397100-0000-4000-8000-000000000003'),
+ ('f1397200-0000-4000-8000-000000000008', 'f1397100-0000-4000-8000-000000000003');
+INSERT INTO auth_session (id, employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at)
+SELECT pg_temp.sid(n), pg_temp.eid(e), gen_random_uuid(), pg_temp.h(pg_temp.rp(n)), pg_temp.h('csrf-' || n::text), now() + interval '30 minutes', now() + interval '8 hours'
+  FROM (VALUES (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (8, 8)) v(n, e);
+INSERT INTO auth_session (id, employee_id, family_id, refresh_hash, csrf_hash, issued_at, last_used_at, idle_expires_at, abs_expires_at, revoked_at, revoke_reason)
+VALUES (pg_temp.sid(11), pg_temp.eid(5), gen_random_uuid(), pg_temp.h(pg_temp.rp(11)), pg_temp.h('csrf-11'), now() - interval '1 hour', now() - interval '1 hour',
+        now() + interval '30 minutes', now() + interval '8 hours', now(), 'TEST');
+INSERT INTO auth_session (id, employee_id, family_id, refresh_hash, csrf_hash, issued_at, last_used_at, idle_expires_at, abs_expires_at)
+VALUES (pg_temp.sid(12), pg_temp.eid(5), gen_random_uuid(), pg_temp.h(pg_temp.rp(12)), pg_temp.h('csrf-12'), now() - interval '2 hours', now() - interval '2 hours',
+        now() - interval '1 hour', now() + interval '8 hours');
+
+-- 0. Khoi tao CON MO: khong cap duoc grant (khoi tao phai dong truoc)
+SELECT pg_temp.expect_err('B0 cap grant khi khoi tao CON MO bi chan (bad bootstrap)', pg_temp.issue_sql(1, 'boot'), '42501');
+SELECT pg_temp.expect_ok('B1 dong khoi tao (co admin + nguoi duyet co credential)', $q$ SELECT fn_auth_bootstrap_close('p2') $q$);
+SELECT pg_temp.expect_true('B2 khoi tao da dong', $q$ NOT fn_auth_bootstrap_open() $q$);
+SELECT pg_temp.expect_err('B3 dong khoi tao lan hai bi chan', $q$ SELECT fn_auth_bootstrap_close('p2b') $q$, '42501');
+
+-- 1. Cap grant: bang chung phien gia / het han / thu hoi / tham so xau
+SELECT pg_temp.as_ok('siscom_auth', 'G1 A1 cap grant (a1c) bang chuoi lam moi dung', pg_temp.issue_sql(1, 'a1c'));
+SELECT pg_temp.as_ok('siscom_auth', 'G2 D1 cap grant (d1d)', pg_temp.issue_sql(3, 'd1d'));
+SELECT pg_temp.as_ok('siscom_auth', 'G3 A1 cap grant (a1i)', pg_temp.issue_sql(1, 'a1i'));
+SELECT pg_temp.as_ok('siscom_auth', 'G4 D1 cap grant (d1y) de thu cheo phien', pg_temp.issue_sql(3, 'd1y'));
+SELECT pg_temp.as_ok('siscom_auth', 'G5 S1 cap grant (s1x)', pg_temp.issue_sql(5, 's1x'));
+SELECT pg_temp.as_ok('siscom_auth', 'G6 S3 cap grant (s3x)', pg_temp.issue_sql(8, 's3x'));
+SELECT pg_temp.as_ok('siscom_auth', 'G7 A1 cap grant (a1b) cho ca hash sai dinh dang', pg_temp.issue_sql(1, 'a1b'));
+SELECT pg_temp.as_err('siscom_auth', 'G8 chuoi lam moi cua phien KHAC (gia mao) bi tu choi', format($q$ SELECT fn_auth_priv_grant_issue(%L::uuid, %L, %L, 120, 1) $q$, pg_temp.sid(1), pg_temp.rp(2), pg_temp.h(pg_temp.gs('f1'))), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'G9 phien da thu hoi bi tu choi', pg_temp.issue_sql(11, 'f2'), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'G10 phien het han (idle) bi tu choi', pg_temp.issue_sql(12, 'f3'), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'G11 grant_hash sai dinh dang (chu hoa) bi tu choi', format($q$ SELECT fn_auth_priv_grant_issue(%L::uuid, %L, upper(%L), 120, 1) $q$, pg_temp.sid(1), pg_temp.rp(1), pg_temp.h(pg_temp.gs('f4'))), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'G12 ttl 5 giay (< 30) bi tu choi', format($q$ SELECT fn_auth_priv_grant_issue(%L::uuid, %L, %L, 5, 1) $q$, pg_temp.sid(1), pg_temp.rp(1), pg_temp.h(pg_temp.gs('f5'))), '23514');
+SELECT pg_temp.as_err('siscom_auth', 'G13 ttl 601 giay (> 600) bi tu choi', format($q$ SELECT fn_auth_priv_grant_issue(%L::uuid, %L, %L, 601, 1) $q$, pg_temp.sid(1), pg_temp.rp(1), pg_temp.h(pg_temp.gs('f6'))), '23514');
+SELECT pg_temp.as_err('siscom_auth', 'G14 so luot 6 (> 5) bi tu choi', format($q$ SELECT fn_auth_priv_grant_issue(%L::uuid, %L, %L, 120, 6) $q$, pg_temp.sid(1), pg_temp.rp(1), pg_temp.h(pg_temp.gs('f7'))), '23514');
+SELECT pg_temp.as_ok('siscom_auth', 'G15 S2 grant thu 1', pg_temp.issue_sql(6, 'l1'));
+SELECT pg_temp.as_ok('siscom_auth', 'G16 S2 grant thu 2', pg_temp.issue_sql(6, 'l2'));
+SELECT pg_temp.as_ok('siscom_auth', 'G17 S2 grant thu 3', pg_temp.issue_sql(6, 'l3'));
+SELECT pg_temp.as_ok('siscom_auth', 'G18 S2 grant thu 4', pg_temp.issue_sql(6, 'l4'));
+SELECT pg_temp.as_ok('siscom_auth', 'G19 S2 grant thu 5', pg_temp.issue_sql(6, 'l5'));
+SELECT pg_temp.as_err('siscom_auth', 'G20 grant thu 6 cua cung phien vuot gioi han (GRANT_LIMIT)', pg_temp.issue_sql(6, 'l6'), '23514');
+SELECT pg_temp.expect_true('G21 grant chi luu SHA-256 (khong co chuoi goc), 64 ky tu hex', $q$ NOT EXISTS (SELECT 1 FROM auth_priv_grant WHERE grant_hash !~ '^[0-9a-f]{64}$' OR grant_hash ~ 'grant-') $q$);
+
+-- 2. Danh tinh chi tu grant: gia mao / spoof / cheo nguoi dung / tai su dung
+SELECT pg_temp.as_cap('siscom_auth', 'A1 tao yeu cau PASSWORD_RESET cho S1 bang grant cua CHINH A1', 'REQ1', format($q$ SELECT fn_auth_api_request_create_v2(%L::uuid, %L, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{"n":"p2"}'::jsonb, 60) $q$, pg_temp.sid(1), pg_temp.gs('a1c'), pg_temp.eid(5)));
+SELECT pg_temp.expect_true('A2 yeu cau do A1 (requested_by) tao, KHONG phai gia tri tham so nao', $q$ (SELECT requested_by = pg_temp.eid(1) FROM privileged_change_request WHERE id = pg_temp.q('REQ1')) $q$);
+SELECT pg_temp.as_err('siscom_auth', 'A3 REPLAY: dung lai grant da het luot bi tu choi', format($q$ SELECT fn_auth_api_request_create_v2(%L::uuid, %L, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{"n":"replay"}'::jsonb, 60) $q$, pg_temp.sid(1), pg_temp.gs('a1c'), pg_temp.eid(5)), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'A4 FORGED: chuoi grant ngau nhien dung dinh dang, phien that', format($q$ SELECT fn_auth_api_request_decide_v2(%L::uuid, %L, %L::uuid, true) $q$, pg_temp.sid(3), pg_temp.gs('forged'), pg_temp.q('REQ1')), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'A5 FORGED: grant that, phien khong ton tai', format($q$ SELECT fn_auth_api_request_decide_v2(%L::uuid, %L, %L::uuid, true) $q$, pg_temp.sid(99), pg_temp.gs('d1y'), pg_temp.q('REQ1')), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'A6 CROSS-SESSION: grant cua D1 dung voi phien cua A1 bi tu choi', format($q$ SELECT fn_auth_api_request_decide_v2(%L::uuid, %L, %L::uuid, true) $q$, pg_temp.sid(1), pg_temp.gs('d1y'), pg_temp.q('REQ1')), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'A7 grant ngan khong dung dinh dang bi tu choi', format($q$ SELECT fn_auth_api_request_decide_v2(%L::uuid, 'short', %L::uuid, true) $q$, pg_temp.sid(3), pg_temp.q('REQ1')), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'A8 LEO THANG: S1 (sales) co grant that nhung khong co quyen REQUEST', format($q$ SELECT fn_auth_api_request_create_v2(%L::uuid, %L, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{"n":"esc"}'::jsonb, 60) $q$, pg_temp.sid(5), pg_temp.gs('s1x'), pg_temp.eid(6)), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'A9 LEO THANG: A1 co quyen REQUEST nhung khong co quyen APPROVE (duyet yeu cau)', format($q$ SELECT fn_auth_api_request_decide_v2(%L::uuid, %L, %L::uuid, true) $q$, pg_temp.sid(1), pg_temp.gs('a1i'), pg_temp.q('REQ1')), '42501');
+SELECT pg_temp.as_true('siscom_auth', 'A10 D1 duyet bang grant cua CHINH D1 => APPROVED', format($q$ fn_auth_api_request_decide_v2(%L::uuid, %L, %L::uuid, true) = 'APPROVED' $q$, pg_temp.sid(3), pg_temp.gs('d1d'), pg_temp.q('REQ1')));
+SELECT pg_temp.expect_true('A11 approved_by = D1 (suy ra tu grant), khac requested_by (hai nguoi)', $q$ (SELECT approved_by = pg_temp.eid(3) AND approved_by <> requested_by FROM privileged_change_request WHERE id = pg_temp.q('REQ1')) $q$);
+SELECT pg_temp.as_err('siscom_auth', 'A12 SPOOF p_actor: ham cu nhan p_actor KHONG goi duoc (siscom_auth)', format($q$ SELECT fn_auth_api_request_create(%L::uuid, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{}'::jsonb, 60) $q$, pg_temp.eid(1), pg_temp.eid(5)), '42501');
+SELECT pg_temp.as_err('siscom_app', 'A13 SPOOF p_actor: ham cu KHONG goi duoc (siscom_app)', format($q$ SELECT fn_auth_api_request_create(%L::uuid, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{}'::jsonb, 60) $q$, pg_temp.eid(1), pg_temp.eid(5)), '42501');
+SELECT pg_temp.as_err('siscom_app', 'A14 SPOOF p_actor: role_grant cu khong goi duoc', format($q$ SELECT fn_auth_api_role_grant(%L::uuid, %L::uuid) $q$, pg_temp.eid(1), pg_temp.q('REQ1')), '42501');
+SELECT pg_temp.as_err('siscom_app', 'A15 pool nghiep vu KHONG goi duoc ham *_v2 (ke ca khi co grant that)', format($q$ SELECT fn_auth_api_request_create_v2(%L::uuid, %L, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{}'::jsonb, 60) $q$, pg_temp.sid(1), pg_temp.gs('a1i'), pg_temp.eid(5)), '42501');
+SELECT pg_temp.as_err('siscom_app', 'A16 pool nghiep vu KHONG cap duoc grant', pg_temp.issue_sql(1, 'app'), '42501');
+SELECT pg_temp.as_err('siscom_app', 'A17 pool nghiep vu KHONG tu ghi GUC + ghi truc tiep RBAC', $q$ INSERT INTO employee_role (employee_id, role_id) VALUES ('f1397200-0000-4000-8000-000000000007', 'f1397100-0000-4000-8000-000000000001') $q$, '42501');
+SELECT pg_temp.as_err('siscom_auth', 'A18 pool auth KHONG ghi truc tiep RBAC (GUC tu dat vo hieu)', $q$ INSERT INTO employee_role (employee_id, role_id) VALUES ('f1397200-0000-4000-8000-000000000007', 'f1397100-0000-4000-8000-000000000001') $q$, '42501');
+
+-- 3. Grant het han / phien thu hoi / credential bi khoa / token_version
+SELECT pg_temp.expect_ok('E0 ghi truc tiep grant het han (chu so huu)', format($q$ INSERT INTO auth_priv_grant (session_id, employee_id, grant_hash, token_version, issued_at, expires_at, max_uses) VALUES (%L::uuid, %L::uuid, %L, 1, clock_timestamp() - interval '5 minutes', clock_timestamp() - interval '1 minute', 1) $q$, pg_temp.sid(1), pg_temp.eid(1), pg_temp.h(pg_temp.gs('exp'))));
+SELECT pg_temp.as_err('siscom_auth', 'E1 EXPIRED: grant het han bi tu choi', format($q$ SELECT fn_auth_api_request_create_v2(%L::uuid, %L, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{}'::jsonb, 60) $q$, pg_temp.sid(1), pg_temp.gs('exp'), pg_temp.eid(5)), '42501');
+SELECT pg_temp.expect_ok('E2 ghi truc tiep grant cho phien DA THU HOI (chu so huu)', format($q$ INSERT INTO auth_priv_grant (session_id, employee_id, grant_hash, token_version, expires_at, max_uses) VALUES (%L::uuid, %L::uuid, %L, 1, clock_timestamp() + interval '5 minutes', 1) $q$, pg_temp.sid(11), pg_temp.eid(5), pg_temp.h(pg_temp.gs('revsess'))));
+SELECT pg_temp.as_err('siscom_auth', 'E3 REVOKED SESSION: grant cua phien da thu hoi bi tu choi', format($q$ SELECT fn_auth_api_request_create_v2(%L::uuid, %L, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{}'::jsonb, 60) $q$, pg_temp.sid(11), pg_temp.gs('revsess'), pg_temp.eid(6)), '42501');
+SELECT pg_temp.expect_ok('E4 thu hoi phien 8 (S3) khi grant s3x dang con hieu luc', format($q$ UPDATE auth_session SET revoked_at = now(), revoke_reason = 'TEST' WHERE id = %L::uuid $q$, pg_temp.sid(8)));
+SELECT pg_temp.expect_true('E5 thu hoi phien keo theo thu hoi grant (trigger)', format($q$ (SELECT revoked_at IS NOT NULL FROM auth_priv_grant WHERE grant_hash = %L) $q$, pg_temp.h(pg_temp.gs('s3x'))));
+SELECT pg_temp.as_err('siscom_auth', 'E6 grant da thu hoi khong dung duoc', format($q$ SELECT fn_auth_api_request_create_v2(%L::uuid, %L, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{}'::jsonb, 60) $q$, pg_temp.sid(8), pg_temp.gs('s3x'), pg_temp.eid(6)), '42501');
+SELECT pg_temp.as_true('siscom_auth', 'E7 truoc khi khoa: credential_for_login(S2) tra dung 1 dong', format($q$ (SELECT count(*) FROM fn_auth_credential_for_login(%L::uuid)) = 1 $q$, pg_temp.eid(6)));
+SELECT pg_temp.expect_ok('E8 A1 khoa credential S2 (chu so huu goi ham cu; tang token_version)', format($q$ SELECT fn_auth_api_credential_disable(%L::uuid, %L::uuid, 'thu P2') $q$, pg_temp.eid(1), pg_temp.eid(6)));
+SELECT pg_temp.as_err('siscom_auth', 'E9 DISABLED CREDENTIAL: grant con luot cua S2 khong dung duoc', format($q$ SELECT fn_auth_api_request_create_v2(%L::uuid, %L, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{}'::jsonb, 60) $q$, pg_temp.sid(6), pg_temp.gs('l1'), pg_temp.eid(5)), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'E10 DISABLED CREDENTIAL: khong cap them grant cho phien cua S2', pg_temp.issue_sql(6, 'l7'), '42501');
+SELECT pg_temp.as_true('siscom_auth', 'E11 DISABLED CREDENTIAL: credential_for_login(S2) KHONG tra hash nao', format($q$ (SELECT count(*) FROM fn_auth_credential_for_login(%L::uuid)) = 0 $q$, pg_temp.eid(6)));
+SELECT pg_temp.as_true('siscom_auth', 'E12 nhan vien khong credential: credential_for_login tra 0 dong', format($q$ (SELECT count(*) FROM fn_auth_credential_for_login(%L::uuid)) = 0 $q$, pg_temp.eid(7)));
+SELECT pg_temp.expect_true('E13 moi grant cua S2 bi thu hoi sau khi khoa credential (phien bi thu hoi => grant bi thu hoi)', format($q$ NOT EXISTS (SELECT 1 FROM auth_priv_grant WHERE employee_id = %L::uuid AND revoked_at IS NULL) $q$, pg_temp.eid(6)));
+
+-- 4. Bat bien bang grant
+SELECT pg_temp.expect_err('I1 khong sua han grant', format($q$ UPDATE auth_priv_grant SET expires_at = expires_at + interval '1 minute' WHERE grant_hash = %L $q$, pg_temp.h(pg_temp.gs('a1i'))), '23001');
+SELECT pg_temp.expect_err('I2 khong giam use_count', format($q$ UPDATE auth_priv_grant SET use_count = use_count - 1 WHERE grant_hash = %L $q$, pg_temp.h(pg_temp.gs('a1c'))), '23001');
+SELECT pg_temp.expect_err('I3 khong xoa grant', $q$ DELETE FROM auth_priv_grant $q$, '42501');
+SELECT pg_temp.expect_err('I4 khong truncate grant', $q$ TRUNCATE auth_priv_grant $q$, '42501');
+SELECT pg_temp.expect_err('I5 ttl > 10 phut bi rang buoc chan', format($q$ INSERT INTO auth_priv_grant (session_id, employee_id, grant_hash, token_version, expires_at, max_uses) VALUES (%L::uuid, %L::uuid, %L, 1, clock_timestamp() + interval '11 minutes', 1) $q$, pg_temp.sid(1), pg_temp.eid(1), pg_temp.h(pg_temp.gs('long'))), '23514');
+
+-- 5. F-03: hash mat khau khong doc duoc bang SELECT o ca hai pool; chi qua ham hep
+SELECT pg_temp.as_err('siscom_app', 'H1 SELECT password_hash bi chan (F-03)', $q$ SELECT password_hash FROM employee_credential $q$, '42501');
+SELECT pg_temp.as_err('siscom_auth', 'H2 SELECT password_hash bi chan o pool auth (chi qua ham hep)', $q$ SELECT password_hash FROM employee_credential $q$, '42501');
+SELECT pg_temp.as_err('siscom_auth', 'H3 SELECT password_algo bi chan o pool auth', $q$ SELECT password_algo FROM employee_credential $q$, '42501');
+SELECT pg_temp.as_true('siscom_auth', 'H4 cot khong bi mat doc duoc (token_version, status)', $q$ (SELECT count(*) FROM (SELECT token_version, status FROM employee_credential) x) >= 1 $q$);
+SELECT pg_temp.as_true('siscom_auth', 'H5 ham hep tra hash cho credential ACTIVE (S1)', format($q$ (SELECT count(*) FROM fn_auth_credential_for_login(%L::uuid)) = 1 $q$, pg_temp.eid(5)));
+SELECT pg_temp.as_err('siscom_app', 'H6 pool nghiep vu KHONG goi duoc credential_for_login', format($q$ SELECT * FROM fn_auth_credential_for_login(%L::uuid) $q$, pg_temp.eid(5)), '42501');
+SELECT pg_temp.as_err('siscom_app', 'H7 pool nghiep vu KHONG doc auth_priv_grant', $q$ SELECT count(*) FROM auth_priv_grant $q$, '42501');
+SELECT pg_temp.as_err('siscom_auth', 'H8 pool auth KHONG doc/ghi truc tiep auth_priv_grant', $q$ SELECT count(*) FROM auth_priv_grant $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'H9 pool nghiep vu KHONG doc auth_session (refresh_hash)', $q$ SELECT count(*) FROM auth_session $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'H10 pool nghiep vu KHONG doc password_reset_token', $q$ SELECT count(*) FROM password_reset_token $q$, '42501');
+
+-- 6. Role dung chung / qua dac quyen
+SELECT pg_temp.expect_true('R1 siscom_app KHONG la thanh vien siscom_auth_rt (khong cap sy quyen auth cho pool nghiep vu)', $q$ NOT pg_has_role('siscom_app', 'siscom_auth_rt', 'MEMBER') $q$);
+SELECT pg_temp.expect_true('R2 siscom_app va siscom_auth khong la thanh vien cua nhau, khong la siscom_migrator', $q$ NOT pg_has_role('siscom_app', 'siscom_auth', 'MEMBER') AND NOT pg_has_role('siscom_auth', 'siscom_app', 'MEMBER') AND NOT pg_has_role('siscom_app', 'siscom_migrator', 'MEMBER') AND NOT pg_has_role('siscom_auth', 'siscom_migrator', 'MEMBER') $q$);
+SELECT pg_temp.expect_true('R3 siscom_auth ke thua nhom nhung KHONG SET ROLE duoc (INHERIT, khong SET)', $q$ pg_has_role('siscom_auth', 'siscom_auth_rt', 'USAGE') AND NOT pg_has_role('siscom_auth', 'siscom_auth_rt', 'SET') $q$);
+SELECT pg_temp.expect_true('R4 hai role khong la superuser/createrole/bypassrls va siscom_auth NOINHERIT', $q$ NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN ('siscom_app', 'siscom_auth') AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication)) AND NOT (SELECT rolinherit FROM pg_roles WHERE rolname = 'siscom_auth') $q$);
+SELECT pg_temp.as_err('siscom_auth', 'R5 SET ROLE siscom_auth_rt bi chan', $q$ SET ROLE siscom_auth_rt $q$, '42501');
+SELECT pg_temp.as_err('siscom_auth', 'R6 SET ROLE siscom_migrator bi chan', $q$ SET ROLE siscom_migrator $q$, '42501');
+SELECT pg_temp.as_err('siscom_auth', 'R7 pool auth KHONG goi duoc ham noi bo fn_auth_priv_resolve', format($q$ SELECT fn_auth_priv_resolve(%L::uuid, %L, false) $q$, pg_temp.sid(1), pg_temp.gs('a1i')), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'R8 pool auth KHONG goi duoc fn_auth_bootstrap_close', $q$ SELECT fn_auth_bootstrap_close('x') $q$, '42501');
+SELECT pg_temp.as_err('siscom_app', 'R9 pool nghiep vu KHONG goi duoc fn_auth_bootstrap_close', $q$ SELECT fn_auth_bootstrap_close('x') $q$, '42501');
+SELECT pg_temp.as_err('siscom_auth', 'R10 pool auth KHONG goi duoc fn_auth_api_actor (ham noi bo)', format($q$ SELECT fn_auth_api_actor(%L::uuid, NULL) $q$, pg_temp.eid(1)), '42501');
+SELECT pg_temp.as_true('siscom_auth', 'R11 pool auth van doc duoc tra cuu dang nhap toi thieu (employee.email/status)', $q$ (SELECT count(*) FROM (SELECT id, email, status, deleted_at FROM employee) x) >= 1 $q$);
+SELECT pg_temp.as_err('siscom_auth', 'R12 pool auth KHONG doc duoc cot khac cua employee (phone)', $q$ SELECT phone FROM employee $q$, '42501');
+
+-- 7. F-04: dat lai mat khau chung, chong lam dung
+SELECT pg_temp.as_err('siscom_auth', 'T0 ma reset: bam sai dinh dang (chu hoa) bi chan truoc khi tieu thu grant (a1b)', format($q$ SELECT fn_auth_api_reset_token_issue_v2(%L::uuid, %L, %L::uuid, upper(%L), 10) $q$, pg_temp.sid(1), pg_temp.gs('a1b'), pg_temp.q('REQ1'), pg_temp.h(pg_temp.rt('p2'))), '23514');
+SELECT pg_temp.as_cap('siscom_auth', 'T1 A1 phat ma reset bang grant cua CHINH A1 (grant a1b con nguyen vi T0 bi chan truoc khi tieu thu)', 'TOK1', format($q$ SELECT fn_auth_api_reset_token_issue_v2(%L::uuid, %L, %L::uuid, %L, 10) $q$, pg_temp.sid(1), pg_temp.gs('a1b'), pg_temp.q('REQ1'), pg_temp.h(pg_temp.rt('p2'))));
+SELECT pg_temp.as_true('siscom_auth', 'T2 ma khong ton tai => INVALID', $q$ fn_auth_api_reset_password_v2(rpad('reset-unknown-', 48, 'y'), '$argon2id$v=19$moi', 'argon2id', '{"m":65536,"t":3,"p":1}'::jsonb) = 'INVALID' $q$);
+SELECT pg_temp.as_true('siscom_auth', 'T3 ma qua ngan / sai ky tu => INVALID, khong loi', $q$ fn_auth_api_reset_password_v2('short', '$argon2id$v=19$moi', 'argon2id', '{"m":65536,"t":3,"p":1}'::jsonb) = 'INVALID' AND fn_auth_api_reset_password_v2(repeat('!', 48), '$argon2id$v=19$moi', 'argon2id', '{"m":65536,"t":3,"p":1}'::jsonb) = 'INVALID' $q$);
+SELECT pg_temp.as_true('siscom_auth', 'T4 RESET ABUSE: 25 lan sai lien tiep deu chi tra INVALID', $q$ (SELECT count(*) FROM generate_series(1, 25) g WHERE fn_auth_api_reset_password_v2(rpad('wrong-' || g::text || '-', 48, 'w'), '$argon2id$v=19$moi', 'argon2id', '{"m":65536,"t":3,"p":1}'::jsonb) <> 'INVALID') = 0 $q$);
+SELECT pg_temp.expect_true('T5 RESET ABUSE: ma that VAN con hieu luc sau 25 lan sai cua ke an danh (het DoS)', format($q$ (SELECT used_at IS NULL AND revoked_at IS NULL FROM password_reset_token WHERE id = %L::uuid) $q$, pg_temp.q('TOK1')));
+SELECT pg_temp.as_err('siscom_auth', 'T6 mat khau moi algo none bi chan (khong the vo hieu hoa credential bang reset)', format($q$ SELECT fn_auth_api_reset_password_v2(%L, '!', 'none', '{}'::jsonb) $q$, pg_temp.rt('p2')), '23514');
+SELECT pg_temp.as_err('siscom_app', 'T7 pool nghiep vu KHONG goi duoc reset_password_v2', format($q$ SELECT fn_auth_api_reset_password_v2(%L, '$argon2id$v=19$moi', 'argon2id', '{"m":65536,"t":3,"p":1}'::jsonb) $q$, pg_temp.rt('p2')), '42501');
+SELECT pg_temp.as_err('siscom_auth', 'T8 ham reset CU (tra NO_TOKEN/EXPIRED/LOCKED, co the huy ma) khong goi duoc', format($q$ SELECT fn_auth_api_reset_password(%L::uuid, %L, '$argon2id$v=19$moi', 'argon2id', '{"m":65536,"t":3,"p":1}'::jsonb) $q$, pg_temp.eid(5), pg_temp.rt('p2')), '42501');
+SELECT pg_temp.as_true('siscom_auth', 'T9 ma dung => OK', format($q$ fn_auth_api_reset_password_v2(%L, '$argon2id$v=19$moi-s1', 'argon2id', '{"m":65536,"t":3,"p":1}'::jsonb) = 'OK' $q$, pg_temp.rt('p2')));
+SELECT pg_temp.expect_true('T10 credential S1 doi mat khau + token_version tang', format($q$ (SELECT password_hash = '$argon2id$v=19$moi-s1' AND token_version = 2 FROM employee_credential WHERE employee_id = %L::uuid) $q$, pg_temp.eid(5)));
+SELECT pg_temp.expect_true('T11 REPLAY: ma da dung ghi used_at, khong revoked', format($q$ (SELECT used_at IS NOT NULL AND revoked_at IS NULL FROM password_reset_token WHERE id = %L::uuid) $q$, pg_temp.q('TOK1')));
+SELECT pg_temp.as_true('siscom_auth', 'T12 REPLAY: dung lai ma => INVALID, mat khau khong doi', format($q$ fn_auth_api_reset_password_v2(%L, '$argon2id$v=19$chiem', 'argon2id', '{"m":65536,"t":3,"p":1}'::jsonb) = 'INVALID' $q$, pg_temp.rt('p2')));
+SELECT pg_temp.expect_true('T13 sau reset: mat khau van la ban moi (khong bi chiem)', format($q$ (SELECT password_hash = '$argon2id$v=19$moi-s1' FROM employee_credential WHERE employee_id = %L::uuid) $q$, pg_temp.eid(5)));
+SELECT pg_temp.expect_true('T14 sau reset: phien + grant cu cua S1 bi thu hoi (token_version tang)', format($q$ NOT EXISTS (SELECT 1 FROM auth_session WHERE employee_id = %L::uuid AND revoked_at IS NULL) AND NOT EXISTS (SELECT 1 FROM auth_priv_grant WHERE employee_id = %L::uuid AND revoked_at IS NULL) $q$, pg_temp.eid(5), pg_temp.eid(5)));
+SELECT pg_temp.as_err('siscom_auth', 'T15 grant cua S1 (s1x) khong dung duoc sau reset', format($q$ SELECT fn_auth_api_request_create_v2(%L::uuid, %L, 'PASSWORD_RESET'::privileged_change_type, %L::uuid, NULL, '{}'::jsonb, 60) $q$, pg_temp.sid(5), pg_temp.gs('s1x'), pg_temp.eid(6)), '42501');
+
+-- 8. Audit khong ro ri bi mat
+SELECT pg_temp.expect_true('U1 audit co PRIV_GRANT_ISSUE', $q$ EXISTS (SELECT 1 FROM audit_log WHERE action = 'PRIV_GRANT_ISSUE') $q$);
+SELECT pg_temp.expect_true('U2 audit KHONG chua chuoi grant/ma reset goc', $q$ NOT EXISTS (SELECT 1 FROM audit_log WHERE coalesce(changes::text, '') ~ '(grant-|reset-|refresh-)' OR coalesce(summary, '') ~ '(grant-|reset-|refresh-)') $q$);
+
+-- Tong ket
+SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS ket_qua, count(*) AS so_luong FROM res GROUP BY ok ORDER BY ok;
+SELECT label AS can_xem_lai FROM res WHERE NOT ok;
+ROLLBACK;

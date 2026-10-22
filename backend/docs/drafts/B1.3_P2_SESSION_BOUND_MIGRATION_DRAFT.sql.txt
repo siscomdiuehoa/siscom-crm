@@ -1,0 +1,310 @@
+-- SISCOM CRM - B1.3 PHASE 2: danh tinh rang buoc phien (F-01), ham dang nhap hep (F-03), dat lai mat khau chung (F-04).
+-- DRAFT - KHONG TU CHAY, CHUA CHAY TREN POSTGRESQL, CHUA DUOC DUYET. Day KHONG phai Prisma migration (nam trong docs/drafts, duoi .sql.txt).
+-- Dich (khi duoc duyet, PR rieng sau khi co ket qua DB that cho M1..M1.3): backend/prisma/migrations/<timestamp>_b1_3_p2_session_bound/migration.sql
+--   kem model Prisma `AuthPrivGrant` trong schema.prisma (neu khong: prisma migrate diff bao drift DROP TABLE - da biet, xem tai lieu).
+-- THAY THE ban nhap docs/drafts/B1.3_F01_F03_F04_DRAFT_MIGRATION.sql.txt (PR #25): ban do dung refresh_hash lam bang chung (chuoi song lau, dung lai
+--   duoc cho toi khi xoay) va sua tai cho ham reset cua M1.2. Ban nay: grant ngan han, dung mot lan, gan phien; ham reset MOI (_v2), khong dong ham M1.2.
+-- CHI CONG THEM: 1 bang, 1 trigger tren auth_session, cac ham MOI. KHONG sua/thay doi doi tuong nao cua M1..M1.3. KHONG CREATE OR REPLACE.
+-- Moi ham moi: SECURITY DEFINER hoac noi bo, search_path co dinh (pg_temp CUOI), ten doi tuong co tien to public., REVOKE ALL FROM PUBLIC.
+--   EXECUTE chi cap cho siscom_auth_rt trong B1.3_P2_GRANTS.sql.txt (khong cap trong migration; khong cap cho siscom_app).
+-- Mo hinh tin cay (doc ky - GIOI HAN KHONG CHE):
+--   * DB khong tin p_actor. Ham *_v2 nhan (p_session, p_grant); DB tu suy ra nhan vien tu grant da luu (SHA-256) gan voi phien con hieu luc.
+--   * Grant do ung dung auth sinh (>= 256 bit), chi luu SHA-256; cap bang fn_auth_priv_grant_issue sau khi trinh CHUOI LAM MOI (refresh) hop le cua phien.
+--     Grant het han <= 10 phut, dung toi da 1..5 lan (mac dinh ung dung: 1), bi vo hieu khi: phien thu hoi/xoay, token_version doi (khoa/doi mat khau),
+--     credential/nhan vien khong con ACTIVE. Dung lai grant da dung het luot => tu choi (replay).
+--   * Pool NGHIEP VU (siscom_app) khong goi duoc ham nao o day, khong doc password_hash/auth_session/auth_priv_grant: SQLi/RCE o do khong gia danh duoc.
+--   * CON LAI (R1): tien trinh AUTH bi chiem (co EXECUTE + INSERT auth_session) van co the tao phien/grant cho nhan vien bat ky (DB khong xac minh duoc
+--     mat khau argon2). Giam: hai nguoi phai den tu hai phien khac nhau, grant ngan han, audit moi lan cap grant. KHONG duoc coi la dong hoan toan.
+--   * Trigger M1/M1.1 doc GUC app.actor_employee_id: GUC do ham DEFINER dat SAU khi grant duoc xac minh; nhung GUC tu y chi co tac dung neu ghi duoc
+--     truc tiep vao bang RBAC - siscom_app/siscom_auth KHONG co quyen ghi (EVIDENCE_SQL: can_write_rbac=false).
+-- Phu thuoc: M1..M1.3 da ap; B1.3_S1_ROLE_SPLIT + B1.3_S1_APP_GRANTS da chay (chu so huu = siscom_migrator).
+-- Rollback viet san cuoi file (KHONG tu chay).
+
+DO $$ BEGIN
+  IF to_regclass('public.auth_session') IS NULL OR to_regclass('public.employee_credential') IS NULL
+     OR to_regprocedure('public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer)') IS NULL
+     OR to_regprocedure('public.fn_cred_revoke_reset_tokens()') IS NULL OR to_regprocedure('public.fn_block_mutation()') IS NULL THEN
+    RAISE EXCEPTION 'P2 can M1, M1.1, M1.2 va M1.3 da ap truoc.';
+  END IF;
+END $$;
+
+-- ===== 1. Bang grant dac quyen (chi ham DEFINER cham duoc; khong cap quyen bang cho ai) =====
+CREATE TABLE public.auth_priv_grant (
+  id            uuid          NOT NULL DEFAULT gen_random_uuid(),
+  session_id    uuid          NOT NULL,
+  employee_id   uuid          NOT NULL,
+  grant_hash    varchar(64)   NOT NULL,
+  token_version integer       NOT NULL,
+  issued_at     timestamptz(3) NOT NULL DEFAULT clock_timestamp(),
+  expires_at    timestamptz(3) NOT NULL,
+  max_uses      smallint      NOT NULL,
+  use_count     smallint      NOT NULL DEFAULT 0,
+  last_used_at  timestamptz(3),
+  revoked_at    timestamptz(3),
+  CONSTRAINT auth_priv_grant_pkey PRIMARY KEY (id),
+  CONSTRAINT auth_priv_grant_grant_hash_key UNIQUE (grant_hash),
+  CONSTRAINT auth_priv_grant_session_id_fkey FOREIGN KEY (session_id) REFERENCES public.auth_session (id) ON DELETE RESTRICT,
+  CONSTRAINT auth_priv_grant_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employee (id) ON DELETE RESTRICT,
+  CONSTRAINT ck_apg_hash_hex CHECK (grant_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT ck_apg_uses CHECK (max_uses BETWEEN 1 AND 5 AND use_count BETWEEN 0 AND max_uses),
+  CONSTRAINT ck_apg_ttl CHECK (expires_at > issued_at AND expires_at <= issued_at + interval '10 minutes')
+);
+CREATE INDEX ix_apg_session ON public.auth_priv_grant (session_id);
+REVOKE ALL ON TABLE public.auth_priv_grant FROM PUBLIC;
+
+-- Bat bien: chi use_count (tang), last_used_at, revoked_at (mot chieu) doi duoc. Khong xoa/truncate.
+CREATE FUNCTION public.fn_apg_before_update() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF NEW.id <> OLD.id OR NEW.session_id <> OLD.session_id OR NEW.employee_id <> OLD.employee_id OR NEW.grant_hash <> OLD.grant_hash
+     OR NEW.token_version <> OLD.token_version OR NEW.issued_at <> OLD.issued_at OR NEW.expires_at <> OLD.expires_at OR NEW.max_uses <> OLD.max_uses THEN
+    RAISE EXCEPTION 'IMMUTABLE: khong sua noi dung grant %.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF NEW.use_count < OLD.use_count THEN
+    RAISE EXCEPTION 'IMMUTABLE: use_count cua grant % khong duoc giam.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS DISTINCT FROM OLD.revoked_at THEN
+    RAISE EXCEPTION 'IMMUTABLE: grant % da thu hoi.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER trg_apg_before_update BEFORE UPDATE ON public.auth_priv_grant FOR EACH ROW EXECUTE FUNCTION public.fn_apg_before_update();
+CREATE TRIGGER trg_apg_no_delete     BEFORE DELETE ON public.auth_priv_grant FOR EACH ROW EXECUTE FUNCTION public.fn_block_mutation();
+CREATE TRIGGER trg_apg_no_truncate   BEFORE TRUNCATE ON public.auth_priv_grant FOR EACH STATEMENT EXECUTE FUNCTION public.fn_block_mutation();
+REVOKE ALL ON FUNCTION public.fn_apg_before_update() FROM PUBLIC;
+
+-- Phien bi thu hoi hoac xoay (refresh) => moi grant cua phien do bi thu hoi ngay (thu hoi chu dong; consume van kiem lai trang thai phien).
+-- DEFINER vi nguoi cap nhat auth_session (pool auth) khong co quyen tren auth_priv_grant.
+CREATE FUNCTION public.fn_apg_revoke_on_session() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  UPDATE public.auth_priv_grant SET revoked_at = clock_timestamp() WHERE session_id = NEW.id AND revoked_at IS NULL;
+  RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_apg_revoke_on_session() FROM PUBLIC;
+CREATE TRIGGER trg_apg_session_revoke AFTER UPDATE OF revoked_at, rotated_at ON public.auth_session FOR EACH ROW
+  WHEN ((NEW.revoked_at IS NOT NULL AND OLD.revoked_at IS NULL) OR (NEW.rotated_at IS NOT NULL AND OLD.rotated_at IS NULL))
+  EXECUTE FUNCTION public.fn_apg_revoke_on_session();
+
+-- ===== 2. Ham noi bo (KHONG cap EXECUTE cho ai ngoai chu so huu) =====
+-- Xac minh grant. p_consume=true: khoa dong + tang use_count NGUYEN TU (chong dung lai song song). Tra NULL neu bat ky dieu kien nao khong dat
+-- (khong tiet lo ly do). Nhan vien LAY TU DONG grant da luu, khong tu tham so nao.
+CREATE FUNCTION public.fn_auth_priv_resolve(p_session uuid, p_grant text, p_consume boolean) RETURNS uuid
+  LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE g public.auth_priv_grant%ROWTYPE; v_hash text;
+BEGIN
+  IF p_session IS NULL OR p_grant IS NULL OR p_grant !~ '^[A-Za-z0-9_-]{43,128}$' THEN RETURN NULL; END IF;
+  v_hash := encode(sha256(convert_to(p_grant, 'UTF8')), 'hex');
+  IF p_consume THEN
+    SELECT * INTO g FROM public.auth_priv_grant WHERE grant_hash = v_hash AND session_id = p_session FOR UPDATE;
+  ELSE
+    SELECT * INTO g FROM public.auth_priv_grant WHERE grant_hash = v_hash AND session_id = p_session;
+  END IF;
+  IF NOT FOUND OR g.revoked_at IS NOT NULL OR g.expires_at <= clock_timestamp() OR g.use_count >= g.max_uses THEN RETURN NULL; END IF;
+  PERFORM 1
+    FROM public.auth_session s
+    JOIN public.employee_credential c ON c.employee_id = s.employee_id
+    JOIN public.employee e ON e.id = s.employee_id
+   WHERE s.id = g.session_id AND s.employee_id = g.employee_id
+     AND s.revoked_at IS NULL AND s.rotated_at IS NULL AND s.idle_expires_at > clock_timestamp() AND s.abs_expires_at > clock_timestamp()
+     AND c.status = 'ACTIVE' AND c.token_version = g.token_version
+     AND e.status = 'ACTIVE' AND e.deleted_at IS NULL;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF p_consume THEN
+    UPDATE public.auth_priv_grant SET use_count = use_count + 1, last_used_at = clock_timestamp() WHERE id = g.id;
+  END IF;
+  RETURN g.employee_id;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_auth_priv_resolve(uuid, text, boolean) FROM PUBLIC;
+
+-- Dung trong ham *_v2: tieu thu grant hoac RAISE (huy ca giao dich). Thong diep co dinh, khong lo ly do.
+CREATE FUNCTION public.fn_auth_priv_actor(p_session uuid, p_grant text) RETURNS uuid
+  LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE v_actor uuid;
+BEGIN
+  v_actor := public.fn_auth_priv_resolve(p_session, p_grant, true);
+  IF v_actor IS NULL THEN
+    RAISE EXCEPTION 'SESSION_PROOF_INVALID: bang chung phien khong hop le.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN v_actor;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_auth_priv_actor(uuid, text) FROM PUBLIC;
+
+-- ===== 3. Ham ho tro cho pool AUTH (EXECUTE cap trong B1.3_P2_GRANTS.sql.txt) =====
+-- Cap grant: yeu cau CHUOI LAM MOI GOC cua phien (DB so SHA-256 voi auth_session.refresh_hash). Ung dung tu xac minh mat khau (step-up) truoc khi goi.
+CREATE FUNCTION public.fn_auth_priv_grant_issue(p_session uuid, p_refresh_proof text, p_grant_hash text, p_ttl_seconds integer, p_max_uses integer)
+RETURNS timestamptz LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE s public.auth_session%ROWTYPE; v_tv integer; v_id uuid; v_exp timestamptz;
+BEGIN
+  IF public.fn_auth_bootstrap_open() THEN
+    RAISE EXCEPTION 'BOOTSTRAP_OPEN: chua dong khoi tao.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF p_session IS NULL OR p_refresh_proof IS NULL OR p_refresh_proof !~ '^[A-Za-z0-9._~+/=-]{32,512}$'
+     OR p_grant_hash IS NULL OR p_grant_hash !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'SESSION_PROOF_INVALID: bang chung phien khong hop le.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF p_ttl_seconds IS NULL OR p_ttl_seconds NOT BETWEEN 30 AND 600 OR p_max_uses IS NULL OR p_max_uses NOT BETWEEN 1 AND 5 THEN
+    RAISE EXCEPTION 'INVALID_STATE: ttl 30..600 giay, so luot 1..5.' USING ERRCODE = 'check_violation';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('siscom.priv_grant:' || p_session::text, 0));
+  SELECT * INTO s FROM public.auth_session
+   WHERE id = p_session AND refresh_hash = encode(sha256(convert_to(p_refresh_proof, 'UTF8')), 'hex')
+     AND revoked_at IS NULL AND rotated_at IS NULL AND idle_expires_at > clock_timestamp() AND abs_expires_at > clock_timestamp();
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'SESSION_PROOF_INVALID: bang chung phien khong hop le.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  SELECT c.token_version INTO v_tv
+    FROM public.employee_credential c JOIN public.employee e ON e.id = c.employee_id
+   WHERE c.employee_id = s.employee_id AND c.status = 'ACTIVE' AND e.status = 'ACTIVE' AND e.deleted_at IS NULL;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'SESSION_PROOF_INVALID: bang chung phien khong hop le.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF (SELECT count(*) FROM public.auth_priv_grant WHERE session_id = s.id AND revoked_at IS NULL AND expires_at > clock_timestamp() AND use_count < max_uses) >= 5 THEN
+    RAISE EXCEPTION 'GRANT_LIMIT: phien da co qua nhieu grant con hieu luc.' USING ERRCODE = 'check_violation';
+  END IF;
+  v_exp := clock_timestamp() + make_interval(secs => p_ttl_seconds);
+  INSERT INTO public.auth_priv_grant (session_id, employee_id, grant_hash, token_version, expires_at, max_uses)
+  VALUES (s.id, s.employee_id, p_grant_hash, v_tv, v_exp, p_max_uses) RETURNING id INTO v_id;
+  PERFORM public.fn_auth_api_audit('USER', s.employee_id, 'PRIV_GRANT_ISSUE', 'auth_session', s.id, NULL,
+    jsonb_build_object('grantId', v_id, 'ttlSeconds', p_ttl_seconds, 'maxUses', p_max_uses));
+  RETURN v_exp;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer) FROM PUBLIC;
+
+-- Doc-chi: grant nay thuoc nhan vien nao (cho cong PrivilegedReadyGuard so voi req.actor). KHONG tieu thu, KHONG tin ket qua khi thuc thi:
+-- ham *_v2 xac minh LAI va tieu thu nguyen tu.
+CREATE FUNCTION public.fn_auth_priv_grant_actor(p_session uuid, p_grant text) RETURNS uuid
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  RETURN public.fn_auth_priv_resolve(p_session, p_grant, false);
+END $$;
+REVOKE ALL ON FUNCTION public.fn_auth_priv_grant_actor(uuid, text) FROM PUBLIC;
+
+-- ===== F-03: hash chi doc qua ham hep; chi credential ACTIVE cua nhan vien ACTIVE (credential DISABLED => khong tra hash) =====
+CREATE FUNCTION public.fn_auth_credential_for_login(p_employee uuid) RETURNS TABLE (password_hash text, password_algo varchar, password_params jsonb)
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT c.password_hash, c.password_algo, c.password_params
+    FROM public.employee_credential c JOIN public.employee e ON e.id = c.employee_id
+   WHERE c.employee_id = p_employee AND c.status = 'ACTIVE' AND c.password_algo <> 'none' AND e.status = 'ACTIVE' AND e.deleted_at IS NULL $$;
+REVOKE ALL ON FUNCTION public.fn_auth_credential_for_login(uuid) FROM PUBLIC;
+
+-- ===== 4. Ham API *_v2: thay p_actor bang (p_session, p_grant). Boc ham M1.2 (giu nguyen logic da duoc thiet ke, khong nhan ban) =====
+CREATE FUNCTION public.fn_auth_api_request_create_v2(p_session uuid, p_grant text, p_type public.privileged_change_type, p_subject_employee uuid,
+  p_subject_role uuid, p_payload jsonb, p_ttl_minutes integer) RETURNS uuid
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  RETURN public.fn_auth_api_request_create(public.fn_auth_priv_actor(p_session, p_grant), p_type, p_subject_employee, p_subject_role, p_payload, p_ttl_minutes);
+END $$;
+CREATE FUNCTION public.fn_auth_api_request_decide_v2(p_session uuid, p_grant text, p_request uuid, p_approve boolean) RETURNS public.privileged_change_status
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  RETURN public.fn_auth_api_request_decide(public.fn_auth_priv_actor(p_session, p_grant), p_request, p_approve);
+END $$;
+CREATE FUNCTION public.fn_auth_api_role_grant_v2(p_session uuid, p_grant text, p_request uuid) RETURNS void
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  PERFORM public.fn_auth_api_role_grant(public.fn_auth_priv_actor(p_session, p_grant), p_request);
+END $$;
+CREATE FUNCTION public.fn_auth_api_role_revoke_v2(p_session uuid, p_grant text, p_employee uuid, p_role uuid, p_request uuid) RETURNS void
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  PERFORM public.fn_auth_api_role_revoke(public.fn_auth_priv_actor(p_session, p_grant), p_employee, p_role, p_request);
+END $$;
+CREATE FUNCTION public.fn_auth_api_role_permission_change_v2(p_session uuid, p_grant text, p_request uuid) RETURNS void
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  PERFORM public.fn_auth_api_role_permission_change(public.fn_auth_priv_actor(p_session, p_grant), p_request);
+END $$;
+-- F-04: dinh dang bam ma reset kiem TRUOC khi tieu thu grant (khong dot grant vi loi dau vao); ma goc khong qua ham nay.
+CREATE FUNCTION public.fn_auth_api_reset_token_issue_v2(p_session uuid, p_grant text, p_request uuid, p_token_hash text, p_ttl_minutes integer) RETURNS uuid
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF p_token_hash IS NULL OR p_token_hash !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'INVALID_STATE: token_hash phai la SHA-256 hex 64 ky tu thuong.' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN public.fn_auth_api_reset_token_issue(public.fn_auth_priv_actor(p_session, p_grant), p_request, p_token_hash, p_ttl_minutes);
+END $$;
+CREATE FUNCTION public.fn_auth_api_change_own_password_v2(p_session uuid, p_grant text, p_expected_token_version integer, p_hash text, p_algo text, p_params jsonb)
+  RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  RETURN public.fn_auth_api_change_own_password(public.fn_auth_priv_actor(p_session, p_grant), p_expected_token_version, p_hash, p_algo, p_params);
+END $$;
+CREATE FUNCTION public.fn_auth_api_credential_create_v2(p_session uuid, p_grant text, p_employee uuid) RETURNS void
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  PERFORM public.fn_auth_api_credential_create(public.fn_auth_priv_actor(p_session, p_grant), p_employee);
+END $$;
+CREATE FUNCTION public.fn_auth_api_credential_disable_v2(p_session uuid, p_grant text, p_employee uuid, p_reason text) RETURNS integer
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  RETURN public.fn_auth_api_credential_disable(public.fn_auth_priv_actor(p_session, p_grant), p_employee, p_reason);
+END $$;
+
+-- ===== F-04: dat lai mat khau bang MA GOC, KHONG nhan dinh danh nhan vien tu nguoi goi =====
+-- Tra duy nhat 'OK' | 'INVALID' (khong NO_TOKEN/EXPIRED/LOCKED/EMPLOYEE_INACTIVE). Ma sai/la KHONG co tac dung phu nao => ke an danh khong the huy ma
+-- cua nguoi khac (het DoS) va khong the do ton tai tai khoan (khong co tham so tai khoan). Ma >= 256 bit (ung dung) => khong vet can duoc;
+-- chong lam dung theo toc do/nguon thuc hien o tang ung dung (ResetAbusePolicy). Ung dung PHAI COMMIT ca khi INVALID (ma het han duoc thu hoi).
+CREATE FUNCTION public.fn_auth_api_reset_password_v2(p_token text, p_hash text, p_algo text, p_params jsonb) RETURNS text
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET app.actor_employee_id = '' SET app.priv_request_id = '' AS $$
+DECLARE t public.password_reset_token%ROWTYPE; v_hash text;
+BEGIN
+  PERFORM public.fn_auth_api_check_secret(p_hash, p_algo, p_params);
+  IF p_token IS NULL OR p_token !~ '^[A-Za-z0-9_-]{43,128}$' THEN RETURN 'INVALID'; END IF;
+  v_hash := encode(sha256(convert_to(p_token, 'UTF8')), 'hex');
+  SELECT * INTO t FROM public.password_reset_token WHERE token_hash = v_hash AND used_at IS NULL AND revoked_at IS NULL FOR UPDATE;
+  IF NOT FOUND THEN RETURN 'INVALID'; END IF;
+  IF clock_timestamp() >= t.expires_at THEN
+    UPDATE public.password_reset_token SET revoked_at = now() WHERE id = t.id;
+    PERFORM public.fn_auth_api_audit('ANONYMOUS', NULL, 'PASSWORD_RESET_FAILED', 'employee', t.employee_id, NULL, jsonb_build_object('tokenId', t.id, 'reason', 'EXPIRED'));
+    RETURN 'INVALID';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.employee e WHERE e.id = t.employee_id AND e.status = 'ACTIVE' AND e.deleted_at IS NULL) THEN
+    UPDATE public.password_reset_token SET revoked_at = now() WHERE id = t.id;
+    PERFORM public.fn_auth_api_audit('ANONYMOUS', NULL, 'PASSWORD_RESET_FAILED', 'employee', t.employee_id, NULL, jsonb_build_object('tokenId', t.id, 'reason', 'EMPLOYEE_INACTIVE'));
+    RETURN 'INVALID';
+  END IF;
+  UPDATE public.password_reset_token SET used_at = now() WHERE id = t.id;
+  UPDATE public.employee_credential
+     SET password_hash = p_hash, password_algo = p_algo, password_params = p_params, must_change_password = false, status = 'ACTIVE',
+         token_version = token_version + 1, failed_count = 0, window_started_at = NULL, locked_until = NULL, lock_level = 0, updated_at = now()
+   WHERE employee_id = t.employee_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INVALID_STATE: nhan vien % chua co credential.', t.employee_id USING ERRCODE = 'check_violation';
+  END IF;
+  PERFORM public.fn_auth_api_audit('ANONYMOUS', NULL, 'PASSWORD_RESET_DONE', 'employee', t.employee_id, NULL, jsonb_build_object('tokenId', t.id));
+  RETURN 'OK';
+END $$;
+
+REVOKE ALL ON FUNCTION public.fn_auth_api_request_create_v2(uuid, text, public.privileged_change_type, uuid, uuid, jsonb, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auth_api_request_decide_v2(uuid, text, uuid, boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auth_api_role_grant_v2(uuid, text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auth_api_role_revoke_v2(uuid, text, uuid, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auth_api_role_permission_change_v2(uuid, text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auth_api_reset_token_issue_v2(uuid, text, uuid, text, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auth_api_change_own_password_v2(uuid, text, integer, text, text, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auth_api_credential_create_v2(uuid, text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auth_api_credential_disable_v2(uuid, text, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auth_api_reset_password_v2(text, text, text, jsonb) FROM PUBLIC;
+
+COMMENT ON TABLE public.auth_priv_grant IS 'B1.3 P2: grant dac quyen ngan han (<=10 phut), gan phien, SHA-256, dung 1..5 lan. Chi ham DEFINER cham duoc.';
+COMMENT ON FUNCTION public.fn_auth_priv_resolve(uuid, text, boolean) IS 'B1.3 P2 (noi bo): xac minh grant gan phien; consume nguyen tu. NULL neu khong hop le.';
+COMMENT ON FUNCTION public.fn_auth_api_reset_password_v2(text, text, text, jsonb) IS 'B1.3 P2 (F-04): dat lai mat khau bang ma goc, tra OK|INVALID, khong nhan danh tinh, ma sai khong co tac dung phu.';
+
+-- ===== ROLLBACK (viet san, KHONG tu chay; chay TRUOC khi go B1.3_P2_GRANTS; chi tren ban sao thu / co sao luu) =====
+-- DROP TRIGGER IF EXISTS trg_apg_session_revoke ON public.auth_session;
+-- DROP FUNCTION IF EXISTS public.fn_apg_revoke_on_session();
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_reset_password_v2(text, text, text, jsonb);
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_credential_disable_v2(uuid, text, uuid, text);
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_credential_create_v2(uuid, text, uuid);
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_change_own_password_v2(uuid, text, integer, text, text, jsonb);
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_reset_token_issue_v2(uuid, text, uuid, text, integer);
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_role_permission_change_v2(uuid, text, uuid);
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_role_revoke_v2(uuid, text, uuid, uuid, uuid);
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_role_grant_v2(uuid, text, uuid);
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_request_decide_v2(uuid, text, uuid, boolean);
+-- DROP FUNCTION IF EXISTS public.fn_auth_api_request_create_v2(uuid, text, public.privileged_change_type, uuid, uuid, jsonb, integer);
+-- DROP FUNCTION IF EXISTS public.fn_auth_credential_for_login(uuid);
+-- DROP FUNCTION IF EXISTS public.fn_auth_priv_grant_actor(uuid, text);
+-- DROP FUNCTION IF EXISTS public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer);
+-- DROP FUNCTION IF EXISTS public.fn_auth_priv_actor(uuid, text);
+-- DROP FUNCTION IF EXISTS public.fn_auth_priv_resolve(uuid, text, boolean);
+-- DROP TABLE IF EXISTS public.auth_priv_grant;   -- keo theo trigger cua bang; mat het grant (an toan: grant ngan han)
+-- DROP FUNCTION IF EXISTS public.fn_apg_before_update();

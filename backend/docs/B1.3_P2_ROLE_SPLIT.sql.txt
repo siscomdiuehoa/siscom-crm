@@ -1,0 +1,93 @@
+-- SISCOM CRM - B1.3 P2: TACH POOL AUTH. Tao role dang nhap rieng siscom_auth (KHONG ke thua rong), thu hoi siscom_auth_rt khoi siscom_app. VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_P2_ROLE_SPLIT.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- DRAFT: chua chay tren PostgreSQL, chua duoc duyet. Can quyen cap cluster (CREATE ROLE, GRANT thanh vien) => SUPERUSER (postgres), MOT database moi lan.
+-- Chay SAU: prisma migrate deploy (M1..M1.3), B1.3_S1_ROLE_SPLIT.sql.txt, B1.3_S1_APP_GRANTS.sql.txt. Chay TRUOC: B1.3_P2_GRANTS.sql.txt.
+-- Dich hop le: ban sao thu siscom_crm_(restore|test)_YYYYMMDD_HHMMSS. Database khac (siscom_crm_dev, production) CHI khi co phe duyet RIENG bang van ban,
+--   sao luu + kiem tra khoi phuc, va truyen -v confirm_db=<ten database> trung dung database dang noi. Hai DB mau da khoa luon bi tu choi.
+-- Lam gi (1 transaction, loi => huy toan bo):
+--   1. Tao siscom_auth neu chua co: LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT 20, KHONG mat khau
+--      (dat sau bang \password trong psql tuong tac; khong dua mat khau vao script/log). Da co => kiem thuoc tinh, sai => tu choi.
+--   2. GRANT siscom_auth_rt TO siscom_auth WITH INHERIT TRUE, SET FALSE (chi ke thua quyen doi tuong cua nhom; KHONG SET ROLE sang nhom/chu so huu).
+--   3. REVOKE siscom_auth_rt FROM siscom_app (khong con "cap sy quyen auth cho pool nghiep vu").
+--   4. Gioi han thoi gian truy van cho siscom_auth (statement_timeout, idle_in_transaction_session_timeout).
+--   5. Kiem: khong vong thanh vien giua siscom_app / siscom_auth / siscom_migrator; siscom_app khong la thanh vien (truc tiep/gian tiep) cua siscom_auth_rt.
+-- Yeu cau PostgreSQL >= 16 (cu phap WITH INHERIT/SET va pg_auth_members.inherit_option/set_option). PostgreSQL 18.6 dang dung o du an.
+-- Khong dong toi du lieu. Khong dat mat khau. Khong cap quyen bang/ham (viec cua B1.3_P2_GRANTS.sql.txt).
+-- Rollback viet san: B1.3_P2_ROLLBACK.sql.txt.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+\if :{?confirm_db}
+\else
+\set confirm_db ''
+\endif
+SELECT current_database() AS db_p2_tach_pool, current_user AS chay_bang;
+BEGIN;
+SELECT set_config('siscom.confirm_db', :'confirm_db', true) IS NOT NULL AS confirm_da_doc;
+DO $$
+DECLARE v_db text := current_database(); v_confirm text := current_setting('siscom.confirm_db', true);
+BEGIN
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'TU CHOI: can chay bang superuser (postgres).';
+  END IF;
+  IF v_db IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948', 'postgres', 'template0', 'template1') THEN
+    RAISE EXCEPTION 'TU CHOI: % la database khoa/he thong.', v_db;
+  END IF;
+  IF v_db !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$' AND v_confirm IS DISTINCT FROM v_db THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu; database that can phe duyet rieng va -v confirm_db=%.', v_db, v_db;
+  END IF;
+  IF current_setting('server_version_num')::int < 160000 THEN
+    RAISE EXCEPTION 'TU CHOI: can PostgreSQL >= 16 (WITH INHERIT/SET).';
+  END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = v_db) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'TU CHOI: chu so huu database chua phai siscom_migrator (chay B1.3_S1_ROLE_SPLIT.sql.txt truoc).';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth_rt' AND NOT rolcanlogin) OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app') THEN
+    RAISE EXCEPTION 'TU CHOI: thieu siscom_auth_rt (NOLOGIN) hoac siscom_app (chay S1 truoc).';
+  END IF;
+  IF to_regprocedure('public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer)') IS NULL THEN
+    RAISE EXCEPTION 'TU CHOI: chua ap migration P2 (B1.3_P2_SESSION_BOUND_MIGRATION_DRAFT -> prisma/migrations).';
+  END IF;
+END $$;
+
+-- 1. Role dang nhap pool auth
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') THEN
+    CREATE ROLE siscom_auth LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT 20;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth' AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
+                 AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit) THEN
+    RAISE EXCEPTION 'TU CHOI: siscom_auth da ton tai voi thuoc tinh khac du kien.';
+  END IF;
+END $$;
+
+-- 2-3. Thanh vien: chi siscom_auth (INHERIT, khong SET); siscom_app KHONG con
+GRANT siscom_auth_rt TO siscom_auth WITH INHERIT TRUE, SET FALSE;
+REVOKE siscom_auth_rt FROM siscom_app;
+DO $$ BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO siscom_auth', current_database());
+END $$;
+
+-- 4. Gioi han thoi gian (chong giu ket noi/giao dich lau); gia tri la khoi diem, dieu chinh theo do tai that
+ALTER ROLE siscom_auth SET statement_timeout = '5s';
+ALTER ROLE siscom_auth SET idle_in_transaction_session_timeout = '10s';
+ALTER ROLE siscom_auth SET lock_timeout = '3s';
+
+-- 5. Kiem
+CREATE TEMP VIEW v_p2_split AS SELECT
+  pg_has_role('siscom_app', 'siscom_auth_rt', 'MEMBER') AS app_trong_nhom_auth,
+  pg_has_role('siscom_app', 'siscom_auth', 'MEMBER') AS app_la_auth,
+  pg_has_role('siscom_auth', 'siscom_app', 'MEMBER') AS auth_la_app,
+  pg_has_role('siscom_app', 'siscom_migrator', 'MEMBER') OR pg_has_role('siscom_auth', 'siscom_migrator', 'MEMBER') AS la_migrator,
+  (SELECT m.inherit_option AND NOT m.set_option FROM pg_auth_members m
+     WHERE m.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'siscom_auth_rt') AND m.member = (SELECT oid FROM pg_roles WHERE rolname = 'siscom_auth')) AS auth_inherit_khong_set,
+  has_database_privilege('siscom_auth', current_database(), 'CONNECT') AS auth_connect;
+SELECT app_trong_nhom_auth || '|' || app_la_auth || '|' || auth_la_app || '|' || la_migrator || '|' || coalesce(auth_inherit_khong_set::text, 'NULL') || '|' || auth_connect AS p2_split_state FROM v_p2_split;
+DO $$ BEGIN
+  IF (SELECT app_trong_nhom_auth OR app_la_auth OR auth_la_app OR la_migrator OR auth_inherit_khong_set IS DISTINCT FROM true OR NOT auth_connect FROM v_p2_split) THEN
+    RAISE EXCEPTION 'Tach pool chua dat (xem p2_split_state; ky vong false|false|false|false|true|true). Huy transaction.';
+  END IF;
+END $$;
+DROP VIEW v_p2_split;
+COMMIT;
+SELECT 'TACH POOL AUTH XONG - dat mat khau siscom_auth bang \password (tuong tac), roi chay B1.3_P2_GRANTS.sql.txt' AS ket_qua;

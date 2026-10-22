@@ -1,4 +1,5 @@
 -- SISCOM CRM - B1.3 F-01 / F-03 / F-04: BAN NHAP migration cong them. DRAFT - KHONG TU CHAY, CHUA CHAY TREN POSTGRESQL, CHUA DUOC DUYET.
+-- *** BI THAY THE boi docs/drafts/B1.3_P2_SESSION_BOUND_MIGRATION_DRAFT.sql.txt (grant gan phien dung mot lan, ham reset _v2). KHONG dung ban nay de ap. ***
 -- Dich (khi duoc duyet): chuyen thanh backend/prisma/migrations/<timestamp>_b1_3_f01_f03_f04/migration.sql trong PR RIENG sau khi co ket qua DB that.
 -- KHONG sua M1..M1.3 (da dong bang). Chi CREATE ham moi / CREATE OR REPLACE ham M1.2 voi CUNG chu ky (giu nguyen GRANT).
 -- Moi ham SECURITY DEFINER: search_path co dinh (pg_temp cuoi), ten doi tuong co tien to public., REVOKE ALL FROM PUBLIC.
