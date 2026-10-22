@@ -1,6 +1,7 @@
 import { DomainException } from '../../errors/domain.exception';
 import { CredentialStore, PasswordHasher, VerifiedLogin } from './password-login.types';
 import { isCanonicalUuid } from '../uuid';
+import { parseLoginIdentifier } from './login-identifier';
 
 export const MAX_LOGIN_LEN = 254;
 export const MAX_PASSWORD_LEN = 1024;
@@ -17,12 +18,13 @@ export class PasswordLoginService {
     };
     const { login, password } = input;
     if (typeof login !== 'string' || typeof password !== 'string') return fail();
-    const normalized = login.trim().toLowerCase();
-    if (normalized.length === 0 || normalized.length > MAX_LOGIN_LEN || password.length === 0 || password.length > MAX_PASSWORD_LEN) return fail();
+    // Không hạ chữ thường: email giữ nguyên (DB so khớp lower(email)); mã nhân viên phải đúng NV-#### chữ hoa; sai định dạng => 401 chung.
+    const identifier = parseLoginIdentifier(login);
+    if (identifier.kind === 'INVALID' || password.length === 0 || password.length > MAX_PASSWORD_LEN) return fail();
 
-    let cred: Awaited<ReturnType<CredentialStore['findByLogin']>>;
+    let cred: Awaited<ReturnType<CredentialStore['findByIdentifier']>>;
     try {
-      cred = await this.store.findByLogin(normalized);
+      cred = await this.store.findByIdentifier(identifier);
     } catch {
       return fail();
     }
