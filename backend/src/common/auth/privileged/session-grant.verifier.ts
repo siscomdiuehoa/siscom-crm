@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
-import { SECRET_RE, UUID_RE } from './grant-secret';
+import { SECRET_RE, UUID_RE } from './grant-token';
 import { ActorBindingVerifier, AUTH_SQL_RUNNER, ParamSqlRunner, SessionBoundActor } from './privileged.types';
 
 // Header mang BẰNG CHỨNG (không phải danh tính): `<sessionId>.<grant>`. Mọi header/body/query khác (x-actor-id, actorId, p_actor...) bị bỏ qua.

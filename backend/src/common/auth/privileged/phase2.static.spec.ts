@@ -224,7 +224,7 @@ describe('Không đăng ký mặc định (cổng PR #25 vẫn đóng)', () => {
     expect(m).not.toMatch(/SessionGrantVerifier|AUTH_SQL_RUNNER|PrivilegedApiClient|PasswordResetService|GENERAL_DB_PROBE|AUTH_DB_PROBE|ACTOR_BINDING_VERIFIER/);
   });
   it('mã nguồn giai đoạn 2 không có p_actor, không có provider/verifier giả, không import pg/prisma (không tự mở kết nối)', () => {
-    for (const f of ['session-grant.verifier.ts', 'privileged-api.client.ts', 'password-reset.service.ts', 'reset-abuse.policy.ts', 'grant-secret.ts']) {
+    for (const f of ['session-grant.verifier.ts', 'privileged-api.client.ts', 'password-reset.service.ts', 'reset-abuse.policy.ts', 'grant-token.ts']) {
       // Bỏ chú thích // (chú thích được phép nhắc tới p_actor để giải thích vì sao KHÔNG dùng).
       const s = readFileSync(join(dir, f), 'utf8').split('\n').map((l) => l.replace(/(^|\s)\/\/.*$/, '')).join('\n');
       expect(s).not.toMatch(/p_actor/);

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { DomainException } from '../../errors/domain.exception';
-import { newSecret } from './grant-secret';
+import { newSecret } from './grant-token';
 import { PasswordResetService, RESET_PASSWORD_SQL } from './password-reset.service';
 import { DEFAULT_RESET_ABUSE, ResetAbusePolicy } from './reset-abuse.policy';
 
