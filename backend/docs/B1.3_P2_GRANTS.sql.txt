@@ -1,0 +1,127 @@
+-- SISCOM CRM - B1.3 P2: CAP QUYEN toi thieu cho pool auth, KHOA ham cu nhan p_actor (F-01), thu quyen doc password_hash (F-03). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_P2_GRANTS.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- DRAFT: chua chay tren PostgreSQL, chua duoc duyet. Chay SAU B1.3_S1_APP_GRANTS.sql.txt va B1.3_P2_ROLE_SPLIT.sql.txt, bang siscom_migrator (chu so huu) hoac superuser.
+-- CHAY LAI duoc. PHAI chay lai sau MOI lan S1_APP_GRANTS (script do cap lai quyen cu cho siscom_auth_rt; script nay thu lai).
+-- Dich hop le giong B1.3_P2_ROLE_SPLIT.sql.txt (ban sao thu; database that can -v confirm_db=<ten> + phe duyet rieng).
+-- Ket qua (mac dinh tu choi):
+--   * 10 ham cu (9 ham nhan p_actor + fn_auth_api_reset_password cu): KHONG ai ngoai chu so huu goi duoc (F-01: dong ham tu khai danh tinh; F-04: dong ham reset cu).
+--   * 13 ham moi (9 *_v2, reset_password_v2, grant_issue, grant_actor, credential_for_login): CHI siscom_auth_rt (=> siscom_auth). siscom_app: khong.
+--   * fn_auth_api_request_expire(uuid) (khong co danh tinh, chi chuyen qua han): cap lai tuong minh cho siscom_auth_rt (muc 2b).
+--   * ham noi bo fn_auth_priv_resolve/fn_auth_priv_actor: khong ai.
+--   * auth_priv_grant: khong ai (chi ham DEFINER).
+--   * employee_credential: siscom_auth_rt CHI doc cot khong bi mat (khong password_hash/algo/params); hash chi qua fn_auth_credential_for_login (F-03).
+--   * employee: siscom_auth_rt chi doc id, email, status, deleted_at (tra cuu dang nhap).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+\if :{?confirm_db}
+\else
+\set confirm_db ''
+\endif
+SELECT current_database() AS db_p2_cap_quyen, current_user AS chay_bang;
+BEGIN;
+SELECT set_config('siscom.confirm_db', :'confirm_db', true) IS NOT NULL AS confirm_da_doc;
+DO $$
+DECLARE v_db text := current_database(); v_confirm text := current_setting('siscom.confirm_db', true);
+BEGIN
+  IF current_user <> 'siscom_migrator' AND NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'TU CHOI: chay bang siscom_migrator hoac superuser.';
+  END IF;
+  IF v_db IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948', 'postgres', 'template0', 'template1') THEN
+    RAISE EXCEPTION 'TU CHOI: % la database khoa/he thong.', v_db;
+  END IF;
+  IF v_db !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$' AND v_confirm IS DISTINCT FROM v_db THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu; database that can phe duyet rieng va -v confirm_db=%.', v_db, v_db;
+  END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = v_db) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'TU CHOI: chu so huu database chua phai siscom_migrator (chay S1 truoc).';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') OR pg_has_role('siscom_app', 'siscom_auth_rt', 'MEMBER') THEN
+    RAISE EXCEPTION 'TU CHOI: chua tach pool (chay B1.3_P2_ROLE_SPLIT.sql.txt truoc; siscom_app khong duoc la thanh vien siscom_auth_rt).';
+  END IF;
+  IF to_regprocedure('public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer)') IS NULL OR to_regclass('public.auth_priv_grant') IS NULL THEN
+    RAISE EXCEPTION 'TU CHOI: chua ap migration P2.';
+  END IF;
+END $$;
+
+-- 1. Ham cu: khoa het (p_actor do ung dung khai bao = F-01; reset cu = F-04). Chu so huu van goi duoc (ham *_v2 dung ham cu ben trong).
+REVOKE ALL ON FUNCTION
+  public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer), public.fn_auth_api_request_decide(uuid, uuid, boolean),
+  public.fn_auth_api_role_grant(uuid, uuid), public.fn_auth_api_role_revoke(uuid, uuid, uuid, uuid), public.fn_auth_api_role_permission_change(uuid, uuid),
+  public.fn_auth_api_reset_token_issue(uuid, uuid, text, integer), public.fn_auth_api_reset_password(uuid, text, text, text, jsonb),
+  public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb), public.fn_auth_api_credential_create(uuid, uuid),
+  public.fn_auth_api_credential_disable(uuid, uuid, text)
+  FROM PUBLIC, siscom_app, siscom_auth_rt, siscom_auth;
+
+-- 2. Ham moi
+REVOKE ALL ON FUNCTION
+  public.fn_auth_api_request_create_v2(uuid, text, public.privileged_change_type, uuid, uuid, jsonb, integer), public.fn_auth_api_request_decide_v2(uuid, text, uuid, boolean),
+  public.fn_auth_api_role_grant_v2(uuid, text, uuid), public.fn_auth_api_role_revoke_v2(uuid, text, uuid, uuid, uuid), public.fn_auth_api_role_permission_change_v2(uuid, text, uuid),
+  public.fn_auth_api_reset_token_issue_v2(uuid, text, uuid, text, integer), public.fn_auth_api_change_own_password_v2(uuid, text, integer, text, text, jsonb),
+  public.fn_auth_api_credential_create_v2(uuid, text, uuid), public.fn_auth_api_credential_disable_v2(uuid, text, uuid, text),
+  public.fn_auth_api_reset_password_v2(text, text, text, jsonb), public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer),
+  public.fn_auth_priv_grant_actor(uuid, text), public.fn_auth_credential_for_login(uuid),
+  public.fn_auth_priv_resolve(uuid, text, boolean), public.fn_auth_priv_actor(uuid, text)
+  FROM PUBLIC, siscom_app, siscom_auth_rt, siscom_auth;
+GRANT EXECUTE ON FUNCTION
+  public.fn_auth_api_request_create_v2(uuid, text, public.privileged_change_type, uuid, uuid, jsonb, integer), public.fn_auth_api_request_decide_v2(uuid, text, uuid, boolean),
+  public.fn_auth_api_role_grant_v2(uuid, text, uuid), public.fn_auth_api_role_revoke_v2(uuid, text, uuid, uuid, uuid), public.fn_auth_api_role_permission_change_v2(uuid, text, uuid),
+  public.fn_auth_api_reset_token_issue_v2(uuid, text, uuid, text, integer), public.fn_auth_api_change_own_password_v2(uuid, text, integer, text, text, jsonb),
+  public.fn_auth_api_credential_create_v2(uuid, text, uuid), public.fn_auth_api_credential_disable_v2(uuid, text, uuid, text),
+  public.fn_auth_api_reset_password_v2(text, text, text, jsonb), public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer),
+  public.fn_auth_priv_grant_actor(uuid, text), public.fn_auth_credential_for_login(uuid)
+  TO siscom_auth_rt;
+
+-- 2b. Ham khong co danh tinh, chi chuyen yeu cau qua han (14 ham API trong bang chung EVIDENCE v2 = 13 o tren + ham nay): chi pool auth.
+REVOKE ALL ON FUNCTION public.fn_auth_api_request_expire(uuid) FROM PUBLIC, siscom_app, siscom_auth;
+GRANT EXECUTE ON FUNCTION public.fn_auth_api_request_expire(uuid) TO siscom_auth_rt;
+
+-- 3. Bang grant: khong ai
+REVOKE ALL ON TABLE public.auth_priv_grant FROM PUBLIC, siscom_app, siscom_auth_rt, siscom_auth;
+
+-- 4. F-03: thu quyen doc bi mat; cap lai theo cot (khong password_hash/algo/params)
+REVOKE ALL ON TABLE public.employee_credential FROM siscom_auth_rt, siscom_auth;
+GRANT SELECT (employee_id, password_changed_at, must_change_password, failed_count, window_started_at, locked_until, lock_level, token_version, status, last_login_at, created_at, updated_at)
+  ON public.employee_credential TO siscom_auth_rt;
+GRANT UPDATE (failed_count, window_started_at, locked_until, lock_level, last_login_at, updated_at, token_version) ON public.employee_credential TO siscom_auth_rt;
+GRANT SELECT (id, email, status, deleted_at) ON public.employee TO siscom_auth_rt;
+
+-- 5. Kiem (trong transaction). Bo test day du: B1.3_P2_DB_TESTS.sql.txt.
+CREATE TEMP VIEW v_p2_grants AS SELECT
+  (SELECT count(*) FROM unnest(ARRAY[
+      'public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer)', 'public.fn_auth_api_request_decide(uuid, uuid, boolean)',
+      'public.fn_auth_api_role_grant(uuid, uuid)', 'public.fn_auth_api_role_revoke(uuid, uuid, uuid, uuid)', 'public.fn_auth_api_role_permission_change(uuid, uuid)',
+      'public.fn_auth_api_reset_token_issue(uuid, uuid, text, integer)', 'public.fn_auth_api_reset_password(uuid, text, text, text, jsonb)',
+      'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'public.fn_auth_api_credential_create(uuid, uuid)',
+      'public.fn_auth_api_credential_disable(uuid, uuid, text)']) f
+     WHERE has_function_privilege('siscom_app', f, 'EXECUTE') OR has_function_privilege('siscom_auth', f, 'EXECUTE')) AS legacy_con_exec,
+  (SELECT count(*) FROM unnest(ARRAY[
+      'public.fn_auth_api_request_create_v2(uuid, text, public.privileged_change_type, uuid, uuid, jsonb, integer)', 'public.fn_auth_api_request_decide_v2(uuid, text, uuid, boolean)',
+      'public.fn_auth_api_role_grant_v2(uuid, text, uuid)', 'public.fn_auth_api_role_revoke_v2(uuid, text, uuid, uuid, uuid)', 'public.fn_auth_api_role_permission_change_v2(uuid, text, uuid)',
+      'public.fn_auth_api_reset_token_issue_v2(uuid, text, uuid, text, integer)', 'public.fn_auth_api_change_own_password_v2(uuid, text, integer, text, text, jsonb)',
+      'public.fn_auth_api_credential_create_v2(uuid, text, uuid)', 'public.fn_auth_api_credential_disable_v2(uuid, text, uuid, text)',
+      'public.fn_auth_api_reset_password_v2(text, text, text, jsonb)', 'public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer)',
+      'public.fn_auth_priv_grant_actor(uuid, text)', 'public.fn_auth_credential_for_login(uuid)']) f
+     WHERE has_function_privilege('siscom_app', f, 'EXECUTE')) AS app_goi_duoc_ham_moi,
+  (SELECT count(*) FROM unnest(ARRAY[
+      'public.fn_auth_api_request_create_v2(uuid, text, public.privileged_change_type, uuid, uuid, jsonb, integer)', 'public.fn_auth_api_request_decide_v2(uuid, text, uuid, boolean)',
+      'public.fn_auth_api_role_grant_v2(uuid, text, uuid)', 'public.fn_auth_api_role_revoke_v2(uuid, text, uuid, uuid, uuid)', 'public.fn_auth_api_role_permission_change_v2(uuid, text, uuid)',
+      'public.fn_auth_api_reset_token_issue_v2(uuid, text, uuid, text, integer)', 'public.fn_auth_api_change_own_password_v2(uuid, text, integer, text, text, jsonb)',
+      'public.fn_auth_api_credential_create_v2(uuid, text, uuid)', 'public.fn_auth_api_credential_disable_v2(uuid, text, uuid, text)',
+      'public.fn_auth_api_reset_password_v2(text, text, text, jsonb)', 'public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer)',
+      'public.fn_auth_priv_grant_actor(uuid, text)', 'public.fn_auth_credential_for_login(uuid)']) f
+     WHERE has_function_privilege('siscom_auth', f, 'EXECUTE')) AS auth_goi_duoc_ham_moi,
+  has_column_privilege('siscom_app', 'public.employee_credential', 'password_hash', 'SELECT')
+    OR has_column_privilege('siscom_auth', 'public.employee_credential', 'password_hash', 'SELECT') AS doc_duoc_hash,
+  has_table_privilege('siscom_app', 'public.auth_priv_grant', 'SELECT,INSERT,UPDATE,DELETE')
+    OR has_table_privilege('siscom_auth', 'public.auth_priv_grant', 'SELECT,INSERT,UPDATE,DELETE') AS cham_duoc_grant,
+  has_table_privilege('siscom_app', 'public.auth_session', 'SELECT,INSERT,UPDATE,DELETE') AS app_cham_phien;
+SELECT legacy_con_exec || '|' || app_goi_duoc_ham_moi || '|' || auth_goi_duoc_ham_moi || '|' || doc_duoc_hash || '|' || cham_duoc_grant || '|' || app_cham_phien AS p2_grants_state FROM v_p2_grants;
+DO $$ BEGIN
+  IF (SELECT legacy_con_exec <> 0 OR app_goi_duoc_ham_moi <> 0 OR auth_goi_duoc_ham_moi <> 13 OR doc_duoc_hash OR cham_duoc_grant OR app_cham_phien FROM v_p2_grants) THEN
+    RAISE EXCEPTION 'Cap quyen P2 chua dat (xem p2_grants_state; ky vong 0|0|13|false|false|false). Huy transaction.';
+  END IF;
+END $$;
+DROP VIEW v_p2_grants;
+COMMIT;
+SELECT 'CAP QUYEN P2 XONG' AS ket_qua;

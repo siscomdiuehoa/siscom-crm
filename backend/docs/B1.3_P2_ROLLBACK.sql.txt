@@ -1,0 +1,47 @@
+-- SISCOM CRM - B1.3 P2: ROLLBACK cap quyen + tach pool (viet san, KHONG tu chay). Duoi .txt; chay bang psql -f, SUPERUSER, tren ban sao thu / co sao luu.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_P2_ROLLBACK.sql.txt (file moi).
+-- Hoan nguyen ve trang thai giai doan 1 (MOT pool, siscom_app ke thua siscom_auth_rt, ham cu duoc cap lai) - TRANG THAI NAY KHONG AN TOAN CHO F-01/F-03
+--   (cong PRIVILEGED_AUTH_ENABLED se KHONG sang vi pool chung doc duoc password_hash va goi duoc ham API). Chi dung de quay lai khi can dieu tra.
+-- KHONG xoa role siscom_auth (DROP ROLE can DROP OWNED + kiem tra phu thuoc; thao tac thu cong co chu dich), KHONG xoa bang/ham migration P2
+--   (go migration P2: xem phan ROLLBACK cuoi B1.3_P2_SESSION_BOUND_MIGRATION_DRAFT.sql.txt).
+-- Cach tat nhanh KHONG can script nay: dat PRIVILEGED_AUTH_ENABLED=false (mac dinh) => API dac quyen dong ngay.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_p2_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$
+BEGIN
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN RAISE EXCEPTION 'TU CHOI: can superuser.'; END IF;
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le (database that can phe duyet rieng va ban rollback co chu dich).', current_database();
+  END IF;
+END $$;
+
+-- 1. Cap lai quyen cu (nhu B1.3_S1_APP_GRANTS.sql.txt muc 3-4)
+GRANT SELECT ON public.employee_credential TO siscom_auth_rt;
+GRANT EXECUTE ON FUNCTION
+  public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer), public.fn_auth_api_request_decide(uuid, uuid, boolean),
+  public.fn_auth_api_role_grant(uuid, uuid), public.fn_auth_api_role_revoke(uuid, uuid, uuid, uuid), public.fn_auth_api_role_permission_change(uuid, uuid),
+  public.fn_auth_api_reset_token_issue(uuid, uuid, text, integer), public.fn_auth_api_reset_password(uuid, text, text, text, jsonb),
+  public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb), public.fn_auth_api_credential_create(uuid, uuid),
+  public.fn_auth_api_credential_disable(uuid, uuid, text)
+  TO siscom_auth_rt;
+
+-- 2. Thu quyen ham moi khoi nhom
+REVOKE ALL ON FUNCTION
+  public.fn_auth_api_request_create_v2(uuid, text, public.privileged_change_type, uuid, uuid, jsonb, integer), public.fn_auth_api_request_decide_v2(uuid, text, uuid, boolean),
+  public.fn_auth_api_role_grant_v2(uuid, text, uuid), public.fn_auth_api_role_revoke_v2(uuid, text, uuid, uuid, uuid), public.fn_auth_api_role_permission_change_v2(uuid, text, uuid),
+  public.fn_auth_api_reset_token_issue_v2(uuid, text, uuid, text, integer), public.fn_auth_api_change_own_password_v2(uuid, text, integer, text, text, jsonb),
+  public.fn_auth_api_credential_create_v2(uuid, text, uuid), public.fn_auth_api_credential_disable_v2(uuid, text, uuid, text),
+  public.fn_auth_api_reset_password_v2(text, text, text, jsonb), public.fn_auth_priv_grant_issue(uuid, text, text, integer, integer),
+  public.fn_auth_priv_grant_actor(uuid, text), public.fn_auth_credential_for_login(uuid)
+  FROM siscom_auth_rt;
+REVOKE SELECT (id, email, status, deleted_at) ON public.employee FROM siscom_auth_rt;
+
+-- 3. Thanh vien
+REVOKE siscom_auth_rt FROM siscom_auth;
+GRANT siscom_auth_rt TO siscom_app;
+COMMIT;
+SELECT 'ROLLBACK P2 (cap quyen + tach pool) XONG - trang thai giai doan 1, KHONG an toan cho F-01/F-03' AS ket_qua;
