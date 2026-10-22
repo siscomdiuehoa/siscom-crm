@@ -8,6 +8,9 @@ import { CredentialStore, PasswordHasher, StoredCredential } from '../login/pass
 import { InMemorySessionStore } from '../session/in-memory-session.store';
 import { Sha256TokenHasher, SessionService, UnwiredSessionStore } from '../session/session.service';
 import { SessionRecord, SessionStore, TokenVersionSource } from '../session/session.types';
+const E7 = '00000000-0000-4000-8000-000000000007';
+const E8 = '00000000-0000-4000-8000-000000000008';
+const E99 = '00000000-0000-4000-8000-000000000099';
 
 // Sprint A5: kiểm thử bảo mật KẾT HỢP A1+A2+A3+A4, hoàn toàn offline (không DB, không mạng, không bí mật thật).
 const PW = 'Mat-khau-thu-nghiem-1';
@@ -15,7 +18,7 @@ const TTL = 60_000;
 let nowMs = Date.UTC(2026, 9, 22, 0, 0, 0);
 const clock = { now: () => new Date(nowMs) };
 const hasher: PasswordHasher = { verify: async (h, p) => h !== null && h === 'H:' + p };
-const cred = (o: Partial<StoredCredential> = {}): StoredCredential => ({ employeeId: 7, hash: 'H:' + PW, algo: 'argon2id', active: true, ...o });
+const cred = (o: Partial<StoredCredential> = {}): StoredCredential => ({ employeeId: E7, hash: 'H:' + PW, algo: 'argon2id', active: true, ...o });
 const wire = (store: SessionStore, versions: TokenVersionSource, creds: CredentialStore) => {
   const sessions = new SessionService(store, versions, new Sha256TokenHasher(), clock, TTL);
   return new AuthHttpHandler(new LoginSessionService(new PasswordLoginService(creds, hasher), sessions), sessions);
@@ -23,8 +26,8 @@ const wire = (store: SessionStore, versions: TokenVersionSource, creds: Credenti
 const build = (c: StoredCredential | null = cred()) => {
   nowMs = Date.UTC(2026, 9, 22, 0, 0, 0);
   const store = new InMemorySessionStore();
-  store.setTokenVersion(7, 1);
-  store.setTokenVersion(8, 1);
+  store.setTokenVersion(E7, 1);
+  store.setTokenVersion(E8, 1);
   return { store, handler: wire(store, store, { findByLogin: async () => c }) };
 };
 const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
@@ -46,7 +49,7 @@ describe('A5 — vòng đời phiên qua handler (hết hạn / thu hồi / toke
     const { handler } = build();
     const { token } = await login(handler);
     nowMs += TTL - 1;
-    await expect(handler.me({ headers: bearer(token) })).resolves.toEqual({ employeeId: 7 });
+    await expect(handler.me({ headers: bearer(token) })).resolves.toEqual({ employeeId: E7 });
     nowMs += 1;
     await expectErr(handler.me({ headers: bearer(token) }), 401, 'AUTH_REQUIRED');
     nowMs += 10 * TTL;
@@ -62,7 +65,7 @@ describe('A5 — vòng đời phiên qua handler (hết hạn / thu hồi / toke
     await handler.logout({ headers: bearer(a.token) });
     await expect(handler.logout({ headers: bearer('sid_' + 'A'.repeat(43)) })).resolves.toEqual({ ok: true });
     await expectErr(handler.me({ headers: bearer(a.token) }), 401, 'AUTH_REQUIRED');
-    await expect(handler.me({ headers: bearer(b.token) })).resolves.toEqual({ employeeId: 7 });
+    await expect(handler.me({ headers: bearer(b.token) })).resolves.toEqual({ employeeId: E7 });
   });
 
   it('thu hồi KHÔNG ghi đè thời điểm thu hồi đầu tiên (logout lặp không "làm mới" bản ghi)', async () => {
@@ -80,31 +83,31 @@ describe('A5 — vòng đời phiên qua handler (hết hạn / thu hồi / toke
     const { handler, store } = build();
     const { token } = await login(handler);
     for (const v of [2, 0, -1, 1.5, Number.MAX_SAFE_INTEGER, null]) {
-      store.setTokenVersion(7, v);
+      store.setTokenVersion(E7, v);
       await expectErr(handler.me({ headers: bearer(token) }), 401, 'AUTH_REQUIRED');
     }
-    store.setTokenVersion(7, NaN as never);
+    store.setTokenVersion(E7, NaN as never);
     await expectErr(handler.me({ headers: bearer(token) }), 401, 'AUTH_REQUIRED');
   });
 
   it('phiên của người A không dùng được khi người B bị đổi tokenVersion (cách ly theo employeeId)', async () => {
     const { handler, store } = build();
     const a = await login(handler);
-    store.setTokenVersion(8, 5);
-    await expect(handler.me({ headers: bearer(a.token) })).resolves.toEqual({ employeeId: 7 });
+    store.setTokenVersion(E8, 5);
+    await expect(handler.me({ headers: bearer(a.token) })).resolves.toEqual({ employeeId: E7 });
   });
 });
 
 describe('A5 — giả mạo danh tính và đăng nhập thất bại', () => {
   it('employeeId trong body/header không ảnh hưởng: phiên mang employeeId từ kho xác thực (7), không phải giá trị giả (8)', async () => {
     const { handler } = build();
-    await expectErr(handler.login({ body: { login: 'nv@siscom.vn', password: PW, employeeId: 8 } }), 400, 'REQUEST_INVALID');
+    await expectErr(handler.login({ body: { login: 'nv@siscom.vn', password: PW, employeeId: E8 } }), 400, 'REQUEST_INVALID');
     await expectErr(handler.login({ body: { login: 'nv@siscom.vn', password: PW }, headers: { 'X-Employee-Id': '8' } }), 400, 'REQUEST_INVALID');
     const { token } = await login(handler);
-    await expect(handler.me({ headers: bearer(token) })).resolves.toEqual({ employeeId: 7 });
+    await expect(handler.me({ headers: bearer(token) })).resolves.toEqual({ employeeId: E7 });
     // Header giả vẫn bị từ chối ngay cả khi token hợp lệ, và không phát sinh tác dụng phụ.
     await expectErr(handler.logout({ headers: { ...bearer(token), 'x-actor-id': '8' } }), 400, 'REQUEST_INVALID');
-    await expect(handler.me({ headers: bearer(token) })).resolves.toEqual({ employeeId: 7 });
+    await expect(handler.me({ headers: bearer(token) })).resolves.toEqual({ employeeId: E7 });
   });
 
   it('login thất bại (sai mật khẩu / không có / khóa / thuật toán lạ / kho xác thực ném lỗi / hasher ném lỗi) => cùng phản hồi 401 và KHÔNG tạo phiên', async () => {
@@ -115,7 +118,7 @@ describe('A5 — giả mạo danh tính và đăng nhập thất bại', () => {
       () => ({ ...build(cred({ active: false })), pw: PW }),
       () => ({ ...build(cred({ algo: 'md5' })), pw: PW }),
       () => {
-        const store = new InMemorySessionStore(); store.setTokenVersion(7, 1);
+        const store = new InMemorySessionStore(); store.setTokenVersion(E7, 1);
         return { store, pw: PW, handler: wire(store, store, { findByLogin: async () => { throw new Error('secret-db-detail'); } }) };
       },
     ];
@@ -130,18 +133,18 @@ describe('A5 — giả mạo danh tính và đăng nhập thất bại', () => {
   });
 
   it('tài khoản bị khóa SAU khi đăng nhập: phiên cũ bị từ chối; đăng nhập lại cũng bị từ chối', async () => {
-    const store = new InMemorySessionStore(); store.setTokenVersion(7, 1);
+    const store = new InMemorySessionStore(); store.setTokenVersion(E7, 1);
     let c: StoredCredential | null = cred();
     const handler = wire(store, store, { findByLogin: async () => c });
     const { token } = await login(handler);
-    c = cred({ active: false }); store.setTokenVersion(7, null);
+    c = cred({ active: false }); store.setTokenVersion(E7, null);
     await expectErr(handler.me({ headers: bearer(token) }), 401, 'AUTH_REQUIRED');
     await expectErr(login(handler), 401, 'LOGIN_INVALID');
   });
 
   it('đăng nhập đúng nhưng tài khoản không có token_version (kho phiên báo null) => không cấp phiên, cùng 401 chung', async () => {
     const { handler, store } = build();
-    store.setTokenVersion(7, null);
+    store.setTokenVersion(E7, null);
     const e = await expectErr(login(handler), 401, 'LOGIN_INVALID');
     expect(e.message).toBe('Tên đăng nhập hoặc mật khẩu không đúng.');
     expect(store.dumpKeys()).toHaveLength(0);
@@ -163,9 +166,9 @@ describe('A5 — kho không an toàn / chưa nối => mặc định từ chối'
   });
 
   it('kho/nguồn version ném lỗi ở từng bước => me luôn 401 chung (không 500, không lộ nội dung lỗi)', async () => {
-    const good = new InMemorySessionStore(); good.setTokenVersion(7, 1);
+    const good = new InMemorySessionStore(); good.setTokenVersion(E7, 1);
     const sessionsOk = new SessionService(good, good, new Sha256TokenHasher(), clock, TTL);
-    const issued = await sessionsOk.issue(7);
+    const issued = await sessionsOk.issue(E7);
     const boom = (): never => { throw new Error('conn=postgres://u:p@h/db'); };
     const brokenFind: SessionStore = { insert: async () => undefined, findByHash: async () => boom(), revokeByHash: async () => undefined };
     const brokenVersion: TokenVersionSource = { currentTokenVersion: async () => boom() };
@@ -178,8 +181,8 @@ describe('A5 — kho không an toàn / chưa nối => mặc định từ chối'
   // Bản ghi phiên HỎNG từ kho (lỗi lập trình/dữ liệu bẩn). Mặc định từ chối nghĩa là mọi bản ghi không đúng hình dạng phải bị loại.
   // A6 đã vá SessionService.validate (kiểm hình dạng bản ghi): các ca dưới đây là regression thường.
   const withRecord = async (mutate: (r: SessionRecord) => unknown, versionOf: (r: SessionRecord) => number | null | undefined = (r) => r.tokenVersion) => {
-    const real = new InMemorySessionStore(); real.setTokenVersion(7, 1);
-    const issued = await new SessionService(real, real, new Sha256TokenHasher(), clock, TTL).issue(7);
+    const real = new InMemorySessionStore(); real.setTokenVersion(E7, 1);
+    const issued = await new SessionService(real, real, new Sha256TokenHasher(), clock, TTL).issue(E7);
     const rec = (await real.findByHash(new Sha256TokenHasher().hash(issued.token)))!;
     const bad = mutate(rec) as SessionRecord;
     const store: SessionStore = { insert: async () => undefined, findByHash: async () => bad, revokeByHash: async () => undefined };
@@ -207,7 +210,7 @@ describe('A5 — rò rỉ qua log / lỗi / lưu trữ', () => {
     const err = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const captured: string[] = [];
     try {
-      const store = new InMemorySessionStore(); store.setTokenVersion(7, 1);
+      const store = new InMemorySessionStore(); store.setTokenVersion(E7, 1);
       const creds: CredentialStore = { findByLogin: async () => cred({ hash: 'H:' + SECRET_PW }) };
       const handler = wire(store, store, creds);
       const ok = await handler.login({ body: { login: 'nv@siscom.vn', password: SECRET_PW } });

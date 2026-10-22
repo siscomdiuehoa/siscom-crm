@@ -28,7 +28,7 @@ export class AuthHttpHandler {
     return { ok: true };
   }
 
-  async me(req: { headers?: HeaderBag }): Promise<{ employeeId: number }> {
+  async me(req: { headers?: HeaderBag }): Promise<{ employeeId: string }> {
     rejectSpoofHeaders(req?.headers);
     const token = parseBearer(req?.headers?.authorization);
     try {

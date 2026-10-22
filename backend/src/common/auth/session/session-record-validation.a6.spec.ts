@@ -2,6 +2,9 @@ import { DomainException } from '../../errors/domain.exception';
 import { InMemorySessionStore } from './in-memory-session.store';
 import { Sha256TokenHasher, SessionService } from './session.service';
 import { SessionRecord, SessionStore, TokenVersionSource } from './session.types';
+const E7 = '00000000-0000-4000-8000-000000000007';
+const E8 = '00000000-0000-4000-8000-000000000008';
+const E99 = '00000000-0000-4000-8000-000000000099';
 
 // Sprint A6: validate() phải fail-closed với bản ghi/nguồn version hỏng. Offline, không DB.
 const TTL = 60_000;
@@ -11,8 +14,8 @@ const hasher = new Sha256TokenHasher();
 
 const issueGood = async () => {
   nowMs = Date.UTC(2026, 9, 22, 0, 0, 0);
-  const real = new InMemorySessionStore(); real.setTokenVersion(7, 1);
-  const { token } = await new SessionService(real, real, hasher, clock, TTL).issue(7);
+  const real = new InMemorySessionStore(); real.setTokenVersion(E7, 1);
+  const { token } = await new SessionService(real, real, hasher, clock, TTL).issue(E7);
   const rec = (await real.findByHash(hasher.hash(token)))!;
   return { token, rec };
 };
@@ -32,7 +35,7 @@ const expectInvalid = async (p: Promise<unknown>) => {
 describe('A6 — SessionService.validate fail-closed với bản ghi hỏng', () => {
   it('bản ghi hợp lệ vẫn được chấp nhận (không ảnh hưởng hành vi đúng)', async () => {
     const { token, rec } = await issueGood();
-    await expect(svcWith(rec, 1).validate(token)).resolves.toEqual({ employeeId: 7, tokenVersion: 1 });
+    await expect(svcWith(rec, 1).validate(token)).resolves.toEqual({ employeeId: E7, tokenVersion: 1 });
   });
 
   const bad: Array<[string, (r: SessionRecord) => unknown]> = [
@@ -49,9 +52,17 @@ describe('A6 — SessionService.validate fail-closed với bản ghi hỏng', ()
     ['revokedAt undefined', (r) => ({ ...r, revokedAt: undefined })],
     ['revokedAt Invalid Date', (r) => ({ ...r, revokedAt: new Date(NaN) })],
     ['revokedAt là chuỗi', (r) => ({ ...r, revokedAt: 'x' })],
+    ['employeeId là số nguyên dương (hợp đồng cũ)', (r) => ({ ...r, employeeId: 7 })],
     ['employeeId không hợp lệ (0)', (r) => ({ ...r, employeeId: 0 })],
-    ['employeeId là chuỗi', (r) => ({ ...r, employeeId: '7' })],
-    ['employeeId không nguyên', (r) => ({ ...r, employeeId: 7.5 })],
+    ['employeeId là chuỗi số "7"', (r) => ({ ...r, employeeId: '7' })],
+    ['employeeId UUID sai định dạng', (r) => ({ ...r, employeeId: 'not-a-uuid' })],
+    ['employeeId UUID chữ hoa', (r) => ({ ...r, employeeId: E7.toUpperCase().replace('00000000', 'ABCDEF00') })],
+    ['employeeId UUID có khoảng trắng', (r) => ({ ...r, employeeId: ' ' + E7 })],
+    ['employeeId UUID thiếu ký tự', (r) => ({ ...r, employeeId: E7.slice(1) })],
+    ['employeeId rỗng', (r) => ({ ...r, employeeId: '' })],
+    ['employeeId null', (r) => ({ ...r, employeeId: null })],
+    ['tokenVersion âm', (r) => ({ ...r, tokenVersion: -1 })],
+    ['tokenVersion vượt số nguyên an toàn', (r) => ({ ...r, tokenVersion: Number.MAX_SAFE_INTEGER + 1 })],
     ['tokenHash của phiên khác', (r) => ({ ...r, tokenHash: hasher.hash('sid_' + 'B'.repeat(43)) })],
     ['tokenHash thiếu', (r) => ({ ...r, tokenHash: undefined })],
     ['bản ghi không phải object', () => 'rec'],
@@ -87,7 +98,7 @@ describe('A6 — SessionService.validate fail-closed với bản ghi hỏng', ()
     const { token, rec } = await issueGood();
     const svc = svcWith(rec, 1);
     nowMs += TTL - 1;
-    await expect(svc.validate(token)).resolves.toEqual({ employeeId: 7, tokenVersion: 1 });
+    await expect(svc.validate(token)).resolves.toEqual({ employeeId: E7, tokenVersion: 1 });
     nowMs += 1;
     await expectInvalid(svc.validate(token));
     nowMs += 1;

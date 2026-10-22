@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 import { types } from 'util';
 import { DomainException } from '../../errors/domain.exception';
+import { isCanonicalUuid, isValidTokenVersion } from '../uuid';
 import {
   Clock, IssuedSession, SessionRecord, SessionStore, SessionTokenHasher, TokenVersionSource, ValidatedSession,
 } from './session.types';
@@ -32,13 +33,12 @@ const invalid = (): never => {
 
 // Kho/nguồn version là ranh giới không tin cậy: dữ liệu hỏng => từ chối, không ép kiểu.
 const validDate = (d: unknown): d is Date => types.isDate(d) && Number.isFinite(d.getTime());
-const validVersion = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const validRecord = (r: unknown, tokenHash: string): r is SessionRecord => {
   if (typeof r !== 'object' || r === null) return false;
   const x = r as Record<string, unknown>;
   return x.tokenHash === tokenHash
-    && typeof x.employeeId === 'number' && Number.isInteger(x.employeeId) && x.employeeId > 0
-    && validVersion(x.tokenVersion)
+    && isCanonicalUuid(x.employeeId)
+    && isValidTokenVersion(x.tokenVersion)
     && validDate(x.expiresAt)
     && (x.revokedAt === null || validDate(x.revokedAt));
 };
@@ -58,10 +58,10 @@ export class SessionService {
   }
 
   // Chỉ gọi SAU khi xác minh mật khẩu thành công (employeeId từ PasswordLoginService, không từ request).
-  async issue(employeeId: number): Promise<IssuedSession> {
-    if (!Number.isInteger(employeeId) || employeeId <= 0) throw new Error('SESSION_EMPLOYEE_INVALID');
+  async issue(employeeId: string): Promise<IssuedSession> {
+    if (!isCanonicalUuid(employeeId)) throw new Error('SESSION_EMPLOYEE_INVALID');
     const tokenVersion = await this.versions.currentTokenVersion(employeeId);
-    if (tokenVersion === null) return invalid();
+    if (tokenVersion === null || !isValidTokenVersion(tokenVersion)) return invalid();
     const token = TOKEN_PREFIX + randomBytes(TOKEN_BYTES).toString('base64url');
     const expiresAt = new Date(this.clock.now().getTime() + this.ttlMs);
     await this.store.insert({ tokenHash: this.hasher.hash(token), employeeId, tokenVersion, expiresAt, revokedAt: null });
@@ -82,7 +82,7 @@ export class SessionService {
       return invalid();
     }
     if (rec.revokedAt !== null || rec.expiresAt.getTime() <= this.clock.now().getTime()) return invalid();
-    if (!validVersion(current) || current !== rec.tokenVersion) return invalid();
+    if (!isValidTokenVersion(current) || current !== rec.tokenVersion) return invalid();
     return { employeeId: rec.employeeId, tokenVersion: rec.tokenVersion };
   }
 
