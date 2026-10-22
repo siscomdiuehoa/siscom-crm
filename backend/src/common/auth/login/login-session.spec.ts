@@ -13,7 +13,7 @@ const PW = 'Mat-khau-thu-nghiem-1';
 // Hasher giả chỉ trong test: "hash" hợp lệ là 'H:' + mật khẩu.
 const hasher: PasswordHasher = { verify: async (h, p) => h !== null && h === 'H:' + p };
 const cred = (o: Partial<StoredCredential> = {}): StoredCredential => ({ employeeId: E7, hash: 'H:' + PW, algo: 'argon2id', active: true, ...o });
-const creds = (c: StoredCredential | null): CredentialStore => ({ findByLogin: async () => c });
+const creds = (c: StoredCredential | null): CredentialStore => ({ findByIdentifier: async () => c });
 const clock = { now: () => new Date(Date.UTC(2026, 9, 22)) };
 const build = (c: StoredCredential | null, sessionStore = new InMemorySessionStore()) => {
   sessionStore.setTokenVersion(E7, 1);

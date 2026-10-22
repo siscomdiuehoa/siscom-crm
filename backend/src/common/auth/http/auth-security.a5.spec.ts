@@ -28,7 +28,7 @@ const build = (c: StoredCredential | null = cred()) => {
   const store = new InMemorySessionStore();
   store.setTokenVersion(E7, 1);
   store.setTokenVersion(E8, 1);
-  return { store, handler: wire(store, store, { findByLogin: async () => c }) };
+  return { store, handler: wire(store, store, { findByIdentifier: async () => c }) };
 };
 const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
 const fail = async (p: Promise<unknown>) => {
@@ -119,7 +119,7 @@ describe('A5 — giả mạo danh tính và đăng nhập thất bại', () => {
       () => ({ ...build(cred({ algo: 'md5' })), pw: PW }),
       () => {
         const store = new InMemorySessionStore(); store.setTokenVersion(E7, 1);
-        return { store, pw: PW, handler: wire(store, store, { findByLogin: async () => { throw new Error('secret-db-detail'); } }) };
+        return { store, pw: PW, handler: wire(store, store, { findByIdentifier: async () => { throw new Error('secret-db-detail'); } }) };
       },
     ];
     for (const mk of cases) {
@@ -135,7 +135,7 @@ describe('A5 — giả mạo danh tính và đăng nhập thất bại', () => {
   it('tài khoản bị khóa SAU khi đăng nhập: phiên cũ bị từ chối; đăng nhập lại cũng bị từ chối', async () => {
     const store = new InMemorySessionStore(); store.setTokenVersion(E7, 1);
     let c: StoredCredential | null = cred();
-    const handler = wire(store, store, { findByLogin: async () => c });
+    const handler = wire(store, store, { findByIdentifier: async () => c });
     const { token } = await login(handler);
     c = cred({ active: false }); store.setTokenVersion(E7, null);
     await expectErr(handler.me({ headers: bearer(token) }), 401, 'AUTH_REQUIRED');
@@ -154,7 +154,7 @@ describe('A5 — giả mạo danh tính và đăng nhập thất bại', () => {
 describe('A5 — kho không an toàn / chưa nối => mặc định từ chối', () => {
   const unwired = () => {
     const u = new UnwiredSessionStore();
-    return wire(u, u, { findByLogin: async () => cred() });
+    return wire(u, u, { findByIdentifier: async () => cred() });
   };
   it('UnwiredSessionStore: login/me từ chối, logout 503; mọi phương thức kho đều ném (không âm thầm thành công)', async () => {
     const h = unwired();
@@ -172,7 +172,7 @@ describe('A5 — kho không an toàn / chưa nối => mặc định từ chối'
     const boom = (): never => { throw new Error('conn=postgres://u:p@h/db'); };
     const brokenFind: SessionStore = { insert: async () => undefined, findByHash: async () => boom(), revokeByHash: async () => undefined };
     const brokenVersion: TokenVersionSource = { currentTokenVersion: async () => boom() };
-    for (const h of [wire(brokenFind, good, { findByLogin: async () => cred() }), wire(good, brokenVersion, { findByLogin: async () => cred() })]) {
+    for (const h of [wire(brokenFind, good, { findByIdentifier: async () => cred() }), wire(good, brokenVersion, { findByIdentifier: async () => cred() })]) {
       const e = await expectErr(h.me({ headers: bearer(issued.token) }), 401, 'AUTH_REQUIRED');
       expect(JSON.stringify(e.getResponse())).not.toMatch(/postgres|conn=|Error/);
     }
@@ -187,7 +187,7 @@ describe('A5 — kho không an toàn / chưa nối => mặc định từ chối'
     const bad = mutate(rec) as SessionRecord;
     const store: SessionStore = { insert: async () => undefined, findByHash: async () => bad, revokeByHash: async () => undefined };
     const versions: TokenVersionSource = { currentTokenVersion: async () => versionOf(bad) as number | null };
-    return wire(store, versions, { findByLogin: async () => cred() }).me({ headers: bearer(issued.token) });
+    return wire(store, versions, { findByIdentifier: async () => cred() }).me({ headers: bearer(issued.token) });
   };
   it('expiresAt là Invalid Date (NaN) phải bị từ chối', async () => {
     await expectErr(withRecord((r) => ({ ...r, expiresAt: new Date(NaN) })), 401, 'AUTH_REQUIRED');
@@ -211,7 +211,7 @@ describe('A5 — rò rỉ qua log / lỗi / lưu trữ', () => {
     const captured: string[] = [];
     try {
       const store = new InMemorySessionStore(); store.setTokenVersion(E7, 1);
-      const creds: CredentialStore = { findByLogin: async () => cred({ hash: 'H:' + SECRET_PW }) };
+      const creds: CredentialStore = { findByIdentifier: async () => cred({ hash: 'H:' + SECRET_PW }) };
       const handler = wire(store, store, creds);
       const ok = await handler.login({ body: { login: 'nv@siscom.vn', password: SECRET_PW } });
       const errors: DomainException[] = [

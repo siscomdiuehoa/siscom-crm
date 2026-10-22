@@ -15,7 +15,7 @@ beforeAll(async () => {
 
 const store = (c: StoredCredential | null | Error): CredentialStore & { calls: string[] } => {
   const calls: string[] = [];
-  return { calls, findByLogin: async (l) => { calls.push(l); if (c instanceof Error) throw c; return c; } };
+  return { calls, findByIdentifier: async (i) => { calls.push(`${i.kind}:${i.value}`); if (c instanceof Error) throw c; return c; } };
 };
 const cred = (o: Partial<StoredCredential> = {}): StoredCredential => ({ employeeId: E7, hash: goodHash, algo: 'argon2id', active: true, ...o });
 const rejection = async (p: Promise<unknown>) => { try { await p; } catch (e) { return e as DomainException; } throw new Error('không ném lỗi'); };
@@ -26,7 +26,7 @@ describe('PasswordLoginService + Argon2PasswordHasher (offline)', () => {
   it('đúng mật khẩu => employeeId lấy từ bộ lưu trữ; đăng nhập được chuẩn hóa', async () => {
     const s = store(cred());
     await expect(new PasswordLoginService(s, hasher).verify({ login: '  NV@Siscom.VN ', password: PW })).resolves.toEqual({ employeeId: E7 });
-    expect(s.calls).toEqual(['nv@siscom.vn']);
+    expect(s.calls).toEqual(['EMAIL:NV@Siscom.VN']);
   });
 
   it('mọi thất bại cho cùng một lỗi 401 LOGIN_INVALID, cùng thông điệp', async () => {

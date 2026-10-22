@@ -19,7 +19,7 @@ const build = (c: StoredCredential | null = cred()) => {
   const store = new InMemorySessionStore();
   store.setTokenVersion(E7, 1);
   const sessions = new SessionService(store, store, new Sha256TokenHasher(), clock, 60_000);
-  const creds: CredentialStore = { findByLogin: async () => c };
+  const creds: CredentialStore = { findByIdentifier: async () => c };
   const handler = new AuthHttpHandler(new LoginSessionService(new PasswordLoginService(creds, hasher), sessions), sessions);
   return { store, handler };
 };
@@ -125,7 +125,7 @@ describe('AuthHttpHandler (offline, chưa gắn route)', () => {
   it('kho phiên chưa nối (UnwiredSessionStore): mặc định từ chối; lỗi chung, không lộ nguyên nhân; không báo logout thành công giả', async () => {
     const unwired = new UnwiredSessionStore();
     const sessions = new SessionService(unwired, unwired);
-    const creds: CredentialStore = { findByLogin: async () => cred() };
+    const creds: CredentialStore = { findByIdentifier: async () => cred() };
     const handler = new AuthHttpHandler(new LoginSessionService(new PasswordLoginService(creds, hasher), sessions), sessions);
     const e1 = await expectErr(handler.login({ body: { login: 'nv@siscom.vn', password: PW } }), 401, 'LOGIN_INVALID');
     await expectErr(handler.me({ headers: bearer('sid_' + 'A'.repeat(43)) }), 401, 'AUTH_REQUIRED');
