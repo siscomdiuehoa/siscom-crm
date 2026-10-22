@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { RequestMethod } from '@nestjs/common';
 import { PERMISSIONS_KEY, PUBLIC_KEY } from './common/auth/permissions.decorator';
+import { PrivilegedHealthController } from './common/auth/privileged/privileged-health.controller';
 import { HealthController } from './health/health.controller';
 import { ContactsController } from './modules/customers/contacts.controller';
 import { CustomersController } from './modules/customers/customers.controller';
@@ -9,7 +10,7 @@ import { LookupsController } from './modules/lookups/lookups.controller';
 
 // B1.3 M1.3 — chính sách quyền TỪNG endpoint đọc từ metadata THẬT của controller (không dùng regex trên mã nguồn).
 // Bảng dưới là hợp đồng: thêm route mới hoặc nới/bớt quyền mà không sửa bảng này => test đỏ (buộc có review).
-const CONTROLLERS = [CustomersController, ContactsController, LookupsController, HealthController];
+const CONTROLLERS = [CustomersController, ContactsController, LookupsController, HealthController, PrivilegedHealthController];
 
 interface Route { key: string; perms: string[] | undefined; isPublic: boolean }
 function routesOf(cls: new (...a: never[]) => unknown): Route[] {
@@ -42,7 +43,7 @@ const EXPECTED_PROTECTED: Record<string, string[]> = {
   'POST /customers/:customerId/contacts': ['contact.create', 'customer.update', 'customer.read'],
   'GET /lookups': ['lookup.read'],
 };
-const EXPECTED_PUBLIC = ['GET /health', 'GET /health/database'];
+const EXPECTED_PUBLIC = ['GET /health', 'GET /health/database', 'GET /health/privileged'];
 
 describe('metadata quyền theo endpoint (fail-closed)', () => {
   it('quét được route của mọi controller', () => expect(all.length).toBe(Object.keys(EXPECTED_PROTECTED).length + EXPECTED_PUBLIC.length));

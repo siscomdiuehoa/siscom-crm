@@ -1,0 +1,80 @@
+-- SISCOM CRM - B1.3 F-01 / F-03 / F-04: BAN NHAP migration cong them. DRAFT - KHONG TU CHAY, CHUA CHAY TREN POSTGRESQL, CHUA DUOC DUYET.
+-- Dich (khi duoc duyet): chuyen thanh backend/prisma/migrations/<timestamp>_b1_3_f01_f03_f04/migration.sql trong PR RIENG sau khi co ket qua DB that.
+-- KHONG sua M1..M1.3 (da dong bang). Chi CREATE ham moi / CREATE OR REPLACE ham M1.2 voi CUNG chu ky (giu nguyen GRANT).
+-- Moi ham SECURITY DEFINER: search_path co dinh (pg_temp cuoi), ten doi tuong co tien to public., REVOKE ALL FROM PUBLIC.
+-- Rollback viet san o cuoi (khong tu chay). Test DB can chay: docs/B1.3_F01_PHASE2_ARCHITECTURE.md muc 7.
+
+-- ===== F-01: giai doan 2 - DB tu suy ra danh tinh tu phien, KHONG tin p_actor ung dung khai bao =====
+-- Ham chua duoc ham API nao goi (khong doi hanh vi hien tai). Buoc sau (PR rieng): tao ban *_v2 cua 11 ham API nhan (p_session, p_proof)
+-- thay cho p_actor va goi ham nay. Cho den khi do F-01 CHUA duoc khac phuc.
+CREATE FUNCTION public.fn_auth_session_actor(p_session uuid, p_proof text) RETURNS uuid
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT s.employee_id
+    FROM public.auth_session s
+   WHERE p_session IS NOT NULL AND p_proof IS NOT NULL AND length(p_proof) BETWEEN 32 AND 512
+     AND s.id = p_session
+     AND s.revoked_at IS NULL AND s.rotated_at IS NULL
+     AND s.idle_expires_at > clock_timestamp() AND s.abs_expires_at > clock_timestamp()
+     AND s.refresh_hash = encode(sha256(convert_to(p_proof, 'UTF8')), 'hex') $$;
+REVOKE ALL ON FUNCTION public.fn_auth_session_actor(uuid, text) FROM PUBLIC;
+-- GRANT EXECUTE ... TO siscom_auth_rt;  -- chi khi co pool auth rieng (giai doan 2), trong script S1 da duoc duyet.
+
+-- ===== F-03: hash mat khau chi doc qua ham hep, khong qua SELECT bang =====
+-- Sau khi ham nay co mat, script S1 (PR rieng) doi GRANT SELECT ON employee_credential TO siscom_auth_rt thanh
+-- GRANT SELECT (employee_id, status, must_change_password, failed_count, window_started_at, locked_until, lock_level, token_version, last_login_at)
+-- va bo password_hash/password_algo/password_params. Chi pool auth (giai doan 2) duoc EXECUTE ham nay.
+CREATE FUNCTION public.fn_auth_credential_for_login(p_employee uuid) RETURNS TABLE (password_hash text, password_algo varchar, password_params jsonb)
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT c.password_hash, c.password_algo, c.password_params
+    FROM public.employee_credential c JOIN public.employee e ON e.id = c.employee_id
+   WHERE c.employee_id = p_employee AND c.status = 'ACTIVE' AND e.status = 'ACTIVE' AND e.deleted_at IS NULL $$;
+REVOKE ALL ON FUNCTION public.fn_auth_credential_for_login(uuid) FROM PUBLIC;
+
+-- ===== F-04: ma reset - het DoS khoa va het dò ton tai =====
+-- Thay doi so voi M1.2 (CUNG chu ky, CUNG kieu tra ve text):
+--  (a) p_token ngoai 32..256 ky tu => 'INVALID' ngay, khong cham dong nao (mã that do ung dung sinh >= 128 bit entropy);
+--  (b) THAT BAI KHONG con thu hoi ma (M1.2 thu hoi sau 5 lan => ke tan cong an danh huy ma cua nguoi khac): chi tang attempts de ghi audit.
+--      Chong dò ma dua vao entropy cua ma (>= 128 bit => khong vet can duoc) + gioi han toc do TAI UNG DUNG theo (nguon, nhan vien);
+--  (c) moi ket qua khong thanh cong tra DUY NHAT 'INVALID' (NO_TOKEN/EXPIRED/LOCKED/EMPLOYEE_INACTIVE khong con phan biet duoc tu ngoai);
+--      ly do that van nam trong audit_log.changes->>'reason'.
+-- LUU Y: doi hop dong tra ve => test M1.2/M1.3 ky vong 'NO_TOKEN' phai cap nhat trong cung PR (xem tai lieu muc 6). Can chu du an quyet.
+CREATE OR REPLACE FUNCTION public.fn_auth_api_reset_password(p_employee uuid, p_token text, p_hash text, p_algo text, p_params jsonb) RETURNS text
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET app.actor_employee_id = '' SET app.priv_request_id = '' AS $$
+DECLARE t public.password_reset_token%ROWTYPE; v_reason text;
+BEGIN
+  PERFORM public.fn_auth_api_check_secret(p_hash, p_algo, p_params);
+  IF p_token IS NULL OR length(p_token) NOT BETWEEN 32 AND 256 THEN RETURN 'INVALID'; END IF;
+  SELECT * INTO t FROM public.password_reset_token WHERE employee_id = p_employee AND used_at IS NULL AND revoked_at IS NULL FOR UPDATE;
+  IF NOT FOUND THEN RETURN 'INVALID'; END IF;
+  IF clock_timestamp() >= t.expires_at THEN
+    UPDATE public.password_reset_token SET revoked_at = now() WHERE id = t.id;
+    PERFORM public.fn_auth_api_audit('ANONYMOUS', NULL, 'PASSWORD_RESET_FAILED', 'employee', p_employee, NULL, jsonb_build_object('tokenId', t.id, 'reason', 'EXPIRED'));
+    RETURN 'INVALID';
+  END IF;
+  IF encode(sha256(convert_to(p_token, 'UTF8')), 'hex') <> t.token_hash THEN
+    UPDATE public.password_reset_token SET attempts = attempts + 1 WHERE id = t.id;
+    PERFORM public.fn_auth_api_audit('ANONYMOUS', NULL, 'PASSWORD_RESET_FAILED', 'employee', p_employee, NULL,
+      jsonb_build_object('tokenId', t.id, 'reason', 'MISMATCH', 'attempts', t.attempts + 1));
+    RETURN 'INVALID';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.employee e WHERE e.id = p_employee AND e.status = 'ACTIVE' AND e.deleted_at IS NULL) THEN
+    PERFORM public.fn_auth_api_audit('ANONYMOUS', NULL, 'PASSWORD_RESET_FAILED', 'employee', p_employee, NULL, jsonb_build_object('tokenId', t.id, 'reason', 'EMPLOYEE_INACTIVE'));
+    RETURN 'INVALID';
+  END IF;
+  UPDATE public.password_reset_token SET used_at = now() WHERE id = t.id;
+  UPDATE public.employee_credential
+     SET password_hash = p_hash, password_algo = p_algo, password_params = p_params, must_change_password = false, status = 'ACTIVE',
+         token_version = token_version + 1, failed_count = 0, window_started_at = NULL, locked_until = NULL, lock_level = 0, updated_at = now()
+   WHERE employee_id = p_employee;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INVALID_STATE: nhan vien % chua co credential.', p_employee USING ERRCODE = 'check_violation';
+  END IF;
+  PERFORM public.fn_auth_api_audit('ANONYMOUS', NULL, 'PASSWORD_RESET_DONE', 'employee', p_employee, NULL, jsonb_build_object('tokenId', t.id));
+  RETURN 'OK';
+END $$;
+
+-- ===== ROLLBACK (viet san, KHONG tu chay) =====
+-- DROP FUNCTION public.fn_auth_session_actor(uuid, text);
+-- DROP FUNCTION public.fn_auth_credential_for_login(uuid);
+-- Khoi phuc fn_auth_api_reset_password ve ban M1.2: chay lai doan CREATE FUNCTION fn_auth_api_reset_password trong
+--   20261020180000_b1_3_auth_m1_2_priv_api/migration.sql duoi dang CREATE OR REPLACE (chi trong bang sao thu / co sao luu).

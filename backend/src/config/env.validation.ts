@@ -118,7 +118,12 @@ function validateAuthEnv(str: (k: string) => string, nodeEnv: string, corsList: 
   else if (/^[1-5]$/.test(proxyRaw)) trustProxy = Number(proxyRaw);
   else if (proxyRaw !== 'false') errors.push('TRUST_PROXY phải là false, loopback hoặc số nguyên từ 1 đến 5');
 
+  // F-01/F-02: mặc định TẮT. 'true' chỉ là YÊU CẦU bật; cổng PrivilegedReadinessService vẫn phải tự chứng minh bằng bằng chứng DB.
+  const privRaw = (str('PRIVILEGED_AUTH_ENABLED') || 'false').toLowerCase();
+  if (privRaw !== 'true' && privRaw !== 'false') errors.push('PRIVILEGED_AUTH_ENABLED phải là true hoặc false');
+
   return {
+    PRIVILEGED_AUTH_ENABLED: privRaw === 'true',
     JWT_ACCESS_SECRET: secret || undefined,
     JWT_ACCESS_SECRET_PREV: secretPrev || undefined,
     ACCESS_TTL_SECONDS: accessTtl,
