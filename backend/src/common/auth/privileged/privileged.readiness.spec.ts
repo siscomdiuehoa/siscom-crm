@@ -18,11 +18,12 @@ import { ACTOR_BINDING_VERIFIER, ActorBindingVerifier, AUTH_DB_PROBE, GENERAL_DB
 // Kết quả "đạt" ở đây chỉ chứng minh LOGIC từ chối; KHÔNG chứng minh trạng thái quyền thật của PostgreSQL (UNVERIFIED).
 
 const goodGeneral = () => ({
-  evidence_version: 1, db_user: 'siscom_app', session_is_current: true, role_unprivileged: true, is_migrator_member: false, is_database_owner: false,
+  evidence_version: 2, db_user: 'siscom_app', session_is_current: true, role_unprivileged: true, is_migrator_member: false, is_database_owner: false,
   owned_public_relations: 0, can_write_rbac: false, can_touch_reset_tokens: false, can_read_password_hash: false, can_write_credential_secret: false,
-  can_tamper_audit: false, api_function_count: 11, api_exec_count: 0, internal_function_count: 4, internal_exec_count: 0, bootstrap_closed: true,
+  can_tamper_audit: false, can_touch_priv_grants: false, can_touch_sessions: false, is_auth_group_member: false, legacy_function_count: 10, legacy_exec_count: 0,
+  api_function_count: 14, api_exec_count: 0, internal_function_count: 6, internal_exec_count: 0, bootstrap_closed: true,
 });
-const goodAuth = () => ({ ...goodGeneral(), db_user: 'siscom_auth', api_exec_count: 11, can_read_password_hash: true });
+const goodAuth = () => ({ ...goodGeneral(), db_user: 'siscom_auth', api_exec_count: 14, is_auth_group_member: true });
 
 describe('evaluateEvidence (thuần, không DB)', () => {
   it('hàng đạt chuẩn của hai profile => sẵn sàng', () => {
@@ -45,13 +46,18 @@ describe('evaluateEvidence (thuần, không DB)', () => {
     ['đọc được password_hash (F-03)', { can_read_password_hash: true }, 'G_CAN_READ_PASSWORD_HASH'],
     ['ghi được bí mật credential', { can_write_credential_secret: true }, 'G_CAN_WRITE_CREDENTIAL_SECRET'],
     ['sửa/xóa được audit_log', { can_tamper_audit: true }, 'G_CAN_TAMPER_AUDIT'],
-    ['pool chung gọi được hàm API đặc quyền (F-01, giai đoạn 1)', { api_exec_count: 11 }, 'G_CAN_EXEC_PRIVILEGED_API'],
+    ['pool chung gọi được hàm API đặc quyền (F-01, giai đoạn 1)', { api_exec_count: 14 }, 'G_CAN_EXEC_PRIVILEGED_API'],
     ['pool chung gọi được 1 hàm API', { api_exec_count: 1 }, 'G_CAN_EXEC_PRIVILEGED_API'],
     ['thiếu hàm API (chưa áp M1.2)', { api_function_count: null }, 'G_API_FUNCTIONS_MISSING'],
     ['gọi được hàm nội bộ/đóng khởi tạo', { internal_exec_count: 1 }, 'G_INTERNAL_EXEC'],
     ['bootstrap còn mở', { bootstrap_closed: false }, 'G_BOOTSTRAP_OPEN'],
+    ['pool chung gọi được HÀM CŨ nhận p_actor (F-01 spoof)', { legacy_exec_count: 1 }, 'G_LEGACY_EXEC'],
+    ['hàm cũ biến mất/không chứng minh được (NULL)', { legacy_function_count: null }, 'G_LEGACY_FUNCTIONS_MISSING'],
+    ['pool chung là thành viên nhóm siscom_auth_rt (cấp sỉ quyền auth)', { is_auth_group_member: true }, 'G_IS_AUTH_GROUP_MEMBER'],
+    ['pool chung chạm được auth_priv_grant', { can_touch_priv_grants: true }, 'G_CAN_TOUCH_PRIV_GRANTS'],
+    ['pool chung chạm được auth_session (refresh_hash)', { can_touch_sessions: true }, 'G_CAN_TOUCH_SESSIONS'],
     ['SET ROLE/session khác current_user', { session_is_current: false }, 'G_SESSION_SWITCHED'],
-    ['phiên bản bằng chứng lạ', { evidence_version: 2 }, 'G_EVIDENCE_VERSION'],
+    ['phiên bản bằng chứng cũ (v1 của PR #25) không còn được chấp nhận', { evidence_version: 1 }, 'G_EVIDENCE_VERSION'],
   ];
   it.each(unsafeGeneral)('GENERAL từ chối: %s', (_n, patch, code) => {
     const r = evaluateEvidence('GENERAL', { ...goodGeneral(), ...patch });
@@ -73,10 +79,17 @@ describe('evaluateEvidence (thuần, không DB)', () => {
     expect(evaluateEvidence('GENERAL', g).ready).toBe(false);
     for (const bad of [null, undefined, 'ok', 42, [], [goodGeneral()]]) expect(evaluateEvidence('GENERAL', bad)).toEqual({ ready: false, reasons: ['G_EVIDENCE_MISSING'] });
   });
-  it('AUTH: không gọi được đủ 11 hàm => từ chối (cấu hình sai không phải "an toàn")', () => {
-    expect(evaluateEvidence('AUTH', { ...goodAuth(), api_exec_count: 10 }).reasons).toContain('A_API_EXEC_INCOMPLETE');
+  it('AUTH: không gọi được đủ 14 hàm => từ chối (cấu hình sai không phải "an toàn")', () => {
+    expect(evaluateEvidence('AUTH', { ...goodAuth(), api_exec_count: 13 }).reasons).toContain('A_API_EXEC_INCOMPLETE');
     expect(evaluateEvidence('AUTH', { ...goodAuth(), can_write_rbac: true }).ready).toBe(false);
     expect(evaluateEvidence('AUTH', { ...goodAuth(), bootstrap_closed: false }).ready).toBe(false);
+  });
+  it('AUTH (giai đoạn 2): vẫn gọi được hàm cũ p_actor / đọc được password_hash / chạm auth_priv_grant => từ chối', () => {
+    expect(evaluateEvidence('AUTH', { ...goodAuth(), legacy_exec_count: 1 }).reasons).toContain('A_LEGACY_EXEC');
+    expect(evaluateEvidence('AUTH', { ...goodAuth(), can_read_password_hash: true }).reasons).toContain('A_CAN_READ_PASSWORD_HASH');
+    expect(evaluateEvidence('AUTH', { ...goodAuth(), can_touch_priv_grants: true }).reasons).toContain('A_CAN_TOUCH_PRIV_GRANTS');
+    expect(evaluateEvidence('AUTH', { ...goodAuth(), internal_exec_count: 1 }).reasons).toContain('A_INTERNAL_EXEC');
+    expect(evaluateEvidence('AUTH', { ...goodAuth(), is_auth_group_member: null }).reasons).toContain('A_IS_AUTH_GROUP_MEMBER_UNKNOWN');
   });
   it('hai pool phải là hai danh tính DB khác nhau (kể cả khác hoa/thường)', () => {
     expect(evaluatePoolSeparation(goodGeneral(), { ...goodAuth(), db_user: 'SISCOM_APP' }).ready).toBe(false);
@@ -165,7 +178,7 @@ describe('PrivilegedReadinessService (fail-closed)', () => {
   });
   it('mỗi cấu hình DB không an toàn => đóng (pool chung còn quyền gọi API, bootstrap mở, ghi được RBAC, 1 pool dùng chung)', async () => {
     const cases: Array<[string, Opts]> = [
-      ['pool chung gọi được API (giai đoạn 1)', { ...fullOk(), general: probe({ ...goodGeneral(), api_exec_count: 11 }) }],
+      ['pool chung gọi được API (giai đoạn 1)', { ...fullOk(), general: probe({ ...goodGeneral(), api_exec_count: 14 }) }],
       ['bootstrap mở', { ...fullOk(), auth: probe({ ...goodAuth(), bootstrap_closed: false }) }],
       ['ghi được employee_role', { ...fullOk(), general: probe({ ...goodGeneral(), can_write_rbac: true }) }],
       ['đọc được password_hash ở pool chung', { ...fullOk(), general: probe({ ...goodGeneral(), can_read_password_hash: true }) }],

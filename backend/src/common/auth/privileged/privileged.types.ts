@@ -28,6 +28,17 @@ export interface BoundActor extends Actor {
   readonly proof: string;
 }
 
+// Danh tính ràng buộc phiên (giai đoạn 2): `proof` = grant một lần (chỉ băm SHA-256 nằm ở DB), `sessionId` = phiên mà grant gắn vào.
+// DB tự suy ra nhân viên từ (sessionId, proof) và xác minh LẠI + tiêu thụ nguyên tử trong hàm *_v2; employeeId ở đây chỉ để cổng so khớp req.actor.
+export interface SessionBoundActor extends BoundActor {
+  readonly sessionId: string;
+}
+
+// Bộ chạy SQL CÓ THAM SỐ GẮN (bound parameters $1..$n) của pool AUTH. KHÔNG có triển khai mặc định trong DI (cần chuỗi kết nối riêng cho role
+// siscom_auth — chưa duyệt). Chỉ nhận chuỗi SQL cố định do mã nguồn định nghĩa; giá trị từ request chỉ đi qua `params`.
+export type ParamSqlRunner = (sql: string, params: readonly unknown[]) => Promise<unknown[]>;
+export const AUTH_SQL_RUNNER = Symbol('AUTH_SQL_RUNNER');
+
 // Xác thực danh tính cho thao tác đặc quyền. Danh tính chỉ được rút ra từ phiên/chứng cứ đã xác thực của request,
 // KHÔNG BAO GIỜ từ body/query/header do người gọi khai (x-actor-id, actorId, p_actor ...).
 export interface ActorBindingVerifier {
