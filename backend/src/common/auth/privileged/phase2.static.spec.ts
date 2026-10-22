@@ -5,7 +5,9 @@ import { join } from 'node:path';
 // Đây KHÔNG phải bằng chứng hành vi PostgreSQL: chỉ chặn hồi quy văn bản (ví dụ ai đó thêm p_actor vào hàm *_v2, hoặc cấp quyền cho siscom_app).
 const BACKEND = join(__dirname, '..', '..', '..', '..');
 const read = (rel: string) => readFileSync(join(BACKEND, rel), 'utf8').replace(/\r\n/g, '\n');
-const stripComments = (s: string) => s.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+const stripComments = (s: string) => s.split(/\r?\n/).filter((l) => !l.trim().startsWith('--')).join('\n');
+// Chuẩn hóa CRLF/LF TRƯỚC khi bỏ chú thích `//`: nếu còn '\r', `.` không khớp '\r' nên `.*$` không tới cuối chuỗi và chú thích không bị xóa (lỗi trên Windows/autocrlf).
+const stripLineComments = (s: string) => s.replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(/(^|\s)\/\/.*$/, '')).join('\n');
 
 const mig = read('docs/drafts/B1.3_P2_SESSION_BOUND_MIGRATION_DRAFT.sql.txt');
 const migCode = stripComments(mig);
@@ -217,6 +219,25 @@ describe('Script role/grant (DRAFT, chưa chạy)', () => {
   });
 });
 
+describe('stripLineComments — hồi quy CRLF/LF (A10-1)', () => {
+  const src = ['const a = 1; // p_actor trong chú thích', '// p_actor cả dòng', 'const b = 2;'];
+  it.each([['LF', '\n'], ['CRLF', '\r\n'], ['CR đơn', '\r']])('%s: chú thích nhắc p_actor bị bỏ, mã còn lại giữ nguyên', (_n, eol) => {
+    const out = stripLineComments(src.join(eol));
+    expect(out).not.toMatch(/p_actor/);
+    expect(out).toContain('const a = 1;');
+    expect(out).toContain('const b = 2;');
+  });
+  it.each([['LF', '\n'], ['CRLF', '\r\n']])('%s: p_actor nằm trong MÃ (không phải chú thích) vẫn bị phát hiện', (_n, eol) => {
+    const out = stripLineComments(['// ghi chú', "const x = 'p_actor'; // nhắc lại", 'const y = 3;'].join(eol));
+    expect(out).toMatch(/p_actor/);
+  });
+  it.each([['LF', '\n'], ['CRLF', '\r\n']])('%s: stripComments (SQL) bỏ dòng -- p_actor, giữ dòng mã', (_n, eol) => {
+    const out = stripComments(['-- p_actor ghi chú', 'SELECT 1;', '  -- thêm'].join(eol));
+    expect(out).not.toMatch(/p_actor|\r/);
+    expect(out).toContain('SELECT 1;');
+  });
+});
+
 describe('Không đăng ký mặc định (cổng PR #25 vẫn đóng)', () => {
   const dir = join(BACKEND, 'src', 'common', 'auth', 'privileged');
   it('PrivilegedModule không đăng ký verifier/runner/client/probe giai đoạn 2 (chỉ khi triển khai được duyệt)', () => {
@@ -226,7 +247,7 @@ describe('Không đăng ký mặc định (cổng PR #25 vẫn đóng)', () => {
   it('mã nguồn giai đoạn 2 không có p_actor, không có provider/verifier giả, không import pg/prisma (không tự mở kết nối)', () => {
     for (const f of ['session-grant.verifier.ts', 'privileged-api.client.ts', 'password-reset.service.ts', 'reset-abuse.policy.ts', 'grant-token.ts']) {
       // Bỏ chú thích // (chú thích được phép nhắc tới p_actor để giải thích vì sao KHÔNG dùng).
-      const s = readFileSync(join(dir, f), 'utf8').split('\n').map((l) => l.replace(/(^|\s)\/\/.*$/, '')).join('\n');
+      const s = stripLineComments(readFileSync(join(dir, f), 'utf8'));
       expect(s).not.toMatch(/p_actor/);
       expect(s).not.toMatch(/from 'pg'|from '@prisma|require\('pg'\)|process\.env|DATABASE_URL/);
       expect(s).not.toMatch(/Fake|Mock|Stub/i);
