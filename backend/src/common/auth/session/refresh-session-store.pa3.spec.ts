@@ -13,6 +13,7 @@ import {
   AtomicRotateResult,
   CreateFamilyInput,
   CreateFamilyResult,
+  deriveRotatedChildRow,
   FindActiveInput,
   FindActiveResult,
   RefreshSessionStore,
@@ -32,6 +33,8 @@ const at = (ms: number) => new Date(T0.getTime() + ms);
 const GRACE = 10_000;
 const sha = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 const uid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
+const IDLE_TTL = 1000;
+const nxt = (n: number, tok: string, idleTtlMs = IDLE_TTL) => ({ id: uid(n), refreshHash: sha(tok), csrfHash: sha(`csrf-${tok}`), idleTtlMs });
 const sess = (n: number, tok: string) => ({ id: uid(n), refreshHash: sha(tok), csrfHash: sha(`csrf-${tok}`), idleExpiresAt: at(1000), absExpiresAt: at(5000) });
 
 class FakeStore implements RefreshSessionStore {
@@ -60,7 +63,7 @@ class FakeStore implements RefreshSessionStore {
       return { status: st, familyRevoked: true };
     }
     if (st !== 'USABLE') return { status: st, familyRevoked: false };
-    const next: RefreshSessionRow = { id: i.next.id, employeeId: row.employeeId, familyId: row.familyId, refreshHash: i.next.refreshHash, csrfHash: i.next.csrfHash, issuedAt: i.now, lastUsedAt: i.now, idleExpiresAt: i.next.idleExpiresAt, absExpiresAt: i.next.absExpiresAt, rotatedAt: null, replacedById: null, revokedAt: null, revokeReason: null };
+    const next = deriveRotatedChildRow(row, i); // hàng mới do hàm dùng chung suy ra từ hàng cũ; người gọi không chọn abs/family/employee
     this.rows[idx] = { ...row, rotatedAt: i.now, replacedById: next.id };
     this.rows.push(next);
     return { status: 'ROTATED', previousRowId: row.id, row: next };
@@ -85,14 +88,14 @@ const seed = async (s = new FakeStore(), tok = 'tok-1') => {
   return s;
 };
 const rot = (s: RefreshSessionStore, from: string, to: string, n: number, now: Date, emp = EMP, grace = GRACE) =>
-  s.atomicRotate({ presentedRefreshHash: sha(from), expectedEmployeeId: emp, now, reuseGraceMs: grace, next: { ...sess(n, to), idleExpiresAt: at(now.getTime() - T0.getTime() + 1000), absExpiresAt: at(now.getTime() - T0.getTime() + 5000) } });
+  s.atomicRotate({ presentedRefreshHash: sha(from), expectedEmployeeId: emp, now, reuseGraceMs: grace, next: nxt(n, to) });
 
 describe('PA3 — UnwiredRefreshSessionStore (từ chối mặc định)', () => {
   const u = new UnwiredRefreshSessionStore();
   it.each([
     ['createFamily', () => u.createFamily({ ...sess(1, 'a'), employeeId: EMP, familyId: FAM, issuedAt: T0 })],
     ['findActiveByRefreshHash', () => u.findActiveByRefreshHash({ refreshHash: sha('a'), expectedEmployeeId: EMP, now: T0 })],
-    ['atomicRotate', () => u.atomicRotate({ presentedRefreshHash: sha('a'), expectedEmployeeId: EMP, now: T0, reuseGraceMs: GRACE, next: sess(2, 'b') })],
+    ['atomicRotate', () => u.atomicRotate({ presentedRefreshHash: sha('a'), expectedEmployeeId: EMP, now: T0, reuseGraceMs: GRACE, next: nxt(2, 'b') })],
     ['revokeFamily', () => u.revokeFamily({ familyId: FAM, reason: 'LOGOUT', now: T0 })],
     ['revokeAllForEmployee', () => u.revokeAllForEmployee({ employeeId: EMP, reason: 'LOGOUT_ALL', now: T0 })],
   ])('%s ném RefreshStoreUnwiredError, không trả kết quả', async (_n, call) => {
@@ -120,19 +123,19 @@ describe('PA3 — bộ kiểm đầu vào (định dạng, không token rõ)', (
     expect(() => assertValidCreateFamily({ ...base, absExpiresAt: at(-1) , idleExpiresAt: at(-2) })).toThrow(/ck_sess_abs/);
   });
   it('atomicRotate: reuseGraceMs BẮT BUỘC, không mặc định', () => {
-    const ok = { presentedRefreshHash: sha('a'), expectedEmployeeId: EMP, now: T0, reuseGraceMs: GRACE, next: sess(2, 'b') };
+    const ok = { presentedRefreshHash: sha('a'), expectedEmployeeId: EMP, now: T0, reuseGraceMs: GRACE, next: nxt(2, 'b') };
     expect(() => assertValidAtomicRotate(ok)).not.toThrow();
     const { reuseGraceMs: _g, ...noGrace } = ok;
     expect(() => assertValidAtomicRotate(noGrace)).toThrow(/reuseGraceMs/);
     for (const bad of [-1, 1.5, NaN, Infinity, '10']) expect(() => assertValidAtomicRotate({ ...ok, reuseGraceMs: bad })).toThrow(/reuseGraceMs/);
   });
   it('atomicRotate: next không được trùng băm đang trình bày; next bị kiểm như hàng mới', () => {
-    const ok = { presentedRefreshHash: sha('a'), expectedEmployeeId: EMP, now: T0, reuseGraceMs: GRACE, next: sess(2, 'a') };
+    const ok = { presentedRefreshHash: sha('a'), expectedEmployeeId: EMP, now: T0, reuseGraceMs: GRACE, next: nxt(2, 'a') };
     expect(() => assertValidAtomicRotate(ok)).toThrow(/next.refreshHash_reuses_presented/);
-    expect(() => assertValidAtomicRotate({ ...ok, next: { ...sess(2, 'b'), refreshToken: 'plain' } })).toThrow(/next.unexpected:refreshToken/);
+    expect(() => assertValidAtomicRotate({ ...ok, next: { ...nxt(2, 'b'), refreshToken: 'plain' } })).toThrow(/next.unexpected:refreshToken/);
   });
   it('actor không lấy từ request: khóa employeeId lạ/giả mạo trong rotate bị từ chối', () => {
-    const ok = { presentedRefreshHash: sha('a'), expectedEmployeeId: EMP, now: T0, reuseGraceMs: GRACE, next: sess(2, 'b') };
+    const ok = { presentedRefreshHash: sha('a'), expectedEmployeeId: EMP, now: T0, reuseGraceMs: GRACE, next: nxt(2, 'b') };
     expect(() => assertValidAtomicRotate({ ...ok, employeeId: OTHER })).toThrow(/unexpected:employeeId/);
     expect(() => assertValidAtomicRotate({ ...ok, expectedEmployeeId: '../admin' })).toThrow(/expectedEmployeeId/);
   });
@@ -216,5 +219,97 @@ describe('PA3 — hợp đồng hành vi qua FakeStore (KHÔNG chứng minh nguy
     expect(s.rows.find((x) => x.employeeId === OTHER)?.revokedAt).toBeNull();
     expect(await s.revokeAllForEmployee({ employeeId: OTHER, reason: 'PASSWORD_CHANGED', now: at(400) })).toEqual({ revokedCount: 1 });
     expect(s.rows.every((x) => parseRefreshSessionRow(x).ok)).toBe(true);
+  });
+});
+
+describe('PA5 — hàng kế tiếp thừa kế family/employee/abs từ hàng cũ (người gọi không chọn được)', () => {
+  const okIn = { presentedRefreshHash: sha('a'), expectedEmployeeId: EMP, now: T0, reuseGraceMs: GRACE, next: nxt(2, 'b') };
+  const ROW = (): RefreshSessionRow => ({ id: uid(1), employeeId: EMP, familyId: FAM, refreshHash: sha('a'), csrfHash: sha('csrf-a'), issuedAt: T0, lastUsedAt: T0, idleExpiresAt: at(1000), absExpiresAt: at(5000), rotatedAt: null, replacedById: null, revokedAt: null, revokeReason: null });
+
+  it('port: next KHÔNG nhận absExpiresAt/idleExpiresAt/familyId/employeeId (kiểm lúc chạy, không chỉ kiểu)', () => {
+    expect(() => assertValidAtomicRotate(okIn)).not.toThrow();
+    for (const k of ['absExpiresAt', 'idleExpiresAt', 'familyId', 'employeeId']) {
+      expect(() => assertValidAtomicRotate({ ...okIn, next: { ...okIn.next, [k]: k.endsWith('At') ? at(999_999_999) : OTHER } })).toThrow(new RegExp(`next.unexpected:${k}`));
+    }
+    expect(() => assertValidAtomicRotate({ ...okIn, absExpiresAt: at(999_999_999) })).toThrow(/unexpected:absExpiresAt/);
+  });
+  it('port: next.idleTtlMs BẮT BUỘC, số nguyên an toàn > 0, không mặc định', () => {
+    const { idleTtlMs: _t, ...noTtl } = okIn.next;
+    expect(() => assertValidAtomicRotate({ ...okIn, next: noTtl })).toThrow(/next.idleTtlMs/);
+    for (const bad of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '1000', null]) expect(() => assertValidAtomicRotate({ ...okIn, next: { ...okIn.next, idleTtlMs: bad } })).toThrow(/next.idleTtlMs/);
+  });
+  it('hàng mới = family/employee/abs CHÍNH XÁC của hàng cũ; idle = min(now+ttl, abs); parse PA1 hợp lệ', async () => {
+    const s = await seed();
+    const r = await rot(s, 'tok-1', 'tok-2', 2, at(100));
+    expect(r.status).toBe('ROTATED');
+    const child = s.rows[1];
+    expect(child.familyId).toBe(s.rows[0].familyId);
+    expect(child.employeeId).toBe(s.rows[0].employeeId);
+    expect(child.absExpiresAt.getTime()).toBe(s.rows[0].absExpiresAt.getTime());
+    expect(child.absExpiresAt).not.toBe(s.rows[0].absExpiresAt); // bản sao, không chia sẻ tham chiếu Date
+    expect(child.idleExpiresAt).toEqual(at(1100)); // now+ttl < abs
+    expect(parseRefreshSessionRow(child).ok).toBe(true);
+  });
+  it('idle trượt bị kẹp bởi abs kế thừa, kể cả ttl cực lớn', async () => {
+    const s = await seed();
+    const r = await s.atomicRotate({ presentedRefreshHash: sha('tok-1'), expectedEmployeeId: EMP, now: at(100), reuseGraceMs: GRACE, next: nxt(2, 'tok-2', Number.MAX_SAFE_INTEGER) });
+    expect(r.status).toBe('ROTATED');
+    expect(s.rows[1].idleExpiresAt).toEqual(at(5000));
+    expect(s.rows[1].absExpiresAt).toEqual(at(5000));
+  });
+  it('xoay nhiều lần liên tiếp không bao giờ kéo dài abs', async () => {
+    const s = await seed();
+    for (let k = 1; k <= 4; k++) expect((await rot(s, `tok-${k}`, `tok-${k + 1}`, k + 1, at(k * 500 - 400))).status).toBe('ROTATED');
+    expect(s.rows).toHaveLength(5);
+    expect(s.rows.every((x) => x.absExpiresAt.getTime() === at(5000).getTime() && x.familyId === FAM && x.employeeId === EMP && x.idleExpiresAt <= x.absExpiresAt)).toBe(true);
+  });
+  it('biên 1 ms: abs-1ms xoay được (idle == abs); đúng abs => ABS_EXPIRED, không ghi', async () => {
+    const s = new FakeStore();
+    await s.createFamily({ ...sess(1, 'tok-1'), idleExpiresAt: at(5000), employeeId: EMP, familyId: FAM, issuedAt: T0 });
+    const before = JSON.stringify(s.rows);
+    expect((await rot(s, 'tok-1', 'x', 9, at(5000))).status).toBe('ABS_EXPIRED');
+    expect((await rot(s, 'tok-1', 'x', 9, at(5001))).status).toBe('ABS_EXPIRED');
+    expect(JSON.stringify(s.rows)).toBe(before);
+    expect((await rot(s, 'tok-1', 'tok-2', 2, at(4999))).status).toBe('ROTATED');
+    expect(s.rows[1].idleExpiresAt).toEqual(at(5000));
+    expect(s.rows[1].absExpiresAt).toEqual(at(5000));
+    expect((await s.findActiveByRefreshHash({ refreshHash: sha('tok-2'), expectedEmployeeId: EMP, now: at(4999) })).status).toBe('FOUND');
+    expect((await s.findActiveByRefreshHash({ refreshHash: sha('tok-2'), expectedEmployeeId: EMP, now: at(5000) })).status).toBe('NOT_FOUND');
+  });
+  it('biên idle 1 ms: idle-1ms xoay được; đúng idle => IDLE_EXPIRED', async () => {
+    const s = await seed();
+    expect((await rot(s, 'tok-1', 'x', 9, at(1000))).status).toBe('IDLE_EXPIRED');
+    expect((await rot(s, 'tok-1', 'tok-2', 2, at(999))).status).toBe('ROTATED');
+  });
+  it('deriveRotatedChildRow fail-closed: hàng cũ hỏng/thu hồi/đã xoay/hết hạn/sai nhân viên => ném, không tạo hàng', () => {
+    expect(() => deriveRotatedChildRow(ROW(), okIn)).not.toThrow();
+    const bad: Array<[string, unknown, Partial<typeof okIn>]> = [
+      ['null', null, {}],
+      ['chuỗi', 'row', {}],
+      ['idle > abs (ck_sess_idle)', { ...ROW(), idleExpiresAt: at(9000) }, {}],
+      ['abs < issued (ck_sess_abs)', { ...ROW(), absExpiresAt: at(-1) }, {}],
+      ['abs không phải Date', { ...ROW(), absExpiresAt: '2026-12-31' }, {}],
+      ['abs Invalid Date', { ...ROW(), absExpiresAt: new Date(NaN) }, {}],
+      ['familyId hỏng', { ...ROW(), familyId: 'fam' }, {}],
+      ['băm hoa', { ...ROW(), refreshHash: sha('a').toUpperCase() }, {}],
+      ['đã thu hồi', { ...ROW(), revokedAt: at(1), revokeReason: 'LOGOUT' }, {}],
+      ['đã xoay', { ...ROW(), rotatedAt: at(1), replacedById: uid(3) }, {}],
+      ['abs đúng bằng now', ROW(), { now: at(5000) }],
+      ['abs đã qua', ROW(), { now: at(5001) }],
+      ['idle đúng bằng now', ROW(), { now: at(1000) }],
+      ['sai nhân viên', ROW(), { expectedEmployeeId: OTHER }],
+    ];
+    for (const [name, row, over] of bad) expect(() => deriveRotatedChildRow(row, { ...okIn, ...over })).toThrow(RefreshStoreInputError); // ${name}
+    expect(bad.length).toBeGreaterThan(0);
+  });
+  it('deriveRotatedChildRow từ chối đầu vào xoay không hợp lệ (kể cả next có abs do người gọi chèn)', () => {
+    expect(() => deriveRotatedChildRow(ROW(), { ...okIn, next: { ...okIn.next, absExpiresAt: at(999_999_999) } } as unknown as typeof okIn)).toThrow(/next.unexpected:absExpiresAt/);
+  });
+  it('FakeStore: hàng cũ hỏng trong kho => MALFORMED, không ghi, không phát hàng mới', async () => {
+    const s = await seed();
+    s.rows[0] = { ...s.rows[0], idleExpiresAt: at(9000) };
+    const before = JSON.stringify(s.rows);
+    expect(await rot(s, 'tok-1', 'tok-2', 2, at(100))).toEqual({ status: 'MALFORMED', familyRevoked: false });
+    expect(JSON.stringify(s.rows)).toBe(before);
   });
 });

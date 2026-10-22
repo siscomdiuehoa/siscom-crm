@@ -11,19 +11,28 @@
 //  3. ROTATED_REUSE: kho thu hồi CẢ family trong cùng thao tác (lý do REFRESH_REUSE) và báo `familyRevoked: true`.
 //  4. Mọi trạng thái khác USABLE/ROTATED: KHÔNG ghi gì.
 //  5. Lỗi hạ tầng => ném lỗi (người gọi coi là từ chối); không bao giờ trả ROTATED khi chưa ghi bền.
+//  6. (PA5) THỪA KẾ DANH TÍNH + HẠN TUYỆT ĐỐI: hàng mới LUÔN lấy `familyId`, `employeeId`, `absExpiresAt` ĐÚNG từ hàng cũ; `idleExpiresAt` = min(now+idleTtlMs, abs cũ).
+//     Người gọi KHÔNG có chỗ cung cấp các giá trị này (`next` không có trường đó; trường lạ bị từ chối). Mọi adapter PHẢI dùng `deriveRotatedChildRow`
+//     (hoặc tương đương đã kiểm thử). Đây KHÔNG phải ràng buộc DB: DB hiện KHÔNG chặn hàng mới có abs/family/employee khác (PA4 D1); cần migration mới (chưa làm).
 //
 // LỘ TRÌNH THAY THẾ (chưa làm ở PA3): `SessionService`/`SessionRecord`/`InMemorySessionStore` (bearer `sid_`, A2) VẪN GIỮ vì test hiện có phụ thuộc.
 // S4 (dịch vụ refresh) dùng cổng này; S8 thêm adapter DB thật (giao dịch + khóa hàng) sau khi được ủy quyền; sau đó mới gỡ dịch vụ `sid_`
 // và chuyển `InMemorySessionStore` sang `test/` — mỗi bước một PR riêng.
 import { isCanonicalUuid } from '../uuid';
-import { RefreshRowStatus, RefreshSessionRow } from './refresh-session-row';
+import { checkRefreshSessionRow, RefreshRowStatus, RefreshSessionRow } from './refresh-session-row';
 
-export interface NewRefreshSessionInput {
+export interface NewRefreshSessionCore {
   readonly id: string; // UUID do server sinh
   readonly refreshHash: string; // SHA-256 hex của refresh token (token rõ không bao giờ vào kho)
   readonly csrfHash: string; // SHA-256 hex của CSRF token
+}
+export interface NewRefreshSessionInput extends NewRefreshSessionCore {
   readonly idleExpiresAt: Date;
   readonly absExpiresAt: Date;
+}
+// Hàng kế tiếp khi xoay: KHÔNG có family/employee/abs/idle tuyệt đối — kho suy từ hàng cũ (hợp đồng mục 6).
+export interface RotatedSessionInput extends NewRefreshSessionCore {
+  readonly idleTtlMs: number; // BẮT BUỘC, số nguyên an toàn > 0; chưa có mặc định được duyệt. idle thực = min(now+idleTtlMs, abs của hàng cũ)
 }
 
 export interface CreateFamilyInput extends NewRefreshSessionInput {
@@ -46,7 +55,7 @@ export interface AtomicRotateInput {
   readonly expectedEmployeeId: string;
   readonly now: Date;
   readonly reuseGraceMs: number; // BẮT BUỘC, số nguyên an toàn >= 0, chưa có mặc định được duyệt
-  readonly next: NewRefreshSessionInput; // hàng kế tiếp (chỉ băm)
+  readonly next: RotatedSessionInput; // hàng kế tiếp (chỉ băm + idleTtlMs)
 }
 export type RotateDenyStatus = Exclude<RefreshRowStatus, 'USABLE'> | 'UNKNOWN_TOKEN';
 export type AtomicRotateResult =
@@ -99,8 +108,10 @@ function check(raw: unknown, allowed: readonly string[], rules: Record<string, (
   if (p.length) throw new RefreshStoreInputError(p);
 }
 const uuid = (v: unknown) => isCanonicalUuid(v);
-const nextRules = { id: uuid, refreshHash: isHex64, csrfHash: isHex64, idleExpiresAt: isDate, absExpiresAt: isDate };
-const nextKeys = ['id', 'refreshHash', 'csrfHash', 'idleExpiresAt', 'absExpiresAt'] as const;
+const createRules = { id: uuid, refreshHash: isHex64, csrfHash: isHex64, idleExpiresAt: isDate, absExpiresAt: isDate };
+const createKeys = ['id', 'refreshHash', 'csrfHash', 'idleExpiresAt', 'absExpiresAt'] as const;
+const rotatedRules = { id: uuid, refreshHash: isHex64, csrfHash: isHex64, idleTtlMs: (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 };
+const rotatedKeys = ['id', 'refreshHash', 'csrfHash', 'idleTtlMs'] as const;
 const expiryOrder = (r: Record<string, unknown>, base?: Date): string[] => {
   const idle = r.idleExpiresAt as Date;
   const abs = r.absExpiresAt as Date;
@@ -111,7 +122,7 @@ const expiryOrder = (r: Record<string, unknown>, base?: Date): string[] => {
 };
 
 export function assertValidCreateFamily(raw: unknown): asserts raw is CreateFamilyInput {
-  check(raw, [...nextKeys, 'employeeId', 'familyId', 'issuedAt'], { ...nextRules, employeeId: uuid, familyId: uuid, issuedAt: isDate }, (r) => expiryOrder(r, r.issuedAt as Date));
+  check(raw, [...createKeys, 'employeeId', 'familyId', 'issuedAt'], { ...createRules, employeeId: uuid, familyId: uuid, issuedAt: isDate }, (r) => expiryOrder(r, r.issuedAt as Date));
 }
 export function assertValidFindActive(raw: unknown): asserts raw is FindActiveInput {
   check(raw, ['refreshHash', 'expectedEmployeeId', 'now'], { refreshHash: isHex64, expectedEmployeeId: uuid, now: isDate });
@@ -130,7 +141,7 @@ export function assertValidAtomicRotate(raw: unknown): asserts raw is AtomicRota
     (r) => {
       const next = r.next as Record<string, unknown>;
       try {
-        check(next, nextKeys, nextRules, (n) => expiryOrder(n, r.now as Date));
+        check(next, rotatedKeys, rotatedRules);
       } catch (e) {
         return (e as RefreshStoreInputError).problems.map((x) => `next.${x}`);
       }
@@ -138,6 +149,33 @@ export function assertValidAtomicRotate(raw: unknown): asserts raw is AtomicRota
     },
   );
 }
+// Nguồn DUY NHẤT của hàng kế tiếp khi xoay. Thuần, không tác dụng phụ. Fail-closed: hàng cũ hỏng/thu hồi/đã xoay/hết hạn (nửa mở, now >= abs) => ném, không tạo hàng.
+// `parent` là dữ liệu từ kho (không tin cậy) nên được phân loại lại bằng `checkRefreshSessionRow` trước khi suy ra hàng mới.
+export function deriveRotatedChildRow(parent: unknown, input: AtomicRotateInput): RefreshSessionRow {
+  assertValidAtomicRotate(input);
+  if (checkRefreshSessionRow({ row: parent, expectedEmployeeId: input.expectedEmployeeId, now: input.now, reuseGraceMs: input.reuseGraceMs }) !== 'USABLE') {
+    throw new RefreshStoreInputError(['parent_not_usable']);
+  }
+  const p = parent as RefreshSessionRow; // đã qua parseRefreshSessionRow trong bước kiểm trên
+  const idle = Math.min(input.now.getTime() + input.next.idleTtlMs, p.absExpiresAt.getTime());
+  if (!Number.isSafeInteger(idle)) throw new RefreshStoreInputError(['next.idleTtlMs']);
+  return {
+    id: input.next.id,
+    employeeId: p.employeeId,
+    familyId: p.familyId,
+    refreshHash: input.next.refreshHash,
+    csrfHash: input.next.csrfHash,
+    issuedAt: input.now,
+    lastUsedAt: input.now,
+    idleExpiresAt: new Date(idle),
+    absExpiresAt: new Date(p.absExpiresAt.getTime()),
+    rotatedAt: null,
+    replacedById: null,
+    revokedAt: null,
+    revokeReason: null,
+  };
+}
+
 export function assertValidRevokeFamily(raw: unknown): asserts raw is RevokeFamilyInput {
   check(raw, ['familyId', 'reason', 'now'], { familyId: uuid, reason: isReason, now: isDate });
 }
