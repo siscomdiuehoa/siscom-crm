@@ -176,8 +176,7 @@ describe('A5 — kho không an toàn / chưa nối => mặc định từ chối'
   });
 
   // Bản ghi phiên HỎNG từ kho (lỗi lập trình/dữ liệu bẩn). Mặc định từ chối nghĩa là mọi bản ghi không đúng hình dạng phải bị loại.
-  // Các ca dưới đây ghi nhận khoảng trống THỰC TẾ (xác minh bằng chạy): SessionService.validate chưa kiểm hình dạng bản ghi => fail-open.
-  // Dùng it.failing: test PASS khi khoảng trống còn đó; khi PR sau vá validate, jest sẽ báo lỗi để chuyển thành it() thường.
+  // A6 đã vá SessionService.validate (kiểm hình dạng bản ghi): các ca dưới đây là regression thường.
   const withRecord = async (mutate: (r: SessionRecord) => unknown, versionOf: (r: SessionRecord) => number | null | undefined = (r) => r.tokenVersion) => {
     const real = new InMemorySessionStore(); real.setTokenVersion(7, 1);
     const issued = await new SessionService(real, real, new Sha256TokenHasher(), clock, TTL).issue(7);
@@ -187,10 +186,10 @@ describe('A5 — kho không an toàn / chưa nối => mặc định từ chối'
     const versions: TokenVersionSource = { currentTokenVersion: async () => versionOf(bad) as number | null };
     return wire(store, versions, { findByLogin: async () => cred() }).me({ headers: bearer(issued.token) });
   };
-  it.failing('GAP: expiresAt là Invalid Date (NaN) phải bị từ chối', async () => {
+  it('expiresAt là Invalid Date (NaN) phải bị từ chối', async () => {
     await expectErr(withRecord((r) => ({ ...r, expiresAt: new Date(NaN) })), 401, 'AUTH_REQUIRED');
   });
-  it.failing('GAP: tokenVersion = undefined ở cả bản ghi và nguồn version phải bị từ chối', async () => {
+  it('tokenVersion = undefined ở cả bản ghi và nguồn version phải bị từ chối', async () => {
     await expectErr(withRecord((r) => ({ ...r, tokenVersion: undefined }), () => undefined), 401, 'AUTH_REQUIRED');
   });
   it('bản ghi hỏng đã được từ chối an toàn: revokedAt undefined, tokenVersion NaN, expiresAt không phải Date (ném lỗi => 401)', async () => {

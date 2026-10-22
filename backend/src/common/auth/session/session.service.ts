@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from 'crypto';
+import { types } from 'util';
 import { DomainException } from '../../errors/domain.exception';
 import {
-  Clock, IssuedSession, SessionStore, SessionTokenHasher, TokenVersionSource, ValidatedSession,
+  Clock, IssuedSession, SessionRecord, SessionStore, SessionTokenHasher, TokenVersionSource, ValidatedSession,
 } from './session.types';
 
 export const TOKEN_PREFIX = 'sid_';
@@ -27,6 +28,19 @@ export class UnwiredSessionStore implements SessionStore, TokenVersionSource {
 
 const invalid = (): never => {
   throw new DomainException(401, 'SESSION_INVALID', 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
+};
+
+// Kho/nguồn version là ranh giới không tin cậy: dữ liệu hỏng => từ chối, không ép kiểu.
+const validDate = (d: unknown): d is Date => types.isDate(d) && Number.isFinite(d.getTime());
+const validVersion = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+const validRecord = (r: unknown, tokenHash: string): r is SessionRecord => {
+  if (typeof r !== 'object' || r === null) return false;
+  const x = r as Record<string, unknown>;
+  return x.tokenHash === tokenHash
+    && typeof x.employeeId === 'number' && Number.isInteger(x.employeeId) && x.employeeId > 0
+    && validVersion(x.tokenVersion)
+    && validDate(x.expiresAt)
+    && (x.revokedAt === null || validDate(x.revokedAt));
 };
 
 // Hợp đồng: validate() thành công => { employeeId, tokenVersion } lấy từ bản ghi phiên phía server. MỌI thất bại (sai định dạng, không biết,
@@ -56,18 +70,19 @@ export class SessionService {
 
   async validate(token: unknown): Promise<ValidatedSession> {
     if (typeof token !== 'string' || !TOKEN_RE.test(token)) return invalid();
-    let rec: Awaited<ReturnType<SessionStore['findByHash']>>;
+    const tokenHash = this.hasher.hash(token);
+    let rec: SessionRecord | null;
     let current: number | null;
     try {
-      rec = await this.store.findByHash(this.hasher.hash(token));
-      if (rec === null) return invalid();
+      rec = await this.store.findByHash(tokenHash);
+      if (rec === null || !validRecord(rec, tokenHash)) return invalid();
       current = await this.versions.currentTokenVersion(rec.employeeId);
     } catch (e) {
       if (e instanceof DomainException) throw e;
       return invalid();
     }
     if (rec.revokedAt !== null || rec.expiresAt.getTime() <= this.clock.now().getTime()) return invalid();
-    if (current === null || current !== rec.tokenVersion) return invalid();
+    if (!validVersion(current) || current !== rec.tokenVersion) return invalid();
     return { employeeId: rec.employeeId, tokenVersion: rec.tokenVersion };
   }
 
