@@ -62,8 +62,8 @@ describe('kiểm tra tĩnh mã production (src, không tính *.spec.ts)', () => 
     }
     expect(bad).toEqual([]);
   });
-  it('@Public() chỉ được dùng ở health', () => {
-    expect(prod.filter((p) => /^\s*@Public\(\)/m.test(text(p)) && !p.endsWith('permissions.decorator.ts')).map((p) => p.split(/[\\/]/).pop())).toEqual(['health.controller.ts']);
+  it('@Public() chỉ được dùng ở controller health (health + health/privileged)', () => {
+    expect(prod.filter((p) => /^\s*@Public\(\)/m.test(text(p)) && !p.endsWith('permissions.decorator.ts')).map((p) => p.split(/[\\/]/).pop()).sort()).toEqual(['health.controller.ts', 'privileged-health.controller.ts']);
   });
   it('AccessGuard không đọc danh tính từ header/body/query', () => {
     expect(text(join(SRC, 'common', 'auth', 'access.guard.ts'))).not.toMatch(/\.headers|\.body|\.query|\.params/);
