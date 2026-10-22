@@ -5,16 +5,19 @@ import { SessionRecord } from '../session/session.types';
 import { LoginSessionService } from './login-session.service';
 import { PasswordLoginService } from './password-login.service';
 import { CredentialStore, PasswordHasher, StoredCredential } from './password-login.types';
+const E7 = '00000000-0000-4000-8000-000000000007';
+const E8 = '00000000-0000-4000-8000-000000000008';
+const E99 = '00000000-0000-4000-8000-000000000099';
 
 const PW = 'Mat-khau-thu-nghiem-1';
 // Hasher giả chỉ trong test: "hash" hợp lệ là 'H:' + mật khẩu.
 const hasher: PasswordHasher = { verify: async (h, p) => h !== null && h === 'H:' + p };
-const cred = (o: Partial<StoredCredential> = {}): StoredCredential => ({ employeeId: 7, hash: 'H:' + PW, algo: 'argon2id', active: true, ...o });
+const cred = (o: Partial<StoredCredential> = {}): StoredCredential => ({ employeeId: E7, hash: 'H:' + PW, algo: 'argon2id', active: true, ...o });
 const creds = (c: StoredCredential | null): CredentialStore => ({ findByLogin: async () => c });
 const clock = { now: () => new Date(Date.UTC(2026, 9, 22)) };
 const build = (c: StoredCredential | null, sessionStore = new InMemorySessionStore()) => {
-  sessionStore.setTokenVersion(7, 1);
-  sessionStore.setTokenVersion(99, 1);
+  sessionStore.setTokenVersion(E7, 1);
+  sessionStore.setTokenVersion(E99, 1);
   const sessions = new SessionService(sessionStore, sessionStore, new Sha256TokenHasher(), clock, 60_000);
   return { sessionStore, svc: new LoginSessionService(new PasswordLoginService(creds(c), hasher), sessions) };
 };
@@ -36,7 +39,7 @@ describe('LoginSessionService (offline)', () => {
     expect(Object.keys(out).sort()).toEqual(['expiresAt', 'token']);
     expect(sessionStore.dumpKeys()).toEqual([new Sha256TokenHasher().hash(out.token)]);
     const sessions = new SessionService(sessionStore, sessionStore, new Sha256TokenHasher(), clock, 60_000);
-    await expect(sessions.validate(out.token)).resolves.toEqual({ employeeId: 7, tokenVersion: 1 });
+    await expect(sessions.validate(out.token)).resolves.toEqual({ employeeId: E7, tokenVersion: 1 });
   });
 
   it('sai mật khẩu / không có tài khoản / tài khoản khóa / sai thuật toán => cùng lỗi chung và KHÔNG tạo phiên', async () => {
@@ -78,17 +81,17 @@ describe('LoginSessionService (offline)', () => {
 
   it('tài khoản không còn token_version (null) => lỗi chung, không có phiên', async () => {
     const { svc, sessionStore } = build(cred());
-    sessionStore.setTokenVersion(7, null);
+    sessionStore.setTokenVersion(E7, null);
     await expectGeneric(svc.login({ login: 'nv@siscom.vn', password: PW }));
     expect(sessionStore.dumpKeys()).toHaveLength(0);
   });
 
   it('không giả mạo employeeId: trường thừa trong đầu vào bị bỏ qua, phiên luôn mang employeeId của kho xác thực', async () => {
-    const { svc, sessionStore } = build(cred({ employeeId: 7 }));
-    const spoof = { login: 'nv@siscom.vn', password: PW, employeeId: 99, employee_id: 99, headers: { 'x-employee-id': '99' } };
+    const { svc, sessionStore } = build(cred({ employeeId: E7 }));
+    const spoof = { login: 'nv@siscom.vn', password: PW, employeeId: E99, employee_id: 99, headers: { 'x-employee-id': '99' } };
     const out = await svc.login(spoof);
     const sessions = new SessionService(sessionStore, sessionStore, new Sha256TokenHasher(), clock, 60_000);
-    await expect(sessions.validate(out.token)).resolves.toEqual({ employeeId: 7, tokenVersion: 1 });
+    await expect(sessions.validate(out.token)).resolves.toEqual({ employeeId: E7, tokenVersion: 1 });
   });
 
   it('đầu vào sai kiểu/null => lỗi chung, không ném TypeError', async () => {

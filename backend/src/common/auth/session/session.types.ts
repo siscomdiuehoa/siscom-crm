@@ -4,7 +4,7 @@
 export interface SessionRecord {
   // Chỉ lưu BĂM của token (hash-at-rest); token gốc không bao giờ được lưu hay log.
   readonly tokenHash: string;
-  readonly employeeId: number;
+  readonly employeeId: string;
   readonly tokenVersion: number;
   readonly expiresAt: Date;
   readonly revokedAt: Date | null;
@@ -20,7 +20,7 @@ export const SESSION_STORE = Symbol('SESSION_STORE');
 
 export interface TokenVersionSource {
   // token_version hiện hành của credential; null = tài khoản không còn dùng được (khóa/không có) => phiên bị từ chối.
-  currentTokenVersion(employeeId: number): Promise<number | null>;
+  currentTokenVersion(employeeId: string): Promise<number | null>;
 }
 export const TOKEN_VERSION_SOURCE = Symbol('TOKEN_VERSION_SOURCE');
 
@@ -33,4 +33,4 @@ export interface Clock { now(): Date }
 
 export interface IssuedSession { readonly token: string; readonly expiresAt: Date }
 // Danh tính phiên đã xác thực phía server — nguồn DUY NHẤT của actor; không bao giờ lấy từ nội dung request.
-export interface ValidatedSession { readonly employeeId: number; readonly tokenVersion: number }
+export interface ValidatedSession { readonly employeeId: string; readonly tokenVersion: number }

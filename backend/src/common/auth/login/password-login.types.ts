@@ -3,7 +3,7 @@
 
 export interface StoredCredential {
   // Danh tính do DB trả về — nguồn DUY NHẤT của employeeId; không bao giờ lấy từ nội dung request.
-  readonly employeeId: number;
+  readonly employeeId: string;
   readonly hash: string;
   readonly algo: string;
   readonly active: boolean;
@@ -21,4 +21,4 @@ export interface PasswordHasher {
 }
 export const PASSWORD_HASHER = Symbol('PASSWORD_HASHER');
 
-export interface VerifiedLogin { readonly employeeId: number }
+export interface VerifiedLogin { readonly employeeId: string }

@@ -7,14 +7,17 @@ import { CredentialStore, PasswordHasher, StoredCredential } from '../login/pass
 import { InMemorySessionStore } from '../session/in-memory-session.store';
 import { Sha256TokenHasher, SessionService, UnwiredSessionStore } from '../session/session.service';
 import { AuthHttpHandler } from './auth-http.handler';
+const E7 = '00000000-0000-4000-8000-000000000007';
+const E8 = '00000000-0000-4000-8000-000000000008';
+const E99 = '00000000-0000-4000-8000-000000000099';
 
 const PW = 'Mat-khau-thu-nghiem-1';
 const hasher: PasswordHasher = { verify: async (h, p) => h !== null && h === 'H:' + p };
-const cred = (o: Partial<StoredCredential> = {}): StoredCredential => ({ employeeId: 7, hash: 'H:' + PW, algo: 'argon2id', active: true, ...o });
+const cred = (o: Partial<StoredCredential> = {}): StoredCredential => ({ employeeId: E7, hash: 'H:' + PW, algo: 'argon2id', active: true, ...o });
 const clock = { now: () => new Date(Date.UTC(2026, 9, 22)) };
 const build = (c: StoredCredential | null = cred()) => {
   const store = new InMemorySessionStore();
-  store.setTokenVersion(7, 1);
+  store.setTokenVersion(E7, 1);
   const sessions = new SessionService(store, store, new Sha256TokenHasher(), clock, 60_000);
   const creds: CredentialStore = { findByLogin: async () => c };
   const handler = new AuthHttpHandler(new LoginSessionService(new PasswordLoginService(creds, hasher), sessions), sessions);
@@ -39,7 +42,7 @@ describe('AuthHttpHandler (offline, chưa gắn route)', () => {
     const out = await handler.login({ body: { login: 'nv@siscom.vn', password: PW } });
     expect(Object.keys(out).sort()).toEqual(['expiresAt', 'token']);
     expect(out.expiresAt).toBe('2026-10-22T00:01:00.000Z');
-    await expect(handler.me({ headers: bearer(out.token) })).resolves.toEqual({ employeeId: 7 });
+    await expect(handler.me({ headers: bearer(out.token) })).resolves.toEqual({ employeeId: E7 });
     await expect(handler.logout({ headers: bearer(out.token) })).resolves.toEqual({ ok: true });
     await expect(handler.logout({ headers: bearer(out.token) })).resolves.toEqual({ ok: true }); // lặp lại: idempotent
     await expectErr(handler.me({ headers: bearer(out.token) }), 401, 'AUTH_REQUIRED');
@@ -69,7 +72,7 @@ describe('AuthHttpHandler (offline, chưa gắn route)', () => {
       await expectErr(handler.me({ headers: { ...bearer(out.token), [h]: '99' } }), 400, 'REQUEST_INVALID');
       await expectErr(handler.logout({ headers: { ...bearer(out.token), [h]: '99' } }), 400, 'REQUEST_INVALID');
     }
-    await expect(handler.me({ headers: bearer(out.token) })).resolves.toEqual({ employeeId: 7 }); // chưa bị thu hồi
+    await expect(handler.me({ headers: bearer(out.token) })).resolves.toEqual({ employeeId: E7 }); // chưa bị thu hồi
   });
 
   it('login: sai mật khẩu / không có tài khoản / tài khoản khóa => cùng 401 LOGIN_INVALID, không lộ tồn tại, không phiên', async () => {
@@ -102,7 +105,7 @@ describe('AuthHttpHandler (offline, chưa gắn route)', () => {
     await expectErr(handler.me({ headers: {}, query: { token } } as never), 401, 'AUTH_REQUIRED');
     expect(bodies.size).toBe(1);
     // Cú pháp scheme không phân biệt hoa thường vẫn dùng được.
-    await expect(handler.me({ headers: { authorization: `bearer ${token}` } })).resolves.toEqual({ employeeId: 7 });
+    await expect(handler.me({ headers: { authorization: `bearer ${token}` } })).resolves.toEqual({ employeeId: E7 });
   });
 
   it('me: token đúng định dạng nhưng lạ / hết hạn / bị thu hồi / lệch token_version => cùng 401, không lộ lý do', async () => {
@@ -110,9 +113,9 @@ describe('AuthHttpHandler (offline, chưa gắn route)', () => {
     const unknown = 'sid_' + 'A'.repeat(43);
     const a = await fail(handler.me({ headers: bearer(unknown) }));
     const { token } = await handler.login({ body: { login: 'nv@siscom.vn', password: PW } });
-    store.setTokenVersion(7, 2); // đổi mật khẩu / thu hồi toàn bộ
+    store.setTokenVersion(E7, 2); // đổi mật khẩu / thu hồi toàn bộ
     const b = await fail(handler.me({ headers: bearer(token) }));
-    store.setTokenVersion(7, null); // tài khoản không dùng được
+    store.setTokenVersion(E7, null); // tài khoản không dùng được
     const c = await fail(handler.me({ headers: bearer(token) }));
     for (const e of [a, b, c]) { expect(e.getStatus()).toBe(401); expect(e.code).toBe('AUTH_REQUIRED'); }
     expect(JSON.stringify(a.getResponse())).toBe(JSON.stringify(b.getResponse()));

@@ -1,5 +1,6 @@
 import { DomainException } from '../../errors/domain.exception';
 import { CredentialStore, PasswordHasher, VerifiedLogin } from './password-login.types';
+import { isCanonicalUuid } from '../uuid';
 
 export const MAX_LOGIN_LEN = 254;
 export const MAX_PASSWORD_LEN = 1024;
@@ -25,7 +26,7 @@ export class PasswordLoginService {
     } catch {
       return fail();
     }
-    const usable = cred !== null && cred.active && cred.algo === 'argon2id' && Number.isInteger(cred.employeeId);
+    const usable = cred !== null && cred.active && cred.algo === 'argon2id' && isCanonicalUuid(cred.employeeId);
     // Luôn chạy xác minh (băm giả khi không dùng được) rồi mới quyết định, để các nhánh thất bại cùng chi phí.
     const ok = await this.hasher.verify(usable ? cred!.hash : null, password);
     if (!usable || !ok) return fail();
