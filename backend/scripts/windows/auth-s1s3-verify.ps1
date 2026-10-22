@@ -1,4 +1,4 @@
-# SISCOM CRM B1.3.2-B - KIEM CHUNG S1-S3 (M1.2 20261020180000_b1_3_auth_m1_2_priv_api + tach role siscom_migrator/siscom_app) tren BAN SAO THU MOI.
+﻿# SISCOM CRM B1.3.2-B - KIEM CHUNG S1-S3 (M1.2 20261020180000_b1_3_auth_m1_2_priv_api + tach role siscom_migrator/siscom_app) tren BAN SAO THU MOI.
 # KHONG tu chay; can phe duyet rieng. Dich: D:\SISCOM-CRM\backend\scripts\windows\auth-s1s3-verify.ps1 (file moi).
 # Thay the auth-m11-verify.ps1 KHI nhanh co M1.2 (auth-m11-verify ky vong 4 thu muc migration va rollback khong biet M1.2).
 # Chi lam viec voi -DatabaseName = ban sao tao boi make-stats-clone (nhan SISCOM_STATS_CLONE_OF:<TemplateDb>). Mau duoc duyet: siscom_crm_restore_20261015_214948 (CHI DOC).
@@ -57,10 +57,10 @@ function Get-AppPasswordFromEnv([string]$envPath) {
   $user = [uri]::UnescapeDataString($ui.Substring(0, $ix)); $pw = [uri]::UnescapeDataString($ui.Substring($ix + 1))
   $port = $u.Port; if ($port -lt 0) { $port = 5432 }
   $src = [uri]::UnescapeDataString($u.AbsolutePath.TrimStart('/'))
-  if ($user -ne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
-  if ($u.Host -ne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
+  if ($user -cne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
+  if ($u.Host -cne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
   if ($port -ne 5432) { Fail ('DATABASE_URL dung port ' + $port + ', can 5432.') }
-  if ($src -ne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi "' + $src + '", ky vong siscom_crm_dev (chi de lay mat khau, KHONG dung lam dich).') }
+  if ($src -cne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi "' + $src + '", ky vong siscom_crm_dev (chi de lay mat khau, KHONG dung lam dich).') }
   if (-not $pw) { Fail 'DATABASE_URL khong co mat khau.' }
   $val = $null; $line = $null; $ui = $null; $u = $null
   return $pw
@@ -135,11 +135,11 @@ function Run-PrivFile([string]$file, [string]$stateRe, [string]$label) {
   Ok ($label + ': ' + $Matches[0]); return $true
 }
 try {
-  $pat = '^siscom_crm_restore_\d{8}_\d{6}$'
+  $pat = '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z'
   $deny = @('siscom_crm_dev', 'siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948')
-  if ($DatabaseName -notmatch $pat) { Fail 'DatabaseName phai la siscom_crm_restore_YYYYMMDD_HHMMSS (ban sao moi).' }
+  if ($DatabaseName -cnotmatch $pat) { Fail 'DatabaseName phai la siscom_crm_restore_YYYYMMDD_HHMMSS (ban sao moi).' }
   if ($deny -contains $DatabaseName) { Fail ('CAM: "' + $DatabaseName + '" khong duoc dung lam dich.') }
-  if ($TemplateDb -notmatch $pat -or $TemplateDb -eq $DatabaseName) { Fail 'TemplateDb phai la database nguon cua ban sao (khac ban sao).' }
+  if ($TemplateDb -cnotmatch $pat -or $TemplateDb -ceq $DatabaseName) { Fail 'TemplateDb phai la database nguon cua ban sao (khac ban sao).' }
   if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
   $script:stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
   $script:log = Join-Path $LogDir ('auth_s1s3_' + $Step + '_' + $DatabaseName + '_' + $script:stamp + '.txt')
@@ -174,14 +174,14 @@ try {
   elseif ($asPostgres -contains $Step) { $script:user = 'postgres'; $script:pw = Read-Secret 'Mat khau postgres (khong luu, khong in)' }
   else { $script:user = 'siscom_migrator'; $script:pw = Read-Secret 'Mat khau siscom_migrator (khong luu, khong in)' }
   $info = (Psql "SELECT current_database() || '|' || current_user || '|' || pg_get_userbyid(datdba) || '|' || coalesce(shobj_description(oid, 'pg_database'), '') || '|' || (SELECT count(*) FROM public._prisma_migrations WHERE migration_name IN ('20261011000000_init', '20261012000000_b1_2_crm_core') AND finished_at IS NOT NULL AND rolled_back_at IS NULL)::text || '|' || current_setting('server_version_num') FROM pg_database WHERE datname = current_database();").Split('|')
-  if ($info[0] -ne $DatabaseName) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $DatabaseName + '".') }
-  if ($info[1] -ne $script:user) { Fail ('Dang noi bang "' + $info[1] + '" thay vi "' + $script:user + '".') }
-  if ($info[3] -ne ('SISCOM_STATS_CLONE_OF:' + $TemplateDb)) { Fail 'Database KHONG co nhan ban sao cua make-stats-clone khop -TemplateDb. TU CHOI.' }
+  if ($info[0] -cne $DatabaseName) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $DatabaseName + '".') }
+  if ($info[1] -cne $script:user) { Fail ('Dang noi bang "' + $info[1] + '" thay vi "' + $script:user + '".') }
+  if ($info[3] -cne ('SISCOM_STATS_CLONE_OF:' + $TemplateDb)) { Fail 'Database KHONG co nhan ban sao cua make-stats-clone khop -TemplateDb. TU CHOI.' }
   if ($info[4] -ne '2') { Fail 'Thieu migration init / b1_2_crm_core da ap.' }
   if ([int]$info[5] -lt 150000) { Fail ('PostgreSQL ' + $info[5] + ' < 15.') }
   $owner = $info[2]
   $needOwner = if (@('privs', 'unsplit', 'deploy-owner') -contains $Step) { 'siscom_migrator' } elseif ($Step -eq 'guard') { $owner } else { 'siscom_app' }
-  if ($owner -ne $needOwner) { Fail ('Chu so huu ban sao = ' + $owner + '; buoc ' + $Step + ' can ' + $needOwner + '.') }
+  if ($owner -cne $needOwner) { Fail ('Chu so huu ban sao = ' + $owner + '; buoc ' + $Step + ' can ' + $needOwner + '.') }
   Ok ('Guard: ban sao co nhan, khong nam trong danh sach cam, chu so huu ' + $owner + ', PostgreSQL ' + $info[5] + '.')
   $n = Sessions; if ($n -ne 0) { Fail ('Co ' + $n + ' phien khac dang ket noi toi ban sao. Dung (khong ngat ket noi cua ai).') }
   Ok 'Khong co phien khac.'
@@ -193,7 +193,7 @@ try {
       $dirs = @(Get-ChildItem -LiteralPath (Join-Path $script:root 'prisma\migrations') -Directory | ForEach-Object { $_.Name })
       Say ('Thu muc migration: ' + ($dirs -join ', '))
       if ($dirs.Count -ne 5 -or $dirs -notcontains $M1 -or $dirs -notcontains $M11 -or $dirs -notcontains $M12) { Bad 'Ky vong dung 5 thu muc migration (init, b1_2_crm_core, M1, M1.1, M1.2).' } else { Ok 'Dung 5 thu muc migration.' }
-      if ($owner -eq 'siscom_app' -and $state -ne $EXPECT_NONE) { Bad ('Ban sao da co dau vet M1/M1.1/M1.2 (' + $state + '): dung ban sao MOI.') } elseif ($owner -eq 'siscom_app') { Ok 'Ban sao chua co M1/M1.1/M1.2.' } else { Say ('Ban sao da tach role (chu so huu ' + $owner + ').') 'Yellow' }
+      if ($owner -ceq 'siscom_app' -and $state -ne $EXPECT_NONE) { Bad ('Ban sao da co dau vet M1/M1.1/M1.2 (' + $state + '): dung ban sao MOI.') } elseif ($owner -ceq 'siscom_app') { Ok 'Ban sao chua co M1/M1.1/M1.2.' } else { Say ('Ban sao da tach role (chu so huu ' + $owner + ').') 'Yellow' }
       if ($rbac -ne '0|0|0|0|0') { Bad ('Bang RBAC khong rong (' + $rbac + '): test rang buoc se tu choi chay.') } else { Ok 'Bang RBAC rong, chua co auth_bootstrap_done.' }
     }
     'apply' {
