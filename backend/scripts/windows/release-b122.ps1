@@ -45,10 +45,10 @@ function Get-AppPasswordFromEnv([string]$envPath) {
   $user = [uri]::UnescapeDataString($ui.Substring(0, $ix)); $pw = [uri]::UnescapeDataString($ui.Substring($ix + 1))
   $port = $u.Port; if ($port -lt 0) { $port = 5432 }
   $src = [uri]::UnescapeDataString($u.AbsolutePath.TrimStart('/'))
-  if ($user -ne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
+  if ($user -cne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
   if ($u.Host -ne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
   if ($port -ne 5432) { Fail ('DATABASE_URL dung port ' + $port + ', can 5432.') }
-  if ($src -ne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi database "' + $src + '", ky vong siscom_crm_dev.') }
+  if ($src -cne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi database "' + $src + '", ky vong siscom_crm_dev.') }
   if (-not $pw) { Fail 'DATABASE_URL khong co mat khau.' }
   Say 'DATABASE_URL hop le: user=siscom_app host=127.0.0.1 port=5432 database=siscom_crm_dev. Mat khau lay tu .env, khong in.'
   $val = $null; $line = $null; $ui = $null; $u = $null
@@ -168,9 +168,9 @@ function Check-Backup {
   if ($kv['sha256'] -notmatch '^[0-9A-Fa-f]{64}$') { Fail 'Truong sha256 trong dau vet khong phai dung 64 ky tu hex.' }
   if ($kv['sha256'] -ne $have) { Fail 'Dau vet restore-test ung voi MOT file sao luu KHAC (SHA-256 64 ky tu khong khop).' }
   if ($kv['dump'] -ne $dump.Name) { Fail ('Dau vet ghi ten sao luu "' + $kv['dump'] + '", khac file moi nhat "' + $dump.Name + '".') }
-  $rm = [regex]::Match($kv['restored_db'], '^siscom_crm_restore_(\d{8}_\d{6})$')
+  $rm = [regex]::Match($kv['restored_db'], '^siscom_crm_restore_([0-9]{8}_[0-9]{6})\z')
   if (-not $rm.Success) { Fail 'Truong restored_db khong dung mau siscom_crm_restore_YYYYMMDD_HHMMSS (khong chap nhan siscom_crm_dev).' }
-  $dm = [regex]::Match($dump.Name, '^siscom_crm_dev_(\d{8}_\d{6})\.dump$')
+  $dm = [regex]::Match($dump.Name, '^siscom_crm_dev_([0-9]{8}_[0-9]{6})\.dump\z')
   if (-not $dm.Success) { Fail 'Ten file sao luu khong dung mau siscom_crm_dev_YYYYMMDD_HHMMSS.dump.' }
   if ([string]::CompareOrdinal($rm.Groups[1].Value, $dm.Groups[1].Value) -lt 0) { Fail 'Database khoi phuc duoc tao TRUOC thoi diem sao luu - khong the la ban khoi phuc cua file nay.' }
   if ($kv['schema_baseline'] -ne 'b1.1') { Fail ('Restore-test cho schema_baseline = ' + $kv['schema_baseline'] + ', can b1.1.') }
@@ -204,8 +204,8 @@ function Run-Preflight([bool]$forDeploy) {
   Ok 'prisma\migrations gom dung: init + migration moi + migration_lock.toml.'
   # --- database ---
   $info = (Scalar "SELECT current_database() || '|' || current_user || '|' || pg_get_userbyid(datdba) || '|' || current_setting('server_version') || '|' || current_setting('server_encoding') || '|' || current_setting('server_version_num') FROM pg_database WHERE datname = current_database();").Split('|')
-  if ($info[0] -ne $Db) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $Db + '".') }
-  if ($info[1] -ne 'siscom_app' -or $info[2] -ne 'siscom_app') { Fail 'Tai khoan hoac chu so huu database khong phai siscom_app.' }
+  if ($info[0] -cne $Db) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $Db + '".') }
+  if ($info[1] -cne 'siscom_app' -or $info[2] -cne 'siscom_app') { Fail 'Tai khoan hoac chu so huu database khong phai siscom_app.' }
   if ($info[4] -ne 'UTF8') { Fail ('Ma hoa ' + $info[4] + ', can UTF8.') }
   if ([int]$info[5] -lt 180000) { Fail ('PostgreSQL ' + $info[3] + ' < 18. DUNG.') }
   Ok ('Ket noi dung: db=' + $info[0] + ', user=' + $info[1] + ', chu so huu=' + $info[2] + ', PostgreSQL ' + $info[3] + ', ' + $info[4])
@@ -240,14 +240,14 @@ try {
   $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
   if ($Target -eq 'dev') { if ($DatabaseName) { Fail 'Voi -Target dev khong duoc truyen -DatabaseName.' }; $Db = 'siscom_crm_dev' }
   else {
-    if ($DatabaseName -notmatch '^siscom_crm_restore_\d{8}_\d{6}$') { Fail 'Voi -Target scratch, -DatabaseName phai la siscom_crm_restore_YYYYMMDD_HHMMSS.' }
+    if ($DatabaseName -cnotmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z') { Fail 'Voi -Target scratch, -DatabaseName phai la siscom_crm_restore_YYYYMMDD_HHMMSS.' }
     $Db = $DatabaseName
-    if ($Step -eq 'deploy' -and $Db -eq $RehearsedDb) { Fail 'Dien tap deploy phai dung database THU MOI (chay restore-test.bat lai), khong dung database da dien tap psql.' }
+    if ($Step -eq 'deploy' -and $Db -ceq $RehearsedDb) { Fail 'Dien tap deploy phai dung database THU MOI (chay restore-test.bat lai), khong dung database da dien tap psql.' }
   }
   $script:psql = Find-Tool 'psql.exe'; if (-not $script:psql) { Fail 'Khong tim thay psql.exe.' }
   Say ('Muc tieu: ' + $Target + ' | Database: ' + $Db + ' | Buoc: ' + $Step + $(if ($Step -eq 'deploy') { ' (GHI)' } else { ' (chi doc)' }))
   $c = Read-Host 'Go lai CHINH XAC ten database de xac nhan'
-  if ($c -ne $Db) { Fail 'Ten xac nhan khong khop. Dung lai.' }
+  if ($c -cne $Db) { Fail 'Ten xac nhan khong khop. Dung lai.' }
   $script:pw = Get-AppPasswordFromEnv (Join-Path $root '.env')
 
   switch ($Step) {
