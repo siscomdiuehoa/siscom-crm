@@ -30,7 +30,7 @@ test('cờ BẬT: load → loading rồi ready với dữ liệu server; mã hi�
   const [row] = c.getState().list.items;
   assert.equal(row.id, UUID); assert.equal(customerDisplayCode(row), 'KH-00007'); assert.notEqual(customerDisplayCode(row), row.id);
   assert.equal(customerDisplayCode({ id: UUID }), '—');
-  assert.equal(f.calls[0].init.credentials, 'omit'); assert.equal(f.calls[0].url, BASE + '/customers');
+  assert.equal(f.calls[0].init.credentials, 'omit'); assert.equal(f.calls[0].url, BASE + '/customers?page=1&pageSize=20');
 });
 
 test('cờ BẬT: lỗi list (401/403/network/config) hiện rõ, KHÔNG rơi về dữ liệu cục bộ, items rỗng', async () => {
