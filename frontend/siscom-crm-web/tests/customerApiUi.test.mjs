@@ -47,7 +47,7 @@ test('cờ BẬT: lỗi list (401/403/network/config) hiện rõ, KHÔNG rơi v�
   assert.equal(c.getState().list.error.kind, 'config'); assert.equal(f.calls.length, 0);
 });
 
-test('create thành công: POST không gửi owner, chèn bản ghi server vào đầu danh sách, trả mã KH', async () => {
+test('create thành công: POST không gửi owner, danh sách được đọc lại từ máy chủ (không chèn tay), trả mã KH', async () => {
   const f = apiOk({ id: 'aaaaaaaa-0000-4000-8000-000000000001', code: 'KH-00008' });
   const c = createCustomerApiUi({ env: ON, fetchImpl: f });
   await c.load();
@@ -56,7 +56,7 @@ test('create thành công: POST không gửi owner, chèn bản ghi server vào 
   const post = f.calls.find((x) => x.init.method === 'POST');
   const body = JSON.parse(post.init.body);
   assert.equal(body.name, 'Công ty B'); assert.equal('owner' in body, false); assert.equal('cName' in body, false);
-  assert.equal(c.getState().list.items[0].code, 'KH-00008'); assert.equal(c.getState().list.items.length, 2);
+  assert.equal(f.calls.filter((x) => (x.init.method || 'GET') === 'GET').length, 2, 'GET lúc load + GET làm mới sau create'); assert.equal(c.getState().list.items.length, 1, 'danh sách = đúng phản hồi máy chủ, không có bản ghi chèn tay'); assert.equal(c.getState().list.items[0].code, 'KH-00007');
   assert.equal(c.getState().submit.status, 'idle');
 });
 

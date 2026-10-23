@@ -91,8 +91,8 @@ test('SMOKE cờ BẬT: lookups + list + paging + search + get + create + PATCH 
   const u = await c.update(uid(5), { name: 'Tên mới', phone: '0901234567', short: '', taxId: '' }, 2);
   assert.equal(u.ok, true); assert.equal(u.customer.version, 3); assert.equal(c.getState().detail.customer.name, 'Tên mới');
   const cr = await c.submit({ name: 'Công ty mới', phone: '0901234567', short: '', taxId: '', industry: 'Xây dựng', tier: 'VIP' });
-  assert.equal(cr.ok, true); assert.equal(cr.customer.id, uid(77)); assert.equal(c.getState().list.items[0].id, uid(77));
-  assert.deepEqual(f.calls.filter((x) => x.method === 'GET' && x.url.includes('/customers?')).map((x) => new URL(x.url).searchParams.get('page')), ['1', '2', '3', '2', '1', '1']);
+  assert.equal(cr.ok, true); assert.equal(cr.customer.id, uid(77)); assert.equal(c.getState().list.status, 'ready'); assert.equal(c.getState().list.params.search, 'Công ty', 'sau create: làm mới từ máy chủ với tham số hiện tại, không chèn tay');
+  assert.deepEqual(f.calls.filter((x) => x.method === 'GET' && x.url.includes('/customers?')).map((x) => new URL(x.url).searchParams.get('page')), ['1', '2', '3', '2', '1', '1', '1']);
   assert.deepEqual(f.mutations().map((m) => m.method), ['PATCH', 'POST']);
   assert.equal(f.mutations()[0].url, BASE + '/customers/' + uid(5)); assert.equal(f.mutations()[1].body.industry, 'IND-1');
 }));

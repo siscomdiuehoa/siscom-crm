@@ -36,6 +36,7 @@ const idle = () => ({ status: 'IDLE', error: null, employeeId: null, expiresAt: 
 
 export function createLoginSession(client) {
   let token = null;
+  let epoch = 0; // tăng mỗi khi submit/logout/401 xảy ra: kết quả async của "thế hệ" cũ bị bỏ, không ghi đè trạng thái mới
   let state = client && client.enabled ? idle() : { status: 'UNAVAILABLE', error: null, employeeId: null, expiresAt: null };
   const listeners = new Set();
   const set = (s) => { state = s; listeners.forEach((l) => l(state)); };
@@ -51,24 +52,41 @@ export function createLoginSession(client) {
       if (id.kind === 'INVALID') { fail('IDENTIFIER_INVALID'); return state; }
       const pe = validatePassword(password);
       if (pe) { fail(pe); return state; }
+      const my = ++epoch;
+      token = null; // đăng nhập lại: không giữ token phiên cũ trong lúc LOADING
       set({ status: 'LOADING', error: null, employeeId: null, expiresAt: null });
       try {
         const issued = await client.login(id.value, password);
+        if (my !== epoch) return state; // đã logout/bị thay thế khi chờ: bỏ kết quả cũ
         const me = await client.me(issued.token); // danh tính do server xác nhận
+        if (my !== epoch) return state;
         token = issued.token;
         set({ status: 'AUTHENTICATED', error: null, employeeId: me.employeeId, expiresAt: issued.expiresAt });
-      } catch (e) { token = null; fail(classifyAuthError(e)); }
+      } catch (e) {
+        if (my !== epoch) return state;
+        token = null; fail(classifyAuthError(e));
+      }
       return state;
     },
     async logout() {
       if (state.status === 'UNAVAILABLE') return state;
+      const my = ++epoch; // hủy mọi submit đang chờ
       const t = token;
       token = null; // xóa token cục bộ trước, bất kể kết quả server
-      if (t) { try { await client.logout(t); } catch (e) { fail(classifyAuthError(e)); return state; } }
+      if (t) {
+        try { await client.logout(t); } catch (e) { if (my !== epoch) return state; fail(classifyAuthError(e)); return state; }
+        if (my !== epoch) return state; // đã có đăng nhập mới trong lúc chờ server: không xóa phiên mới
+      }
       set(idle());
       return state;
     },
     // Gọi khi API khác trả 401: bỏ token, KHÔNG tự đăng nhập lại.
-    handleUnauthorized() { token = null; if (state.status === 'AUTHENTICATED') fail('SESSION_EXPIRED'); return state; },
+    // Khi đang LOADING: token đã bị xóa từ đầu submit, 401 chỉ có thể đến từ yêu cầu của phiên cũ => không hủy lần đăng nhập đang chạy.
+    handleUnauthorized() {
+      if (state.status === 'LOADING') return state;
+      epoch++; token = null;
+      if (state.status === 'AUTHENTICATED') fail('SESSION_EXPIRED');
+      return state;
+    },
   };
 }
