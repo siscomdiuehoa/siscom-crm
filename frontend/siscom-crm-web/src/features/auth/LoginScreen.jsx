@@ -1,6 +1,6 @@
 import React from 'react';
 import { Input, Button } from '../../ds/index.js';
-import { deriveLoginView, createLoginSubmitter, focusTargetAfterSubmit, LOGIN_UI_TEXT } from '../../auth/loginScreenModel.js';
+import { deriveLoginView, createLoginSubmitter, focusTargetAfterSubmit, touchedAfterSubmit, LOGIN_UI_TEXT } from '../../auth/loginScreenModel.js';
 
 // Vỏ màn hình đăng nhập — tách riêng để thay bằng thiết kế hoàn chỉnh của chủ sở hữu sau này.
 // Chưa được nối vào App.jsx. `enabled` (cờ giao diện) mặc định false => không render gì.
@@ -36,7 +36,7 @@ export default function LoginScreen({ session, enabled = false }) {
     e.preventDefault();
     const r = await submitter(identifier, password);
     if (r.reason === 'IN_FLIGHT') return;
-    setTouched(r.touched);
+    setTouched(touchedAfterSubmit(r));
     if (r.submitted) { setPassword(''); setShowPassword(false); } // không giữ mật khẩu sau khi gửi
     const field = focusTargetAfterSubmit(r, session.getState());
     if (field) setFocusRequest((p) => ({ field, n: (p ? p.n : 0) + 1 }));

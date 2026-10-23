@@ -107,6 +107,12 @@ export function createLoginSubmitter(session) {
   };
 }
 
+// Trường đã "chạm" sau một lần gửi. Khi đã gửi đi thật, màn hình xóa ô mật khẩu (không giữ mật khẩu): ô trống đó KHÔNG phải
+// lỗi người dùng, nên không đánh dấu touched.password (tránh "Vui lòng nhập mật khẩu" mâu thuẫn với banner máy chủ).
+export function touchedAfterSubmit(result) {
+  return result.submitted ? { ...result.touched, password: false } : result.touched;
+}
+
 // Trường nhận focus sau một lần gửi: trường lỗi đầu tiên; nếu máy chủ/mạng từ chối thì ô mật khẩu (đã bị xóa) để nhập lại.
 export function focusTargetAfterSubmit(result, state) {
   if (!result.submitted) return result.firstInvalid;
