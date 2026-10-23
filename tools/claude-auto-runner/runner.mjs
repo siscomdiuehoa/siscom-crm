@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
+import { fetchTaskComments } from "./ghqueue.mjs";
 
 const appDir=path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),"AppData","Local"),"SISCOM-ClaudeRunner");
 const configPath=path.join(appDir,"config.json");
@@ -18,7 +19,7 @@ let activeTask=false;
 const now=()=>new Date().toISOString();
 function persist(){state.heartbeat=now();fs.writeFileSync(statePath,JSON.stringify(state,null,2),"utf8");const p="data: "+JSON.stringify(state)+"\n\n";for(const r of clients){try{r.write(p)}catch{}}}
 function addEvent(type,message){state.timeline=state.timeline||[];state.timeline.push({at:now(),type,message});state.timeline=state.timeline.slice(-20);persist()}
-function run(cmd,args,cwd=cfg.repoPath,timeoutMs=120000){const r=spawnSync(cmd,args,{cwd,encoding:"utf8",windowsHide:true,timeout:timeoutMs,shell:false});return{code:r.status??-1,out:(r.stdout||"").trim(),err:(r.stderr||"").trim(),error:r.error?.message||""}}
+function run(cmd,args,cwd=cfg.repoPath,timeoutMs=120000){const r=spawnSync(cmd,args,{cwd,encoding:"utf8",windowsHide:true,timeout:timeoutMs,shell:false,maxBuffer:16*1024*1024});return{code:r.status??-1,out:(r.stdout||"").trim(),err:(r.stderr||"").trim(),error:r.error?.message||""}}
 function gh(args){return run(cfg.ghCommand||"gh",args,cfg.repoPath,120000)}
 function git(args){return run(cfg.gitCommand||"git",args,cfg.repoPath,120000)}
 function refreshLocal(){const b=git(["branch","--show-current"]);const h=git(["rev-parse","--short","HEAD"]);state.git={branch:b.out||"unknown",commit:h.out||"unknown"};persist()}
@@ -34,7 +35,7 @@ const safety=["Bạn là Claude Developer của SISCOM CRM.","Làm việc trong 
 const args=(cfg.claudeArgs||["-p","{prompt}"]).map(x=>x==="{prompt}"?safety:x);const r=await runClaudeAsync(args,Math.max(1,cfg.maxTaskMinutes||30)*60000);const output=[r.out,r.err,r.error].filter(Boolean).join("\n\n").trim();
 if(r.code===0){state.claude={state:"idle",task:"",lastOutput:output.slice(-4000)};addEvent("DONE","Claude hoàn thành task "+c.id);postResult(c.id,"Claude completed",output||"Claude hoàn thành nhưng không có stdout.")}else{state.claude={state:"blocked",task:"Task "+c.id+" lỗi/đòi quyền",lastOutput:output.slice(-4000)};addEvent("ERROR","Claude task "+c.id+" exit="+r.code);postResult(c.id,"Claude blocked/failed","Exit code: "+r.code+"\n\n"+(output||"Không có output."))}
 state.processed.push(c.id);activeTask=false;persist()}
-function pollQueue(){if(activeTask)return;const r=gh(["api","repos/"+cfg.repo+"/issues/"+cfg.queueIssue+"/comments?per_page=100"]);if(r.code!==0){addEvent("GH_ERROR",r.err||r.error||"gh api failed");return}let comments=[];try{comments=JSON.parse(r.out)}catch{return}for(const c of comments){if(c.user?.login!==cfg.trustedLogin)continue;if(!(c.body||"").includes("<!-- CLAUDE_TASK -->"))continue;if((state.processed||[]).includes(c.id))continue;processTask(c).catch(e=>{activeTask=false;state.claude={state:"blocked",task:"Runner exception",lastOutput:String(e)};addEvent("ERROR",String(e))});break}}
+function pollQueue(){if(activeTask)return;const q=fetchTaskComments(gh,cfg.repo,cfg.queueIssue);if(!q.ok){addEvent("GH_ERROR",q.error);return}for(const c of q.comments){if(c.user?.login!==cfg.trustedLogin)continue;if(!(c.body||"").includes("<!-- CLAUDE_TASK -->"))continue;if((state.processed||[]).includes(c.id))continue;processTask(c).catch(e=>{activeTask=false;state.claude={state:"blocked",task:"Runner exception",lastOutput:String(e)};addEvent("ERROR",String(e))});break}}
 const server=http.createServer((req,res)=>{if(req.url==="/events"){res.writeHead(200,{"Content-Type":"text/event-stream","Cache-Control":"no-cache","Connection":"keep-alive"});res.write("data: "+JSON.stringify(state)+"\n\n");clients.add(res);req.on("close",()=>clients.delete(res));return}if(req.url==="/api/status"){res.writeHead(200,{"Content-Type":"application/json"});res.end(JSON.stringify(state));return}if(req.url==="/"||req.url==="/index.html"){res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});res.end(fs.readFileSync(dashboardPath,"utf8"));return}res.writeHead(404);res.end("Not found")});
 server.listen(cfg.port||45871,"127.0.0.1",()=>{addEvent("RUNNER","Auto-Runner started on http://127.0.0.1:"+(cfg.port||45871));console.log("SISCOM Claude Auto-Runner: http://127.0.0.1:"+(cfg.port||45871))});
 refreshLocal();refreshGithub();persist();
