@@ -5,6 +5,7 @@
 // - Không có đường lui sang demo/đăng nhập giả: UNAVAILABLE => nút gửi bị vô hiệu, không gọi session.submit.
 import { parseLoginIdentifier, validatePassword } from './loginIdentifier.js';
 import { LOGIN_ERRORS } from './loginSession.js';
+import { LOGIN_PREVIEW_ERROR, LOGIN_PREVIEW_UNAVAILABLE_TEXT } from './loginPreview.js';
 
 export const LOGIN_UI_TEXT = {
   title: 'Đăng nhập',
@@ -38,7 +39,7 @@ export function deriveLoginView({ status, error, identifier = '', password = '',
     passwordError,
     notice: unavailable ? LOGIN_UI_TEXT.unavailable : null,
     // Lỗi do máy chủ/mạng (không trùng lỗi trường) hiển thị thành banner.
-    bannerError: status === 'ERROR' && error && !fieldCovered ? (LOGIN_ERRORS[error] || LOGIN_ERRORS.UNKNOWN) : null,
+    bannerError: status === 'ERROR' && error && !fieldCovered ? (error === LOGIN_PREVIEW_ERROR ? LOGIN_PREVIEW_UNAVAILABLE_TEXT : (LOGIN_ERRORS[error] || LOGIN_ERRORS.UNKNOWN)) : null,
   };
 }
 
