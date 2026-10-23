@@ -80,3 +80,4 @@ function dispatch(target, type, init = {}) {
 export const click = (el) => { if (el.disabled) return false; dispatch(el, 'click', { button: 0 }); return true; };
 // Controlled input typing: React tracks the value via a property setter on the node; set the plain value then fire `input`.
 export function type(el, value) { el.value = value; dispatch(el, 'input'); }
+export const submit = (el) => { dispatch(el, "submit"); return true; };
