@@ -27,3 +27,9 @@ Trạng thái: **mã nguồn + test offline**. Không đổi giao diện, không
 - `src/auth/loginScreenModel.js` — logic thuần (validation, trạng thái nút/lỗi/loading). Cờ giao diện `VITE_CRM_LOGIN_UI_ENABLED==='true'` (mặc định TẮT) chỉ hiện giao diện; đăng nhập thật vẫn UNAVAILABLE khi `VITE_CRM_AUTH_ENABLED` tắt hoặc backend chưa có route.
 - Không lưu token/mật khẩu, không đụng DenyAll/Customers API/localStorage demo; chế độ remote không rơi về demo.
 - Test: `node --test tests/loginSession.test.mjs tests/loginScreenModel.test.mjs` (bộ điều khiển giả). **Chưa kiểm chứng**: render React thật và `vite build` (chưa có `node_modules`, không cài dependency theo quy định).
+
+## Xem thử màn hình đăng nhập sau cờ (PREVIEW)
+- Cờ `VITE_CRM_LOGIN_PREVIEW_ENABLED==='true'` (**mặc định TẮT**) làm `src/main.jsx` render `LoginPreviewEntry` thay cho `App`; tắt => ứng dụng CRM hiện có giữ nguyên.
+- `src/auth/loginPreview.js` — cờ + phiên preview thuần: nhận email/mã `NV-xxxx` + mật khẩu, **luôn từ chối** với thông báo "Máy chủ xác thực chưa khả dụng" (chưa có AuthController). Không người dùng giả, không mở khóa khách hàng, không mạng, không storage, không giữ mật khẩu/token.
+- Khi bật, không tải `App`/dữ liệu khách hàng. Không đổi route/guard/DenyAll backend.
+- Test: `node --test tests/loginPreview.test.mjs` (gồm render SSR qua Vite; cần `vite` đã cài). Build: `npx vite build` (tắt/bật cờ).
