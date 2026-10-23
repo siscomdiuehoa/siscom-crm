@@ -3,7 +3,7 @@
 // - Trạng thái công khai KHÔNG chứa mật khẩu hay token; token giữ trong closure (bộ nhớ), không ghi storage.
 // - Danh tính (employeeId) chỉ lấy từ phản hồi /auth/me của server; không gán vai trò/actor ở client.
 import { parseLoginIdentifier, validatePassword } from './loginIdentifier.js';
-import { AuthHttpError, AuthNetworkError } from './authClient.js';
+import { AuthHttpError, AuthNetworkError, AuthUnavailableError } from './authClient.js';
 
 export const LOGIN_ERRORS = {
   IDENTIFIER_INVALID: 'Email hoặc mã nhân viên không hợp lệ.',
@@ -11,6 +11,7 @@ export const LOGIN_ERRORS = {
   PASSWORD_TOO_LONG: 'Mật khẩu quá dài.',
   INVALID_CREDENTIALS: 'Thông tin đăng nhập không đúng.',
   RATE_LIMITED: 'Quá nhiều lần thử, vui lòng thử lại sau.',
+  ENDPOINT_UNAVAILABLE: 'Chức năng đăng nhập chưa được bật.',
   NETWORK: 'Không kết nối được máy chủ.',
   SERVICE_UNAVAILABLE: 'Dịch vụ xác thực tạm thời không khả dụng.',
   SESSION_EXPIRED: 'Phiên đăng nhập đã hết hạn.',
@@ -20,7 +21,9 @@ export const LOGIN_ERRORS = {
 
 export function classifyAuthError(err) {
   if (err instanceof AuthNetworkError) return 'NETWORK';
+  if (err instanceof AuthUnavailableError) return 'ENDPOINT_UNAVAILABLE';
   if (err instanceof AuthHttpError) {
+    if ([404, 405, 501].includes(err.status)) return 'ENDPOINT_UNAVAILABLE'; // route chưa tồn tại: KHÔNG phải sai mật khẩu
     if (err.status === 429) return 'RATE_LIMITED';
     if (err.status === 401) return err.code === 'LOGIN_INVALID' ? 'INVALID_CREDENTIALS' : 'SESSION_EXPIRED';
     if (err.status === 400) return 'REQUEST_INVALID';

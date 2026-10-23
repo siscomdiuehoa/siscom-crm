@@ -15,10 +15,15 @@ export class AuthNetworkError extends Error {
   constructor() { super('NETWORK'); this.name = 'AuthNetworkError'; }
 }
 
+function isHttpBase(u) {
+  try { const p = new URL(u).protocol; return p === 'http:' || p === 'https:'; } catch (e) { return false; }
+}
+
 export function readAuthConfig(env) {
   const e = env || {};
   const baseUrl = String(e.VITE_CRM_API_BASE || '').trim().replace(/\/+$/, '');
-  return { enabled: e.VITE_CRM_AUTH_ENABLED === 'true' && !!baseUrl, baseUrl };
+  // Fail-closed: chỉ nhận URL tuyệt đối http(s); giá trị khác (tương đối, javascript:, rác) => tắt.
+  return { enabled: e.VITE_CRM_AUTH_ENABLED === 'true' && isHttpBase(baseUrl), baseUrl };
 }
 
 export function createAuthClient(config, fetchImpl) {
@@ -46,15 +51,20 @@ export function createAuthClient(config, fetchImpl) {
   return {
     enabled: cfg.enabled,
     async login(login, password) {
+      if (typeof login !== 'string' || !login || typeof password !== 'string' || !password) throw new AuthHttpError(400, 'REQUEST_INVALID'); // không gọi mạng
       const d = await call('POST', '/auth/login', { body: { login, password } });
       if (typeof d.token !== 'string' || !d.token || typeof d.expiresAt !== 'string') throw new AuthHttpError(200, 'BAD_RESPONSE');
       return { token: d.token, expiresAt: d.expiresAt };
     },
     async me(token) {
+      if (typeof token !== 'string' || !token) throw new AuthHttpError(401, 'AUTH_REQUIRED'); // không gọi mạng khi thiếu token
       const d = await call('GET', '/auth/me', { token });
       if (d.employeeId === undefined || d.employeeId === null) throw new AuthHttpError(200, 'BAD_RESPONSE');
       return { employeeId: d.employeeId };
     },
-    async logout(token) { await call('POST', '/auth/logout', { token }); },
+    async logout(token) {
+      if (typeof token !== 'string' || !token) throw new AuthHttpError(401, 'AUTH_REQUIRED');
+      await call('POST', '/auth/logout', { token });
+    },
   };
 }
