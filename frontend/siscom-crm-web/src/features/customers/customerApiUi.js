@@ -154,18 +154,21 @@ export function createCustomerApiController(repo) {
     // Server-side search (>= 2 chars after trim; shorter/empty = no search param). Always restarts at page 1.
     search(text) { return this.load({ pageSize: (state.list.params || {}).pageSize, search: text, page: 1 }); },
     // Duplicate submission is rejected synchronously: repo.create is called at most once while a save is in flight.
+    // Success never patches the visible page by hand (a new row may belong to another page/search; total/totalPages are the server's to state):
+    // the list is re-read from the server with the CURRENT params. That reload supersedes older in-flight list requests (seq), and its failure
+    // is shown by the list state (retry), never turned into a failed create. List not loaded yet (idle) -> nothing to refresh.
     async submit(input) {
       if (inflight) return { ok: false, duplicate: true };
       inflight = true; set({ submit: { status: 'saving', error: null } });
-      try {
-        const customer = await repo.create(input);
-        const items = [customer, ...state.list.items.filter((c) => c.id !== customer.id)];
-        set({ list: { ...state.list, items, paging: state.list.paging ? { ...state.list.paging, total: state.list.paging.total + 1 } : null, status: state.list.status === 'idle' ? 'idle' : 'ready' }, submit: { status: 'idle', error: null } });
-        return { ok: true, customer };
-      } catch (e) {
+      let customer;
+      try { customer = await repo.create(input); }
+      catch (e) {
         const error = describeRepoError(e); set({ submit: { status: 'error', error } });
         return { ok: false, error };
       } finally { inflight = false; }
+      set({ submit: { status: 'idle', error: null } });
+      if (state.list.status !== 'idle') await this.reload();
+      return { ok: true, customer };
     },
     // Detail by backend UUID. Stale responses (user moved to another id) are dropped; a failed load never shows the previous customer.
     async loadDetail(id) {
