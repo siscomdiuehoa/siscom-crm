@@ -11,10 +11,15 @@ import CustomerListPage from './pages/CustomerList.jsx';
 import CustomerProfilePage from './pages/CustomerProfile.jsx';
 import CustomerApiDetail from './features/customers/CustomerApiDetail.jsx';
 import { createCustomerApiUi } from './features/customers/customerApiUi.js';
+import ApiModeUnsupported, { API_UNSUPPORTED_NOTE } from './features/apiMode/ApiModeUnsupported.jsx';
 
 // null unless VITE_CRM_API_ENABLED === 'true' (default OFF = localStorage demo; no network code path is reachable).
 const CUSTOMER_API = createCustomerApiUi({ env: import.meta.env });
 
+// API mode never loads, migrates, backs up or saves the localStorage demo database; it starts from an EMPTY in-memory shape (nothing demo can be rendered).
+const API_ON = !!CUSTOMER_API;
+const EMPTY_DB = { customers: [], contacts: [], interactions: [], quotes: [], contracts: [], projects: [], opportunities: [], overdue: [], approvals: [], contractAlerts: [] };
+const NAV = API_ON ? SISCOM_NAV.map(({ badge, ...rest }) => rest) : SISCOM_NAV; // static badges (e.g. 8 opportunities) are demo counts
 const STORE = 'siscom-crm-demo-v1';
 // Fixed-state mode for QA/screenshots: ?route=/dashboard&theme=dark (no localStorage writes). Normal use: no query string.
 const INIT = (() => { const p = new URLSearchParams(location.search); const route = p.get('route'), theme = p.get('theme'); return route || theme ? { route, theme } : null; })();
@@ -68,11 +73,11 @@ function RoleSwitch({ user, setUserId }) {
 
 function SiscomCrmApp() {
   const init = INIT;
-  const [boot] = React.useState(() => (init ? { db: seedV2(), report: { readOnly: false, error: null, migrated: false } } : loadDatabase()));
+  const [boot] = React.useState(() => (API_ON ? { db: EMPTY_DB, report: { readOnly: true, error: null, migrated: false } } : init ? { db: seedV2(), report: { readOnly: false, error: null, migrated: false } } : loadDatabase()));
   const [db, setDb] = React.useState(boot.db);
   const [ro, setRo] = React.useState(boot.report.readOnly);
   const dbRef = React.useRef(boot.db);
-  const [userId, setUserId] = React.useState(() => { try { return (!init && localStorage.getItem('siscom-crm-demo-user')) || 'u-director'; } catch (e) { return 'u-director'; } });
+  const [userId, setUserId] = React.useState(() => { try { return (!init && !API_ON && localStorage.getItem('siscom-crm-demo-user')) || 'u-director'; } catch (e) { return 'u-director'; } });
   const user = DEMO_USERS.find((u) => u.id === userId) || DEMO_USERS[0];
   const userRef = React.useRef(user); userRef.current = user;
   const [route, setRoute] = React.useState(() => (init && init.route ? parseRoute(init.route) : parseRoute(location.hash)));
@@ -98,8 +103,8 @@ function SiscomCrmApp() {
   }, []);
   const theme = mode === 'system' ? (sysDark ? 'dark' : 'light') : mode;
   React.useEffect(() => { document.documentElement.setAttribute('data-theme', theme); if (!init) localStorage.setItem('siscom-crm-theme', mode); }, [theme, mode]);
-  React.useEffect(() => { if (init || ro) return; const r = saveDatabase(db); if (!r.ok) toast({ tone: 'error', title: 'Không lưu được dữ liệu', message: r.error === 'quota' ? 'Bộ nhớ trình duyệt đã đầy. Hãy xuất file sao lưu ngay.' : r.error }); }, [db, ro]);
-  React.useEffect(() => { if (!init) { try { localStorage.setItem('siscom-crm-demo-user', userId); } catch (e) { /* ignore */ } } }, [userId]);
+  React.useEffect(() => { if (init || API_ON || ro) return; const r = saveDatabase(db); if (!r.ok) toast({ tone: 'error', title: 'Không lưu được dữ liệu', message: r.error === 'quota' ? 'Bộ nhớ trình duyệt đã đầy. Hãy xuất file sao lưu ngay.' : r.error }); }, [db, ro]);
+  React.useEffect(() => { if (!init && !API_ON) { try { localStorage.setItem('siscom-crm-demo-user', userId); } catch (e) { /* ignore */ } } }, [userId]);
   React.useEffect(() => { if (boot.report.migrated) toast({ tone: 'success', title: 'Đã nâng cấp dữ liệu lên phiên bản 2', message: 'Dữ liệu khách hàng cũ được giữ nguyên; bản sao lưu: ' + boot.report.backupKey }); }, []);
   React.useEffect(() => { setNavOpen(false); const m = document.querySelector('main'); if (m) m.scrollTop = 0; }, [route.page, route.id]);
 
@@ -128,15 +133,16 @@ function SiscomCrmApp() {
   const ui = { customerApi: CUSTOMER_API, db: view, api, navigate, toast, confirm, mobile, user, can: (a, rec) => canDo(user, a, rec), openChat: () => setChat(true) };
 
   const cust = route.id ? db.customers.find((c) => c.id === route.id) : null;
-  const navItem = SISCOM_NAV.find((n) => n.id === route.page) || {};
+  const navItem = NAV.find((n) => n.id === route.page) || {};
   let title = navItem.label || 'SISCOM CRM', crumbs = ['SISCOM CRM'], body;
-  if (route.page === 'dashboard') { title = 'Tổng quan điều hành'; crumbs = ['SISCOM CRM', 'Tổng quan']; body = <DashboardPage ui={ui} />; }
+  if (API_ON && route.page === 'dashboard') { title = 'Tổng quan điều hành'; crumbs = ['SISCOM CRM', 'Tổng quan']; body = <ApiModeUnsupported title="Tổng quan điều hành" onBack={() => navigate('/customers')} />; }
+  else if (route.page === 'dashboard') { title = 'Tổng quan điều hành'; crumbs = ['SISCOM CRM', 'Tổng quan']; body = <DashboardPage ui={ui} />; }
   else if (route.page === 'customers' && route.id && CUSTOMER_API) { title = 'Chi tiết khách hàng'; crumbs = ['SISCOM CRM', 'Khách hàng', 'Chi tiết']; body = <CustomerApiDetail ui={ui} id={route.id} />; }
   else if (route.page === 'customers' && route.id) { title = cust ? cust.short : 'Không tìm thấy'; crumbs = ['SISCOM CRM', 'Khách hàng', route.id]; body = cust ? <CustomerProfilePage ui={ui} c={cust} /> : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description={'Mã ' + route.id + ' không tồn tại hoặc đã bị xoá.'} action={<Button onClick={() => navigate('/customers')}>Về danh sách</Button>} /></div>; }
   else if (route.page === 'customers') { title = 'Quản lý khách hàng'; crumbs = ['SISCOM CRM', 'Kinh doanh']; body = <CustomerListPage ui={ui} />; }
   else body = <div className="sg-card sg-glass" style={{ marginTop: 24 }}><EmptyState icon={navItem.icon || 'box'} title={(navItem.label || 'Module') + ' — chờ duyệt giai đoạn 1'} description="Module này sẽ được xây dựng sau khi Tổng quan điều hành và Quản lý khách hàng được duyệt." action={<Button onClick={() => navigate('/dashboard')}>Về Tổng quan</Button>} /></div>;
 
-  const sidebar = (extra) => <Sidebar items={SISCOM_NAV} active={route.page} onSelect={(id) => navigate('/' + id)} logoSrc={logo} user={{ name: user.name, role: ROLES[user.role].label }} {...extra} />;
+  const sidebar = (extra) => <Sidebar items={NAV} active={route.page} onSelect={(id) => navigate('/' + id)} logoSrc={logo} user={API_ON ? { name: 'Phiên API', role: 'Xác thực do máy chủ quyết định' } : { name: user.name, role: ROLES[user.role].label }} {...extra} />;
   return (
     <div style={{ display: 'flex', height: '100%' }}>
       {mobile ? (navOpen ? (
@@ -145,18 +151,19 @@ function SiscomCrmApp() {
           <div style={{ position: 'relative', height: '100%', animation: 'sg-fade-up var(--dur-slow) var(--ease-out)' }}>{sidebar({ onToggle: () => setNavOpen(false), className: 'sg-glass-strong' })}</div>
         </div>) : null) : sidebar({ collapsed, onToggle: () => setCollapsed(!collapsed) })}
       <main className="sg-scroll" style={{ flex: 1, minWidth: 0, overflow: 'auto', position: 'relative' }}>
-        <Topbar title={title} breadcrumbs={crumbs} search={q} onSearch={setQ} notifications={5} onAskAI={() => setChat(true)} onMenu={mobile ? () => setNavOpen(true) : undefined}
-          user={{ name: user.name }} actions={<><RoleSwitch user={user} setUserId={setUserId} /><ThemeSwitch mode={mode} setMode={setMode} /></>} />
+        <Topbar title={title} breadcrumbs={crumbs} search={q} onSearch={setQ} notifications={API_ON ? 0 : 5} onAskAI={API_ON ? undefined : () => setChat(true)} onMenu={mobile ? () => setNavOpen(true) : undefined}
+          user={{ name: API_ON ? 'Phiên API' : user.name }} actions={<>{API_ON ? null : <RoleSwitch user={user} setUserId={setUserId} />}<ThemeSwitch mode={mode} setMode={setMode} /></>} />
         <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px var(--page-gutter)', font: 'var(--type-caption)', color: 'var(--warning-text)', background: 'var(--warning-soft)', borderBottom: '1px solid var(--warning-border)', flexWrap: 'wrap' }}>
-          <Icon name="flask-conical" size={14} />
-          <span style={{ flex: 1, minWidth: 200 }}>Bản demo giao diện — toàn bộ khách hàng và số liệu là <b>dữ liệu minh hoạ</b>, không phải hồ sơ kinh doanh thực tế. Thay đổi chỉ lưu trên trình duyệt này.</span>
-          <DataTools ui={ui} getDb={() => dbRef.current} onRestoreText={(text) => { const next = parseBackupFile(text); backupNow('auto-restore'); replaceDb(next); }} onReset={() => { backupNow('auto-reset'); replaceDb(seedV2()); }} />
+          <Icon name={API_ON ? 'server' : 'flask-conical'} size={14} />
+          {API_ON ? <span style={{ flex: 1, minWidth: 200 }}>Chế độ API — chỉ danh sách và chi tiết khách hàng lấy từ máy chủ. Các mô-đun khác {API_UNSUPPORTED_NOTE}; không hiển thị dữ liệu minh hoạ.</span>
+            : <span style={{ flex: 1, minWidth: 200 }}>Bản demo giao diện — toàn bộ khách hàng và số liệu là <b>dữ liệu minh hoạ</b>, không phải hồ sơ kinh doanh thực tế. Thay đổi chỉ lưu trên trình duyệt này.</span>}
+          {API_ON ? null : <DataTools ui={ui} getDb={() => dbRef.current} onRestoreText={(text) => { const next = parseBackupFile(text); backupNow('auto-restore'); replaceDb(next); }} onReset={() => { backupNow('auto-reset'); replaceDb(seedV2()); }} />}
         </div>
         {boot.report.error && ro ? <div role="alert" style={{ padding: '8px var(--page-gutter)', font: 'var(--type-caption)', color: 'var(--error-text)', background: 'var(--error-soft)', borderBottom: '1px solid var(--error-border)' }}><b>Chế độ chỉ đọc — không ghi dữ liệu.</b> {boot.report.error} Có thể dùng "Nhập sao lưu" hoặc "Khôi phục dữ liệu mẫu" (có sao lưu tự động) để tiếp tục.</div> : null}
         <div key={route.page + (route.id || '')} style={{ padding: 'var(--page-gutter)', maxWidth: 'var(--content-max)', margin: '0 auto', animation: 'sg-fade-up var(--dur-page) var(--ease-out)' }}>{body}</div>
       </main>
       {CUSTOMER_API ? null : <SearchResults q={q} db={db} onPick={(id) => { setQ(''); navigate('/customers/' + id); }} />}
-      {chat ? (
+      {chat && !API_ON ? (
         <div style={{ position: 'fixed', right: 16, top: 16, bottom: 16, width: 'min(420px, calc(100% - 32px))', zIndex: 66, animation: 'sg-toast-in var(--dur-slow) var(--ease-out)' }}>
           <ChatPanel height="100%" onClose={() => setChat(false)} agent={{ name: 'Trợ lý SISCOM', role: 'AI tổng hợp · bản demo', icon: 'sparkles' }}
             suggestions={['Khách hàng nào cần chăm sóc tuần này?', 'Tóm tắt công nợ quá hạn']}
