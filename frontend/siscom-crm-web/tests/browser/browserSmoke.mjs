@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
+const ONLY = process.env.SMOKE_ONLY === 'isolation'; // chỉ chạy F/G (cần dist off/ và api/)
 const DIST = path.resolve(process.argv[2] || '');
 const API_PORT = 4599, WEB_PORT = 4600, CDP_PORT = 9333;
 const CHROMES = ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'];
@@ -34,6 +35,7 @@ const apiServer = http.createServer((req, res) => {
     if (u.pathname === '/__log') return ok(res, LOG);
     LOG.push({ m: req.method, p: u.pathname, q: u.search, auth: req.headers.authorization || null, cookie: req.headers.cookie || null, body: body ? JSON.parse(body) : null });
     const gate = S[req.method + ':' + u.pathname.split('/')[1]] || S[req.method];
+    if (gate === 'net') return req.socket.destroy(); // lỗi mạng: ngắt kết nối không trả lời
     if (gate === '401') return err(res, 401, 'AUTH_REQUIRED', 'Chưa đăng nhập');
     if (gate === '403') return err(res, 403, 'FORBIDDEN', 'Không đủ quyền');
     if (u.pathname === '/lookups') return ok(res, lookups);
@@ -273,13 +275,76 @@ async function scenarioApiRepeat() {
   check('E4 không có lỗi JS chưa bắt trong console (kịch bản D/E)', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 }
 
+// ---------------- F. Cách ly dữ liệu demo khi cờ API BẬT (Chrome thật) ----------------
+const DEMO_RE = /Hoàng Gia Riverside|Sông Xanh Land|BV An Khang|Tổng quan pipeline|Công nợ phải thu|Hiệu suất kinh doanh|Doanh thu & lợi nhuận|Trợ lý SISCOM|Bản demo giao diện|SENTINEL-DEMO/;
+const DEMO_KEYS = { 'siscom-crm-db-v2': JSON.stringify({ customers: [{ id: 'KH-SENTINEL', name: 'SENTINEL-DEMO Công ty Rò Rỉ', short: 'SENTINEL-DEMO' }] }), 'siscom-crm-demo-user': 'u-admin', 'siscom-crm-demo-v1': 'SENTINEL-DEMO-v1' };
+const NAV_LABELS = { dashboard: 'Tổng quan điều hành', reports: 'Báo cáo & Phân tích', customers: 'Quản lý khách hàng', pipeline: 'Cơ hội kinh doanh', quotes: 'Báo giá', contracts: 'Hợp đồng', projects: 'Quản lý dự án', inventory: 'Mua hàng & Kho', finance: 'Tài chính', hr: 'Nhân sự', agents: 'Quản lý AI Agent', office: 'Văn phòng AI 3D' };
+const store = () => ev(`JSON.stringify(Object.entries(localStorage).filter(([k])=>k!=='siscom-crm-theme').sort())`);
+const seedDemo = async (user) => { await ev(`localStorage.clear();sessionStorage.clear();${Object.entries({ ...DEMO_KEYS, 'siscom-crm-demo-user': user }).map(([k, v]) => `localStorage.setItem(${JSON.stringify(k)},${JSON.stringify(v)})`).join(';')}`); return store(); };
+const clearSearch = () => ev(`(()=>{const i=document.querySelector('.sg-search input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'');i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+async function scenarioApiIsolation() {
+  console.log('--- F. Cờ API BẬT: cách ly dữ liệu demo (401/403/mạng/200, tìm kiếm, điều hướng, tải lại, back/forward) ---');
+  const id = '00000000-0000-4000-8000-000000000005';
+  const users = { 401: 'u-admin', 403: 'u-sales', net: 'u-acc', ok: 'u-director' };
+  for (const [mode, label] of [['401', '401'], ['403', '403'], ['net', 'lỗi mạng'], ['ok', '200']]) {
+    await fetch(`http://127.0.0.1:${API_PORT}/__reset`); await setApi('GET', mode);
+    await send('Page.resetNavigationHistory').catch(() => {}); await goto(base('api')); const seeded = await seedDemo(users[mode]); netReqs.length = 0; consoleErrors.length = 0;
+    const bad = [], note = (where, t) => { const m = t.match(DEMO_RE); if (m) bad.push(where + ' => ' + m[0]); };
+    // (1) vào trực tiếp từng route (kể cả không hash = route mặc định dashboard) + chế độ QA ?route=
+    for (const h of ['', '#/dashboard', '#/customers', '#/customers/' + id, ...Object.keys(NAV_LABELS).map((n) => '#/' + n)]) { await goto(base('api') + h); note(h || '(trống)', await text()); }
+    await goto(base('api') + '?route=/dashboard&theme=dark'); note('?route=/dashboard', await text());
+    await goto(base('api') + '?route=/customers'); note('?route=/customers', await text());
+    check(`F1 [${label}] mọi route/URL trực tiếp: không hiện dashboard/chat/khách hàng/doanh thu/AI demo`, bad.length === 0, bad.slice(0, 3).join(' | '));
+    // (2) không nút/hộp chat AI, không công tắc vai trò demo
+    await goto(base('api') + '#/customers'); await sleep(500);
+    const ui = await ev(`JSON.stringify({ai:[...document.querySelectorAll('button')].some(b=>/Trợ lý AI|Hỏi AI/.test(b.textContent)),role:!!document.querySelector('.app-role'),chat:/Trợ lý SISCOM/.test(document.body.innerText)})`);
+    check(`F2 [${label}] không có nút Trợ lý AI, không có công tắc vai trò demo (quyền demo không mở route)`, !JSON.parse(ui).ai && !JSON.parse(ui).role && !JSON.parse(ui).chat, ui);
+    // (3) tìm kiếm toàn cục
+    for (const q of ['Hoàng Gia', 'SENTINEL', 'KH-SENTINEL']) { await typeInto('.sg-search input', q); await sleep(350); note('tìm "' + q + '"', await text()); await key('Enter'); await sleep(200); note('tìm+Enter "' + q + '"', await text()); await clearSearch(); }
+    check(`F3 [${label}] tìm kiếm toàn cục (gõ + Enter) không trả khách hàng demo/sentinel`, !bad.some((b) => b.startsWith('tìm')), bad.filter((b) => b.startsWith('tìm')).join(' | '));
+    // (4) bấm lần lượt từng mục thanh bên, rồi back/forward nhiều bước và tải lại
+    await goto(base('api') + '#/customers'); await sleep(400); // back/forward chỉ trong phạm vi các mục hash của ứng dụng (không lùi về about:blank của goto)
+    for (const n of Object.keys(NAV_LABELS)) { await ev(`(()=>{const l=${JSON.stringify(NAV_LABELS[n])};const e=[...document.querySelectorAll('aside *, nav *')].filter(x=>x.children.length<=3&&x.textContent.trim().startsWith(l)).pop();if(e)e.click();else location.hash='#/${n}'})()`); await sleep(250); note('sidebar ' + n, await text()); }
+    const hh = await send('Page.getNavigationHistory'); let steps = 0; while (hh.currentIndex - steps - 1 >= 0 && hh.entries[hh.currentIndex - steps - 1].url !== 'about:blank') steps++; // Chrome giới hạn 50 mục lịch sử: đếm các mục hash sau about:blank gần nhất
+    for (let i = 0; i < steps; i++) { await ev('history.back()'); await sleep(250); note('back#' + i, await text()); }
+    for (let i = 0; i < steps; i++) { await ev('history.forward()'); await sleep(250); note('forward#' + i, await text()); }
+    await send('Page.reload'); await sleep(1000); note('reload', await text());
+    const navBad = bad.filter((b) => /^(sidebar|back|forward|reload)/.test(b));
+    check(`F4 [${label}] bấm thanh bên + back/forward (${steps} bước) + tải lại: không bao giờ hiện dữ liệu demo`, steps >= 5 && navBad.length === 0, navBad.slice(0, 3).join(' | '));
+    // (5) localStorage demo không bị đọc-ghi-xoá (trừ khoá giao diện theme); không rò rỉ ra ngoài localhost
+    const after = await store();
+    check(`F5 [${label}] localStorage demo (db-v2/demo-user/demo-v1) giữ NGUYÊN, không khoá mới`, after === seeded, after === seeded ? '' : after.slice(0, 200));
+    const ext = netReqs.filter((r) => !/^https?:\/\/127\.0\.0\.1:(4599|4600)\//.test(r.url) && !r.url.startsWith('data:') && !r.url.startsWith('about:'));
+    check(`F6 [${label}] không có yêu cầu mạng ra ngoài localhost`, ext.length === 0, ext.slice(0, 2).map((r) => r.url).join(' '));
+    // (6) route không hỗ trợ không gọi API
+    await fetch(`http://127.0.0.1:${API_PORT}/__reset`); await setApi('GET', mode); await goto(base('api') + '#/dashboard'); await goto(base('api') + '#/pipeline'); await sleep(500);
+    check(`F7 [${label}] route dashboard/pipeline (không hỗ trợ) không gọi API khách hàng`, (await apiLog()).length === 0, 'số yêu cầu = ' + (await apiLog()).length);
+    if (mode !== 'ok') { await goto(base('api') + '#/customers'); await sleep(900); const t = await text(); check(`F8 [${label}] danh sách khách hàng: báo lỗi, không có bảng dữ liệu/phân trang`, !/Trang \d+\/\d+/.test(t) && !DEMO_RE.test(t) && !/Công ty Thử/.test(t), (await flat()).slice(0, 160)); }
+    check(`F9 [${label}] không có lỗi JS chưa bắt`, consoleErrors.filter((e) => !/Failed to load resource|ERR_|net::|status of/.test(e)).length === 0, consoleErrors.slice(0, 2).join(' | '));
+  }
+}
+async function scenarioOffDemoStillWorks() {
+  console.log('--- G. Cờ API TẮT: demo giữ nguyên như ban đầu (dashboard, tìm kiếm, chat, back/forward) ---');
+  await fetch(`http://127.0.0.1:${API_PORT}/__reset`); await goto(base('off')); await ev('localStorage.clear()'); netReqs.length = 0;
+  await goto(base('off') + '#/dashboard'); await waitFor(`/Doanh thu/.test(document.body.innerText)`, 'dashboard demo');
+  check('G1 cờ TẮT: dashboard demo hiển thị KPI/doanh thu + biểu ngữ demo', /Doanh thu/.test(await text()) && /Bản demo giao diện/.test(await text()));
+  check('G2 cờ TẮT: có công tắc vai trò demo và nút Trợ lý AI', await ev(`!!document.querySelector('.app-role') && [...document.querySelectorAll('button')].some(b=>/Trợ lý AI/.test(b.textContent))`));
+  await clickText('Trợ lý AI'); await sleep(500); check('G3 cờ TẮT: mở được khung chat AI demo', (await text()).includes('Trợ lý SISCOM'));
+  await typeInto('.sg-search input', 'Hoàng Gia'); await sleep(400);
+  check('G4 cờ TẮT: tìm kiếm toàn cục trả khách hàng demo', /MST/.test(await text()) && /Hoàng Gia/.test(await text()));
+  await ev(`location.hash='#/customers'`); await sleep(400); await ev(`location.hash='#/dashboard'`); await sleep(400); await ev('history.back()'); await sleep(400);
+  const backOk = /Quản lý khách hàng/.test(await text()); await ev('history.forward()'); await sleep(400);
+  check('G5 cờ TẮT: back về danh sách khách hàng demo, forward về dashboard demo', backOk && /Doanh thu/.test(await text()));
+  check('G6 cờ TẮT: localStorage demo được ghi (db-v2) và không có yêu cầu API', !!(await ev(`localStorage.getItem('siscom-crm-db-v2')`)) && apiNetCount() === 0);
+}
+
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-browser-'));
 let proc;
 try {
   await new Promise((r) => apiServer.listen(API_PORT, '127.0.0.1', r)); await new Promise((r) => webServer.listen(WEB_PORT, '127.0.0.1', r));
   proc = await launch(profile);
   console.log('Trình duyệt:', chrome, '|', (await send('Browser.getVersion', {}, undefined)).product);
-  for (const s of [scenarioOff, scenarioLogin, scenarioApi, scenarioBothFlags, scenarioApiRepeat]) { try { await s(); } catch (e) { check('LỖI KỊCH BẢN ' + s.name, false, e.message); } }
+  for (const s of ONLY ? [scenarioApiIsolation, scenarioOffDemoStillWorks] : [scenarioOff, scenarioLogin, scenarioApi, scenarioBothFlags, scenarioApiRepeat, scenarioApiIsolation, scenarioOffDemoStillWorks]) { try { await s(); } catch (e) { check('LỖI KỊCH BẢN ' + s.name, false, e.message); } }
 } finally {
   try { ws && ws.close(); } catch (e) { /* bỏ qua */ } if (proc) proc.kill(); apiServer.close(); webServer.close();
   await sleep(500); try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* bỏ qua */ }
