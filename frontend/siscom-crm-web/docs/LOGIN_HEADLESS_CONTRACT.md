@@ -21,3 +21,9 @@ Trạng thái: **mã nguồn + test offline**. Không đổi giao diện, không
 
 ## Chạy test
 `cd frontend/siscom-crm-web && node --test tests/loginSession.test.mjs`
+
+## Vỏ giao diện đăng nhập (cô lập, chưa nối)
+- `src/features/auth/LoginScreen.jsx` — vỏ tối thiểu dùng `Input`/`Button` của design system hiện có; **chưa import vào `App.jsx`** (thay bằng thiết kế hoàn chỉnh của chủ sở hữu sau). `enabled` mặc định `false` => không render.
+- `src/auth/loginScreenModel.js` — logic thuần (validation, trạng thái nút/lỗi/loading). Cờ giao diện `VITE_CRM_LOGIN_UI_ENABLED==='true'` (mặc định TẮT) chỉ hiện giao diện; đăng nhập thật vẫn UNAVAILABLE khi `VITE_CRM_AUTH_ENABLED` tắt hoặc backend chưa có route.
+- Không lưu token/mật khẩu, không đụng DenyAll/Customers API/localStorage demo; chế độ remote không rơi về demo.
+- Test: `node --test tests/loginSession.test.mjs tests/loginScreenModel.test.mjs` (bộ điều khiển giả). **Chưa kiểm chứng**: render React thật và `vite build` (chưa có `node_modules`, không cài dependency theo quy định).
