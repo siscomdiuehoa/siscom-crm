@@ -207,7 +207,7 @@ async function scenarioApi() {
   const pg = (await text()).match(/(\d+) khách hàng · Trang (\d+)\/(\d+)/);
   check('C12 phân trang nhất quán sau tạo (46 bản ghi, 3 trang)', pg && pg[1] === '46' && pg[3] === '3', pg && pg[0]);
   const rowsOnPage = await ev(`document.querySelectorAll('tbody tr').length`);
-  check('C12b trang 1 không hiển thị quá pageSize=20 dòng sau khi tạo (không lệch phân trang)', rowsOnPage <= 20, 'số dòng trên trang = ' + rowsOnPage + ' (pageSize=20); đã biết, sửa ở PR #76 (chưa nằm trong preview #75)', true);
+  check('C12b trang 1 không hiển thị quá pageSize=20 dòng sau khi tạo (không lệch phân trang)', rowsOnPage <= 20, 'số dòng trên trang = ' + rowsOnPage + ' (pageSize=20); fix #76 có trong nhánh này');
 
   // Chi tiết + sửa + 409
   const id = '00000000-0000-4000-8000-000000000005';
@@ -234,13 +234,52 @@ async function scenarioApi() {
   check('C19 không có lỗi JS chưa bắt trong console', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 }
 
+async function scenarioBothFlags() {
+  console.log('--- D. Cả hai cờ BẬT (đăng nhập xem thử + API): đăng nhập không thành công khi chưa có backend ---');
+  await goto(base('both')); await ev(`localStorage.clear()`); await fetch(`http://127.0.0.1:${API_PORT}/__reset`); netReqs.length = 0;
+  await goto(base('both') + '#/customers'); await waitFor(`!!document.querySelector('#login-identifier')`, 'form đăng nhập (cờ kép)');
+  check('D1 cả hai cờ: vào thẳng #/customers vẫn chỉ thấy form đăng nhập, không thấy khách hàng', !(await text()).includes('Quản lý khách hàng') && !(await text()).includes('Công ty'));
+  for (const [tag, ident] of [['mã nhân viên NV-0001', 'NV-0001'], ['email', 'nv001@siscom.vn']]) {
+    await goto(base('both')); await waitFor(`!!document.querySelector('#login-identifier')`, 'form ' + tag);
+    await typeInto('#login-identifier', ident); await typeInto('#login-password', 'MatKhau-Gia-123'); await key('Enter'); await sleep(500);
+    const t = await text();
+    check('D2 (' + tag + ') luôn bị từ chối, không vào CRM', /chưa khả dụng|chưa đăng nhập được/i.test(t) && !t.includes('Quản lý khách hàng'), t.replace(/\s+/g, ' ').slice(0, 120));
+    check('D3 (' + tag + ') mật khẩu đã xoá khỏi ô nhập, không báo lỗi trường mật khẩu', (await ev(`document.querySelector('#login-password').value`)) === '' && !(await ev(`!!document.querySelector('#login-password-error')`)));
+  }
+  await clickText('Đăng nhập'); await clickText('Đăng nhập'); await sleep(300);
+  check('D4 bấm Đăng nhập lặp lại vẫn không vào CRM', !(await text()).includes('Quản lý khách hàng'));
+  const store = (await ev(`JSON.stringify([localStorage,sessionStorage].map(s=>Object.entries(s)))`)) + (await ev('document.cookie'));
+  check('D5 không lưu mật khẩu/NV-0001/email/token vào storage hoặc cookie', !/MatKhau|NV-0001|nv001|token|bearer/i.test(store), store.slice(0, 100));
+  check('D6 không có yêu cầu mạng tới API (đăng nhập xem thử không gọi mạng)', apiNetCount() === 0 && (await apiLog()).length === 0, 'số yêu cầu = ' + apiNetCount());
+}
+
+async function scenarioApiRepeat() {
+  console.log('--- E. API giả: sửa thành công + yêu cầu lặp ---');
+  await goto(base('api')); await ev(`localStorage.clear()`); await fetch(`http://127.0.0.1:${API_PORT}/__reset`); netReqs.length = 0;
+  await goto(base('api') + '#/customers'); await waitFor(`document.body.innerText.includes('Trang 1/3')`, 'danh sách E');
+  await ev(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim().includes('Sau')&&!x.disabled);b.click();b.click();b.click();return true})()`); await sleep(900);
+  const pg = (await text()).match(/Trang (\d+)\/(\d+)/);
+  const first = await ev(`(document.querySelector('tbody tr')||{innerText:''}).innerText`);
+  check('E1 bấm Sau nhiều lần liên tiếp: giao diện nhất quán (trang hợp lệ, có dòng dữ liệu)', pg && Number(pg[1]) >= 2 && Number(pg[1]) <= 3 && first.length > 0, (pg && pg[0]) + ' | ' + first.replace(/\s+/g, ' ').slice(0, 60));
+  const id = '00000000-0000-4000-8000-000000000007';
+  await setApi('patch', 'ok'); await goto(base('api') + '#/customers/' + id); await waitFor(`document.body.innerText.includes('Công ty Thử 7')`, 'chi tiết E');
+  await clickText('Sửa thông tin'); await waitFor(`!!document.querySelector('[role=dialog]')`, 'drawer sửa E');
+  await ev(`(()=>{const l=[...document.querySelectorAll('[role=dialog] label')].find(x=>x.textContent.includes('Tên công ty'));const i=l.control||document.getElementById(l.htmlFor);i.setAttribute('data-qa','ten');return true})()`);
+  await send('Runtime.evaluate', { expression: `document.querySelector('[data-qa=ten]').select()` }); await typeInto('[data-qa=ten]', 'Công ty Thử 7 (đã sửa OK)');
+  await ev(`(()=>{const b=[...document.querySelectorAll('[role=dialog] button')].find(x=>x.textContent.includes('Lưu thay đổi')&&!x.disabled);b.click();b.click();return true})()`); await sleep(900);
+  const patches = (await apiLog()).filter((l) => l.m === 'PATCH');
+  check('E2 sửa thành công + bấm Lưu 2 lần liên tiếp: đúng 1 PATCH', patches.length === 1, 'PATCH = ' + patches.length);
+  check('E3 sau sửa thành công hiện tên mới từ máy chủ, không ghi vào localStorage', (await text()).includes('Công ty Thử 7 (đã sửa OK)') && !(await ev(`JSON.stringify(Object.entries(localStorage))`)).includes('đã sửa OK'));
+  check('E4 không có lỗi JS chưa bắt trong console (kịch bản D/E)', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
+}
+
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-browser-'));
 let proc;
 try {
   await new Promise((r) => apiServer.listen(API_PORT, '127.0.0.1', r)); await new Promise((r) => webServer.listen(WEB_PORT, '127.0.0.1', r));
   proc = await launch(profile);
   console.log('Trình duyệt:', chrome, '|', (await send('Browser.getVersion', {}, undefined)).product);
-  for (const s of [scenarioOff, scenarioLogin, scenarioApi]) { try { await s(); } catch (e) { check('LỖI KỊCH BẢN ' + s.name, false, e.message); } }
+  for (const s of [scenarioOff, scenarioLogin, scenarioApi, scenarioBothFlags, scenarioApiRepeat]) { try { await s(); } catch (e) { check('LỖI KỊCH BẢN ' + s.name, false, e.message); } }
 } finally {
   try { ws && ws.close(); } catch (e) { /* bỏ qua */ } if (proc) proc.kill(); apiServer.close(); webServer.close();
   await sleep(500); try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* bỏ qua */ }
