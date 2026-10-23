@@ -9,6 +9,7 @@ import DataTools from './features/data/DataTools.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
 import CustomerListPage from './pages/CustomerList.jsx';
 import CustomerProfilePage from './pages/CustomerProfile.jsx';
+import CustomerApiDetail from './features/customers/CustomerApiDetail.jsx';
 import { createCustomerApiUi } from './features/customers/customerApiUi.js';
 
 // null unless VITE_CRM_API_ENABLED === 'true' (default OFF = localStorage demo; no network code path is reachable).
@@ -130,6 +131,7 @@ function SiscomCrmApp() {
   const navItem = SISCOM_NAV.find((n) => n.id === route.page) || {};
   let title = navItem.label || 'SISCOM CRM', crumbs = ['SISCOM CRM'], body;
   if (route.page === 'dashboard') { title = 'Tổng quan điều hành'; crumbs = ['SISCOM CRM', 'Tổng quan']; body = <DashboardPage ui={ui} />; }
+  else if (route.page === 'customers' && route.id && CUSTOMER_API) { title = 'Chi tiết khách hàng'; crumbs = ['SISCOM CRM', 'Khách hàng', 'Chi tiết']; body = <CustomerApiDetail ui={ui} id={route.id} />; }
   else if (route.page === 'customers' && route.id) { title = cust ? cust.short : 'Không tìm thấy'; crumbs = ['SISCOM CRM', 'Khách hàng', route.id]; body = cust ? <CustomerProfilePage ui={ui} c={cust} /> : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description={'Mã ' + route.id + ' không tồn tại hoặc đã bị xoá.'} action={<Button onClick={() => navigate('/customers')}>Về danh sách</Button>} /></div>; }
   else if (route.page === 'customers') { title = 'Quản lý khách hàng'; crumbs = ['SISCOM CRM', 'Kinh doanh']; body = <CustomerListPage ui={ui} />; }
   else body = <div className="sg-card sg-glass" style={{ marginTop: 24 }}><EmptyState icon={navItem.icon || 'box'} title={(navItem.label || 'Module') + ' — chờ duyệt giai đoạn 1'} description="Module này sẽ được xây dựng sau khi Tổng quan điều hành và Quản lý khách hàng được duyệt." action={<Button onClick={() => navigate('/dashboard')}>Về Tổng quan</Button>} /></div>;
@@ -153,7 +155,7 @@ function SiscomCrmApp() {
         {boot.report.error && ro ? <div role="alert" style={{ padding: '8px var(--page-gutter)', font: 'var(--type-caption)', color: 'var(--error-text)', background: 'var(--error-soft)', borderBottom: '1px solid var(--error-border)' }}><b>Chế độ chỉ đọc — không ghi dữ liệu.</b> {boot.report.error} Có thể dùng "Nhập sao lưu" hoặc "Khôi phục dữ liệu mẫu" (có sao lưu tự động) để tiếp tục.</div> : null}
         <div key={route.page + (route.id || '')} style={{ padding: 'var(--page-gutter)', maxWidth: 'var(--content-max)', margin: '0 auto', animation: 'sg-fade-up var(--dur-page) var(--ease-out)' }}>{body}</div>
       </main>
-      <SearchResults q={q} db={db} onPick={(id) => { setQ(''); navigate('/customers/' + id); }} />
+      {CUSTOMER_API ? null : <SearchResults q={q} db={db} onPick={(id) => { setQ(''); navigate('/customers/' + id); }} />}
       {chat ? (
         <div style={{ position: 'fixed', right: 16, top: 16, bottom: 16, width: 'min(420px, calc(100% - 32px))', zIndex: 66, animation: 'sg-toast-in var(--dur-slow) var(--ease-out)' }}>
           <ChatPanel height="100%" onClose={() => setChat(false)} agent={{ name: 'Trợ lý SISCOM', role: 'AI tổng hợp · bản demo', icon: 'sparkles' }}

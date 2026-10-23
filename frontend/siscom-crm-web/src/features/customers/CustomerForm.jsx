@@ -34,14 +34,14 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   const isNew = !initial;
   // Flag OFF: ui.customerApi is null -> apiOn=false and the original sync localStorage save below is used unchanged.
   const apiCtl = ui.customerApi; const apiS = useCustomerApiState(apiCtl); const apiOn = !!apiCtl;
-  const saving = apiOn && apiS.submit.status === 'saving';
-  const srvErr = apiOn ? apiS.submit.error : null;
+  const saving = apiOn && (isNew ? apiS.submit.status : apiS.update.status) === 'saving';
+  const srvErr = apiOn ? (isNew ? apiS.submit.error : apiS.update.error) : null;
   const start = React.useMemo(() => (initial ? { ...emptyForm(), ...initial } : emptyForm()), [initial, open]);
   const [f, setF] = React.useState(start);
   const [tried, setTried] = React.useState(false);
-  React.useEffect(() => { setF(start); setTried(false); }, [start]);
+  React.useEffect(() => { setF(start); setTried(false); if (apiCtl && open) apiCtl.clearSubmitError(); }, [start]);
   const known = apiOn ? apiS.list.items.map((c) => ({ ...c, id: c.code || '' })) : ui.db.customers; // API mode: never show the backend uuid
-  const errs = validate(f, isNew, known, initial && initial.id, initial);
+  const errs = validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial);
   const err = (k) => (tried && errs[k]) || (srvErr && srvErr.fieldErrors[k]) || '';
   const dirty = JSON.stringify(f) !== JSON.stringify(start);
   const set = (k) => (v) => { if (srvErr) apiCtl.clearSubmitError(); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
@@ -50,6 +50,13 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   const save = async () => {
     setTried(true);
     if (Object.keys(errs).length) { ui.toast({ tone: 'error', title: 'Vui lòng kiểm tra lại', message: Object.keys(errs).length + ' trường chưa hợp lệ.' }); return; }
+    if (apiOn && !isNew) {
+      // Update by backend UUID with the optimistic-lock version of the loaded detail; the UI shows the server's response only.
+      const r = await apiCtl.update(initial.id, formToCustomerInput(f), initial.version);
+      if (r.ok) { ui.toast({ tone: 'success', title: 'Đã lưu thay đổi', message: r.customer.short || r.customer.name }); onSaved && onSaved(r.customer); }
+      else if (!r.duplicate) ui.toast({ tone: 'error', title: r.error.title, message: r.error.message });
+      return;
+    }
     if (apiOn) {
       // Async save through the API repository: no localStorage write, no fake success, duplicate clicks ignored while saving.
       const r = await apiCtl.submit(formToCustomerInput(f));
@@ -70,7 +77,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
       <aside role="dialog" aria-modal="true" aria-label={isNew ? 'Thêm khách hàng' : 'Sửa thông tin khách hàng'} className="sg-solid" style={{ position: 'relative', width: 'min(640px,100%)', height: '100%', display: 'flex', flexDirection: 'column', borderRadius: '20px 0 0 20px', boxShadow: 'var(--shadow-lg)', animation: 'sg-toast-in var(--dur-slow) var(--ease-out)' }}>
         <header style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '20px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
           <span className="sg-kpi__icon"><Icon name={isNew ? 'user-plus' : 'pencil'} size={18} /></span>
-          <div style={{ flex: 1, minWidth: 0 }}><h2 style={{ margin: 0, font: 'var(--type-h3)' }}>{isNew ? 'Thêm khách hàng' : 'Sửa thông tin khách hàng'}</h2><p style={{ margin: '2px 0 0', font: 'var(--type-sm)', color: 'var(--text-2)' }}>{isNew ? 'Chỉ Tên công ty và Điện thoại là bắt buộc.' : initial.id + ' · ' + initial.short}</p></div>
+          <div style={{ flex: 1, minWidth: 0 }}><h2 style={{ margin: 0, font: 'var(--type-h3)' }}>{isNew ? 'Thêm khách hàng' : 'Sửa thông tin khách hàng'}</h2><p style={{ margin: '2px 0 0', font: 'var(--type-sm)', color: 'var(--text-2)' }}>{isNew ? 'Chỉ Tên công ty và Điện thoại là bắt buộc.' : (apiOn ? customerDisplayCode(initial) : initial.id) + ' · ' + initial.short}</p></div>
           <IconButton icon="x" label="Đóng" size="sm" onClick={close} />
         </header>
         <div className="sg-scroll" style={{ flex: 1, overflow: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 28 }}>

@@ -38,12 +38,22 @@ export function formToCustomerInput(f) {
   return { ...rest, name: String(rest.name || '').trim(), short: String(rest.short || '').trim(), taxId: String(rest.taxId || '').trim() };
 }
 
+// Client-side search over the already loaded list (the list API has no server search wired here). Accent/case-insensitive, all words must match.
+const SEARCH_KEYS = ['name', 'short', 'code', 'taxId', 'owner', 'city', 'phone', 'email'];
+const fold = (v) => String(v == null ? '' : v).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+export function searchCustomers(items, q) {
+  const words = fold(q).split(/\s+/).filter(Boolean);
+  if (!words.length) return items;
+  return items.filter((c) => { const hay = SEARCH_KEYS.map((k) => fold(c[k])).join(' '); return words.every((w) => hay.includes(w)); });
+}
+
 export function createCustomerApiController(repo) {
   const idle = { status: 'idle', items: [], error: null };
-  let state = { mode: repo.mode, list: idle, submit: { status: 'idle', error: null } };
+  const noDetail = { status: 'idle', id: null, customer: null, error: null };
+  let state = { mode: repo.mode, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null } };
   const subs = new Set();
   const set = (patch) => { state = { ...state, ...patch }; subs.forEach((f) => f()); };
-  let seq = 0; let inflight = false;
+  let seq = 0; let inflight = false; let dseq = 0; let uinflight = false;
   return {
     mode: repo.mode,
     getState: () => state,
@@ -68,7 +78,28 @@ export function createCustomerApiController(repo) {
         return { ok: false, error };
       } finally { inflight = false; }
     },
-    clearSubmitError() { if (state.submit.error) set({ submit: { status: 'idle', error: null } }); },
+    // Detail by backend UUID. Stale responses (user moved to another id) are dropped; a failed load never shows the previous customer.
+    async loadDetail(id) {
+      const my = ++dseq;
+      set({ detail: { status: 'loading', id, customer: null, error: null }, update: { status: 'idle', error: null } });
+      try { const customer = await repo.get(id); if (my === dseq) set({ detail: { status: 'ready', id, customer, error: null } }); }
+      catch (e) { if (my === dseq) set({ detail: { status: 'error', id, customer: null, error: describeRepoError(e) } }); }
+    },
+    // Update with the optimistic-lock version of the loaded detail. Success replaces detail/list entry with the SERVER response; failure keeps old data (no fake save).
+    async update(id, input, version) {
+      if (uinflight) return { ok: false, duplicate: true };
+      uinflight = true; set({ update: { status: 'saving', error: null } });
+      try {
+        const customer = await repo.update(id, input, version);
+        const items = state.list.items.map((c) => (c.id === customer.id ? customer : c));
+        set({ detail: state.detail.id === customer.id ? { status: 'ready', id: customer.id, customer, error: null } : state.detail, list: { ...state.list, items }, update: { status: 'idle', error: null } });
+        return { ok: true, customer };
+      } catch (e) {
+        const error = describeRepoError(e); set({ update: { status: 'error', error } });
+        return { ok: false, error };
+      } finally { uinflight = false; }
+    },
+    clearSubmitError() { if (state.submit.error || state.update.error) set({ submit: { status: 'idle', error: null }, update: { status: 'idle', error: null } }); },
   };
 }
 
