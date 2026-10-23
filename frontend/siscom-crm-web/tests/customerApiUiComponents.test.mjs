@@ -52,7 +52,7 @@ async function mountForm(fetchImpl, { onClose = () => {}, onSaved = () => {} } =
   const ctl = createCustomerApiUi({ env: ON, fetchImpl });
   await ctl.loadDetail(ID);
   const toasts = []; const confirms = [];
-  const ui = { customerApi: ctl, toast: (t) => toasts.push(t), confirm: (c) => confirms.push(c), db: { customers: [] }, navigate: () => {} };
+  const ui = { can: () => true /* simulates a server-granted actor */, customerApi: ctl, toast: (t) => toasts.push(t), confirm: (c) => confirms.push(c), db: { customers: [] }, navigate: () => {} };
   const container = dom.doc.createElement('div'); dom.doc.body.appendChild(container);
   const root = createRoot(container);
   const initial = ctl.getState().detail.customer;
@@ -194,7 +194,7 @@ test('toàn bộ luồng 409 ở chế độ API không ghi localStorage', async
 // ---- CustomerApiDetail (page level): access-denied / not-found states, no retry bypass ----
 async function mountDetail(fetchImpl) {
   const ctl = createCustomerApiUi({ env: ON, fetchImpl }); const nav = [];
-  const ui = { customerApi: ctl, toast() {}, confirm() {}, db: { customers: [] }, navigate: (p) => nav.push(p) };
+  const ui = { can: () => true /* simulates a server-granted actor */, customerApi: ctl, toast() {}, confirm() {}, db: { customers: [] }, navigate: (p) => nav.push(p) };
   const container = dom.doc.createElement('div'); dom.doc.body.appendChild(container); const root = createRoot(container);
   await act(async () => { root.render(React.createElement(CustomerApiDetail, { ui, id: ID })); }); await flush();
   return { ctl, nav, container, unmount: () => act(async () => root.unmount()) };

@@ -76,7 +76,7 @@ function CustomerListPage({ ui }) {
           <Tabs value={view} onChange={setView} items={[{ id: 'table', label: 'Bảng', icon: 'list' }, { id: 'grid', label: 'Thẻ', icon: 'layout-grid' }]} />
           <Button variant="secondary" icon="upload" disabled={apiOn || !ui.can('customer.import')} onClick={() => setIo('import')}>Nhập</Button>
           <Button variant="secondary" icon="download" disabled={apiOn} onClick={() => setIo('export')}>Xuất</Button>
-          <Button icon="plus" disabled={!apiOn && !ui.can('customer.create')} onClick={() => setForm('new')}>Thêm khách hàng</Button>
+          <Button icon="plus" disabled={!ui.can('customer.create')} onClick={() => setForm('new')}>Thêm khách hàng</Button>
         </div>
       </div>
       <div className="sg-solid" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 14, flexWrap: 'wrap' }}>
