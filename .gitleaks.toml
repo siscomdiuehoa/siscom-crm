@@ -7,3 +7,24 @@ targetRules = ["generic-api-key"]
 paths = ['''backend/scripts/windows/run-search-bench\.ps1''']
 regexTarget = "match"
 regexes = ['''BENCH_API_PERF','BENCH_P23A_DIAG''']
+
+# Hai false positive generic-api-key trong lich su cac nhanh auth (khong nam tren main).
+# CI quet moi ref (fetch-depth 0 + gitleaks git mac dinh --all), nen cac commit nay bi quet
+# du khong thuoc PR dang chay. Moi allowlist ben duoi can DONG THOI dung duong dan VA dung dong
+# (condition = "AND"); cac tep/dong khac van duoc quet day du. Khong ghi gia tri vao cau hinh.
+# Owner duyet 2026-10-23 (CI-GITLEAKS-TWO-FINDINGS-TRIAGE).
+[[allowlists]]
+description = "Gia tri gia trong test: SECRET_PW dung de kiem tra khong ro ri log (a5 spec)"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''backend/src/common/auth/http/auth-security\.a5\.spec\.ts''']
+regexTarget = "line"
+regexes = ['''^\s*const SECRET_PW = ''']
+
+[[allowlists]]
+description = "Nhan khoa meta khong phai bi mat: app_meta key auth_bootstrap_done (tai lieu test SQL)"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''backend/docs/B1\.3_M1_CONSTRAINT_TESTS\.sql\.txt''']
+regexTarget = "line"
+regexes = ['''INSERT INTO app_meta \(key, value\) VALUES \('auth_bootstrap_done', ''']
