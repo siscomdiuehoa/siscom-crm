@@ -5,7 +5,7 @@ import { APP_DATA } from '../data/demoData.js';
 import { CustomerFormDrawer } from '../features/customers/CustomerForm.jsx';
 import { CustomerExportModal, CustomerImportModal } from '../features/customers/CustomerIO.jsx';
 import { useCustomerApiState } from '../features/customers/useCustomerApi.js';
-import { customerDisplayCode } from '../features/customers/customerApiUi.js';
+import { customerDisplayCode, searchCustomers } from '../features/customers/customerApiUi.js';
 import { ApiListStatus, ApiModeNote } from '../features/customers/ApiListStatus.jsx';
 
 function CustomerListPage({ ui }) {
@@ -26,7 +26,7 @@ function CustomerListPage({ ui }) {
   const [form, setForm] = React.useState(null);
   const [io, setIo] = React.useState(null);
   const rows = all.filter((c) => (tier === 'all' || c.tier === tier) && (industry === 'all' || c.industry === industry) && (owner === 'all' || c.owner === owner) && (city === 'all' || c.city === city));
-  const gridRows = q.trim() ? rows.filter((c) => [c.name, c.short, c.id, c.taxId, c.owner].some((v) => U.norm(v).includes(U.norm(q.trim())))) : rows;
+  const gridRows = apiOn ? searchCustomers(rows, q) : q.trim() ? rows.filter((c) => [c.name, c.short, c.id, c.taxId, c.owner].some((v) => U.norm(v).includes(U.norm(q.trim())))) : rows;
   const nFilters = [industry, owner, city].filter((x) => x !== 'all').length;
   const clear = () => { setIndustry('all'); setOwner('all'); setCity('all'); setTier('all'); };
   const cnt = (t) => all.filter((c) => c.tier === t).length;
@@ -96,13 +96,13 @@ function CustomerListPage({ ui }) {
       {apiOn && apiS.list.status !== 'ready' ? <ApiListStatus s={apiS.list} onRetry={() => apiCtl.load()} /> : view === 'table' ? (
         <DataTable key={ver + tier + industry + owner + city} itemLabel="khách hàng" selectable onSelectionChange={setSel} pageSize={10} rows={rows} columns={cols}
           searchKeys={['name', 'short', 'id', 'code', 'taxId', 'owner', 'city', 'phone', 'email']} searchPlaceholder="Tìm tên, mã KH, MST, SĐT…"
-          filter={{ key: 'status', options: D.STATUSES }} onRowClick={apiOn ? undefined : (r) => ui.navigate('/customers/' + r.id)} emptyTitle="Chưa có khách hàng" />
+          filter={{ key: 'status', options: D.STATUSES }} onRowClick={(r) => ui.navigate('/customers/' + r.id)} emptyTitle="Chưa có khách hàng" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ maxWidth: 360 }}><Input icon="search" placeholder="Tìm tên, mã KH, MST…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           {gridRows.length ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(100%,320px),1fr))', gap: 16 }}>
-              {gridRows.map((c) => { const ct = ui.db.contacts.find((x) => x.customerId === c.id && x.primary); return <CustomerCard key={c.id} variant="solid" name={c.name} code={codeOf(c)} industry={c.industry} tier={c.tier} status={c.status === 'Ngừng giao dịch' ? 'Ngừng' : c.status} contact={ct} address={c.city} revenue={fmtRev(c.revenue)} opportunities={APP_DATA.opportunities.filter((o) => o.customerId === c.id).length} lastActivity={U.dmy(c.createdAt)} owner={c.owner} tags={c.tags} onClick={apiOn ? undefined : () => ui.navigate('/customers/' + c.id)} />; })}
+              {gridRows.map((c) => { const ct = ui.db.contacts.find((x) => x.customerId === c.id && x.primary); return <CustomerCard key={c.id} variant="solid" name={c.name} code={codeOf(c)} industry={c.industry} tier={c.tier} status={c.status === 'Ngừng giao dịch' ? 'Ngừng' : c.status} contact={ct} address={c.city} revenue={fmtRev(c.revenue)} opportunities={APP_DATA.opportunities.filter((o) => o.customerId === c.id).length} lastActivity={U.dmy(c.createdAt)} owner={c.owner} tags={c.tags} onClick={() => ui.navigate('/customers/' + c.id)} />; })}
             </div>
           ) : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description="Thử từ khoá khác hoặc bỏ bớt bộ lọc." action={<Button variant="secondary" onClick={() => { clear(); setQ(''); }}>Xoá bộ lọc</Button>} /></div>}
         </div>

@@ -5,7 +5,7 @@ import { Button, Icon } from '../../ds/index.js';
 export function ApiModeNote() {
   return (
     <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, font: 'var(--type-caption)', color: 'var(--text-2)' }}>
-      <Icon name="server" size={14} />Danh sách đang lấy từ máy chủ (API), không phải dữ liệu demo. Sửa, xoá, nhập, xuất và hồ sơ chi tiết chưa hỗ trợ ở chế độ này.
+      <Icon name="server" size={14} />Danh sách đang lấy từ máy chủ (API), không phải dữ liệu demo. Xem chi tiết và sửa thông tin được hỗ trợ; xoá, nhập, xuất chưa hỗ trợ ở chế độ này. Tìm kiếm chỉ áp dụng trên danh sách đã tải.
     </div>
   );
 }
