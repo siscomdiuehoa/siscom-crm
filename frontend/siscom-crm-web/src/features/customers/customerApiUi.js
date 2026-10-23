@@ -51,6 +51,33 @@ export function formToCustomerInput(f) {
   return { ...rest, name: String(rest.name || '').trim(), short: String(rest.short || '').trim(), taxId: String(rest.taxId || '').trim() };
 }
 
+// API mode only: what a lookup <Select> may show/do, from controller state `lookups` ({ status, maps }). Only server choices are ever offered (no demo list, no invented value).
+//   -> { options: [label], disabled, hint, error }. An unknown non-empty current value is a controlled validation error, not silently accepted.
+export function lookupFieldView(lookups, field, value) {
+  const st = (lookups && lookups.status) || 'idle';
+  if (st === 'idle' || st === 'loading') return { options: [], disabled: true, hint: 'Đang tải danh mục từ máy chủ…', error: '' };
+  if (st === 'error') return { options: [], disabled: true, hint: 'Chưa tải được danh mục từ máy chủ.', error: '' };
+  const m = lookups.maps && lookups.maps[field];
+  const options = m ? m.options : [];
+  const v = String(value == null ? '' : value).trim();
+  if (!options.length) return { options: [], disabled: true, hint: 'Máy chủ chưa có danh mục này.', error: v ? 'Giá trị "' + v + '" không có trong danh mục máy chủ.' : '' };
+  return { options, disabled: false, hint: '', error: v && !options.includes(v) ? 'Giá trị "' + v + '" không có trong danh mục máy chủ.' : '' };
+}
+
+export const LOOKUP_UI_FIELDS = ['industry', 'source', 'city', 'tier', 'status'];
+
+// Errors for every non-empty lookup field whose label is not a server choice (or whose choices are not loaded). Empty = fine (server defaults / cleared).
+export function lookupFormErrors(lookups, f) {
+  const errs = {};
+  for (const k of LOOKUP_UI_FIELDS) {
+    if (!String((f && f[k]) == null ? '' : f[k]).trim()) continue;
+    const st = (lookups && lookups.status) || 'idle';
+    const v = lookupFieldView(lookups, k, f[k]);
+    if (v.error) errs[k] = v.error; else if (st !== 'ready') errs[k] = 'Danh mục máy chủ chưa tải xong.';
+  }
+  return errs;
+}
+
 // Client-side filter over the already loaded PAGE only — never a global search (global search = server `search` param, see buildListParams). Accent/case-insensitive, all words must match.
 const SEARCH_KEYS = ['name', 'short', 'code', 'taxId', 'owner', 'city', 'phone', 'email'];
 const fold = (v) => String(v == null ? '' : v).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
@@ -93,14 +120,26 @@ export function diffAgainstServer(draft, server) {
 export function createCustomerApiController(repo) {
   const idle = { status: 'idle', items: [], error: null, paging: null, params: null };
   const noDetail = { status: 'idle', id: null, customer: null, error: null };
-  let state = { mode: repo.mode, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null, conflict: null } };
+  const noLookups = { status: 'idle', maps: null, error: null };
+  let state = { mode: repo.mode, lookups: noLookups, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null, conflict: null } };
   const subs = new Set();
   const set = (patch) => { state = { ...state, ...patch }; subs.forEach((f) => f()); };
-  let seq = 0; let inflight = false; let dseq = 0; let uinflight = false; let cseq = 0;
+  let seq = 0; let lseq = 0; let inflight = false; let dseq = 0; let uinflight = false; let cseq = 0;
   return {
     mode: repo.mode,
     getState: () => state,
     subscribe: (f) => { subs.add(f); return () => subs.delete(f); },
+    // Canonical GET /lookups choices for the form. Loaded once and cached; `force` (retry) refetches. Failure leaves maps null (selects stay disabled, no demo choices).
+    async loadLookups(force) {
+      const st = state.lookups.status;
+      if (st === 'loading' || (st === 'ready' && !force)) return;
+      const my = ++lseq;
+      set({ lookups: { status: 'loading', maps: null, error: null } });
+      try {
+        const maps = await repo.lookups();
+        if (my === lseq) set({ lookups: maps ? { status: 'ready', maps, error: null } : noLookups });
+      } catch (e) { if (my === lseq) set({ lookups: { status: 'error', maps: null, error: describeRepoError(e) } }); }
+    },
     // params = { page, pageSize, search } normalised by buildListParams. They stay in state (also on error) so retry/next/prev reuse them. Stale responses are dropped.
     async load(params) {
       const my = ++seq; const req = buildListParams(params);
