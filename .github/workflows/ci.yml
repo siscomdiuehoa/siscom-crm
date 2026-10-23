@@ -78,6 +78,9 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      # Test offline node:test (khong mang/DB/bi mat). Khong co tep *.test.* thi 0 test va van dat.
+      - name: Unit test frontend (node --test)
+        run: node --test
 
   secret-scan:
     name: Quet bi mat (gitleaks)
