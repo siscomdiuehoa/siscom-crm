@@ -40,6 +40,7 @@ export default function CustomerApiDetail({ ui, id }) {
     );
   }
   const c = d.customer;
+  const canEdit = typeof ui.can === 'function' && !!ui.can('customer.update', c); // fail-closed: no `can` / no server grant => no edit
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {back}
@@ -52,7 +53,7 @@ export default function CustomerApiDetail({ ui, id }) {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button variant="secondary" icon="refresh-cw" onClick={load}>Tải lại</Button>
-          <Button icon="pencil" onClick={() => setEdit(true)}>Sửa thông tin</Button>
+          <Button icon="pencil" disabled={!canEdit} onClick={() => canEdit && setEdit(true)}>Sửa thông tin</Button>
         </div>
       </section>
       <section className="sg-card sg-solid" style={{ padding: '16px 20px 8px' }}>
@@ -68,7 +69,7 @@ export default function CustomerApiDetail({ ui, id }) {
         {c.note ? <InfoRow icon="sticky-note" label="Ghi chú">{c.note}</InfoRow> : null}
         <div style={{ height: 8 }} />
       </section>
-      <CustomerFormDrawer open={edit} initial={c} ui={ui} onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />
+      <CustomerFormDrawer open={edit && canEdit} initial={c} ui={ui} onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />
     </div>
   );
 }

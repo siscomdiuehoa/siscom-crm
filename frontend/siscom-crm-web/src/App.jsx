@@ -5,6 +5,7 @@ import { APP_DATA } from './data/demoData.js';
 import logo from './assets/logo-siscom.png';
 import { loadDatabase, saveDatabase, seedV2, makeBackup, parseBackupFile, storage, DB_KEY, Ops, RepoError } from './data/repository/index.js';
 import { DEMO_USERS, ROLES, can as canDo } from './auth/permissions.js';
+import { createApiModeCan } from './auth/apiModePermissions.js';
 import DataTools from './features/data/DataTools.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
 import CustomerListPage from './pages/CustomerList.jsx';
@@ -19,6 +20,7 @@ const CUSTOMER_API = createCustomerApiUi({ env: import.meta.env });
 // API mode never loads, migrates, backs up or saves the localStorage demo database; it starts from an EMPTY in-memory shape (nothing demo can be rendered).
 const API_ON = !!CUSTOMER_API;
 const EMPTY_DB = { customers: [], contacts: [], interactions: [], quotes: [], contracts: [], projects: [], opportunities: [], overdue: [], approvals: [], contractAlerts: [] };
+const API_CAN = createApiModeCan(null); // no server actor/permission set exists yet -> every sensitive action is denied in API mode (UI gate only; backend enforces)
 const NAV = API_ON ? SISCOM_NAV.map(({ badge, ...rest }) => rest) : SISCOM_NAV; // static badges (e.g. 8 opportunities) are demo counts
 const STORE = 'siscom-crm-demo-v1';
 // Fixed-state mode for QA/screenshots: ?route=/dashboard&theme=dark (no localStorage writes). Normal use: no query string.
@@ -130,7 +132,7 @@ function SiscomCrmApp() {
     decideApproval: (code, ok) => commit((d, x) => Ops.decideApproval(d, code, ok, x)),
   };
   const view = React.useMemo(() => ({ ...db, customers: db.customers.filter((c) => !c.deletedAt) }), [db]);
-  const ui = { customerApi: CUSTOMER_API, db: view, api, navigate, toast, confirm, mobile, user, can: (a, rec) => canDo(user, a, rec), openChat: () => setChat(true) };
+  const ui = { customerApi: CUSTOMER_API, db: view, api, navigate, toast, confirm, mobile, user, can: API_ON ? API_CAN : (a, rec) => canDo(user, a, rec), openChat: () => setChat(true) };
 
   const cust = route.id ? db.customers.find((c) => c.id === route.id) : null;
   const navItem = NAV.find((n) => n.id === route.page) || {};
