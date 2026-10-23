@@ -6,7 +6,7 @@ import { CustomerFormDrawer } from '../features/customers/CustomerForm.jsx';
 import { CustomerExportModal, CustomerImportModal } from '../features/customers/CustomerIO.jsx';
 import { useCustomerApiState } from '../features/customers/useCustomerApi.js';
 import { customerDisplayCode, searchCustomers } from '../features/customers/customerApiUi.js';
-import { ApiListStatus, ApiModeNote } from '../features/customers/ApiListStatus.jsx';
+import { ApiListStatus, ApiModeNote, ApiSearchBar, ApiPager } from '../features/customers/ApiListStatus.jsx';
 
 function CustomerListPage({ ui }) {
   const D = APP_DATA;
@@ -64,9 +64,9 @@ function CustomerListPage({ ui }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
-        <KpiCard label="Tổng khách hàng" value={String(all.length)} unit="khách hàng" icon="users" />
-        <KpiCard label="Đang giao dịch" value={String(all.filter((c) => c.status === 'Đang giao dịch').length)} unit="khách hàng" icon="handshake" tone="success" />
-        <KpiCard label="Tiềm năng mới (30 ngày)" value={String(all.filter((c) => c.createdAt >= '2026-09-10').length)} unit="khách hàng" icon="user-plus" tone="cyan" />
+        <KpiCard label="Tổng khách hàng" value={String(apiOn && apiS.list.paging ? apiS.list.paging.total : all.length)} unit={apiOn ? "khách hàng (máy chủ)" : "khách hàng"} icon="users" />
+        <KpiCard label="Đang giao dịch" value={String(all.filter((c) => c.status === 'Đang giao dịch').length)} unit={apiOn ? "khách hàng (trang này)" : "khách hàng"} icon="handshake" tone="success" />
+        <KpiCard label="Tiềm năng mới (30 ngày)" value={String(all.filter((c) => c.createdAt >= '2026-09-10').length)} unit={apiOn ? "khách hàng (trang này)" : "khách hàng"} icon="user-plus" tone="cyan" />
         <KpiCard label="Doanh thu luỹ kế" value={U.ty(all.reduce((a, c) => a + (c.revenue || 0), 0))} unit="tỷ VNĐ" icon="wallet" tone="navy" />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -93,9 +93,10 @@ function CustomerListPage({ ui }) {
         </>) : null}
       </div>
       {apiOn ? <ApiModeNote /> : null}
-      {apiOn && apiS.list.status !== 'ready' ? <ApiListStatus s={apiS.list} onRetry={() => apiCtl.load()} /> : view === 'table' ? (
-        <DataTable key={ver + tier + industry + owner + city} itemLabel="khách hàng" selectable onSelectionChange={setSel} pageSize={10} rows={rows} columns={cols}
-          searchKeys={['name', 'short', 'id', 'code', 'taxId', 'owner', 'city', 'phone', 'email']} searchPlaceholder="Tìm tên, mã KH, MST, SĐT…"
+      {apiOn ? <ApiSearchBar key={(apiS.list.params && apiS.list.params.search) || ''} value={(apiS.list.params && apiS.list.params.search) || ''} busy={apiS.list.status === 'loading'} onSearch={(t) => apiCtl.search(t)} /> : null}
+      {apiOn && apiS.list.status !== 'ready' ? <ApiListStatus s={apiS.list} onRetry={() => apiCtl.reload()} /> : view === 'table' ? (
+        <DataTable key={ver + tier + industry + owner + city} itemLabel={apiOn ? 'khách hàng (trang này)' : 'khách hàng'} selectable onSelectionChange={setSel} pageSize={apiOn ? 100 : 10} rows={rows} columns={cols}
+          searchable={!apiOn} searchKeys={['name', 'short', 'id', 'code', 'taxId', 'owner', 'city', 'phone', 'email']} searchPlaceholder="Tìm tên, mã KH, MST, SĐT…"
           filter={{ key: 'status', options: D.STATUSES }} onRowClick={(r) => ui.navigate('/customers/' + r.id)} emptyTitle="Chưa có khách hàng" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -107,6 +108,7 @@ function CustomerListPage({ ui }) {
           ) : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description="Thử từ khoá khác hoặc bỏ bớt bộ lọc." action={<Button variant="secondary" onClick={() => { clear(); setQ(''); }}>Xoá bộ lọc</Button>} /></div>}
         </div>
       )}
+      {apiOn && apiS.list.status === 'ready' ? <ApiPager paging={apiS.list.paging} busy={false} onPrev={() => apiCtl.prevPage()} onNext={() => apiCtl.nextPage()} /> : null}
       <CustomerFormDrawer open={!!form} initial={form === 'new' ? null : form} ui={ui} onClose={() => setForm(null)} onSaved={(c) => { const wasNew = form === 'new'; setForm(null); if (wasNew && !apiOn) ui.navigate('/customers/' + c.id); }} />
       <CustomerExportModal open={io === 'export'} onClose={() => setIo(null)} rows={rows} selected={sel} ui={ui} />
       <CustomerImportModal open={io === 'import'} onClose={() => setIo(null)} ui={ui} />

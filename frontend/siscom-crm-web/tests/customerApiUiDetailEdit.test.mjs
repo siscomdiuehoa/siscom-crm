@@ -12,7 +12,7 @@ const apiCust = (over = {}) => ({ id: ID, code: 'KH-00007', name: 'Công ty A', 
 const res = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const mockFetch = (handler) => { const calls = []; const f = async (url, init) => { calls.push({ url, init }); return handler(url, init, calls); }; f.calls = calls; return f; };
 const deferred = () => { let resolve; const promise = new Promise((a) => { resolve = a; }); return { promise, resolve }; };
-const okServer = (over) => mockFetch((url, init) => (init.method === 'PATCH' ? res(200, { data: apiCust({ version: 3, ...over }) }) : url.endsWith('/customers') ? res(200, { data: { items: [apiCust()], total: 1 } }) : res(200, { data: apiCust() })));
+const okServer = (over) => mockFetch((url, init) => (init.method === 'PATCH' ? res(200, { data: apiCust({ version: 3, ...over }) }) : new URL(url).pathname.endsWith('/customers') ? res(200, { data: { items: [apiCust()], total: 1 } }) : res(200, { data: apiCust() })));
 
 test('cờ TẮT: không có controller, không gọi fetch (đường localStorage giữ nguyên)', () => {
   const f = mockFetch(() => { throw new Error('không được gọi'); });
@@ -95,7 +95,7 @@ test('update: thiếu tên/điện thoại/version bị chặn, không gọi PAT
 test('update lỗi 401/403/404/409/network: báo lỗi rõ, KHÔNG đổi detail/list, không ghi nhận lưu giả', async () => {
   for (const [h, kind] of [[() => res(401, { error: { code: 'UNAUTHENTICATED', message: 'x' } }), 'unauthenticated'], [() => res(403, { error: { code: 'FORBIDDEN', message: 'x' } }), 'forbidden'],
     [() => res(404, { error: { code: 'NOT_FOUND', message: 'x' } }), 'not_found'], [() => res(409, { error: { code: 'CONFLICT', message: 'x' } }), 'conflict'], [() => { throw new TypeError('Failed to fetch'); }, 'network']]) {
-    const f = mockFetch((url, init) => (init.method === 'PATCH' ? h() : url.endsWith('/customers') ? res(200, { data: { items: [apiCust()], total: 1 } }) : res(200, { data: apiCust() })));
+    const f = mockFetch((url, init) => (init.method === 'PATCH' ? h() : new URL(url).pathname.endsWith('/customers') ? res(200, { data: { items: [apiCust()], total: 1 } }) : res(200, { data: apiCust() })));
     const c = createCustomerApiUi({ env: ON, fetchImpl: f });
     await c.load(); await c.loadDetail(ID);
     const r = await c.update(ID, { name: 'Tên mới', phone: '0909999999' }, 2);

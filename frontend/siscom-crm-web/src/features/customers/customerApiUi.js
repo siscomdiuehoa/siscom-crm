@@ -38,7 +38,7 @@ export function formToCustomerInput(f) {
   return { ...rest, name: String(rest.name || '').trim(), short: String(rest.short || '').trim(), taxId: String(rest.taxId || '').trim() };
 }
 
-// Client-side search over the already loaded list (the list API has no server search wired here). Accent/case-insensitive, all words must match.
+// Client-side filter over the already loaded PAGE only — never a global search (global search = server `search` param, see buildListParams). Accent/case-insensitive, all words must match.
 const SEARCH_KEYS = ['name', 'short', 'code', 'taxId', 'owner', 'city', 'phone', 'email'];
 const fold = (v) => String(v == null ? '' : v).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
 export function searchCustomers(items, q) {
@@ -47,8 +47,30 @@ export function searchCustomers(items, q) {
   return items.filter((c) => { const hay = SEARCH_KEYS.map((k) => fold(c[k])).join(' '); return words.every((w) => hay.includes(w)); });
 }
 
+// ---- Server paging + server search (contract: GET /customers?page&pageSize&search, see backend QueryCustomersDto) ----
+// page >= 1 integer; pageSize 1..100 (default 20); search is trimmed and the server rejects < 2 chars (400), so a shorter query is simply NOT sent.
+// The server also rejects page * pageSize > 100000 (400); that error is surfaced as-is, never hidden. Response: { items, page, pageSize, total, totalPages }.
+export const LIST_PAGE_SIZE = 20; export const LIST_PAGE_SIZE_MAX = 100; export const SEARCH_MIN_CHARS = 2;
+const toInt = (v, d, lo, hi) => { const n = Math.trunc(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+export function buildListParams({ page, pageSize, search } = {}) {
+  const out = { page: toInt(page, 1, 1, Number.MAX_SAFE_INTEGER), pageSize: toInt(pageSize, LIST_PAGE_SIZE, 1, LIST_PAGE_SIZE_MAX) };
+  const q = String(search == null ? '' : search).trim();
+  if (q.length >= SEARCH_MIN_CHARS) out.search = q.slice(0, 100);
+  return out;
+}
+// Server list response -> paging info for the pager. A missing/invalid total is never invented: null hides the pager.
+export function normalizePaging(d, requested) {
+  const num = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+  const total = num(d && d.total);
+  if (total === null) return null;
+  const page = num(d && d.page) || (requested && requested.page) || 1;
+  const pageSize = num(d && d.pageSize) || (requested && requested.pageSize) || LIST_PAGE_SIZE;
+  const totalPages = Math.max(1, num(d && d.totalPages) || Math.ceil(total / pageSize));
+  return { page, pageSize, total, totalPages, hasPrev: page > 1, hasNext: page < totalPages, search: (requested && requested.search) || '' };
+}
+
 export function createCustomerApiController(repo) {
-  const idle = { status: 'idle', items: [], error: null };
+  const idle = { status: 'idle', items: [], error: null, paging: null, params: null };
   const noDetail = { status: 'idle', id: null, customer: null, error: null };
   let state = { mode: repo.mode, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null } };
   const subs = new Set();
@@ -58,12 +80,19 @@ export function createCustomerApiController(repo) {
     mode: repo.mode,
     getState: () => state,
     subscribe: (f) => { subs.add(f); return () => subs.delete(f); },
+    // params = { page, pageSize, search } normalised by buildListParams. They stay in state (also on error) so retry/next/prev reuse them. Stale responses are dropped.
     async load(params) {
-      const my = ++seq;
-      set({ list: { status: 'loading', items: [], error: null } });
-      try { const r = await repo.list(params); if (my === seq) set({ list: { status: 'ready', items: r.items, error: null } }); }
-      catch (e) { if (my === seq) set({ list: { status: 'error', items: [], error: describeRepoError(e) } }); }
+      const my = ++seq; const req = buildListParams(params);
+      set({ list: { status: 'loading', items: [], error: null, paging: null, params: req } });
+      try { const r = await repo.list(req); if (my === seq) set({ list: { status: 'ready', items: r.items, error: null, paging: normalizePaging(r, req), params: req } }); }
+      catch (e) { if (my === seq) set({ list: { status: 'error', items: [], error: describeRepoError(e), paging: null, params: req } }); }
     },
+    reload() { return this.load(state.list.params || undefined); },
+    goToPage(page) { return this.load({ ...(state.list.params || {}), page }); },
+    nextPage() { const g = state.list.paging; return g && g.hasNext ? this.goToPage(g.page + 1) : Promise.resolve(); },
+    prevPage() { const g = state.list.paging; return g && g.hasPrev ? this.goToPage(g.page - 1) : Promise.resolve(); },
+    // Server-side search (>= 2 chars after trim; shorter/empty = no search param). Always restarts at page 1.
+    search(text) { return this.load({ pageSize: (state.list.params || {}).pageSize, search: text, page: 1 }); },
     // Duplicate submission is rejected synchronously: repo.create is called at most once while a save is in flight.
     async submit(input) {
       if (inflight) return { ok: false, duplicate: true };
@@ -71,7 +100,7 @@ export function createCustomerApiController(repo) {
       try {
         const customer = await repo.create(input);
         const items = [customer, ...state.list.items.filter((c) => c.id !== customer.id)];
-        set({ list: { ...state.list, items, status: state.list.status === 'idle' ? 'idle' : 'ready' }, submit: { status: 'idle', error: null } });
+        set({ list: { ...state.list, items, paging: state.list.paging ? { ...state.list.paging, total: state.list.paging.total + 1 } : null, status: state.list.status === 'idle' ? 'idle' : 'ready' }, submit: { status: 'idle', error: null } });
         return { ok: true, customer };
       } catch (e) {
         const error = describeRepoError(e); set({ submit: { status: 'error', error } });
