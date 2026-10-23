@@ -30,7 +30,7 @@ test('UNAVAILABLE: vô hiệu hóa đăng nhập thật, có thông báo, không
 
 test('validation bắt buộc: danh tính sai/ trống và mật khẩu trống', async () => {
   const v = deriveLoginView({ status: 'IDLE', identifier: '', password: '', touched: both });
-  assert.equal(v.identifierError, LOGIN_ERRORS.IDENTIFIER_INVALID);
+  assert.match(v.identifierError, /Vui lòng nhập email hoặc mã nhân viên/);
   assert.equal(v.passwordError, LOGIN_ERRORS.PASSWORD_REQUIRED);
   assert.equal(v.submitDisabled, true);
   assert.equal(deriveLoginView({ status: 'IDLE', identifier: '', password: '', touched: {} }).identifierError, null); // chưa chạm => chưa báo
