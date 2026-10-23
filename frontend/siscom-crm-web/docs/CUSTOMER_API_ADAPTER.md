@@ -36,3 +36,13 @@ node --test tests/customerAdapter.test.mjs
 
 ## Lát nhỏ kế tiếp
 Nối `createCustomerApi` vào repository **sau cờ** (đọc danh sách + tạo khách qua API khi cờ bật, mặc định vẫn localStorage), kèm test với fetch giả. Chỉ chạy thật được khi có route đăng nhập (stack auth chưa hợp `main`).
+
+## Repository sau cờ (list + create) — `src/data/api/customerRepository.js`
+`createCustomerRepository({ env, fetchImpl, local })` → `{ mode, list(params), create(ui) }`.
+- **Cờ TẮT (mặc định):** `mode='local'`, chuyển nguyên cho `local.list/create` (demo localStorage); **không bao giờ gọi fetch**.
+- **Cờ BẬT + có `VITE_CRM_API_BASE`:** `mode='api'`; list = `GET /customers`; create = kiểm tra tên + SĐT → (nếu có trường danh mục) `GET /lookups` → `POST /customers` (không gửi owner). Mọi lỗi ném `CustomerRepoError` với `kind`: `validation | bad_request | unauthenticated | forbidden | conflict | server | http | network | malformed | config`. **Không rơi về localStorage** với bất kỳ lỗi nào.
+- **Cờ BẬT thiếu base URL:** `mode='misconfigured'`, mọi thao tác ném `config` (không dùng local thay thế).
+- Test: `node --test tests/customerRepository.test.mjs` (fetch giả, 14 test).
+
+### Điểm nối UI kế tiếp (chưa làm, có chủ đích)
+`App.jsx` hiện đồng bộ và giữ cả DB trong state (`commit(Ops…)` → `saveDatabase`). Nối API cần chuyển list/create sang bất đồng bộ (trạng thái loading/lỗi, hiển thị `CustomerRepoError.message`/`field` trong `CustomerForm`) và **không** ghi localStorage khi mode `api`. `local` của repository sẽ là `{ list: () => db.customers, create: (c, ct) => commit(Ops.saveCustomer…) }`. Chỉ làm khi đã có đăng nhập (hiện backend `main` trả 401).
