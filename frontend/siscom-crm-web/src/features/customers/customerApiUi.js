@@ -8,7 +8,7 @@ const BACKEND_TO_UI = { name: 'name', phone: 'phone', shortName: 'short', taxId:
 
 const TITLES = {
   validation: 'Dữ liệu chưa hợp lệ', bad_request: 'Máy chủ từ chối dữ liệu', unauthenticated: 'Chưa đăng nhập', forbidden: 'Không đủ quyền',
-  conflict: 'Xung đột dữ liệu', network: 'Lỗi kết nối', server: 'Lỗi máy chủ', http: 'Yêu cầu thất bại', malformed: 'Phản hồi không hợp lệ',
+  conflict: 'Xung đột dữ liệu', not_found: 'Không tìm thấy khách hàng', network: 'Lỗi kết nối', server: 'Lỗi máy chủ', http: 'Yêu cầu thất bại', malformed: 'Phản hồi không hợp lệ',
   config: 'Cấu hình chưa đúng', disabled: 'Chế độ API đang tắt', unknown: 'Lỗi không xác định',
 };
 
@@ -18,6 +18,18 @@ function fieldFromDetail(d) {
   return { field: BACKEND_TO_UI[first] || null, text };
 }
 
+// Next step for the user per error kind. Unsaved form fields always stay in memory; nothing is retried automatically.
+const HINTS = {
+  unauthenticated: 'Không tự động thử lại. Hãy đăng nhập lại; nội dung bạn đã nhập vẫn được giữ trên biểu mẫu.',
+  forbidden: 'Không tự động thử lại. Hãy liên hệ quản trị để được cấp quyền; nội dung bạn đã nhập vẫn được giữ trên biểu mẫu.',
+  not_found: 'Khách hàng có thể đã bị xoá hoặc bạn không còn quyền truy cập. Nội dung bạn đã nhập vẫn được giữ; hãy quay lại danh sách để kiểm tra.',
+  network: 'Kiểm tra kết nối mạng rồi bấm Lưu lại. Nội dung bạn đã nhập vẫn được giữ.',
+  server: 'Máy chủ đang lỗi. Nội dung bạn đã nhập vẫn được giữ; hãy thử lại sau ít phút.',
+  validation: 'Sửa các trường được đánh dấu rồi lưu lại.',
+  bad_request: 'Sửa các trường được đánh dấu rồi lưu lại.',
+};
+export const VERSION_CONFLICT_CODE = 'CUSTOMER_VERSION_CONFLICT';
+
 // Any thrown value -> { kind, title, message, fieldErrors: { uiField: text }, extra: [text of details we could not attach to a field], retryable }
 export function describeRepoError(err) {
   const e = err instanceof CustomerRepoError ? err : new CustomerRepoError('unknown', 'Lỗi không xác định. Dữ liệu không được lưu.');
@@ -26,7 +38,8 @@ export function describeRepoError(err) {
   if (e.kind === 'bad_request' && Array.isArray(e.details)) {
     for (const d of e.details) { const r = fieldFromDetail(d); if (r.field && !fieldErrors[r.field]) fieldErrors[r.field] = r.text; else if (r.text) extra.push(r.text); }
   }
-  return { kind: e.kind, title: TITLES[e.kind] || TITLES.unknown, message: e.message, status: e.status, code: e.code, fieldErrors, extra, retryable: ['network', 'server', 'http', 'malformed'].includes(e.kind) };
+  return { kind: e.kind, title: TITLES[e.kind] || TITLES.unknown, message: e.message, status: e.status, code: e.code, fieldErrors, extra, retryable: ['network', 'server', 'http', 'malformed'].includes(e.kind), hint: HINTS[e.kind] || '',
+    staleVersion: e.kind === 'conflict' && e.code === VERSION_CONFLICT_CODE, denied: e.kind === 'unauthenticated' || e.kind === 'forbidden' };
 }
 
 // Business code shown to people. The backend UUID (`id`) is never displayed; a record without code shows a dash.
@@ -69,13 +82,21 @@ export function normalizePaging(d, requested) {
   return { page, pageSize, total, totalPages, hasPrev: page > 1, hasNext: page < totalPages, search: (requested && requested.search) || '' };
 }
 
+// Form fields a conflict can differ on: UI field -> label. Used to show the user what the server copy holds before they decide.
+export const CONFLICT_FIELDS = { name: 'Tên công ty', short: 'Tên viết tắt', taxId: 'Mã số thuế', industry: 'Ngành nghề', source: 'Nguồn', address: 'Địa chỉ', city: 'Tỉnh / Thành phố', phone: 'Điện thoại', email: 'Email', website: 'Website', tier: 'Phân hạng', status: 'Trạng thái', note: 'Ghi chú' };
+// Fields where the user's unsaved draft differs from the fresh server copy: [{ field, label, mine, server }].
+export function diffAgainstServer(draft, server) {
+  const v = (x) => String(x == null ? '' : x).trim();
+  return Object.entries(CONFLICT_FIELDS).filter(([k]) => v(draft && draft[k]) !== v(server && server[k])).map(([k, label]) => ({ field: k, label, mine: v(draft && draft[k]), server: v(server && server[k]) }));
+}
+
 export function createCustomerApiController(repo) {
   const idle = { status: 'idle', items: [], error: null, paging: null, params: null };
   const noDetail = { status: 'idle', id: null, customer: null, error: null };
-  let state = { mode: repo.mode, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null } };
+  let state = { mode: repo.mode, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null, conflict: null } };
   const subs = new Set();
   const set = (patch) => { state = { ...state, ...patch }; subs.forEach((f) => f()); };
-  let seq = 0; let inflight = false; let dseq = 0; let uinflight = false;
+  let seq = 0; let inflight = false; let dseq = 0; let uinflight = false; let cseq = 0;
   return {
     mode: repo.mode,
     getState: () => state,
@@ -110,25 +131,48 @@ export function createCustomerApiController(repo) {
     // Detail by backend UUID. Stale responses (user moved to another id) are dropped; a failed load never shows the previous customer.
     async loadDetail(id) {
       const my = ++dseq;
-      set({ detail: { status: 'loading', id, customer: null, error: null }, update: { status: 'idle', error: null } });
+      ++cseq; set({ detail: { status: 'loading', id, customer: null, error: null }, update: { status: 'idle', error: null, conflict: null } });
       try { const customer = await repo.get(id); if (my === dseq) set({ detail: { status: 'ready', id, customer, error: null } }); }
       catch (e) { if (my === dseq) set({ detail: { status: 'error', id, customer: null, error: describeRepoError(e) } }); }
     },
     // Update with the optimistic-lock version of the loaded detail. Success replaces detail/list entry with the SERVER response; failure keeps old data (no fake save).
     async update(id, input, version) {
       if (uinflight) return { ok: false, duplicate: true };
-      uinflight = true; set({ update: { status: 'saving', error: null } });
+      uinflight = true; ++cseq; set({ update: { status: 'saving', error: null, conflict: null } });
       try {
         const customer = await repo.update(id, input, version);
         const items = state.list.items.map((c) => (c.id === customer.id ? customer : c));
-        set({ detail: state.detail.id === customer.id ? { status: 'ready', id: customer.id, customer, error: null } : state.detail, list: { ...state.list, items }, update: { status: 'idle', error: null } });
+        set({ detail: state.detail.id === customer.id ? { status: 'ready', id: customer.id, customer, error: null } : state.detail, list: { ...state.list, items }, update: { status: 'idle', error: null, conflict: null } });
         return { ok: true, customer };
       } catch (e) {
-        const error = describeRepoError(e); set({ update: { status: 'error', error } });
+        const error = describeRepoError(e); set({ update: { status: 'error', error, conflict: error.staleVersion ? { status: 'idle', server: null, error: null } : null } });
         return { ok: false, error };
       } finally { uinflight = false; }
     },
-    clearSubmitError() { if (state.submit.error || state.update.error) set({ submit: { status: 'idle', error: null }, update: { status: 'idle', error: null } }); },
+    // Stale version (409 CUSTOMER_VERSION_CONFLICT): fetch the current server copy WITHOUT touching detail/list, so the open form (unsaved draft) is not reset.
+    // Nothing is written to the server here; the user then decides via acceptServerCopy (drop own edits) or keeps editing and saves on top of server.version.
+    async refreshConflict(id) {
+      if (!state.update.conflict || state.update.conflict.status === 'loading') return { ok: false };
+      const my = ++cseq; set({ update: { ...state.update, conflict: { status: 'loading', server: null, error: null } } });
+      try {
+        const server = await repo.get(id);
+        if (my !== cseq) return { ok: false, stale: true };
+        set({ update: { ...state.update, conflict: { status: 'ready', server, error: null } } });
+        return { ok: true, server };
+      } catch (e) {
+        if (my !== cseq) return { ok: false, stale: true };
+        set({ update: { ...state.update, conflict: { status: 'error', server: null, error: describeRepoError(e) } } });
+        return { ok: false };
+      }
+    },
+    // Explicit user choice "use server copy": detail + list entry now show the server data (the form re-initialises from it, discarding the draft).
+    acceptServerCopy() {
+      const c = state.update.conflict; if (!c || c.status !== 'ready') return null;
+      const server = c.server; ++cseq;
+      set({ detail: state.detail.id === server.id ? { status: 'ready', id: server.id, customer: server, error: null } : state.detail, list: { ...state.list, items: state.list.items.map((x) => (x.id === server.id ? server : x)) }, update: { status: 'idle', error: null, conflict: null } });
+      return server;
+    },
+    clearSubmitError() { if (state.submit.error || state.update.error) { ++cseq; set({ submit: { status: 'idle', error: null }, update: { status: 'idle', error: null, conflict: null } }); } },
   };
 }
 

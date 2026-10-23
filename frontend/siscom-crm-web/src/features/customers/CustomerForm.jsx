@@ -4,8 +4,8 @@ import * as U from '../../data/util.js';
 import { APP_DATA } from '../../data/demoData.js';
 import { validateCustomer, getCustomerDefaults } from '../../data/customerRules.js';
 import { useCustomerApiState } from './useCustomerApi.js';
-import { formToCustomerInput, customerDisplayCode } from './customerApiUi.js';
-import { ApiErrorBox } from './ApiListStatus.jsx';
+import { formToCustomerInput, customerDisplayCode, diffAgainstServer } from './customerApiUi.js';
+import { ApiErrorBox, ApiConflictPanel } from './ApiListStatus.jsx';
 
 const withNone = (a) => [{ value: '', label: '— Chưa chọn —' }, ...a];
 const emptyForm = () => { const d = getCustomerDefaults(); return { name: '', short: '', taxId: '', industry: '', tier: d.tier, status: d.status, owner: '', source: '', address: '', city: '', phone: '', email: '', website: '', note: '', cName: '', cTitle: '', cPhone: '', cEmail: '' }; };
@@ -39,12 +39,13 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   const start = React.useMemo(() => (initial ? { ...emptyForm(), ...initial } : emptyForm()), [initial, open]);
   const [f, setF] = React.useState(start);
   const [tried, setTried] = React.useState(false);
-  React.useEffect(() => { setF(start); setTried(false); if (apiCtl && open) apiCtl.clearSubmitError(); }, [start]);
+  const [baseVersion, setBaseVersion] = React.useState(null); // set only by the explicit "keep my changes" choice after a 409; null = use the loaded version
+  React.useEffect(() => { setF(start); setTried(false); setBaseVersion(null); if (apiCtl && open) apiCtl.clearSubmitError(); }, [start]);
   const known = apiOn ? apiS.list.items.map((c) => ({ ...c, id: c.code || '' })) : ui.db.customers; // API mode: never show the backend uuid
   const errs = validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial);
   const err = (k) => (tried && errs[k]) || (srvErr && srvErr.fieldErrors[k]) || '';
   const dirty = JSON.stringify(f) !== JSON.stringify(start);
-  const set = (k) => (v) => { if (srvErr) apiCtl.clearSubmitError(); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
+  const set = (k) => (v) => { if (srvErr && !srvErr.staleVersion) apiCtl.clearSubmitError(); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
   const close = () => { if (saving) return; if (dirty) ui.confirm({ title: 'Huỷ các thay đổi?', description: 'Thông tin bạn vừa nhập sẽ không được lưu.', icon: 'triangle-alert', tone: 'warning', confirmLabel: 'Huỷ thay đổi', cancelLabel: 'Tiếp tục chỉnh sửa', onConfirm: onClose }); else onClose(); };
   React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') close(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); });
   const save = async () => {
@@ -52,9 +53,9 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
     if (Object.keys(errs).length) { ui.toast({ tone: 'error', title: 'Vui lòng kiểm tra lại', message: Object.keys(errs).length + ' trường chưa hợp lệ.' }); return; }
     if (apiOn && !isNew) {
       // Update by backend UUID with the optimistic-lock version of the loaded detail; the UI shows the server's response only.
-      const r = await apiCtl.update(initial.id, formToCustomerInput(f), initial.version);
+      const r = await apiCtl.update(initial.id, formToCustomerInput(f), baseVersion || initial.version);
       if (r.ok) { ui.toast({ tone: 'success', title: 'Đã lưu thay đổi', message: r.customer.short || r.customer.name }); onSaved && onSaved(r.customer); }
-      else if (!r.duplicate) ui.toast({ tone: 'error', title: r.error.title, message: r.error.message });
+      else if (!r.duplicate) ui.toast({ tone: 'error', title: r.error.title, message: r.error.staleVersion ? 'Khách hàng đã bị người khác cập nhật. Dữ liệu chưa được lưu.' : r.error.message });
       return;
     }
     if (apiOn) {
@@ -81,7 +82,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
           <IconButton icon="x" label="Đóng" size="sm" onClick={close} />
         </header>
         <div className="sg-scroll" style={{ flex: 1, overflow: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 28 }}>
-          {srvErr ? <ApiErrorBox error={srvErr} /> : null}
+          {srvErr && srvErr.staleVersion && !isNew ? <ApiConflictPanel conflict={apiS.update.conflict} diff={apiS.update.conflict && apiS.update.conflict.server ? diffAgainstServer(f, apiS.update.conflict.server) : []} onRefresh={() => apiCtl.refreshConflict(initial.id)} onUseServer={() => apiCtl.acceptServerCopy()} onKeepMine={() => { const sv = apiS.update.conflict.server; setBaseVersion(sv.version); apiCtl.clearSubmitError(); }} /> : srvErr ? <ApiErrorBox error={srvErr} /> : null}
           {saving ? <span role="status" className="sr-only">Đang lưu khách hàng…</span> : null}
           <Section title="Thông tin doanh nghiệp" icon="building">
             <div style={{ gridColumn: '1 / -1' }}><Input label="Tên công ty" required placeholder="VD: Công ty CP Đầu tư Xây dựng Phú An" value={f.name} onChange={set('name')} error={err('name')} /></div>
