@@ -51,7 +51,7 @@ function CustomerListPage({ ui }) {
       </div>) },
     { key: 'industry', label: 'Ngành nghề', sortable: true, render: (r) => <div><div>{r.industry || '—'}</div><div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>{r.city}</div></div> },
     { key: 'tier', label: 'Phân hạng', sortable: true, render: (r) => <Badge tone={U.TIER_TONE[r.tier]}>{r.tier}</Badge> },
-    { key: 'revenue', label: 'Doanh thu luỹ kế', align: 'right', sortable: true, render: (r) => fmtRev(r.revenue) },
+    ...(apiOn ? [] : [{ key: 'revenue', label: 'Doanh thu luỹ kế', align: 'right', sortable: true, render: (r) => fmtRev(r.revenue) }]),
     { key: 'owner', label: 'Phụ trách', sortable: true, render: (r) => <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{r.owner ? <><Avatar name={r.owner} size={24} />{r.owner}</> : <span style={{ color: 'var(--text-3)' }}>Chưa phân công</span>}</div> },
     { key: 'status', label: 'Trạng thái', sortable: true, render: (r) => <Badge dot tone={U.STATUS_TONE[r.status]}>{r.status}</Badge> },
     { key: 'act', label: <span className="sr-only">Thao tác</span>, width: 96, render: (r) => (
@@ -67,7 +67,7 @@ function CustomerListPage({ ui }) {
         <KpiCard label="Tổng khách hàng" value={String(apiOn && apiS.list.paging ? apiS.list.paging.total : all.length)} unit={apiOn ? "khách hàng (máy chủ)" : "khách hàng"} icon="users" />
         <KpiCard label="Đang giao dịch" value={String(all.filter((c) => c.status === 'Đang giao dịch').length)} unit={apiOn ? "khách hàng (trang này)" : "khách hàng"} icon="handshake" tone="success" />
         <KpiCard label="Tiềm năng mới (30 ngày)" value={String(all.filter((c) => c.createdAt >= '2026-09-10').length)} unit={apiOn ? "khách hàng (trang này)" : "khách hàng"} icon="user-plus" tone="cyan" />
-        <KpiCard label="Doanh thu luỹ kế" value={U.ty(all.reduce((a, c) => a + (c.revenue || 0), 0))} unit="tỷ VNĐ" icon="wallet" tone="navy" />
+        {apiOn ? null : <KpiCard label="Doanh thu luỹ kế" value={U.ty(all.reduce((a, c) => a + (c.revenue || 0), 0))} unit="tỷ VNĐ" icon="wallet" tone="navy" />}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ maxWidth: '100%', overflowX: 'auto' }}><Tabs value={tier} onChange={setTier} items={[{ id: 'all', label: 'Tất cả', count: all.length }, ...D.TIERS.map((t) => ({ id: t, label: t, count: cnt(t) }))]} /></div>
@@ -82,7 +82,7 @@ function CustomerListPage({ ui }) {
       <div className="sg-solid" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 14, flexWrap: 'wrap' }}>
         <Icon name="sliders-horizontal" size={16} color="var(--text-3)" style={{ marginLeft: 6 }} />
         {fsel('Tất cả ngành nghề', industry, setIndustry, D.INDUSTRIES, 210)}
-        {fsel('Tất cả nhân viên', owner, setOwner, D.OWNERS)}
+        {fsel('Tất cả nhân viên', owner, setOwner, apiOn ? [] : D.OWNERS)}
         {fsel('Tất cả tỉnh/thành', city, setCity, D.CITIES)}
         {nFilters ? <Button size="sm" variant="ghost" icon="x" onClick={clear}>Xoá bộ lọc ({nFilters})</Button> : null}
         <span style={{ flex: 1 }} />
@@ -103,7 +103,7 @@ function CustomerListPage({ ui }) {
           <div style={{ maxWidth: 360 }}><Input icon="search" placeholder="Tìm tên, mã KH, MST…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           {gridRows.length ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(100%,320px),1fr))', gap: 16 }}>
-              {gridRows.map((c) => { const ct = ui.db.contacts.find((x) => x.customerId === c.id && x.primary); return <CustomerCard key={c.id} variant="solid" name={c.name} code={codeOf(c)} industry={c.industry} tier={c.tier} status={c.status === 'Ngừng giao dịch' ? 'Ngừng' : c.status} contact={ct} address={c.city} revenue={fmtRev(c.revenue)} opportunities={APP_DATA.opportunities.filter((o) => o.customerId === c.id).length} lastActivity={U.dmy(c.createdAt)} owner={c.owner} tags={c.tags} onClick={() => ui.navigate('/customers/' + c.id)} />; })}
+              {gridRows.map((c) => { const ct = ui.db.contacts.find((x) => x.customerId === c.id && x.primary); return <CustomerCard key={c.id} variant="solid" name={c.name} code={codeOf(c)} industry={c.industry} tier={c.tier} status={c.status === 'Ngừng giao dịch' ? 'Ngừng' : c.status} contact={ct} address={c.city} revenue={fmtRev(c.revenue)} opportunities={apiOn ? 0 : APP_DATA.opportunities.filter((o) => o.customerId === c.id).length} lastActivity={U.dmy(c.createdAt)} owner={c.owner} tags={c.tags} onClick={() => ui.navigate('/customers/' + c.id)} />; })}
             </div>
           ) : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description="Thử từ khoá khác hoặc bỏ bớt bộ lọc." action={<Button variant="secondary" onClick={() => { clear(); setQ(''); }}>Xoá bộ lọc</Button>} /></div>}
         </div>
