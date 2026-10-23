@@ -1,0 +1,69 @@
+-- SISCOM CRM - ROLLBACK de xuat cho B1.3 F09 (xem B1.3_F09_MIGRATION_PROPOSAL.sql.txt). VIET SAN, KHONG TU CHAY. CHUA PARSE/CHAY tren PostgreSQL.
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu.
+-- Chay bang chu so huu bang (siscom_migrator) hoac superuser, MOT giao dich. Thu tu NGUOC cua migration F09; chay TRUOC rollback M1.3/M1.2/M1.1/M1.
+-- TIEN DIEU KIEN van hanh (ngoai SQL): (1) tat route refresh/cookie siscom_rt (mac dinh dang Unwired); (2) ngung moi tien trinh goi fn_auth_api_session_*;
+--   (3) neu con phien song: thu hoi het truoc (SELECT count(*) FROM public.auth_session WHERE revoked_at IS NULL) - bo cot token_version la MAT ban chup tv.
+-- LUU Y: dung DROP ... IF EXISTS tuong minh; khong CASCADE (de loi neu co phu thuoc la bat ngo).
+
+BEGIN;
+
+DO $$
+BEGIN
+  IF current_user <> 'siscom_migrator' AND NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'TU CHOI: chay bang siscom_migrator hoac superuser.';
+  END IF;
+  IF current_database() !~ '^siscom_crm_(restore|test)_' THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu (siscom_crm_restore_* / siscom_crm_test_*).', current_database();
+  END IF;
+END $$;
+
+-- 1. Ham API (xoa khoi quyen truoc de khong co nguoi goi giua chung)
+DROP FUNCTION IF EXISTS public.fn_auth_api_session_rotate(text, uuid, uuid, text, text, bigint, bigint, text[]);
+DROP FUNCTION IF EXISTS public.fn_auth_api_session_revoke_family(uuid, text);
+DROP FUNCTION IF EXISTS public.fn_auth_api_session_revoke_all(uuid, text);
+DROP FUNCTION IF EXISTS public.fn_auth_api_session_create_family(uuid, uuid, uuid, text, text, integer, timestamptz, timestamptz, timestamptz, text, text);
+
+-- 2. Trigger/ham employee (M-7)
+DROP TRIGGER IF EXISTS trg_employee_status_bump_tv ON public.employee;
+DROP FUNCTION IF EXISTS public.fn_employee_status_bump_tv();
+
+-- 3. Trigger/ham INSERT (M-6)
+DROP TRIGGER IF EXISTS trg_sess_before_insert ON public.auth_session;
+DROP FUNCTION IF EXISTS public.fn_sess_before_insert();
+
+-- 4. Khoi phuc fn_sess_before_update DUNG noi dung M1 (20261020000000_b1_3_auth_core, muc B8). Trigger trg_sess_before_update giu nguyen (CREATE OR REPLACE khong doi trigger).
+CREATE OR REPLACE FUNCTION public.fn_sess_before_update() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF NEW.id <> OLD.id OR NEW.employee_id <> OLD.employee_id OR NEW.family_id <> OLD.family_id OR NEW.refresh_hash <> OLD.refresh_hash
+     OR NEW.csrf_hash <> OLD.csrf_hash OR NEW.issued_at <> OLD.issued_at OR NEW.abs_expires_at <> OLD.abs_expires_at THEN
+    RAISE EXCEPTION 'IMMUTABLE: khong sua dinh danh/han tuyet doi cua phien %.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF OLD.rotated_at IS NOT NULL AND NEW.rotated_at IS DISTINCT FROM OLD.rotated_at THEN
+    RAISE EXCEPTION 'IMMUTABLE: rotated_at cua phien % da dat.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  -- replaced_by: dat mot lan; chi duoc ve NULL (FK ON DELETE SET NULL khi don phien thay the).
+  IF OLD.replaced_by IS NOT NULL AND NEW.replaced_by IS NOT NULL AND NEW.replaced_by <> OLD.replaced_by THEN
+    RAISE EXCEPTION 'IMMUTABLE: replaced_by cua phien % da dat.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF OLD.revoked_at IS NOT NULL AND (NEW.revoked_at IS DISTINCT FROM OLD.revoked_at OR NEW.revoke_reason IS DISTINCT FROM OLD.revoke_reason
+       OR NEW.idle_expires_at IS DISTINCT FROM OLD.idle_expires_at OR NEW.last_used_at IS DISTINCT FROM OLD.last_used_at) THEN
+    RAISE EXCEPTION 'IMMUTABLE: phien % da thu hoi, khong mo lai/gia han.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+-- Buoc tren PHAI khop tung byte noi dung ham trong migration M1 hien hanh; doi chieu bang: SELECT pg_get_functiondef('public.fn_sess_before_update()'::regprocedure) tren ban sao chua F09.
+
+-- 5. Index, CHECK, cot (M-4..M-1)
+DROP INDEX IF EXISTS public.uq_auth_session_family_head;
+ALTER TABLE public.auth_session DROP CONSTRAINT IF EXISTS ck_sess_tv_required;
+ALTER TABLE public.auth_session DROP CONSTRAINT IF EXISTS ck_sess_tv_pos;
+ALTER TABLE public.auth_session DROP COLUMN IF EXISTS token_version;
+
+-- 6. Kiem tra nhanh (phai tra TRUE truoc COMMIT; neu FALSE thi ROLLBACK)
+SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'auth_session' AND column_name = 'token_version')
+   AND to_regprocedure('public.fn_sess_before_insert()') IS NULL
+   AND to_regprocedure('public.fn_employee_status_bump_tv()') IS NULL
+   AND to_regprocedure('public.fn_auth_api_session_rotate(text, uuid, uuid, text, text, bigint, bigint, text[])') IS NULL AS rollback_f09_ok;
+
+-- COMMIT;  -- bo chu thich thu cong sau khi doc ket qua o tren. Mac dinh de ROLLBACK de tranh chay nham.
+ROLLBACK;

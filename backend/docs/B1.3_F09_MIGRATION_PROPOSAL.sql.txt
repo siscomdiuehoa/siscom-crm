@@ -1,0 +1,277 @@
+-- SISCOM CRM - B1.3 F09 (DE XUAT, DESIGN-ONLY): token_version gan phien + xoay refresh nguyen tu co bao ve.
+-- !!! CHUA CHAY. CHUA PARSE tren PostgreSQL. KHONG phai Prisma migration (duoi .sql.txt de Git theo doi, KHONG nam trong backend/prisma/migrations => migrate deploy KHONG nhat). !!!
+-- Dich khi duoc duyet trien khai: backend/prisma/migrations/<timestamp>_b1_3_f09_session_token_version/migration.sql (file MOI; khong sua migration da ap dung).
+-- Thiet ke: backend/docs/B1.3_F09_ADR_TOKEN_VERSION_SESSION.md. Rollback viet san: backend/docs/B1.3_F09_ROLLBACK_PROPOSAL.sql.txt. Race test: B1.3_F09_RACE_TEST_PLAN.md.
+-- Phu thuoc: M1 (auth_core), M1.1, M1.2 (fn_cred_revoke_sessions, fn_auth_api_*), M1.3. Chi CONG THEM + thay the 1 ham (fn_sess_before_update) bang CREATE OR REPLACE.
+-- KHONG chua du lieu that / bi mat. KHONG co DML (thu hoi hang cu = buoc van hanh tach rieng, xem cuoi tep). Thu tren BAN SAO moi (siscom_crm_test_* / siscom_crm_restore_*) truoc.
+-- Thu tu khoa (moi duong ghi auth_session): L1 employee_credential(employee_id) -> L2 advisory(family) -> L3 hang auth_session. Khong bao gio lay nguoc.
+-- Ma loi on dinh (thong diep bat dau bang ma): 23514 = TOKEN_VERSION_REQUIRED / STALE_TOKEN_VERSION / SESSION_CHILD_MISMATCH / FAMILY_EMPLOYEE_MISMATCH / EMPLOYEE_NOT_ALLOWED;
+--   0A000 = ISOLATION_UNSUPPORTED; 22023 = INVALID_INPUT.
+
+DO $$ BEGIN
+  IF to_regprocedure('public.fn_cred_revoke_sessions()') IS NULL OR to_regprocedure('public.fn_sess_before_update()') IS NULL
+     OR to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NULL
+     OR to_regprocedure('public.fn_cred_revoke_reset_tokens()') IS NULL THEN
+    RAISE EXCEPTION 'F09 can M1..M1.3 (toi 20261021000000) da ap truoc.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.auth_session WHERE rotated_at IS NULL AND revoked_at IS NULL GROUP BY family_id HAVING count(*) > 1) THEN
+    RAISE EXCEPTION 'F09: ton tai family co hon mot hang dau (chua xoay, chua thu hoi); xu ly truoc khi tao uq_auth_session_family_head.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.auth_session a JOIN public.auth_session b ON b.family_id = a.family_id AND b.employee_id <> a.employee_id) THEN
+    RAISE EXCEPTION 'F09: ton tai family chua hang cua nhieu nhan vien; dieu tra truoc.';
+  END IF;
+END $$;
+
+-- ===== M-1..M-3. Cot + CHECK (additive; hang cu giu token_version NULL = KHONG dung duoc, fail-closed) =====
+ALTER TABLE public.auth_session ADD COLUMN token_version integer;
+
+ALTER TABLE public.auth_session ADD CONSTRAINT ck_sess_tv_pos CHECK (token_version IS NULL OR token_version >= 1) NOT VALID;
+ALTER TABLE public.auth_session VALIDATE CONSTRAINT ck_sess_tv_pos;
+
+-- Ghi/UPDATE moi bat buoc co tv, tru khi hang da thu hoi. NOT VALID: hang cu chua bi kiem cho den khi VALIDATE (buoc van hanh (H) cuoi tep).
+ALTER TABLE public.auth_session ADD CONSTRAINT ck_sess_tv_required CHECK (token_version IS NOT NULL OR revoked_at IS NOT NULL) NOT VALID;
+
+-- ===== M-4. Toi da MOT hang dau (chua xoay, chua thu hoi) moi family =====
+-- Khong CONCURRENTLY (Prisma chay migration trong giao dich). Bang nho/rong; neu lon, co cua so bao tri (SHARE lock chan ghi trong luc tao).
+CREATE UNIQUE INDEX uq_auth_session_family_head ON public.auth_session (family_id) WHERE rotated_at IS NULL AND revoked_at IS NULL;
+
+-- ===== M-5. Thay fn_sess_before_update: giu NGUYEN cac kiem tra M1, them (a) token_version bat bien, (b) kiem ke thua khi dat replaced_by =====
+CREATE OR REPLACE FUNCTION public.fn_sess_before_update() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+DECLARE c public.auth_session%ROWTYPE; v_tv integer; v_cst public.credential_status;
+BEGIN
+  IF NEW.id <> OLD.id OR NEW.employee_id <> OLD.employee_id OR NEW.family_id <> OLD.family_id OR NEW.refresh_hash <> OLD.refresh_hash
+     OR NEW.csrf_hash <> OLD.csrf_hash OR NEW.issued_at <> OLD.issued_at OR NEW.abs_expires_at <> OLD.abs_expires_at THEN
+    RAISE EXCEPTION 'IMMUTABLE: khong sua dinh danh/han tuyet doi cua phien %.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF OLD.rotated_at IS NOT NULL AND NEW.rotated_at IS DISTINCT FROM OLD.rotated_at THEN
+    RAISE EXCEPTION 'IMMUTABLE: rotated_at cua phien % da dat.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  -- replaced_by: dat mot lan; chi duoc ve NULL (FK ON DELETE SET NULL khi don phien thay the).
+  IF OLD.replaced_by IS NOT NULL AND NEW.replaced_by IS NOT NULL AND NEW.replaced_by <> OLD.replaced_by THEN
+    RAISE EXCEPTION 'IMMUTABLE: replaced_by cua phien % da dat.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF OLD.revoked_at IS NOT NULL AND (NEW.revoked_at IS DISTINCT FROM OLD.revoked_at OR NEW.revoke_reason IS DISTINCT FROM OLD.revoke_reason
+       OR NEW.idle_expires_at IS DISTINCT FROM OLD.idle_expires_at OR NEW.last_used_at IS DISTINCT FROM OLD.last_used_at) THEN
+    RAISE EXCEPTION 'IMMUTABLE: phien % da thu hoi, khong mo lai/gia han.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  -- F09 (a): ban chup token_version bat bien sau khi tao.
+  IF NEW.token_version IS DISTINCT FROM OLD.token_version THEN
+    RAISE EXCEPTION 'IMMUTABLE: token_version cua phien % khong doi duoc.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
+  -- F09 (b): dat replaced_by (NULL -> gia tri) => hang con phai ke thua dung family/employee/abs/tv, cha chua thu hoi, tv cha = credential hien tai.
+  IF OLD.replaced_by IS NULL AND NEW.replaced_by IS NOT NULL THEN
+    IF OLD.revoked_at IS NOT NULL OR OLD.token_version IS NULL THEN
+      RAISE EXCEPTION 'SESSION_CHILD_MISMATCH: phien % da thu hoi hoac khong co token_version, khong xoay duoc.', OLD.id USING ERRCODE = 'check_violation';
+    END IF;
+    SELECT * INTO c FROM public.auth_session WHERE id = NEW.replaced_by;
+    IF NOT FOUND OR c.family_id <> OLD.family_id OR c.employee_id <> OLD.employee_id OR c.abs_expires_at <> OLD.abs_expires_at
+       OR c.token_version IS DISTINCT FROM OLD.token_version OR c.rotated_at IS NOT NULL OR c.revoked_at IS NOT NULL THEN
+      RAISE EXCEPTION 'SESSION_CHILD_MISMATCH: hang con cua phien % khong ke thua dung family/employee/abs/token_version.', OLD.id USING ERRCODE = 'check_violation';
+    END IF;
+    SELECT token_version, status INTO v_tv, v_cst FROM public.employee_credential WHERE employee_id = OLD.employee_id FOR SHARE;
+    IF NOT FOUND OR v_cst <> 'ACTIVE' OR v_tv <> OLD.token_version THEN
+      RAISE EXCEPTION 'STALE_TOKEN_VERSION: token_version phien % khong con khop credential hien tai.', OLD.id USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+-- ===== M-6. INSERT: DB TU xac nhan ban chup tv + trang thai; family thuoc dung mot nhan vien =====
+CREATE FUNCTION public.fn_sess_before_insert() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+DECLARE v_tv integer; v_cst public.credential_status;
+BEGIN
+  IF NEW.token_version IS NULL THEN
+    RAISE EXCEPTION 'TOKEN_VERSION_REQUIRED: phien moi phai co token_version (nhan vien %).', NEW.employee_id USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT token_version, status INTO v_tv, v_cst FROM public.employee_credential WHERE employee_id = NEW.employee_id FOR SHARE;
+  IF NOT FOUND OR v_cst <> 'ACTIVE' OR v_tv <> NEW.token_version THEN
+    RAISE EXCEPTION 'STALE_TOKEN_VERSION: token_version phien moi khong khop credential hien tai cua nhan vien %.', NEW.employee_id USING ERRCODE = 'check_violation';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.employee e WHERE e.id = NEW.employee_id AND e.status = 'ACTIVE' AND e.deleted_at IS NULL) THEN
+    RAISE EXCEPTION 'EMPLOYEE_NOT_ALLOWED: nhan vien % khong o trang thai hieu luc.', NEW.employee_id USING ERRCODE = 'check_violation';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('siscom.auth_family:' || NEW.family_id::text, 0));
+  IF EXISTS (SELECT 1 FROM public.auth_session s WHERE s.family_id = NEW.family_id AND s.employee_id <> NEW.employee_id) THEN
+    RAISE EXCEPTION 'FAMILY_EMPLOYEE_MISMATCH: family % thuoc nhan vien khac.', NEW.family_id USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER trg_sess_before_insert BEFORE INSERT ON public.auth_session FOR EACH ROW EXECUTE FUNCTION public.fn_sess_before_insert();
+
+-- ===== M-7. Roi trang thai hieu luc (ACTIVE & chua xoa mem) => tang token_version => trigger sao co (trg_cred_revoke_sessions, M1.3) thu hoi phien + ma reset =====
+-- SECURITY DEFINER: nguoi cap nhat employee co the khong co quyen cot token_version (giai doan 2 tach pool). Quay lai ACTIVE KHONG tang them.
+CREATE FUNCTION public.fn_employee_status_bump_tv() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF (OLD.status = 'ACTIVE' AND OLD.deleted_at IS NULL) AND NOT (NEW.status = 'ACTIVE' AND NEW.deleted_at IS NULL) THEN
+    UPDATE public.employee_credential SET token_version = token_version + 1, updated_at = now() WHERE employee_id = NEW.id;
+  END IF;
+  RETURN NULL;
+END $$;
+CREATE TRIGGER trg_employee_status_bump_tv AFTER UPDATE OF status, deleted_at ON public.employee FOR EACH ROW
+  WHEN (OLD.status IS DISTINCT FROM NEW.status OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at) EXECUTE FUNCTION public.fn_employee_status_bump_tv();
+
+-- ===== M-8. Ham API (SECURITY DEFINER; chu so huu = siscom_migrator sau S1). EXECUTE cap RIENG qua B1.3_S1_APP_GRANTS.sql.txt (khong trong migration). =====
+
+-- Tao family (dang nhap). p_expected_token_version = tv doc CUNG luc voi hash mat khau da xac minh (ung dung doc, DB xac nhan bang trigger M-6).
+CREATE FUNCTION public.fn_auth_api_session_create_family(p_employee uuid, p_family uuid, p_id uuid, p_refresh_hash text, p_csrf_hash text,
+    p_expected_token_version integer, p_idle_expires_at timestamptz, p_abs_expires_at timestamptz, p_mfa_verified_at timestamptz, p_ip_prefix text, p_ua_short text)
+  RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET lock_timeout = '2s' AS $$
+BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'ISOLATION_UNSUPPORTED: chi READ COMMITTED.' USING ERRCODE = 'feature_not_supported';
+  END IF;
+  IF p_employee IS NULL OR p_family IS NULL OR p_id IS NULL OR p_refresh_hash !~ '^[0-9a-f]{64}$' OR p_csrf_hash !~ '^[0-9a-f]{64}$'
+     OR p_expected_token_version IS NULL OR p_expected_token_version < 1 OR p_idle_expires_at IS NULL OR p_abs_expires_at IS NULL THEN
+    RAISE EXCEPTION 'INVALID_INPUT: tham so tao phien khong hop le.' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  INSERT INTO public.auth_session (id, employee_id, family_id, refresh_hash, csrf_hash, issued_at, last_used_at, idle_expires_at, abs_expires_at,
+                                   token_version, mfa_verified_at, ip_prefix, ua_short)
+  VALUES (p_id, p_employee, p_family, p_refresh_hash, p_csrf_hash, clock_timestamp(), clock_timestamp(), p_idle_expires_at, p_abs_expires_at,
+          p_expected_token_version, p_mfa_verified_at, p_ip_prefix, p_ua_short);   -- trigger M-6 xac nhan tv/trang thai/family
+  RETURN p_id;
+END $$;
+
+-- Xoay co bao ve. Tra MOT hang. Moi nhanh tu choi KHONG ghi (tru ROTATED_REUSE: thu hoi family). Loi bat ky => rollback toan bo (ung dung coi la tu choi, khong phat token).
+-- Ket qua ra ngoai ung dung PHAI gop thanh UNAUTHORIZED dong nhat (PA12 C4); ma o day chi de log noi bo.
+CREATE FUNCTION public.fn_auth_api_session_rotate(p_presented_hash text, p_expected_employee uuid, p_next_id uuid, p_next_refresh_hash text, p_next_csrf_hash text,
+    p_idle_ttl_ms bigint, p_reuse_grace_ms bigint, p_allowed_statuses text[])
+  RETURNS TABLE (out_status text, out_family_revoked boolean, out_new_id uuid, out_employee_id uuid, out_family_id uuid,
+                 out_idle_expires_at timestamptz, out_abs_expires_at timestamptz, out_token_version integer)
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET lock_timeout = '2s' AS $$
+DECLARE
+  v_now timestamptz := clock_timestamp();
+  v_id uuid; v_emp uuid; v_fam uuid;
+  v_ctv integer; v_cst public.credential_status;
+  v_est public.employee_status; v_edel timestamptz;
+  s public.auth_session%ROWTYPE;
+  v_idle timestamptz;
+BEGIN
+  -- 0. Kiem dau vao + isolation
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'ISOLATION_UNSUPPORTED: chi READ COMMITTED.' USING ERRCODE = 'feature_not_supported';
+  END IF;
+  IF p_presented_hash IS NULL OR p_presented_hash !~ '^[0-9a-f]{64}$' OR p_next_refresh_hash IS NULL OR p_next_refresh_hash !~ '^[0-9a-f]{64}$'
+     OR p_next_csrf_hash IS NULL OR p_next_csrf_hash !~ '^[0-9a-f]{64}$' OR p_next_refresh_hash = p_presented_hash
+     OR p_expected_employee IS NULL OR p_next_id IS NULL OR p_idle_ttl_ms IS NULL OR p_idle_ttl_ms <= 0
+     OR p_reuse_grace_ms IS NULL OR p_reuse_grace_ms < 0 OR p_allowed_statuses IS NULL OR cardinality(p_allowed_statuses) = 0 THEN
+    RAISE EXCEPTION 'INVALID_INPUT: tham so xoay khong hop le.' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
+  -- 1. Tra khong khoa de biet nhan vien/family (khong ghi)
+  SELECT a.id, a.employee_id, a.family_id INTO v_id, v_emp, v_fam FROM public.auth_session a WHERE a.refresh_hash = p_presented_hash;
+  IF NOT FOUND THEN RETURN QUERY SELECT 'UNKNOWN_TOKEN'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN; END IF;
+  IF v_emp <> p_expected_employee THEN
+    RETURN QUERY SELECT 'WRONG_EMPLOYEE'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+  END IF;
+
+  -- 2. L1: khoa SHARE hang credential (chan moi UPDATE token_version/status cho den khi giao dich nay ket thuc); doc trang thai CO tham quyen
+  SELECT c.token_version, c.status INTO v_ctv, v_cst FROM public.employee_credential c WHERE c.employee_id = v_emp FOR SHARE;
+  IF NOT FOUND OR v_cst <> 'ACTIVE' THEN
+    RETURN QUERY SELECT 'CREDENTIAL_UNAVAILABLE'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+  END IF;
+  SELECT e.status, e.deleted_at INTO v_est, v_edel FROM public.employee e WHERE e.id = v_emp;
+  IF NOT FOUND OR v_edel IS NOT NULL OR NOT (v_est::text = ANY (p_allowed_statuses)) THEN
+    RETURN QUERY SELECT 'EMPLOYEE_NOT_ALLOWED'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+  END IF;
+
+  -- 3. L2: khoa family
+  PERFORM pg_advisory_xact_lock(hashtextextended('siscom.auth_family:' || v_fam::text, 0));
+
+  -- 4. L3: khoa hang va DOC LAI (trang thai moi nhat sau khi cho khoa)
+  SELECT * INTO s FROM public.auth_session WHERE id = v_id FOR UPDATE;
+  IF NOT FOUND OR s.employee_id <> v_emp OR s.family_id <> v_fam THEN
+    RETURN QUERY SELECT 'UNKNOWN_TOKEN'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+  END IF;
+
+  -- 5. Kiem credential TRUOC phan loai (PA12 C2): sai => khong ghi, khong thu hoi family. Ky vong = ban chup tren HANG, khong tu nguoi goi.
+  IF s.token_version IS NULL OR s.token_version <> v_ctv THEN
+    RETURN QUERY SELECT 'TOKEN_VERSION_STALE'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+  END IF;
+
+  -- 6. Phan loai (thu tu uu tien khop checkRefreshSessionRow; het han nua mo: now >= han)
+  IF s.revoked_at IS NOT NULL THEN
+    RETURN QUERY SELECT 'REVOKED'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+  END IF;
+  IF s.rotated_at IS NOT NULL THEN
+    IF v_now - s.rotated_at < make_interval(secs => (p_reuse_grace_ms / 1000.0)::double precision) THEN
+      RETURN QUERY SELECT 'ROTATED_RECENT'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+    END IF;
+    UPDATE public.auth_session SET revoked_at = v_now, revoke_reason = 'REFRESH_REUSE' WHERE family_id = v_fam AND revoked_at IS NULL;
+    RETURN QUERY SELECT 'ROTATED_REUSE'::text, true, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+  END IF;
+  IF v_now >= s.abs_expires_at THEN
+    RETURN QUERY SELECT 'ABS_EXPIRED'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+  END IF;
+  IF v_now >= s.idle_expires_at THEN
+    RETURN QUERY SELECT 'IDLE_EXPIRED'::text, false, NULL::uuid, NULL::uuid, NULL::uuid, NULL::timestamptz, NULL::timestamptz, NULL::integer; RETURN;
+  END IF;
+
+  -- 7. Xoay: (a) cha het la "dau" -> (b) chen con ke thua -> (c) noi replaced_by (trigger M-5 kiem ke thua)
+  v_idle := LEAST(v_now + make_interval(secs => (p_idle_ttl_ms / 1000.0)::double precision), s.abs_expires_at);
+  UPDATE public.auth_session SET rotated_at = v_now, last_used_at = v_now WHERE id = s.id;
+  INSERT INTO public.auth_session (id, employee_id, family_id, refresh_hash, csrf_hash, issued_at, last_used_at, idle_expires_at, abs_expires_at, token_version, mfa_verified_at)
+  VALUES (p_next_id, s.employee_id, s.family_id, p_next_refresh_hash, p_next_csrf_hash, v_now, v_now, v_idle, s.abs_expires_at, s.token_version, s.mfa_verified_at);
+  UPDATE public.auth_session SET replaced_by = p_next_id WHERE id = s.id;
+  RETURN QUERY SELECT 'ROTATED'::text, false, p_next_id, s.employee_id, s.family_id, v_idle, s.abs_expires_at, s.token_version;
+END $$;
+
+-- Thu hoi MOT family (dang xuat). L1 SHARE -> L2 family -> khoa hang -> UPDATE o cau lenh RIENG (thay hang con vua commit).
+CREATE FUNCTION public.fn_auth_api_session_revoke_family(p_family uuid, p_reason text) RETURNS integer
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET lock_timeout = '2s' AS $$
+DECLARE v_emp uuid; v_n integer;
+BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'ISOLATION_UNSUPPORTED: chi READ COMMITTED.' USING ERRCODE = 'feature_not_supported';
+  END IF;
+  IF p_family IS NULL OR p_reason IS NULL OR length(p_reason) > 40 OR p_reason !~ '^[A-Z][A-Z0-9_]*$' THEN
+    RAISE EXCEPTION 'INVALID_INPUT: tham so thu hoi khong hop le.' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  SELECT a.employee_id INTO v_emp FROM public.auth_session a WHERE a.family_id = p_family LIMIT 1;
+  IF NOT FOUND THEN RETURN 0; END IF;
+  PERFORM 1 FROM public.employee_credential c WHERE c.employee_id = v_emp FOR SHARE;           -- L1 (co the khong co hang: bo qua)
+  PERFORM pg_advisory_xact_lock(hashtextextended('siscom.auth_family:' || p_family::text, 0));  -- L2
+  PERFORM 1 FROM public.auth_session a WHERE a.family_id = p_family ORDER BY a.id FOR UPDATE;   -- L3
+  UPDATE public.auth_session SET revoked_at = clock_timestamp(), revoke_reason = p_reason WHERE family_id = p_family AND revoked_at IS NULL;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n;
+END $$;
+
+-- Thu hoi MOI phien cua mot nhan vien. L1 NO KEY UPDATE (loai tru moi lan xoay cua nhan vien do, vi xoay giu SHARE).
+CREATE FUNCTION public.fn_auth_api_session_revoke_all(p_employee uuid, p_reason text) RETURNS integer
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET lock_timeout = '2s' AS $$
+DECLARE v_n integer;
+BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'ISOLATION_UNSUPPORTED: chi READ COMMITTED.' USING ERRCODE = 'feature_not_supported';
+  END IF;
+  IF p_employee IS NULL OR p_reason IS NULL OR length(p_reason) > 40 OR p_reason !~ '^[A-Z][A-Z0-9_]*$' THEN
+    RAISE EXCEPTION 'INVALID_INPUT: tham so thu hoi khong hop le.' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  PERFORM 1 FROM public.employee_credential c WHERE c.employee_id = p_employee FOR NO KEY UPDATE;
+  UPDATE public.auth_session SET revoked_at = clock_timestamp(), revoke_reason = p_reason WHERE employee_id = p_employee AND revoked_at IS NULL;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n;
+END $$;
+
+REVOKE ALL ON FUNCTION
+  public.fn_auth_api_session_create_family(uuid, uuid, uuid, text, text, integer, timestamptz, timestamptz, timestamptz, text, text),
+  public.fn_auth_api_session_rotate(text, uuid, uuid, text, text, bigint, bigint, text[]),
+  public.fn_auth_api_session_revoke_family(uuid, text),
+  public.fn_auth_api_session_revoke_all(uuid, text),
+  public.fn_employee_status_bump_tv()
+  FROM PUBLIC;
+-- EXECUTE cho siscom_auth_rt: them vao B1.3_S1_APP_GRANTS.sql.txt (script do tu choi doi tuong chua phan loai - dung thiet ke). KHONG GRANT tai day.
+
+-- ===== M-9. Ghi chu =====
+COMMENT ON COLUMN public.auth_session.token_version IS 'B1.3 F09: ban chup employee_credential.token_version luc tao phien; bat bien; DB xac nhan = credential hien tai khi INSERT/xoay.';
+COMMENT ON FUNCTION public.fn_auth_api_session_rotate(text, uuid, uuid, text, text, bigint, bigint, text[]) IS 'B1.3 F09: xoay refresh nguyen tu co bao ve (khoa L1 credential SHARE -> L2 family -> L3 hang). Chi READ COMMITTED.';
+COMMENT ON INDEX public.uq_auth_session_family_head IS 'B1.3 F09: toi da mot hang dau (chua xoay/chua thu hoi) moi family.';
+
+-- ===== (G),(H): BUOC VAN HANH TACH RIENG (KHONG thuoc migration; can phe duyet rieng) =====
+-- (G) Them EXECUTE 4 ham fn_auth_api_session_* cho siscom_auth_rt vao B1.3_S1_APP_GRANTS.sql.txt, chay lai script grant.
+-- (H) Hang cu (token_version IS NULL) - DML, KHONG trong migration. Tren BAN SAO, truoc tien DEM:
+--       SELECT count(*) FROM public.auth_session WHERE token_version IS NULL AND revoked_at IS NULL;
+--     Neu > 0 va duoc duyet: thu hoi (fail-closed) roi kiem hop le:
+--       UPDATE public.auth_session SET revoked_at = now(), revoke_reason = 'LEGACY_NO_TV' WHERE token_version IS NULL AND revoked_at IS NULL;
+--       ALTER TABLE public.auth_session VALIDATE CONSTRAINT ck_sess_tv_required;
+--     (Neu = 0: chi can VALIDATE.) Sau khi VALIDATE moi doi Prisma tokenVersion sang bat buoc (neu owner muon).
