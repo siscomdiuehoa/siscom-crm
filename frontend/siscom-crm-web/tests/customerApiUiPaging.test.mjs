@@ -126,11 +126,11 @@ test('cờ TẮT: không có controller, không fetch; cờ BẬT cấu hình th
   assert.equal(c.getState().list.status, 'error'); assert.deepEqual(c.getState().list.items, []); assert.equal(f.calls.length, 0);
 });
 
-test('tạo mới thành công khi đang có phân trang: tổng +1, mục mới lên đầu theo UUID máy chủ', async () => {
+test('tạo mới thành công khi đang có phân trang: total/items lấy từ lần đọc lại của máy chủ, không tự cộng/chèn', async () => {
   const f = mockFetch((url, init) => (init.method === 'POST' ? res(201, { data: apiCust(99) }) : res(200, { data: { items: [apiCust(1)], page: 1, pageSize: 20, total: 5, totalPages: 1 } })));
   const c = createCustomerApiUi({ env: ON, fetchImpl: f });
   await c.load();
   const r = await c.submit({ name: 'Công ty 99', phone: '0901234567' });
   assert.equal(r.ok, true);
-  assert.equal(c.getState().list.paging.total, 6); assert.equal(c.getState().list.items[0].id, uid(99));
+  assert.equal(c.getState().list.paging.total, 5, 'total do máy chủ báo, không +1 tại máy khách'); assert.deepEqual(c.getState().list.items.map((x) => x.id), [uid(1)]);
 });
