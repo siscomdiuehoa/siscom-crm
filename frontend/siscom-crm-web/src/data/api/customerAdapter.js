@@ -11,14 +11,17 @@ export const LOOKUP_FIELDS = { tier: 'customer_tier', status: 'customer_status',
 
 const s = (v) => String(v == null ? '' : v).trim();
 
-// lookupsResponse = `data` of GET /lookups: { customer_tier: [{ code, label }], ... } -> { tier: { toCode(label), toLabel(code) }, ... }
+// lookupsResponse = `data` of GET /lookups: { customer_tier: [{ code, label }], ... } -> { tier: { toCode(label), toLabel(code), options: [label...], missing }, ... }
+// `options` = server labels in server order (only well-formed rows; nothing invented). `missing` = the type was absent/not a list in the response.
 export function buildLookupMaps(lookupsResponse) {
   const out = {};
   for (const [field, type] of Object.entries(LOOKUP_FIELDS)) {
-    const rows = (lookupsResponse && lookupsResponse[type]) || [];
-    const byLabel = new Map(rows.map((r) => [r.label, r.code]));
-    const byCode = new Map(rows.map((r) => [r.code, r.label]));
-    out[field] = { toCode: (label) => byLabel.get(label), toLabel: (code) => byCode.get(code) };
+    const raw = lookupsResponse && lookupsResponse[type];
+    const missing = !Array.isArray(raw);
+    const rows = (missing ? [] : raw).filter((r) => r && typeof r.code === 'string' && r.code && typeof r.label === 'string' && r.label.trim());
+    const byLabel = new Map(); const byCode = new Map();
+    for (const r of rows) { if (!byLabel.has(r.label)) byLabel.set(r.label, r.code); if (!byCode.has(r.code)) byCode.set(r.code, r.label); }
+    out[field] = { toCode: (label) => byLabel.get(label), toLabel: (code) => byCode.get(code), options: [...byLabel.keys()], missing };
   }
   return out;
 }
