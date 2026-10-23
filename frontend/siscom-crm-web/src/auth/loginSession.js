@@ -82,8 +82,11 @@ export function createLoginSession(client) {
     },
     // Gọi khi API khác trả 401: bỏ token, KHÔNG tự đăng nhập lại.
     // Khi đang LOADING: token đã bị xóa từ đầu submit, 401 chỉ có thể đến từ yêu cầu của phiên cũ => không hủy lần đăng nhập đang chạy.
-    handleUnauthorized() {
+    // usedAuthHeader (tùy chọn): header Authorization mà yêu cầu bị 401 đã dùng. Có truyền => chỉ hủy khi KHỚP token hiện tại
+    // (401 muộn của phiên cũ không được hủy phiên mới). Không truyền => hành vi cũ: hủy phiên hiện tại (fail-closed).
+    handleUnauthorized(usedAuthHeader) {
       if (state.status === 'LOADING') return state;
+      if (usedAuthHeader !== undefined && (token === null || usedAuthHeader !== 'Bearer ' + token)) return state;
       epoch++; token = null;
       if (state.status === 'AUTHENTICATED') fail('SESSION_EXPIRED');
       return state;
