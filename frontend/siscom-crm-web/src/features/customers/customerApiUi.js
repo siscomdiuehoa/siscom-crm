@@ -175,19 +175,29 @@ export function createCustomerApiController(repo) {
       const my = ++dseq;
       ++cseq; set({ detail: { status: 'loading', id, customer: null, error: null }, update: { status: 'idle', error: null, conflict: null } });
       try { const customer = await repo.get(id); if (my === dseq) set({ detail: { status: 'ready', id, customer, error: null } }); }
-      catch (e) { if (my === dseq) set({ detail: { status: 'error', id, customer: null, error: describeRepoError(e) } }); }
+      catch (e) {
+        if (my !== dseq) return;
+        const error = describeRepoError(e); set({ detail: { status: 'error', id, customer: null, error } });
+        // Record gone on the server: a loaded list may still hold its row. Re-read the list (server-authoritative); never delete the row by hand.
+        if (error.kind === 'not_found' && state.list.status !== 'idle') await this.reload();
+      }
     },
     // Update with the optimistic-lock version of the loaded detail. Success replaces detail/list entry with the SERVER response; failure keeps old data (no fake save).
     async update(id, input, version) {
       if (uinflight) return { ok: false, duplicate: true };
-      uinflight = true; ++cseq; set({ update: { status: 'saving', error: null, conflict: null } });
+      // `mine` = this save still owns the update state; opening another id / refreshing a conflict bumps cseq, so a late outcome of an older id never lands on the new one.
+      const mine = ++cseq; uinflight = true; set({ update: { status: 'saving', error: null, conflict: null } });
       try {
         const customer = await repo.update(id, input, version);
         const items = state.list.items.map((c) => (c.id === customer.id ? customer : c));
-        set({ detail: state.detail.id === customer.id ? { status: 'ready', id: customer.id, customer, error: null } : state.detail, list: { ...state.list, items }, update: { status: 'idle', error: null, conflict: null } });
+        set({ detail: state.detail.id === customer.id ? { status: 'ready', id: customer.id, customer, error: null } : state.detail, list: { ...state.list, items }, ...(mine === cseq ? { update: { status: 'idle', error: null, conflict: null } } : {}) });
+        // A list read still in flight may have been taken before this write: re-read so the row never goes back to the old version.
+        if (state.list.status === 'loading') this.reload();
         return { ok: true, customer };
       } catch (e) {
-        const error = describeRepoError(e); set({ update: { status: 'error', error, conflict: error.staleVersion ? { status: 'idle', server: null, error: null } : null } });
+        const error = describeRepoError(e);
+        if (mine === cseq) set({ update: { status: 'error', error, conflict: error.staleVersion ? { status: 'idle', server: null, error: null } : null } });
+        if (error.kind === 'not_found' && state.list.status !== 'idle') await this.reload();
         return { ok: false, error };
       } finally { uinflight = false; }
     },
