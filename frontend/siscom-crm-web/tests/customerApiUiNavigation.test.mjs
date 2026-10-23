@@ -9,6 +9,9 @@ import { createServer } from 'vite';
 import React from 'react';
 import { installDom, text, byTag, findAll, buttonByText, inputByLabel, click, type, submit } from './helpers/miniDom.mjs';
 
+// src/ API mode is fail-closed (PR #94: no server actor -> every write action denied). These navigation/draft tests need the edit drawer, so they run with a
+// TEST-ONLY granted actor swapped in via vite alias (create+update only). `mount(h, { granted: false })` keeps the real fail-closed module.
+const GRANTED = new URL('./helpers/grantedApiModePermissions.js', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const BASE = 'http://127.0.0.1:3000/api/v1';
 const IDA = '0b9f1c52-3a0e-4c3e-9d6f-0a1b2c3d4e5f';
 const IDB = '1c0a2d63-4b1f-4d4f-8e7a-1b2c3d4e5f60';
@@ -24,10 +27,10 @@ const err = (status, code) => res(status, { error: { code, message: 'x' } });
 let dom; let act; let createRoot; let DB_KEY;
 const servers = []; let store; let reads; let writes; let calls; let handler; let listeners; let hash; let apps;
 
-async function loadApp() {
+async function loadApp(granted = true) {
   const prev = { f: process.env.VITE_CRM_API_ENABLED, b: process.env.VITE_CRM_API_BASE };
   process.env.VITE_CRM_API_ENABLED = 'true'; process.env.VITE_CRM_API_BASE = BASE;
-  const vite = await createServer({ configFile: CONFIG, server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom', logLevel: 'silent', clearScreen: false });
+  const vite = await createServer({ configFile: CONFIG, resolve: granted ? { alias: [{ find: /^.*\/auth\/apiModePermissions\.js$/, replacement: GRANTED }] } : {}, server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom', logLevel: 'silent', clearScreen: false });
   servers.push(vite);
   const mod = await vite.ssrLoadModule('/src/App.jsx');
   ({ DB_KEY } = await vite.ssrLoadModule('/src/data/repository/index.js'));
@@ -77,9 +80,9 @@ function defaultServer(over = {}) {
 const getsOf = (id) => calls.filter((c) => c.method === 'GET' && c.path.endsWith('/customers/' + id));
 const patches = () => calls.filter((c) => c.method === 'PATCH');
 const settle = async () => { for (let i = 0; i < 6; i += 1) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
-async function mount(h) {
+async function mount(h, { granted = true } = {}) {
   hash = h;
-  const App = await loadApp(); // fresh module graph: the controller is a module singleton
+  const App = await loadApp(granted); // fresh module graph: the controller is a module singleton
   const container = dom.doc.createElement('div'); dom.doc.body.appendChild(container);
   const root = createRoot(container);
   await act(async () => { root.render(React.createElement(App)); });
@@ -289,4 +292,21 @@ test('cập nhật A còn đang bay rồi sang B: lưu B không bị nuốt âm 
   await act(async () => { dA.resolve(res(200, { data: { ...A, version: 2 } })); }); await settle();
   assert.match(main(d.container), /Công ty Beta Server|B sửa/); assert.doesNotMatch(main(d.container), /A đang lưu/);
   await d.unmount();
+});
+
+test('hồi quy phân quyền: cùng máy chủ giả — actor test-only có quyền mở được ngăn Thêm/Sửa; không actor (src thật, fail-closed) thì khoá và không gửi POST/PATCH', async () => {
+  const isOff = (c, re) => { const b = buttonByText(c, re); return !!b && !!b.disabled; };
+  const dialogs = (c) => findAll(c, (e) => e.attributes.role === 'dialog').length;
+  const g = await mount('#/customers/' + IDA);
+  assert.equal(isOff(g.container, /Sửa thông tin/), false, 'granted actor: edit enabled');
+  await press(buttonByText(g.container, /Sửa thông tin/)); assert.equal(dialogs(g.container), 1, 'granted actor: edit drawer opens');
+  await g.unmount();
+  const u = await mount('#/customers/' + IDA, { granted: false });
+  assert.equal(isOff(u.container, /Sửa thông tin/), true, 'no actor: edit disabled (default-deny)');
+  const b = buttonByText(u.container, /Sửa thông tin/); if (b) await press(b);
+  assert.equal(dialogs(u.container), 0, 'no actor: edit drawer never opens');
+  await u.nav('#/customers');
+  assert.equal(isOff(u.container, /Thêm khách hàng/), true, 'no actor: create disabled');
+  assert.equal(calls.filter((c) => c.method !== 'GET').length, 0, 'no write request without an actor');
+  await u.unmount();
 });
