@@ -9,6 +9,10 @@ import DataTools from './features/data/DataTools.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
 import CustomerListPage from './pages/CustomerList.jsx';
 import CustomerProfilePage from './pages/CustomerProfile.jsx';
+import { createCustomerApiUi } from './features/customers/customerApiUi.js';
+
+// null unless VITE_CRM_API_ENABLED === 'true' (default OFF = localStorage demo; no network code path is reachable).
+const CUSTOMER_API = createCustomerApiUi({ env: import.meta.env });
 
 const STORE = 'siscom-crm-demo-v1';
 // Fixed-state mode for QA/screenshots: ?route=/dashboard&theme=dark (no localStorage writes). Normal use: no query string.
@@ -120,7 +124,7 @@ function SiscomCrmApp() {
     decideApproval: (code, ok) => commit((d, x) => Ops.decideApproval(d, code, ok, x)),
   };
   const view = React.useMemo(() => ({ ...db, customers: db.customers.filter((c) => !c.deletedAt) }), [db]);
-  const ui = { db: view, api, navigate, toast, confirm, mobile, user, can: (a, rec) => canDo(user, a, rec), openChat: () => setChat(true) };
+  const ui = { customerApi: CUSTOMER_API, db: view, api, navigate, toast, confirm, mobile, user, can: (a, rec) => canDo(user, a, rec), openChat: () => setChat(true) };
 
   const cust = route.id ? db.customers.find((c) => c.id === route.id) : null;
   const navItem = SISCOM_NAV.find((n) => n.id === route.page) || {};

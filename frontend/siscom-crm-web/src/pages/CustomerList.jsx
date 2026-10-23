@@ -4,10 +4,17 @@ import * as U from '../data/util.js';
 import { APP_DATA } from '../data/demoData.js';
 import { CustomerFormDrawer } from '../features/customers/CustomerForm.jsx';
 import { CustomerExportModal, CustomerImportModal } from '../features/customers/CustomerIO.jsx';
+import { useCustomerApiState } from '../features/customers/useCustomerApi.js';
+import { customerDisplayCode } from '../features/customers/customerApiUi.js';
+import { ApiListStatus, ApiModeNote } from '../features/customers/ApiListStatus.jsx';
 
 function CustomerListPage({ ui }) {
   const D = APP_DATA;
-  const all = ui.db.customers;
+  // Flag OFF: ui.customerApi is null and every API branch below is inert (original localStorage behaviour). Flag ON: list comes from the async repository only.
+  const apiCtl = ui.customerApi; const apiS = useCustomerApiState(apiCtl); const apiOn = !!apiCtl;
+  React.useEffect(() => { if (apiCtl && apiCtl.getState().list.status === 'idle') apiCtl.load(); }, [apiCtl]);
+  const codeOf = (r) => (apiOn ? customerDisplayCode(r) : r.id);
+  const all = apiOn ? apiS.list.items : ui.db.customers;
   const [view, setView] = React.useState(ui.mobile ? 'grid' : 'table');
   const [tier, setTier] = React.useState('all');
   const [industry, setIndustry] = React.useState('all');
@@ -40,7 +47,7 @@ function CustomerListPage({ ui }) {
     { key: 'name', label: 'Khách hàng', sortable: true, sortValue: (r) => r.short, render: (r) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 240 }}>
         <Avatar name={r.short} square size={34} />
-        <div style={{ minWidth: 0, maxWidth: 280 }}><div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.short}</div><div style={{ font: 'var(--type-caption)', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.taxId ? r.id + ' · MST ' + r.taxId : r.id}</div></div>
+        <div style={{ minWidth: 0, maxWidth: 280 }}><div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.short}</div><div style={{ font: 'var(--type-caption)', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.taxId ? codeOf(r) + ' · MST ' + r.taxId : codeOf(r)}</div></div>
       </div>) },
     { key: 'industry', label: 'Ngành nghề', sortable: true, render: (r) => <div><div>{r.industry || '—'}</div><div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>{r.city}</div></div> },
     { key: 'tier', label: 'Phân hạng', sortable: true, render: (r) => <Badge tone={U.TIER_TONE[r.tier]}>{r.tier}</Badge> },
@@ -49,8 +56,8 @@ function CustomerListPage({ ui }) {
     { key: 'status', label: 'Trạng thái', sortable: true, render: (r) => <Badge dot tone={U.STATUS_TONE[r.status]}>{r.status}</Badge> },
     { key: 'act', label: <span className="sr-only">Thao tác</span>, width: 96, render: (r) => (
       <span style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()}>
-        <IconButton icon="pencil" label="Sửa" size="sm" disabled={!ui.can('customer.update', r)} onClick={() => setForm(r)} />
-        <IconButton icon="trash-2" label="Xoá" size="sm" disabled={!ui.can('customer.delete', r)} onClick={() => del([r.id])} />
+        <IconButton icon="pencil" label="Sửa" size="sm" disabled={apiOn || !ui.can('customer.update', r)} onClick={() => setForm(r)} />
+        <IconButton icon="trash-2" label="Xoá" size="sm" disabled={apiOn || !ui.can('customer.delete', r)} onClick={() => del([r.id])} />
       </span>) },
   ];
   const fsel = (label, value, set, opts, w = 190) => <div style={{ width: w, maxWidth: '100%' }}><Select size="sm" value={value} onChange={set} options={[{ value: 'all', label: label }, ...opts.map((o) => ({ value: o, label: o }))]} /></div>;
@@ -67,9 +74,9 @@ function CustomerListPage({ ui }) {
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Tabs value={view} onChange={setView} items={[{ id: 'table', label: 'Bảng', icon: 'list' }, { id: 'grid', label: 'Thẻ', icon: 'layout-grid' }]} />
-          <Button variant="secondary" icon="upload" disabled={!ui.can('customer.import')} onClick={() => setIo('import')}>Nhập</Button>
-          <Button variant="secondary" icon="download" onClick={() => setIo('export')}>Xuất</Button>
-          <Button icon="plus" disabled={!ui.can('customer.create')} onClick={() => setForm('new')}>Thêm khách hàng</Button>
+          <Button variant="secondary" icon="upload" disabled={apiOn || !ui.can('customer.import')} onClick={() => setIo('import')}>Nhập</Button>
+          <Button variant="secondary" icon="download" disabled={apiOn} onClick={() => setIo('export')}>Xuất</Button>
+          <Button icon="plus" disabled={!apiOn && !ui.can('customer.create')} onClick={() => setForm('new')}>Thêm khách hàng</Button>
         </div>
       </div>
       <div className="sg-solid" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 14, flexWrap: 'wrap' }}>
@@ -81,25 +88,26 @@ function CustomerListPage({ ui }) {
         <span style={{ flex: 1 }} />
         {sel.length ? (<>
           <span style={{ font: 'var(--type-sm)', color: 'var(--primary-text)', fontWeight: 600 }}>Đã chọn {sel.length}</span>
-          <Button size="sm" variant="secondary" icon="download" onClick={() => setIo('export')}>Xuất đã chọn</Button>
-          <Button size="sm" variant="danger" icon="trash-2" disabled={!ui.can('customer.delete')} onClick={() => del(sel)}>Xoá</Button>
+          <Button size="sm" variant="secondary" icon="download" disabled={apiOn} onClick={() => setIo('export')}>Xuất đã chọn</Button>
+          <Button size="sm" variant="danger" icon="trash-2" disabled={apiOn || !ui.can('customer.delete')} onClick={() => del(sel)}>Xoá</Button>
         </>) : null}
       </div>
-      {view === 'table' ? (
+      {apiOn ? <ApiModeNote /> : null}
+      {apiOn && apiS.list.status !== 'ready' ? <ApiListStatus s={apiS.list} onRetry={() => apiCtl.load()} /> : view === 'table' ? (
         <DataTable key={ver + tier + industry + owner + city} itemLabel="khách hàng" selectable onSelectionChange={setSel} pageSize={10} rows={rows} columns={cols}
-          searchKeys={['name', 'short', 'id', 'taxId', 'owner', 'city', 'phone', 'email']} searchPlaceholder="Tìm tên, mã KH, MST, SĐT…"
-          filter={{ key: 'status', options: D.STATUSES }} onRowClick={(r) => ui.navigate('/customers/' + r.id)} emptyTitle="Chưa có khách hàng" />
+          searchKeys={['name', 'short', 'id', 'code', 'taxId', 'owner', 'city', 'phone', 'email']} searchPlaceholder="Tìm tên, mã KH, MST, SĐT…"
+          filter={{ key: 'status', options: D.STATUSES }} onRowClick={apiOn ? undefined : (r) => ui.navigate('/customers/' + r.id)} emptyTitle="Chưa có khách hàng" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ maxWidth: 360 }}><Input icon="search" placeholder="Tìm tên, mã KH, MST…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           {gridRows.length ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(100%,320px),1fr))', gap: 16 }}>
-              {gridRows.map((c) => { const ct = ui.db.contacts.find((x) => x.customerId === c.id && x.primary); return <CustomerCard key={c.id} variant="solid" name={c.name} code={c.id} industry={c.industry} tier={c.tier} status={c.status === 'Ngừng giao dịch' ? 'Ngừng' : c.status} contact={ct} address={c.city} revenue={fmtRev(c.revenue)} opportunities={APP_DATA.opportunities.filter((o) => o.customerId === c.id).length} lastActivity={U.dmy(c.createdAt)} owner={c.owner} tags={c.tags} onClick={() => ui.navigate('/customers/' + c.id)} />; })}
+              {gridRows.map((c) => { const ct = ui.db.contacts.find((x) => x.customerId === c.id && x.primary); return <CustomerCard key={c.id} variant="solid" name={c.name} code={codeOf(c)} industry={c.industry} tier={c.tier} status={c.status === 'Ngừng giao dịch' ? 'Ngừng' : c.status} contact={ct} address={c.city} revenue={fmtRev(c.revenue)} opportunities={APP_DATA.opportunities.filter((o) => o.customerId === c.id).length} lastActivity={U.dmy(c.createdAt)} owner={c.owner} tags={c.tags} onClick={apiOn ? undefined : () => ui.navigate('/customers/' + c.id)} />; })}
             </div>
           ) : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description="Thử từ khoá khác hoặc bỏ bớt bộ lọc." action={<Button variant="secondary" onClick={() => { clear(); setQ(''); }}>Xoá bộ lọc</Button>} /></div>}
         </div>
       )}
-      <CustomerFormDrawer open={!!form} initial={form === 'new' ? null : form} ui={ui} onClose={() => setForm(null)} onSaved={(c) => { const wasNew = form === 'new'; setForm(null); if (wasNew) ui.navigate('/customers/' + c.id); }} />
+      <CustomerFormDrawer open={!!form} initial={form === 'new' ? null : form} ui={ui} onClose={() => setForm(null)} onSaved={(c) => { const wasNew = form === 'new'; setForm(null); if (wasNew && !apiOn) ui.navigate('/customers/' + c.id); }} />
       <CustomerExportModal open={io === 'export'} onClose={() => setIo(null)} rows={rows} selected={sel} ui={ui} />
       <CustomerImportModal open={io === 'import'} onClose={() => setIo(null)} ui={ui} />
     </div>
