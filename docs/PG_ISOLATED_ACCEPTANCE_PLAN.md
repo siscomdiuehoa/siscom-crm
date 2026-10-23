@@ -37,7 +37,7 @@ Mật khẩu: sinh ngẫu nhiên ≥ 32 ký tự khi chạy, giữ trong biến 
 3. User khớp `^siscom_t_(owner|app)_\d{8}_\d{6}$` và stamp trùng stamp trong tên DB; từ chối `postgres`, `siscom_app`, `siscom_migrator`.
 4. Không có tham số URL lạ làm đổi đích (`host=`, `dbname=`, `options=`, `service=`); không có nhiều host.
 5. `DATABASE_URL` **không được đặt** trong tiến trình con (xóa trước khi chạy; chỉ truyền biến thử). Không đọc `.env`; dotenv của Prisma phải bị vô hiệu bằng cách chạy từ thư mục không có `.env` hoặc truyền `--schema`/biến tường minh (cần xác minh khi duyệt — chưa kiểm chứng).
-6. Sau khi nối (chỉ đọc): `current_database()` = tên mong đợi; `current_user` đúng vai; `rolsuper/rolcreaterole/rolcreatedb/rolbypassrls/rolreplication` đều `false`; owner DB = `siscom_t_owner_<stamp>`; `SELECT count(*) FROM pg_database WHERE datname LIKE 'siscom_crm_%'` không dùng để quyết định; không có dòng dữ liệu `is_demo = false` trong bảng nghiệp vụ.
+6. Sau khi nối (chỉ đọc): `current_database()` = tên mong đợi; `current_user` đúng vai; `rolsuper/rolcreaterole/rolcreatedb/rolbypassrls/rolreplication` đều `false`; owner DB = `siscom_t_owner_<stamp>`; không có dòng dữ liệu `is_demo = false` trong bảng nghiệp vụ.
 7. Nhãn sở hữu: `COMMENT ON DATABASE` = `SISCOM_DISPOSABLE_TEST:<stamp>:<ISO8601>` do bước tạo đặt; guard từ chối DB thiếu nhãn.
 8. Xác nhận người: gõ lại đúng tên DB (giữ như `run-customers-tests.ps1`).
 
@@ -80,7 +80,7 @@ Tất cả phải có **bằng chứng chạy thật** (log + mã thoát); thi�
 5. Constraint tests M1/M1.1/M1.2: toàn bộ PASS; đường rollback chạy được và `migrate deploy` áp lại được.
 6. Integration suite liên quan: số ca đạt/tổng ghi rõ, 0 fail; không chạm DB khác (kiểm `pg_stat_activity` chỉ có DB thử trong phiên test).
 7. Không rò rỉ: log/PR không chứa mật khẩu, URL kết nối, dữ liệu thật; `git status` sạch bí mật.
-8. Dọn: DB + 2 role thử đã xóa thủ công (hoặc ghi lý do giữ), `siscom_crm_dev` và 2 DB baseline không đổi (đối chiếu số migration/ngày sửa không cần ghi vào chúng).
+8. Dọn: DB + 2 role thử đã xóa thủ công (hoặc ghi lý do giữ), `siscom_crm_dev` và 2 DB baseline không đổi (không kết nối vào chúng; xác nhận bằng việc phiên test chỉ thấy DB thử).
 
 ## 9. Cần người dùng quyết trước khi chạy (BLOCKED nếu thiếu)
 1. Cụm PostgreSQL: dùng cụm cục bộ hiện có (chung với dev) hay cụm/container tạm riêng?
