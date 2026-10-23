@@ -28,6 +28,7 @@ const HINTS = {
   validation: 'Sửa các trường được đánh dấu rồi lưu lại.',
   bad_request: 'Sửa các trường được đánh dấu rồi lưu lại.',
 };
+const BUSY_SAVE = { kind: 'busy', title: 'Đang lưu khách hàng khác', message: 'Một thao tác lưu khác vẫn đang chạy. Chờ xong rồi bấm Lưu lại; nội dung bạn đã nhập vẫn được giữ.', fieldErrors: {}, extra: [], retryable: false, hint: '', staleVersion: false, denied: false };
 export const VERSION_CONFLICT_CODE = 'CUSTOMER_VERSION_CONFLICT';
 
 // Any thrown value -> { kind, title, message, fieldErrors: { uiField: text }, extra: [text of details we could not attach to a field], retryable }
@@ -124,7 +125,7 @@ export function createCustomerApiController(repo) {
   let state = { mode: repo.mode, lookups: noLookups, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null, conflict: null } };
   const subs = new Set();
   const set = (patch) => { state = { ...state, ...patch }; subs.forEach((f) => f()); };
-  let seq = 0; let lseq = 0; let inflight = false; let dseq = 0; let uinflight = false; let cseq = 0;
+  let seq = 0; let lseq = 0; let inflight = false; let dseq = 0; let uinflight = false; let uid = null; let cseq = 0;
   return {
     mode: repo.mode,
     getState: () => state,
@@ -133,6 +134,7 @@ export function createCustomerApiController(repo) {
     async loadLookups(force) {
       const st = state.lookups.status;
       if (st === 'loading' || (st === 'ready' && !force)) return;
+      if (st === 'error' && state.lookups.error && state.lookups.error.denied && !force) return; // 401/403 are never retried implicitly (e.g. by reopening the form); only the explicit reload button (force)
       const my = ++lseq;
       set({ lookups: { status: 'loading', maps: null, error: null } });
       try {
@@ -184,9 +186,10 @@ export function createCustomerApiController(repo) {
     },
     // Update with the optimistic-lock version of the loaded detail. Success replaces detail/list entry with the SERVER response; failure keeps old data (no fake save).
     async update(id, input, version) {
-      if (uinflight) return { ok: false, duplicate: true };
+      // Same customer: silent duplicate. Another customer's save still running: say so (the form shows it) instead of swallowing the click.
+      if (uinflight) return uid === id ? { ok: false, duplicate: true } : { ok: false, error: BUSY_SAVE };
       // `mine` = this save still owns the update state; opening another id / refreshing a conflict bumps cseq, so a late outcome of an older id never lands on the new one.
-      const mine = ++cseq; uinflight = true; set({ update: { status: 'saving', error: null, conflict: null } });
+      const mine = ++cseq; uinflight = true; uid = id; set({ update: { status: 'saving', error: null, conflict: null } });
       try {
         const customer = await repo.update(id, input, version);
         const items = state.list.items.map((c) => (c.id === customer.id ? customer : c));

@@ -172,57 +172,21 @@ async function scenarioApi() {
   await waitFor(`document.body.innerText.includes('Kết quả tìm')`, 'kết quả tìm kiếm');
   await clickText('Bỏ tìm kiếm'); await waitFor(`document.body.innerText.includes('Trang 1/3')`, 'bỏ tìm kiếm');
 
-  // Tạo mới
-  await clickText('Thêm khách hàng'); await waitFor(`!!document.querySelector('[role=dialog]')`, 'drawer tạo');
-  check('C6 mở form tạo -> gọi GET /lookups', (await apiLog()).some((l) => l.p === '/lookups'));
-  const inputByLabel = (lb) => `(()=>{const l=[...document.querySelectorAll('[role=dialog] label')].find(x=>x.textContent.includes(${JSON.stringify(lb)}));if(!l)return null;const i=l.control||l.querySelector('input,textarea')||document.getElementById(l.htmlFor);if(i)i.setAttribute('data-qa',${JSON.stringify(lb)});return !!i})()`;
-  await ev(inputByLabel('Tên công ty')); await ev(inputByLabel('Điện thoại')); await ev(inputByLabel('Địa chỉ'));
-  await typeInto('[data-qa="Tên công ty"]', 'Công ty Tạo Mới Thử'); await typeInto('[data-qa="Điện thoại"]', '0911222333');
-  await setApi('POST', '401'); await clickText('Thêm khách hàng', '[role=dialog] button'); await sleep(600);
-  check('C7 401 khi tạo: hiện "Chưa đăng nhập", form còn mở và giữ nội dung đã nhập', (await text()).includes('Chưa đăng nhập') && (await ev(`document.querySelector('[data-qa="Tên công ty"]').value`)) === 'Công ty Tạo Mới Thử');
-  const posts1 = (await apiLog()).filter((l) => l.m === 'POST').length;
-  await clickText('Thêm khách hàng', '[role=dialog] button'); await sleep(400);
-  check('C8 sau 401 nút Lưu bị khoá (không tự gửi lại)', (await apiLog()).filter((l) => l.m === 'POST').length === posts1, 'POST = ' + posts1);
-  await key('Escape'); await sleep(300); await clickText('Huỷ thay đổi', 'button').catch(() => {}); await clickText('Đồng ý').catch(() => {}); await sleep(300);
-  await ev(`(()=>{[...document.querySelectorAll('button')].filter(b=>/^(Đóng|Huỷ|Bỏ)/.test((b.getAttribute('aria-label')||b.textContent).trim())).forEach(b=>{})})()`);
-  // Mở lại và thử 403
-  await goto(base('api') + '#/customers'); await waitFor(`document.body.innerText.includes('Trang 1/3')`, 'tải lại');
-  await setApi('POST', '403'); await clickText('Thêm khách hàng'); await waitFor(`!!document.querySelector('[role=dialog]')`, 'drawer tạo 2');
-  await ev(inputByLabel('Tên công ty')); await ev(inputByLabel('Điện thoại'));
-  await typeInto('[data-qa="Tên công ty"]', 'Công ty 403'); await typeInto('[data-qa="Điện thoại"]', '0911222333'); await clickText('Thêm khách hàng', '[role=dialog] button'); await sleep(600);
-  check('C9 403 khi tạo: hiện "Không đủ quyền", giữ nội dung nhập', (await text()).includes('Không đủ quyền') && (await ev(`document.querySelector('[data-qa="Tên công ty"]').value`)) === 'Công ty 403');
-  await setApi('POST', 'ok');
-  // Tạo thành công cần form mới
-  await goto(base('api') + '#/customers'); await waitFor(`document.body.innerText.includes('Trang 1/3')`, 'tải lại 2'); await setApi('POST', 'ok');
-  const postsBefore = (await apiLog()).filter((l) => l.m === 'POST').length;
-  await clickText('Thêm khách hàng'); await waitFor(`!!document.querySelector('[role=dialog]')`, 'drawer tạo 3');
-  await ev(inputByLabel('Tên công ty')); await ev(inputByLabel('Điện thoại'));
-  await typeInto('[data-qa="Tên công ty"]', 'Công ty Tạo Mới Thử'); await typeInto('[data-qa="Điện thoại"]', '0911222333'); await clickText('Thêm khách hàng', '[role=dialog] button');
-  await waitFor(`!document.querySelector('[role=dialog]')`, 'drawer đóng sau tạo OK').catch(() => {});
-  await sleep(500);
-  const ls = await ev(`JSON.stringify(Object.entries(localStorage))`);
-  const posts = (await apiLog()).filter((l) => l.m === 'POST').slice(postsBefore);
-  check('C10 tạo thành công: đúng 1 POST, danh sách hiện bản ghi từ máy chủ', posts.length === 1 && (await text()).includes('Công ty Tạo Mới Thử'), 'POST=' + posts.length + ' | ' + (await flat()).slice(0, 700));
-  check('C11 không có localStorage fallback: bản ghi mới KHÔNG nằm trong localStorage', !ls.includes('Tạo Mới Thử'));
-  const pg = (await text()).match(/(\d+) khách hàng · Trang (\d+)\/(\d+)/);
-  check('C12 phân trang nhất quán sau tạo (46 bản ghi, 3 trang)', pg && pg[1] === '46' && pg[3] === '3', pg && pg[0]);
-  const rowsOnPage = await ev(`document.querySelectorAll('tbody tr').length`);
-  check('C12b trang 1 không hiển thị quá pageSize=20 dòng sau khi tạo (không lệch phân trang)', rowsOnPage <= 20, 'số dòng trên trang = ' + rowsOnPage + ' (pageSize=20); fix #76 có trong nhánh này');
-
-  // Chi tiết + sửa + 409
+  // Tạo mới / Sửa: bản build thật KHÔNG có actor máy chủ (chưa có nguồn cấp quyền) -> UI fail-closed (PR #94). Luồng ghi 401/403/409 + tạo/sửa thành công
+  // được kiểm trong test jsdom (customerApiUiNavigation/Components) bằng actor có quyền chỉ tồn tại trong tests/. Ở đây chỉ khẳng định bị khoá và KHÔNG gọi ghi.
+  const writesBefore = (await apiLog()).filter((l) => l.m !== 'GET').length;
+  const createDisabled = await ev(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim().includes('Thêm khách hàng'));return !!b&&b.disabled})()`);
+  check('C6 API không có actor máy chủ: nút "Thêm khách hàng" bị khoá (fail-closed)', createDisabled === true);
+  const clickedCreate = await clickText('Thêm khách hàng'); await sleep(400);
+  check('C7 bấm "Thêm khách hàng" khi bị khoá: không mở form, không gọi /lookups ghi hay POST', clickedCreate === false && !(await ev(`!!document.querySelector('[role=dialog]')`)) && (await apiLog()).filter((l) => l.m !== 'GET').length === writesBefore);
   const id = '00000000-0000-4000-8000-000000000005';
   await fetch(`http://127.0.0.1:${API_PORT}/__set?patch=ok`);
   await goto(base('api') + '#/customers/' + id); await waitFor(`document.body.innerText.includes('Công ty Thử 5')`, 'chi tiết');
   check('C13 chi tiết khách hàng tải từ GET /customers/:id', (await apiLog()).some((l) => l.p === '/customers/' + id));
-  await clickText('Sửa thông tin'); await waitFor(`!!document.querySelector('[role=dialog]')`, 'drawer sửa');
-  await ev(inputByLabel('Tên công ty'));
-  await send('Runtime.evaluate', { expression: `document.querySelector('[data-qa="Tên công ty"]').select()` }); await typeInto('[data-qa="Tên công ty"]', 'Công ty Thử 5 (đã sửa)');
-  await setApi('patch', '409'); await clickText('Lưu thay đổi', '[role=dialog] button'); await sleep(700);
-  const t409 = await text();
-  check('C14 409: hiện panel xung đột, bản nháp được giữ trong form', t409.includes('đã được người khác cập nhật') && (await ev(`document.querySelector('[data-qa="Tên công ty"]').value`)) === 'Công ty Thử 5 (đã sửa)');
-  check('C15 409 không ghi đè im lặng: đúng 1 PATCH, không tự gửi lại', (await apiLog()).filter((l) => l.m === 'PATCH').length === 1);
-  const lsAfter = await ev(`JSON.stringify(Object.entries(localStorage))`);
-  check('C16 sau 409/sửa không có dữ liệu API trong localStorage', !lsAfter.includes('đã sửa'));
+  const editDisabled = await ev(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim().includes('Sửa thông tin'));return !!b&&b.disabled})()`);
+  const clickedEdit = await clickText('Sửa thông tin'); await sleep(400);
+  check('C14 "Sửa thông tin" bị khoá khi chưa có actor máy chủ: bấm không mở form, không PATCH', editDisabled === true && clickedEdit === false && !(await ev(`!!document.querySelector('[role=dialog]')`)) && !(await apiLog()).some((l) => l.m === 'PATCH'));
+  check('C16 chi tiết/danh sách không ghi dữ liệu API vào localStorage', !(await ev(`JSON.stringify(Object.entries(localStorage))`)).includes('Công ty Thử'));
   await setApi('patch', 'ok');
   // 401/403 trên danh sách
   await setApi('GET', '401'); await goto(base('api') + '#/customers'); await sleep(900);
@@ -263,13 +227,11 @@ async function scenarioApiRepeat() {
   check('E1 bấm Sau nhiều lần liên tiếp: giao diện nhất quán (trang hợp lệ, có dòng dữ liệu)', pg && Number(pg[1]) >= 2 && Number(pg[1]) <= 3 && first.length > 0, (pg && pg[0]) + ' | ' + first.replace(/\s+/g, ' ').slice(0, 60));
   const id = '00000000-0000-4000-8000-000000000007';
   await setApi('patch', 'ok'); await goto(base('api') + '#/customers/' + id); await waitFor(`document.body.innerText.includes('Công ty Thử 7')`, 'chi tiết E');
-  await clickText('Sửa thông tin'); await waitFor(`!!document.querySelector('[role=dialog]')`, 'drawer sửa E');
-  await ev(`(()=>{const l=[...document.querySelectorAll('[role=dialog] label')].find(x=>x.textContent.includes('Tên công ty'));const i=l.control||document.getElementById(l.htmlFor);i.setAttribute('data-qa','ten');return true})()`);
-  await send('Runtime.evaluate', { expression: `document.querySelector('[data-qa=ten]').select()` }); await typeInto('[data-qa=ten]', 'Công ty Thử 7 (đã sửa OK)');
-  await ev(`(()=>{const b=[...document.querySelectorAll('[role=dialog] button')].find(x=>x.textContent.includes('Lưu thay đổi')&&!x.disabled);b.click();b.click();return true})()`); await sleep(900);
+  const editDisabledE = await ev(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim().includes('Sửa thông tin'));return !!b&&b.disabled})()`);
+  await clickText('Sửa thông tin'); await sleep(400);
   const patches = (await apiLog()).filter((l) => l.m === 'PATCH');
-  check('E2 sửa thành công + bấm Lưu 2 lần liên tiếp: đúng 1 PATCH', patches.length === 1, 'PATCH = ' + patches.length);
-  check('E3 sau sửa thành công hiện tên mới từ máy chủ, không ghi vào localStorage', (await text()).includes('Công ty Thử 7 (đã sửa OK)') && !(await ev(`JSON.stringify(Object.entries(localStorage))`)).includes('đã sửa OK'));
+  check('E2 "Sửa thông tin" bị khoá (fail-closed): không mở form, không có PATCH nào', editDisabledE === true && !(await ev(`!!document.querySelector('[role=dialog]')`)) && patches.length === 0, 'PATCH = ' + patches.length);
+  check('E3 tên cũ từ máy chủ vẫn hiển thị, không ghi vào localStorage', (await text()).includes('Công ty Thử 7') && !(await ev(`JSON.stringify(Object.entries(localStorage))`)).includes('Công ty Thử 7'));
   check('E4 không có lỗi JS chưa bắt trong console (kịch bản D/E)', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 }
 
