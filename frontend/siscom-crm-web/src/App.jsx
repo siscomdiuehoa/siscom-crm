@@ -26,7 +26,7 @@ const INIT = (() => { const p = new URLSearchParams(location.search); const rout
 
 function parseRoute(h) {
   const p = (h || '').replace(/^#\/?/, '').split('/');
-  if (p[0] === 'customers' && p[1]) return { page: 'customers', id: decodeURIComponent(p[1]) };
+  if (p[0] === 'customers' && p[1]) { let id = p[1]; try { id = decodeURIComponent(id); } catch (e) { /* malformed %-escape: keep the raw text; the id check rejects it, the app must not crash */ } return { page: 'customers', id }; }
   return { page: p[0] || 'dashboard' };
 }
 
