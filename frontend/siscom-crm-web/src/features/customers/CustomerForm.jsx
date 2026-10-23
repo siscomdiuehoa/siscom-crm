@@ -50,10 +50,12 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   const errs = { ...validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial), ...(apiOn ? lookupFormErrors(lk, f) : {}) };
   const err = (k) => (tried && errs[k]) || (srvErr && srvErr.fieldErrors[k]) || '';
   const dirty = JSON.stringify(f) !== JSON.stringify(start);
-  const set = (k) => (v) => { if (srvErr && !srvErr.staleVersion) apiCtl.clearSubmitError(); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
+  const denied = !!(srvErr && srvErr.denied); // 401/403: the access-denied notice stays (editing the draft does not dismiss it) and saving is blocked until the form is closed/reopened
+  const set = (k) => (v) => { if (srvErr && !srvErr.staleVersion && !srvErr.denied) apiCtl.clearSubmitError(); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
   const close = () => { if (saving) return; if (dirty) ui.confirm({ title: 'Huỷ các thay đổi?', description: 'Thông tin bạn vừa nhập sẽ không được lưu.', icon: 'triangle-alert', tone: 'warning', confirmLabel: 'Huỷ thay đổi', cancelLabel: 'Tiếp tục chỉnh sửa', onConfirm: onClose }); else onClose(); };
   React.useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') close(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); });
   const save = async () => {
+    if (denied) return;
     setTried(true);
     if (Object.keys(errs).length) { ui.toast({ tone: 'error', title: 'Vui lòng kiểm tra lại', message: Object.keys(errs).length + ' trường chưa hợp lệ.' }); return; }
     if (apiOn && !isNew) {
@@ -123,7 +125,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
         <footer style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 24px', borderTop: '1px solid var(--border-subtle)', background: 'var(--surface-sunken)', flexWrap: 'wrap' }}>
           {tried && Object.keys(errs).length ? <span style={{ flex: 1, display: 'inline-flex', alignItems: 'center', gap: 6, font: 'var(--type-sm)', color: 'var(--error-text)' }}><Icon name="circle-alert" size={14} />{Object.keys(errs).length} trường cần sửa</span> : <span style={{ flex: 1 }} />}
           <Button variant="secondary" disabled={saving} onClick={close}>Huỷ</Button>
-          <Button icon="check" loading={saving} onClick={save}>{isNew ? 'Thêm khách hàng' : 'Lưu thay đổi'}</Button>
+          <Button icon="check" loading={saving} disabled={denied} onClick={save}>{isNew ? 'Thêm khách hàng' : 'Lưu thay đổi'}</Button>
         </footer>
       </aside>
     </div>
