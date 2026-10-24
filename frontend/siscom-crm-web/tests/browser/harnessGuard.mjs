@@ -3,6 +3,7 @@
 // dọn TOÀN BỘ cây tiến trình Chrome (kể cả khi lỗi sớm/Ctrl-C), Chrome không ra mạng ngoài loopback. Không mạng, không DB, không .env.
 import net from 'node:net';
 import fs from 'node:fs';
+import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
 // Cờ chặn Chrome tự ra mạng (cập nhật thành phần, đồng bộ, ping...) và mọi tên miền khác 127.0.0.1.
@@ -67,3 +68,42 @@ export function spawnChrome(cleanup, chromeExe, args) {
 }
 
 export const rmDirBestEffort = (dir) => { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch (e) { /* bỏ qua */ } };
+
+// ---------------- Máy chủ tĩnh an toàn (chống path traversal) ----------------
+// Trả { status, file }: file chỉ khác null khi status 200. Không dùng startsWith(DIST) trên chuỗi (sai với thư mục anh em
+// cùng tiền tố như dist-evil); dùng path.relative trên đường dẫn đã resolve + realpath để chặn symlink/junction thoát ra ngoài.
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const inside = (root, p) => { const rel = path.relative(root, p); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); };
+export function resolveStaticFile(rootDir, rawUrl) {
+  let pathname;
+  try { pathname = decodeURIComponent(new URL(rawUrl, 'http://x').pathname); } catch (e) { return { status: 400, file: null }; }
+  if (pathname.includes('\0')) return { status: 400, file: null };
+  // Coi cả \ lẫn / là dấu phân cách (nhất quán trên Windows/POSIX); cấm ':' (ổ đĩa tuyệt đối, ADS) và đường dẫn UNC.
+  const rel = pathname.split(String.fromCharCode(92)).join('/');
+  if (rel.includes(':')) return { status: 403, file: null };
+  let root;
+  try { root = fs.realpathSync(rootDir); } catch (e) { return { status: 404, file: null }; }
+  const norm = path.posix.normalize(rel.replace(/^\/+/, '') || '.');
+  if (norm === '..' || norm.startsWith('../')) return { status: 403, file: null };
+  const target = path.resolve(root, norm);
+  if (!inside(root, target)) return { status: 403, file: null };
+  let real;
+  try { real = fs.realpathSync(target); } catch (e) { return { status: 404, file: null }; }
+  if (!inside(root, real)) return { status: 403, file: null };
+  try {
+    if (fs.statSync(real).isDirectory()) {
+      const idx = fs.realpathSync(path.join(real, 'index.html'));
+      if (!inside(root, idx)) return { status: 403, file: null };
+      real = idx;
+    }
+    if (!fs.statSync(real).isFile()) return { status: 404, file: null };
+  } catch (e) { return { status: 404, file: null }; }
+  return { status: 200, file: real };
+}
+
+export const createStaticHandler = (rootDir) => (req, res) => {
+  const { status, file } = resolveStaticFile(rootDir, req.url);
+  if (status !== 200) { res.writeHead(status); return res.end(); }
+  res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
+  fs.createReadStream(file).pipe(res);
+};
