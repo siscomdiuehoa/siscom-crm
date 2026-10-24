@@ -48,10 +48,12 @@ export function createLoginSession(client) {
     getAuthHeader: () => (token ? 'Bearer ' + token : null), // chỉ trong bộ nhớ
     async submit(loginInput, password) {
       if (state.status === 'UNAVAILABLE' || state.status === 'LOADING') return state;
+      // Đầu vào sai khi đang AUTHENTICATED: trạng thái chuyển ERROR nên token PHẢI bị xóa cùng lúc (không "ERROR nhưng vẫn gửi Bearer"); epoch++ hủy thao tác chờ cũ.
+      const reject = (code) => { epoch++; token = null; fail(code); return state; };
       const id = parseLoginIdentifier(loginInput);
-      if (id.kind === 'INVALID') { fail('IDENTIFIER_INVALID'); return state; }
+      if (id.kind === 'INVALID') return reject('IDENTIFIER_INVALID');
       const pe = validatePassword(password);
-      if (pe) { fail(pe); return state; }
+      if (pe) return reject(pe);
       const my = ++epoch;
       token = null; // đăng nhập lại: không giữ token phiên cũ trong lúc LOADING
       set({ status: 'LOADING', error: null, employeeId: null, expiresAt: null });
