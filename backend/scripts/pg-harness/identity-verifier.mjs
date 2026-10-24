@@ -25,6 +25,7 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 /** Sổ đăng ký quyền migrate: CHỈ runPreMigrateIdentityCheck (sau cổng thực thi + kiểm định) được ghi. verdict -> {executor, db, issuedAt, labelCreatedAt}. */
 const grants = new WeakMap();
 const MAX_VERDICT_AGE_MS = 5 * 60 * 1000;
+const DATE_GET_TIME = Date.prototype.getTime;
 
 function validStamp(s) {
   const m = /^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/.exec(s);
@@ -325,8 +326,9 @@ export async function guardedMigrateDeploy(executor, verdict, db, now) {
   if (g === undefined || verdict.ok !== true) throw new Error('MIGRATE_DENIED: thiếu verdict định danh hợp lệ.');
   if (typeof db !== 'string' || verdict.db !== db || g.db !== db) throw new Error('MIGRATE_DENIED: verdict không thuộc DB này.');
   if (missingMethods(executor).length > 0 || executor !== g.executor) throw new Error('MIGRATE_DENIED: bộ thực thi không hợp lệ hoặc không phải bộ đã được cấp quyền.');
-  if (!(now instanceof Date) || Number.isNaN(now.getTime())) throw new Error('MIGRATE_DENIED: thiếu đồng hồ hợp lệ.');
-  const t = now.getTime();
+  if (!(now instanceof Date)) throw new Error('MIGRATE_DENIED: thiếu đồng hồ hợp lệ.');
+  const t = DATE_GET_TIME.call(now); // J04: đọc MỘT lần bằng getTime nội tại (bỏ qua getTime bị ghi đè trong lớp con); NaN/vô hạn → từ chối thay vì so sánh sai thành "chưa cũ"
+  if (!Number.isFinite(t)) throw new Error('MIGRATE_DENIED: thiếu đồng hồ hợp lệ.');
   if (t - g.issuedAt > MAX_VERDICT_AGE_MS || g.issuedAt - t > MAX_FUTURE_SKEW_MS || t - g.labelCreatedAt > MAX_AGE_MS) {
     grants.delete(verdict);
     throw new Error('MIGRATE_DENIED: verdict đã cũ.');
