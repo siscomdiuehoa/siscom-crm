@@ -59,3 +59,34 @@ test('cách ly tĩnh: helper thuần, không import, không I/O', () => {
   assert.ok(!/^\s*import\s/m.test(code) && !/\brequire\s*\(/.test(code), 'helper không được import gì (tránh vòng import)');
   for (const re of [/process\.env/, /\bprisma\b/i, /child_process/, /\bnode:/, /\bfetch\s*\(/, /\.env\b/]) assert.ok(!re.test(code), 'helper dính ' + re);
 });
+
+test('ca biên (G09): soft-hyphen U+00AD và chuỗi rỗng bị coi là cấm ở helper dùng chung', () => {
+  for (const v of ['siscom_crm_­dev', '­siscom_crm_dev', 'siscom_crm_dev­', 'sis­com_app', 'post­gres', 'siscom_crm_%C2%ADdev', '', '   ', '­', '""', '​']) assert.equal(isForbiddenDbName(v), true, JSON.stringify(v));
+  assert.equal(normalizeDbName('siscom_crm_­dev'), 'siscom_crm_dev');
+});
+
+test('ca biên (G09): allowlist siscom_crm_test_<stamp> vẫn hoạt động, không chặn sai DB thử hợp lệ', async () => {
+  const S = '20261024_120000';
+  for (const v of ['siscom_crm_test_' + S, 'SISCOM_CRM_TEST_' + S, 'siscom_crm_restore_20261020_101010']) assert.equal(isForbiddenDbName(v), false, v);
+  const v = verifyDbIdentity({}, { db: 'siscom_crm_test_' + S, stamp: S, port: 55432, runtime: 'native', now: new Date('2026-10-24T12:30:00Z') });
+  assert.ok(!v.reasons.some((x) => x.code === 'DB_NAME_INVALID'), 'identity-verifier chặn sai DB thử hợp lệ');
+  const { evaluateTestDatabaseTarget } = await import('../../test/helpers/test-db-guard.ts');
+  const ok = evaluateTestDatabaseTarget(`postgresql://siscom_t_app_${S}:synthetic-placeholder@127.0.0.1:55432/siscom_crm_test_${S}`, 'disposable');
+  assert.equal(ok.ok, true, JSON.stringify(ok.reasons));
+  const legacy = evaluateTestDatabaseTarget(`postgresql://siscom_app:synthetic-placeholder@127.0.0.1:5432/siscom_crm_test_${S}`, 'legacy-shared-app');
+  assert.equal(legacy.ok, true, JSON.stringify(legacy.reasons));
+});
+
+test('ca biên (G09): test-db-guard.ts đồng bộ — soft-hyphen/rỗng bị từ chối bằng DB_FORBIDDEN', async () => {
+  const { evaluateTestDatabaseTarget } = await import('../../test/helpers/test-db-guard.ts');
+  const S = '20261024_120000';
+  for (const profile of ['legacy-shared-app', 'disposable']) {
+    const role = profile === 'disposable' ? `siscom_t_app_${S}` : 'siscom_app';
+    const port = profile === 'disposable' ? 55432 : 5432;
+    for (const db of ['siscom_crm_%C2%ADdev', '%C2%ADsiscom_crm_dev', 'post%C2%ADgres', '%C2%AD', '']) {
+      const r = evaluateTestDatabaseTarget(`postgresql://${role}:synthetic-placeholder@127.0.0.1:${port}/${db}`, profile);
+      assert.equal(r.ok, false);
+      assert.ok(r.reasons.some((x) => x.code === 'DB_FORBIDDEN'), profile + ' ' + JSON.stringify(db) + ' -> ' + JSON.stringify(r.reasons));
+    }
+  }
+});
