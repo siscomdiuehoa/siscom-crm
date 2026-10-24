@@ -218,7 +218,7 @@ test('luồng đạt: owner→app đọc trước, rồi guardedMigrateDeploy m�
   const r = await runPreMigrateIdentityCheck({ executor: ex, gateInputs: gateInputs(), expected: expected() });
   assert.equal(r.ok, true, JSON.stringify(r.reasons));
   assert.deepEqual(ex.calls.map((c) => c.method + (c.role ? `:${c.role}` : '')), ['readIdentity:owner', 'readIdentity:app']);
-  const res = await guardedMigrateDeploy(ex, r.verdict, DB);
+  const res = await guardedMigrateDeploy(ex, r.verdict, DB, NOW);
   assert.equal(res.simulated, true);
   assert.deepEqual(ex.calls.map((c) => c.method), ['readIdentity', 'readIdentity', 'migrateDeploy']);
 });
@@ -238,7 +238,7 @@ test('bằng chứng sai → ok=false, không verdict, guardedMigrateDeploy từ
   const r = await runPreMigrateIdentityCheck({ executor: ex, gateInputs: gateInputs(), expected: expected() });
   assert.equal(r.ok, false);
   assert.equal(r.verdict, undefined);
-  await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB), /MIGRATE_DENIED/);
+  await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB, NOW), /MIGRATE_DENIED/);
   assert.ok(!ex.calls.some((c) => c.method === 'migrateDeploy'));
 });
 
@@ -277,12 +277,12 @@ test('hai vai báo kết nối tới đích khác nhau → từ chối', async (
 test('guardedMigrateDeploy: verdict giả/thiếu/sai DB/dùng lại → từ chối, migrate chỉ chạy đúng 1 lần', async () => {
   const ex = new FakeDbExecutor(script());
   const forged = Object.freeze({ ok: true, reasons: [], db: DB, stamp: STAMP });
-  await assert.rejects(() => guardedMigrateDeploy(ex, forged, DB), /MIGRATE_DENIED/);
-  await assert.rejects(() => guardedMigrateDeploy(ex, undefined, DB), /MIGRATE_DENIED/);
+  await assert.rejects(() => guardedMigrateDeploy(ex, forged, DB, NOW), /MIGRATE_DENIED/);
+  await assert.rejects(() => guardedMigrateDeploy(ex, undefined, DB, NOW), /MIGRATE_DENIED/);
   const r = await runPreMigrateIdentityCheck({ executor: ex, gateInputs: gateInputs(), expected: expected() });
-  await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, 'siscom_crm_dev'), /MIGRATE_DENIED/);
-  await guardedMigrateDeploy(ex, r.verdict, DB);
-  await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB), /MIGRATE_DENIED/);
+  await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, 'siscom_crm_dev', NOW), /MIGRATE_DENIED/);
+  await guardedMigrateDeploy(ex, r.verdict, DB, NOW);
+  await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB, NOW), /MIGRATE_DENIED/);
   assert.equal(ex.calls.filter((c) => c.method === 'migrateDeploy').length, 1);
 });
 
@@ -310,4 +310,73 @@ test('cách ly adapter: mã mới không import pg/prisma/child_process/net/fs/h
   for (const f of ['./harness.mjs', '../guards/pg-dryrun-guard.mjs', './identity-verifier.mjs']) {
     assert.ok(!readFileSync(new URL(f, import.meta.url), 'utf8').includes('fake-db-executor'), `${f} import fake`);
   }
+});
+
+// ---- G01: hồi quy khai thác — mọi đường tới migrate mô phỏng phải qua cổng phê duyệt + xác minh đích
+const migrateCalls = (ex) => ex.calls.filter((c) => c.method === 'migrateDeploy').length;
+const NOW_OK = new Date(NOW.getTime() + 60 * 1000);
+
+test('G01-1 verifyDbIdentity (hàm thuần, xuất công khai) KHÔNG cấp quyền migrate: bỏ qua cổng → từ chối, migrate không được gọi', async () => {
+  const ex = new FakeDbExecutor(script());
+  const v = verifyDbIdentity(evidence(), expected());
+  assert.equal(v.ok, true);
+  await assert.rejects(() => guardedMigrateDeploy(ex, v, DB, NOW), /MIGRATE_DENIED/);
+  assert.equal(migrateCalls(ex), 0);
+});
+
+test('G01-2 gate fail (thiếu phê duyệt) → không verdict, migrate không được gọi dù có bằng chứng hợp lệ', async () => {
+  for (const g of [gateInputs({ approvalRef: undefined }), gateInputs({ ownerGrantedTestDb: false })]) {
+    const ex = new FakeDbExecutor(script());
+    const r = await runPreMigrateIdentityCheck({ executor: ex, gateInputs: g, expected: expected() });
+    assert.equal(r.ok, false);
+    assert.equal(r.verdict, undefined);
+    await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB, NOW), /MIGRATE_DENIED/);
+    assert.equal(ex.calls.length, 0);
+  }
+});
+
+test('G01-3 verdict giả (sao chép/spread/đóng băng thủ công) bị từ chối', async () => {
+  const ex = new FakeDbExecutor(script());
+  const r = await runPreMigrateIdentityCheck({ executor: ex, gateInputs: gateInputs(), expected: expected() });
+  assert.equal(r.ok, true, JSON.stringify(r.reasons));
+  for (const forged of [{ ...r.verdict }, Object.freeze({ ...r.verdict }), JSON.parse(JSON.stringify(r.verdict)), Object.create(r.verdict)]) {
+    await assert.rejects(() => guardedMigrateDeploy(ex, forged, DB, NOW_OK), /MIGRATE_DENIED/);
+  }
+  assert.equal(migrateCalls(ex), 0);
+});
+
+test('G01-4 verdict đúng nhưng đưa cho executor khác (sai đích) → từ chối, không gọi migrate ở cả hai', async () => {
+  const ex = new FakeDbExecutor(script());
+  const other = new FakeDbExecutor(script());
+  const r = await runPreMigrateIdentityCheck({ executor: ex, gateInputs: gateInputs(), expected: expected() });
+  await assert.rejects(() => guardedMigrateDeploy(other, r.verdict, DB, NOW_OK), /MIGRATE_DENIED/);
+  assert.equal(migrateCalls(other) + migrateCalls(ex), 0);
+});
+
+test('G01-5 cổng đạt cho DB này nhưng expected trỏ DB khác (URL cổng ≠ expected.db) → từ chối, executor không bị gọi', async () => {
+  const otherStamp = '20261024_121500';
+  const otherDb = `siscom_crm_test_${otherStamp}`;
+  const ex = new FakeDbExecutor(script());
+  const r = await runPreMigrateIdentityCheck({ executor: ex, gateInputs: gateInputs(), expected: expected({ db: otherDb, stamp: otherStamp }) });
+  assert.equal(r.ok, false);
+  assert.ok(codes(r).includes('GATE_TARGET_MISMATCH'));
+  assert.equal(ex.calls.length, 0);
+});
+
+test('G01-6 verdict cũ (stale) hoặc thiếu đồng hồ hợp lệ → từ chối, migrate không được gọi', async () => {
+  for (const now of [new Date(NOW.getTime() + 10 * 60 * 1000), new Date(NOW.getTime() - 5 * 60 * 1000), undefined, 'x', new Date('invalid')]) {
+    const ex = new FakeDbExecutor(script());
+    const r = await runPreMigrateIdentityCheck({ executor: ex, gateInputs: gateInputs(), expected: expected() });
+    await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB, now), /MIGRATE_DENIED/);
+    assert.equal(migrateCalls(ex), 0);
+  }
+});
+
+test('G01-7 đường hợp lệ đầy đủ vẫn chạy đúng 1 lần (mô phỏng) và verdict dùng một lần', async () => {
+  const ex = new FakeDbExecutor(script());
+  const r = await runPreMigrateIdentityCheck({ executor: ex, gateInputs: gateInputs(), expected: expected() });
+  const res = await guardedMigrateDeploy(ex, r.verdict, DB, NOW_OK);
+  assert.equal(res.simulated, true);
+  await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB, NOW_OK), /MIGRATE_DENIED/);
+  assert.equal(migrateCalls(ex), 1);
 });

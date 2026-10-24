@@ -22,7 +22,9 @@ const CONNECTION_KEYS = new Set(['host', 'port', 'runtime']);
 export const EXECUTOR_METHODS = ['readIdentity', 'migrateDeploy'];
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-const verdicts = new WeakSet();
+/** Sổ đăng ký quyền migrate: CHỈ runPreMigrateIdentityCheck (sau cổng thực thi + kiểm định) được ghi. verdict -> {executor, db, issuedAt, labelCreatedAt}. */
+const grants = new WeakMap();
+const MAX_VERDICT_AGE_MS = 5 * 60 * 1000;
 
 function validStamp(s) {
   const m = /^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/.exec(s);
@@ -151,9 +153,18 @@ export function verifyDbIdentity(evidence, expected) {
     return deny([...reasons, { code: 'INTERNAL_ERROR', message: 'Lỗi khi kiểm tra; từ chối mặc định.' }]);
   }
   if (reasons.length > 0) return deny(reasons);
-  const verdict = Object.freeze({ ok: true, reasons: Object.freeze([]), db: expected.db, stamp: expected.stamp });
-  verdicts.add(verdict);
-  return verdict;
+  // Kết quả thuần: KHÔNG đăng ký quyền migrate. Chỉ runPreMigrateIdentityCheck (sau cổng) mới cấp quyền.
+  return Object.freeze({ ok: true, reasons: Object.freeze([]), db: expected.db, stamp: expected.stamp });
+}
+
+/** Cổng phải nhắm đúng DB mà expected nêu (URL + tên DB gõ xác nhận); tránh cổng đạt cho DB A rồi cấp quyền cho DB B. */
+function gateTargetMatches(gateInputs, db) {
+  try {
+    const u = new URL(gateInputs.url);
+    return decodeURIComponent(u.pathname.slice(1)) === db && gateInputs.confirmDb === db;
+  } catch {
+    return false;
+  }
 }
 
 function deny(reasons) {
@@ -177,6 +188,7 @@ export async function runPreMigrateIdentityCheck({ executor, gateInputs, expecte
   if (missing.length > 0) return { ok: false, reasons: [{ code: 'EXECUTOR_INVALID', message: 'Bộ thực thi thiếu phương thức bắt buộc.' }] };
   const gate = evaluateExecutionGate(gateInputs);
   if (!gate.ok) return { ok: false, reasons: gate.reasons };
+  if (!isObj(expected) || !gateTargetMatches(gateInputs, expected.db)) return { ok: false, reasons: [{ code: 'GATE_TARGET_MISMATCH', message: 'Đích của cổng thực thi khác DB mong đợi.' }] };
   let evidence;
   try {
     const owner = await executor.readIdentity('owner');
@@ -190,7 +202,12 @@ export async function runPreMigrateIdentityCheck({ executor, gateInputs, expecte
     return { ok: false, reasons: [{ code: 'EXECUTOR_ERROR', message: 'Bộ thực thi báo lỗi khi đọc định danh; từ chối mặc định.' }] };
   }
   const verdict = verifyDbIdentity(evidence, expected);
-  return verdict.ok ? { ok: true, reasons: [], verdict } : { ok: false, reasons: [...verdict.reasons] };
+  if (!verdict.ok) return { ok: false, reasons: [...verdict.reasons] };
+  // Cấp quyền migrate: gắn với đúng executor + DB + thời điểm (expected.now đã được kiểm hợp lệ) + ngày tạo nhãn.
+  const labelCreatedAt = Date.parse(LABEL_RE.exec(evidence.owner.dbLabel)[2]);
+  const granted = Object.freeze({ ok: true, reasons: Object.freeze([]), db: expected.db, stamp: expected.stamp });
+  grants.set(granted, { executor, db: expected.db, issuedAt: expected.now.getTime(), labelCreatedAt });
+  return { ok: true, reasons: [], verdict: granted };
 }
 
 function stripConnection(snap) {
@@ -198,11 +215,22 @@ function stripConnection(snap) {
   return rest;
 }
 
-/** Cách DUY NHẤT để gọi migrateDeploy: cần verdict ok do verifyDbIdentity cấp, đúng DB. Không có verdict hợp lệ → ném lỗi, không gọi executor. */
-export async function guardedMigrateDeploy(executor, verdict, db) {
-  if (!isObj(verdict) || !verdicts.has(verdict) || verdict.ok !== true) throw new Error('MIGRATE_DENIED: thiếu verdict định danh hợp lệ.');
-  if (typeof db !== 'string' || verdict.db !== db) throw new Error('MIGRATE_DENIED: verdict không thuộc DB này.');
-  if (missingMethods(executor).length > 0) throw new Error('MIGRATE_DENIED: bộ thực thi không hợp lệ.');
-  verdicts.delete(verdict); // dùng một lần
+/**
+ * Cách DUY NHẤT để gọi migrateDeploy: cần verdict do runPreMigrateIdentityCheck cấp (tức đã qua cổng phê duyệt + kiểm định đích),
+ * đúng executor, đúng DB, chưa cũ (≤5 phút kể từ lúc cấp, nhãn DB ≤2 giờ) theo đồng hồ `now` do người gọi tiêm. Dùng một lần.
+ * verifyDbIdentity (hàm thuần) KHÔNG cấp quyền này. Không hợp lệ → ném MIGRATE_DENIED, không gọi executor.
+ */
+export async function guardedMigrateDeploy(executor, verdict, db, now) {
+  const g = isObj(verdict) ? grants.get(verdict) : undefined;
+  if (g === undefined || verdict.ok !== true) throw new Error('MIGRATE_DENIED: thiếu verdict định danh hợp lệ.');
+  if (typeof db !== 'string' || verdict.db !== db || g.db !== db) throw new Error('MIGRATE_DENIED: verdict không thuộc DB này.');
+  if (missingMethods(executor).length > 0 || executor !== g.executor) throw new Error('MIGRATE_DENIED: bộ thực thi không hợp lệ hoặc không phải bộ đã được cấp quyền.');
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) throw new Error('MIGRATE_DENIED: thiếu đồng hồ hợp lệ.');
+  const t = now.getTime();
+  if (t - g.issuedAt > MAX_VERDICT_AGE_MS || g.issuedAt - t > MAX_FUTURE_SKEW_MS || t - g.labelCreatedAt > MAX_AGE_MS) {
+    grants.delete(verdict);
+    throw new Error('MIGRATE_DENIED: verdict đã cũ.');
+  }
+  grants.delete(verdict); // dùng một lần
   return executor.migrateDeploy(db);
 }
