@@ -1,0 +1,18 @@
+{
+  "_note": "Fixture TỔNG HỢP cho harness PG cô lập (C-06). Không phải dữ liệu thật; chưa được nạp vào bất kỳ DB nào. Email miền example.invalid, SĐT/MST dải giả.",
+  "customers": [
+    { "key": "C1", "name": "KH TỔNG HỢP 001", "taxId": "9999900001", "phone": "0900000001", "email": "c1@example.invalid", "tier": "POTENTIAL", "status": "POTENTIAL", "owner": "empA", "isDemo": true },
+    { "key": "C2", "name": "KH TỔNG HỢP 002", "taxId": "9999900002", "phone": "0900000002", "email": "c2@example.invalid", "tier": "VIP", "status": "ACTIVE", "owner": "empB", "isDemo": true },
+    { "key": "C3", "name": "KH TỔNG HỢP 003 (ngoài phạm vi OWN của empA)", "taxId": "9999900003", "phone": "0900000003", "email": "c3@example.invalid", "tier": "STRATEGIC", "status": "ACTIVE", "owner": "empC", "isDemo": true },
+    { "key": "C4", "name": "KH TỔNG HỢP 004 (xoá mềm)", "taxId": "9999900004", "phone": "0900000004", "email": "c4@example.invalid", "tier": "POTENTIAL", "status": "POTENTIAL", "owner": "empA", "deleted": true, "isDemo": true }
+  ],
+  "contacts": [
+    { "customer": "C1", "fullName": "LH TỔNG HỢP 001", "phone": "0900000101", "email": "l1@example.invalid", "isPrimary": true, "isDemo": true },
+    { "customer": "C2", "fullName": "LH TỔNG HỢP 002", "phone": "0900000102", "email": "l2@example.invalid", "isPrimary": true, "isDemo": true }
+  ],
+  "actors": [
+    { "key": "empA", "department": "T_D1", "scope": "OWN" },
+    { "key": "empB", "department": "T_D1", "scope": "DEPARTMENT" },
+    { "key": "empC", "department": "T_D2", "scope": "ALL" }
+  ]
+}
