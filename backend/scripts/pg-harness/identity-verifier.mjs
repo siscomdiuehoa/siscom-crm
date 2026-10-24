@@ -42,10 +42,23 @@ function parseIso(s) {
 }
 
 const isLoopback = (a) => a === '127.0.0.1' || a === '::1';
-const isContainerBridge = (a) => {
-  const m = /^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(a);
-  return m !== null && Number(m[1]) >= 16 && Number(m[1]) <= 31;
-};
+const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)'; // 0..255, không số 0 đứng trước
+const BRIDGE_RE = new RegExp(`^172\\.(?:1[6-9]|2\\d|3[01])\\.${OCTET}\\.${OCTET}$`);
+const isContainerBridge = (a) => BRIDGE_RE.test(a);
+const isPort = (p) => Number.isInteger(p) && p >= 1 && p <= 65535;
+
+/**
+ * Sao chép sâu CHỈ các khóa chuỗi SỞ HỮU, enumerable vào đối tượng không prototype (Date giữ nguyên). Trường thiếu luôn đọc ra undefined,
+ * không bao giờ "điền" từ Object.prototype bị ô nhiễm hay từ prototype tự gắn (Object.create). `memo` giữ nguyên quan hệ đồng nhất tham chiếu.
+ */
+function ownCopy(v, memo = new WeakMap()) {
+  if (v === null || typeof v !== 'object' || v instanceof Date) return v;
+  if (memo.has(v)) return memo.get(v);
+  const out = Array.isArray(v) ? [] : Object.create(null);
+  memo.set(v, out);
+  for (const k of Object.keys(v)) out[k] = ownCopy(v[k], memo);
+  return out;
+}
 
 function unknownKeys(obj, allowed) {
   return Object.keys(obj).filter((k) => !allowed.has(k));
@@ -58,7 +71,7 @@ function unknownKeys(obj, allowed) {
 function checkSnapshot(role, snap, expected, push) {
   const fail = (code, message) => push(`${role.toUpperCase()}_${code}`, message);
   if (!isObj(snap)) return fail('EVIDENCE_MISSING', 'Thiếu bằng chứng định danh.');
-  for (const k of unknownKeys(snap, SNAPSHOT_KEYS)) fail('FIELD_UNKNOWN', `Trường lạ "${k.slice(0, 40)}" bị từ chối.`);
+  if (unknownKeys(snap, SNAPSHOT_KEYS).length > 0) fail('FIELD_UNKNOWN', 'Có trường lạ trong bằng chứng; bị từ chối.'); // không phản chiếu tên khóa do DB báo
   const wantUser = role === 'owner' ? expected.ownerRole : expected.appRole;
   if (snap.currentDatabase !== expected.db) fail('DB_MISMATCH', 'current_database() khác DB mong đợi.');
   if (snap.currentUser !== wantUser) fail('USER_MISMATCH', 'current_user khác role mong đợi của vai.');
@@ -71,7 +84,7 @@ function checkSnapshot(role, snap, expected, push) {
   if (typeof snap.serverAddr !== 'string') fail('SERVER_ADDR_MISSING', 'Thiếu địa chỉ máy chủ do PG báo.');
   else if (expected.runtime === 'container' ? !(isLoopback(snap.serverAddr) || isContainerBridge(snap.serverAddr)) : !isLoopback(snap.serverAddr)) fail('SERVER_NOT_LOOPBACK', 'Địa chỉ máy chủ PG báo không phải loopback/cầu nối container.');
   if (expected.runtime !== 'container' && snap.serverPort !== expected.port) fail('SERVER_PORT_MISMATCH', 'Cổng máy chủ PG báo khác cổng đã khai báo.');
-  if (expected.runtime === 'container' && !Number.isInteger(snap.serverPort)) fail('SERVER_PORT_MISSING', 'Thiếu cổng máy chủ PG báo.');
+  if (expected.runtime === 'container' && !isPort(snap.serverPort)) fail('SERVER_PORT_MISSING', 'Thiếu cổng máy chủ PG báo.');
 }
 
 /**
@@ -86,7 +99,10 @@ export function verifyDbIdentity(evidence, expected) {
   try {
     if (!isObj(evidence)) return deny([{ code: 'EVIDENCE_MISSING', message: 'Thiếu bằng chứng định danh.' }]);
     if (!isObj(expected)) return deny([{ code: 'EXPECTED_INVALID', message: 'Thiếu thông số mong đợi.' }]);
-    for (const k of unknownKeys(evidence, EVIDENCE_KEYS)) push('FIELD_UNKNOWN', `Trường lạ "${k.slice(0, 40)}" bị từ chối.`);
+    const memo = new WeakMap();
+    evidence = ownCopy(evidence, memo);
+    expected = ownCopy(expected, memo);
+    if (unknownKeys(evidence, EVIDENCE_KEYS).length > 0) push('FIELD_UNKNOWN', 'Có trường lạ trong bằng chứng; bị từ chối.');
 
     // Tên DB + stamp
     const dm = typeof expected.db === 'string' ? DB_RE.exec(expected.db) : null;
@@ -105,7 +121,7 @@ export function verifyDbIdentity(evidence, expected) {
     const conn = evidence.connection;
     if (!isObj(conn)) push('CONNECTION_MISSING', 'Thiếu thông tin kết nối khai báo.');
     else {
-      for (const k of unknownKeys(conn, CONNECTION_KEYS)) push('FIELD_UNKNOWN', `Trường lạ "${k.slice(0, 40)}" bị từ chối.`);
+      if (unknownKeys(conn, CONNECTION_KEYS).length > 0) push('FIELD_UNKNOWN', 'Có trường lạ trong bằng chứng; bị từ chối.');
       if (conn.host !== LOOPBACK_HOST) push('HOST_NOT_ALLOWED', `Host kết nối phải đúng "${LOOPBACK_HOST}".`);
       if (conn.port !== port) push('PORT_MISMATCH', 'Cổng kết nối khác cổng đã khai báo.');
       if (conn.runtime !== expected.runtime) push('RUNTIME_MISMATCH', 'runtime kết nối khác runtime đã khai báo.');
@@ -203,7 +219,11 @@ function deny(reasons) {
 }
 
 function missingMethods(executor) {
-  return isObj(executor) || typeof executor === 'function' ? EXECUTOR_METHODS.filter((m) => typeof executor[m] !== 'function') : [...EXECUTOR_METHODS];
+  try {
+    return isObj(executor) || typeof executor === 'function' ? EXECUTOR_METHODS.filter((m) => typeof executor[m] !== 'function') : [...EXECUTOR_METHODS];
+  } catch {
+    return [...EXECUTOR_METHODS]; // getter/Proxy ném lỗi → coi như thiếu phương thức (fail-closed, không ném, không lộ nội dung lỗi)
+  }
 }
 
 /**
@@ -238,6 +258,7 @@ export async function runPreMigrateIdentityCheck({ executor, gateInputs: gateInp
   } catch {
     return { ok: false, reasons: [{ code: 'EXECUTOR_ERROR', message: 'Bộ thực thi báo lỗi khi đọc định danh; từ chối mặc định.' }] };
   }
+  evidence = ownCopy(evidence); // bản chụp đã clone; đọc trường thiếu không được rơi về prototype
   const mismatch = evidenceTargetProblem(gateInputs, evidence);
   if (mismatch !== null) return { ok: false, reasons: [{ code: mismatch, message: 'Bằng chứng định danh không thuộc đích mà cổng thực thi đã chấp thuận.' }] };
   const verdict = verifyDbIdentity(evidence, expected);
@@ -281,7 +302,7 @@ function snapshotInputs(gateInputs, expected) {
   try {
     const copy = structuredClone({ gateInputs, expected });
     if (!isPlainTree(copy) || !isPlainTree({ gateInputs, expected })) return null;
-    return deepFreeze(copy);
+    return deepFreeze(ownCopy(copy));
   } catch {
     return null;
   }
