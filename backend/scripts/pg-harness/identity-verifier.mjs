@@ -157,14 +157,45 @@ export function verifyDbIdentity(evidence, expected) {
   return Object.freeze({ ok: true, reasons: Object.freeze([]), db: expected.db, stamp: expected.stamp });
 }
 
-/** Cổng phải nhắm đúng DB mà expected nêu (URL + tên DB gõ xác nhận); tránh cổng đạt cho DB A rồi cấp quyền cho DB B. */
-function gateTargetMatches(gateInputs, db) {
+/** Phân tích URL của cổng thành đích chuẩn hoá {host, port, user, db}; null nếu không hợp lệ (fail-closed). Không trả mật khẩu. */
+function parseGateTarget(url) {
   try {
-    const u = new URL(gateInputs.url);
-    return decodeURIComponent(u.pathname.slice(1)) === db && gateInputs.confirmDb === db;
+    const u = new URL(url);
+    if ((u.protocol !== 'postgresql:' && u.protocol !== 'postgres:') || u.search !== '' || u.hash !== '') return null;
+    return { host: u.hostname.toLowerCase(), port: u.port === '' ? SHARED_CLUSTER_PORT : Number(u.port), user: decodeURIComponent(u.username), db: decodeURIComponent(u.pathname.slice(1)) };
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * TRƯỚC khi đọc định danh: đích của cổng (URL + DB gõ xác nhận + cổng khai báo + mã) phải là CÙNG MỘT đích với `expected`.
+ * Tránh cổng đạt cho DB/host/cổng/role A rồi cấp quyền cho B. Trả mã lỗi cố định hoặc null nếu khớp.
+ */
+function gateTargetProblem(gateInputs, expected) {
+  const t = parseGateTarget(gateInputs.url);
+  if (t === null) return 'GATE_TARGET_MISMATCH';
+  if (t.db !== expected.db || gateInputs.confirmDb !== expected.db) return 'GATE_TARGET_MISMATCH';
+  if (t.host !== LOOPBACK_HOST) return 'GATE_TARGET_HOST_MISMATCH';
+  if (!Number.isInteger(expected.port) || t.port !== expected.port || gateInputs.expectedPort !== expected.port) return 'GATE_TARGET_PORT_MISMATCH';
+  const dm = DB_RE.exec(expected.db);
+  if (!dm || expected.stamp !== dm[1]) return 'GATE_TARGET_STAMP_MISMATCH';
+  if (t.user !== `siscom_t_owner_${dm[1]}` && t.user !== `siscom_t_app_${dm[1]}`) return 'GATE_TARGET_ROLE_MISMATCH';
+  if (!isObj(expected.confirmation) || gateInputs.confirmCode !== expected.confirmation.code) return 'GATE_TARGET_CONFIRMATION_MISMATCH';
+  return null;
+}
+
+/** SAU khi đọc định danh: bằng chứng do DB báo phải đúng là của đích trong URL của cổng (host/cổng/DB/nhãn), không phải của DB khác. */
+function evidenceTargetProblem(gateInputs, evidence) {
+  const t = parseGateTarget(gateInputs.url);
+  const { connection: c, owner, app } = evidence;
+  if (t === null || !isObj(c) || !isObj(owner) || !isObj(app)) return 'GATE_EVIDENCE_TARGET_MISMATCH';
+  if (c.host !== t.host || c.port !== t.port || owner.dbLabel !== gateInputs.label) return 'GATE_EVIDENCE_TARGET_MISMATCH';
+  for (const snap of [owner, app]) {
+    if (snap.currentDatabase !== t.db) return 'GATE_EVIDENCE_TARGET_MISMATCH';
+    if (c.runtime !== 'container' && snap.serverPort !== t.port) return 'GATE_EVIDENCE_TARGET_MISMATCH';
+  }
+  return null;
 }
 
 function deny(reasons) {
@@ -188,11 +219,13 @@ export async function runPreMigrateIdentityCheck({ executor, gateInputs, expecte
   if (missing.length > 0) return { ok: false, reasons: [{ code: 'EXECUTOR_INVALID', message: 'Bộ thực thi thiếu phương thức bắt buộc.' }] };
   const gate = evaluateExecutionGate(gateInputs);
   if (!gate.ok) return { ok: false, reasons: gate.reasons };
-  if (!isObj(expected) || !gateTargetMatches(gateInputs, expected.db)) return { ok: false, reasons: [{ code: 'GATE_TARGET_MISMATCH', message: 'Đích của cổng thực thi khác DB mong đợi.' }] };
+  const targetProblem = isObj(expected) ? gateTargetProblem(gateInputs, expected) : 'GATE_TARGET_MISMATCH';
+  if (targetProblem !== null) return { ok: false, reasons: [{ code: targetProblem, message: 'Đích của cổng thực thi (URL/DB/host/cổng/role/stamp/xác nhận) khác đích mong đợi.' }] };
   let evidence;
   try {
-    const owner = await executor.readIdentity('owner');
-    const app = await executor.readIdentity('app');
+    // structuredClone: chụp một lần, chặn getter/Proxy đổi giá trị giữa lúc kiểm và lúc dùng; không clone được → từ chối.
+    const owner = structuredClone(await executor.readIdentity('owner'));
+    const app = structuredClone(await executor.readIdentity('app'));
     const connection = isObj(owner) && isObj(owner.connection) ? owner.connection : undefined;
     evidence = { connection, owner: isObj(owner) ? stripConnection(owner) : owner, app: isObj(app) ? stripConnection(app) : app };
     if (isObj(app) && isObj(app.connection) && JSON.stringify(app.connection) !== JSON.stringify(connection)) {
@@ -201,6 +234,8 @@ export async function runPreMigrateIdentityCheck({ executor, gateInputs, expecte
   } catch {
     return { ok: false, reasons: [{ code: 'EXECUTOR_ERROR', message: 'Bộ thực thi báo lỗi khi đọc định danh; từ chối mặc định.' }] };
   }
+  const mismatch = evidenceTargetProblem(gateInputs, evidence);
+  if (mismatch !== null) return { ok: false, reasons: [{ code: mismatch, message: 'Bằng chứng định danh không thuộc đích mà cổng thực thi đã chấp thuận.' }] };
   const verdict = verifyDbIdentity(evidence, expected);
   if (!verdict.ok) return { ok: false, reasons: [...verdict.reasons] };
   // Cấp quyền migrate: gắn với đúng executor + DB + thời điểm (expected.now đã được kiểm hợp lệ) + ngày tạo nhãn.
