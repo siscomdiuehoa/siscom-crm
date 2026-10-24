@@ -22,3 +22,4 @@ Chrome thật nạp **nguyên văn** `loginSession`/`authClient`/`customerApiCli
 
 Cả hai harness dùng chung `harnessGuard.mjs`: kiểm tra cổng loopback rảnh trước khi chạy (bị chiếm => `BLOCKED`, mã thoát 2, không đính nhầm Chrome cũ), hạn chót 15 giây cho mỗi lệnh CDP và hạn chót toàn cục (smoke 600 giây, stale-401 120 giây), dọn **cả cây** tiến trình Chrome (Windows: `taskkill /T /F`) kể cả khi lỗi sớm/Ctrl-C/ngoại lệ, và Chrome chạy với cờ chặn mạng nền + `--host-resolver-rules` chỉ cho `127.0.0.1`.
 Kiểm tra bản thân helper (không cần Chrome/build): `node --test tests/browser/harnessGuard.test.mjs`.
+Chống path traversal của máy chủ tĩnh (K01): `node --test tests/browser/staticGuard.test.mjs`.
