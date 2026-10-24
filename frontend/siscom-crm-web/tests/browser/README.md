@@ -12,3 +12,8 @@ Chạy tay, **không** thuộc `node --test` mặc định và không thêm depe
 Máy chủ giả chỉ nghe `127.0.0.1` (4599 API, 4600 tĩnh, CDP 9333). Không backend, không DB, không bí mật; đăng nhập preview luôn bị từ chối. Mã thoát 0 = đạt, 1 = có FAIL, 2 = BLOCKED (thiếu trình duyệt/dist). Dòng `KNOWN` = lỗi đã biết có PR sửa riêng.
 
 Kịch bản F (X1–X6) dùng bản build `api/`: cổng 429 của API giả; kiểm tra lỗi "Yêu cầu thất bại (429)", đúng 1 yêu cầu (không tự thử lại), không rơi về demo, không chuyển sang đăng nhập, nút "Thử lại" hoạt động.
+
+## stale-401 actor A→B trên Chrome (mức module) — `stale401ChromeModule.mjs`
+
+`node tests/browser/stale401ChromeModule.mjs` (không cần build/dist; cổng 4611 trang, 4612 API giả, 9344 CDP; `--mutant` kỳ vọng FAIL ở K1.3–K1.5).
+Chrome thật nạp **nguyên văn** `loginSession`/`authClient`/`customerApiClient` làm ES module, ghép ở lớp test, gọi `fetch`+CORS thật tới máy chủ giả loopback. **Không phải build ứng dụng**: `App.jsx` chưa nối phiên đăng nhập vào Customer API và `src` không có nguồn actor, nên stale-401 A→B trên UI build vẫn **NOT_RUN** cho tới khi có nguồn actor thật được duyệt.
