@@ -3,6 +3,7 @@
 // Reject by default: chỉ trả ok=true khi mọi kiểm tra đều đạt. Lý do từ chối không chứa mật khẩu.
 // Chưa bao gồm guard 6 (xác minh sau khi nối): cần kết nối DB nên ngoài phạm vi offline.
 import { createHash } from 'node:crypto';
+import { isForbiddenDbName } from './forbidden-db.mjs';
 
 const ALLOWED_HOST = '127.0.0.1';
 const SHARED_CLUSTER_PORT = 5432;
@@ -10,7 +11,6 @@ const DB_RE = /^siscom_crm_test_(\d{8})_(\d{6})$/;
 const USER_RE = /^siscom_t_(owner|app)_(\d{8}_\d{6})$/;
 const LABEL_RE = /^SISCOM_DISPOSABLE_TEST:(\d{8}_\d{6}):(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)$/;
 const URL_RE = /^postgresql:\/\/([A-Za-z0-9_]+):([^@/?#:%\s]+)@([^:/?#@\s]+):(\d{1,5})\/([A-Za-z0-9_]+)$/;
-const FORBIDDEN_DB = new Set(['siscom_crm_dev', 'siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948', 'postgres', 'template0', 'template1']);
 const BYPASS_RE = /^(force|yes|y|skip\w*|nonInteractive|noConfirm\w*|assumeYes|unattended|bypass\w*)$/i;
 const MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 60 * 1000;
@@ -85,7 +85,7 @@ export function validateDisposableTarget(input) {
         if (host !== ALLOWED_HOST) fail('HOST_NOT_ALLOWED', `Host phải đúng "${ALLOWED_HOST}".`);
         if (portOk && Number(urlPort) !== port) fail('PORT_MISMATCH', 'Cổng trong URL khác cổng đã khai báo.');
         const dm = DB_RE.exec(db);
-        if (FORBIDDEN_DB.has(db) || !dm || !validStamp(`${dm[1]}_${dm[2]}`)) fail('DB_NAME_INVALID', 'Tên DB phải khớp siscom_crm_test_YYYYMMDD_HHMMSS (ngày giờ hợp lệ) và không thuộc danh sách cấm.');
+        if (isForbiddenDbName(db) || !dm || !validStamp(`${dm[1]}_${dm[2]}`)) fail('DB_NAME_INVALID', 'Tên DB phải khớp siscom_crm_test_YYYYMMDD_HHMMSS (ngày giờ hợp lệ) và không thuộc danh sách cấm.');
         else stamp = `${dm[1]}_${dm[2]}`;
         const um = USER_RE.exec(user);
         if (!um || !validStamp(um[2])) fail('ROLE_INVALID', 'Role phải khớp siscom_t_(owner|app)_<stamp>; cấm postgres/admin/siscom_app/siscom_migrator.');
