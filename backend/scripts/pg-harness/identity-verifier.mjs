@@ -3,6 +3,7 @@
 // Adapter duy nhất trong kho này là FakeDbExecutor trong bộ nhớ (test-support/). Đường `--execute` của harness.mjs KHÔNG được nối vào đây và vẫn NOT_IMPLEMENTED.
 // Reject by default: bằng chứng thiếu/sai kiểu/thừa trường → từ chối. Lý do chỉ chứa mã + thông điệp cố định, không phản chiếu giá trị từ DB.
 import { expectedConfirmationCode } from '../guards/pg-dryrun-guard.mjs';
+import { isForbiddenDbName } from '../guards/forbidden-db.mjs';
 import { evaluateExecutionGate } from './harness.mjs';
 
 const LOOPBACK_HOST = '127.0.0.1';
@@ -11,7 +12,6 @@ const DB_RE = /^siscom_crm_test_(\d{8}_\d{6})$/;
 const OWNER_RE = /^siscom_t_owner_(\d{8}_\d{6})$/;
 const APP_RE = /^siscom_t_app_(\d{8}_\d{6})$/;
 const LABEL_RE = /^SISCOM_DISPOSABLE_TEST:(\d{8}_\d{6}):(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)$/;
-const FORBIDDEN_DB = new Set(['siscom_crm_dev', 'siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948', 'postgres', 'template0', 'template1']);
 const MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 60 * 1000;
 const PRIV_FLAGS = ['rolsuper', 'rolcreaterole', 'rolcreatedb', 'rolreplication', 'rolbypassrls'];
@@ -88,7 +88,7 @@ export function verifyDbIdentity(evidence, expected) {
 
     // Tên DB + stamp
     const dm = typeof expected.db === 'string' ? DB_RE.exec(expected.db) : null;
-    if (!dm || FORBIDDEN_DB.has(expected.db) || !validStamp(dm[1])) push('DB_NAME_INVALID', 'Tên DB phải khớp siscom_crm_test_YYYYMMDD_HHMMSS hợp lệ và không thuộc danh sách cấm.');
+    if (!dm || isForbiddenDbName(expected.db) || !validStamp(dm[1])) push('DB_NAME_INVALID', 'Tên DB phải khớp siscom_crm_test_YYYYMMDD_HHMMSS hợp lệ và không thuộc danh sách cấm.');
     const stamp = dm && validStamp(dm[1]) ? dm[1] : null;
     if (stamp && expected.stamp !== stamp) push('STAMP_MISMATCH', 'Stamp mong đợi khác stamp của tên DB.');
     const ownerRole = stamp ? `siscom_t_owner_${stamp}` : null;

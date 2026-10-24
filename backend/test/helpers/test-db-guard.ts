@@ -9,7 +9,7 @@ export interface TestDbVerdict { ok: boolean; name: string | null; reasons: Test
 const STAMP = '\\d{8}_\\d{6}';
 const LOOPBACK_HOST = '127.0.0.1';
 const SHARED_CLUSTER_PORT = 5432;
-// Database cấm tuyệt đối với mọi hồ sơ: dev, baseline đã khóa (docs/PROGRESS_B1.2.3-B2.md), và DB hệ thống. Đồng bộ với FORBIDDEN_DB của identity-verifier.mjs.
+// Database cấm tuyệt đối với mọi hồ sơ: dev, baseline đã khóa (docs/PROGRESS_B1.2.3-B2.md), và DB hệ thống. Đồng bộ với scripts/guards/forbidden-db.mjs (khóa bằng scripts/guards/forbidden-db.test.mjs; file này cố ý không import).
 export const FORBIDDEN_DB_NAMES: readonly string[] = [
   'siscom_crm_dev',
   'siscom_crm_restore_20261014_214105',
@@ -17,6 +17,10 @@ export const FORBIDDEN_DB_NAMES: readonly string[] = [
   'postgres',
   'template0',
   'template1',
+  'siscom_app',
+  'siscom_crm',
+  'siscom_crm_prod',
+  'siscom_crm_production',
 ];
 const RESERVED_ROLES: readonly string[] = ['siscom_app', 'postgres'];
 
@@ -48,7 +52,7 @@ export function evaluateTestDatabaseTarget(url: unknown, profile: unknown): Test
     user = decodeURIComponent(u.username);
   } catch { return deny('URL_INVALID', 'URL database thử không hợp lệ.'); }
   if (name.includes('/')) return deny('DB_NAME_INVALID', 'Tên database không hợp lệ.');
-  if (FORBIDDEN_DB_NAMES.includes(name)) return deny('DB_FORBIDDEN', 'Database nằm trong danh sách cấm (dev/baseline/hệ thống).');
+  if (FORBIDDEN_DB_NAMES.includes(name.trim().toLowerCase())) return deny('DB_FORBIDDEN', 'Database nằm trong danh sách cấm (dev/baseline/hệ thống).');
 
   const port = u.port === '' ? SHARED_CLUSTER_PORT : Number(u.port);
   if (profile === 'legacy-shared-app') {
@@ -77,6 +81,8 @@ export interface TestEnvLike { [key: string]: string | undefined }
  */
 export function resolveTestDatabase(env: TestEnvLike, profile: TestDbProfile): { url: string; name: string } {
   if (env === null || typeof env !== 'object') throw new Error('Từ chối [ENV_NOT_PROVIDED]: thiếu env.');
+  // PG* (PGHOST, PGDATABASE, PGSERVICE, PGOPTIONS, …) có thể đổi đích kết nối ngầm. Từ chối thay vì tự xóa/đoán; undefined coi như không đặt. Thông điệp cố định, không nêu giá trị.
+  if (Object.keys(env).some((k) => /^PG/i.test(k) && env[k] !== undefined)) throw new Error('Từ chối [ENV_PG_REDIRECT]: env chứa biến PG* có thể đổi đích kết nối; bỏ biến đó khỏi env tiêm.');
   const devUrl = env.DATABASE_URL;
   delete env.DATABASE_URL;
   const url = env.TEST_DATABASE_URL;
