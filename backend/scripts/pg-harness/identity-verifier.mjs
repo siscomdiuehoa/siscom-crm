@@ -250,9 +250,11 @@ export async function runPreMigrateIdentityCheck({ executor, gateInputs: gateInp
     // structuredClone: chụp một lần, chặn getter/Proxy đổi giá trị giữa lúc kiểm và lúc dùng; không clone được → từ chối.
     const owner = structuredClone(await executor.readIdentity('owner'));
     const app = structuredClone(await executor.readIdentity('app'));
-    const connection = isObj(owner) && isObj(owner.connection) ? owner.connection : undefined;
+    const ownConn = (x) => (isObj(x) && Object.hasOwn(x, 'connection') ? x.connection : undefined); // chỉ khóa SỞ HỮU: Object.prototype bị ô nhiễm không được "điền" connection cho vai app (J03)
+    const connection = isObj(ownConn(owner)) ? ownConn(owner) : undefined;
+    const appConn = ownConn(app);
     evidence = { connection, owner: isObj(owner) ? stripConnection(owner) : owner, app: isObj(app) ? stripConnection(app) : app };
-    if (isObj(app) && (connection !== undefined && !isObj(app.connection) || isObj(app.connection) && JSON.stringify(app.connection) !== JSON.stringify(connection))) {
+    if (isObj(app) && (connection !== undefined && !isObj(appConn) || isObj(appConn) && JSON.stringify(appConn) !== JSON.stringify(connection))) {
       return { ok: false, reasons: [{ code: 'CONNECTION_INCONSISTENT', message: 'Hai vai kết nối tới đích khác nhau.' }] };
     }
   } catch {
