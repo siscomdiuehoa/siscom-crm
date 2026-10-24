@@ -11,6 +11,8 @@ const APPROVAL_RE = /^[A-Za-z0-9#:_/.-]{8,200}$/;
 const BYPASS_ARG_RE = /^--?(force|yes|y|skip.*|non-?interactive|no-?confirm.*|assume-?yes|unattended|bypass.*)$/i;
 const SECRET_KEY_RE = /pass(word)?|secret|token|credential|api[_-]?key|private/i;
 const SYNTH_EMAIL_RE = /^[^@\s]+@example\.invalid$/;
+const SECRET_VALUE_RE = /[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s@]+@|^\s*bearer\s+\S|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.|-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
+const DEFAULT_FIXTURE_URL = new URL('./fixtures.synthetic.json', import.meta.url);
 
 /** Các bước từ plan §6; mọi bước cần DB đều NOT_RUN. */
 export function buildPlan() {
@@ -33,7 +35,8 @@ export function buildPlan() {
 export function validateFixture(fx) {
   const p = [];
   const walk = (v, path) => {
-    if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}[${i}]`));
+    if (typeof v === 'string') { if (SECRET_VALUE_RE.test(v)) p.push(`${path}: giá trị nghi bí mật/chuỗi kết nối`); }
+    else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}[${i}]`));
     else if (v && typeof v === 'object') {
       for (const [k, x] of Object.entries(v)) {
         if (SECRET_KEY_RE.test(k)) p.push(`${path}.${k}: khóa nghi bí mật`);
@@ -42,10 +45,12 @@ export function validateFixture(fx) {
     }
   };
   walk(fx, '$');
-  const cs = fx?.customers;
-  const ct = fx?.contacts;
+  if (fx === null || typeof fx !== 'object' || Array.isArray(fx)) { p.push('fixture: gốc phải là đối tượng JSON'); return p; }
+  const cs = fx.customers;
+  const ct = fx.contacts;
   if (!Array.isArray(cs) || cs.length === 0 || cs.length > 300) p.push('customers: phải có 1–300 dòng');
   if (!Array.isArray(ct) || ct.length > 300) p.push('contacts: tối đa 300 dòng');
+  if ([...(Array.isArray(cs) ? cs : []), ...(Array.isArray(ct) ? ct : [])].some((r) => r === null || typeof r !== 'object' || Array.isArray(r))) { p.push('customers/contacts: mỗi dòng phải là đối tượng'); return p; }
   const keys = new Set();
   const taxes = new Set();
   for (const c of Array.isArray(cs) ? cs : []) {
@@ -103,11 +108,21 @@ export function parseArgs(argv) {
 
 const defaultIo = { out: (s) => console.log(s), err: (s) => console.error(s) };
 
-export function run(argv, env, io = defaultIo, now = new Date(), tty = false) {
+/** Đọc fixture; mọi lỗi (mất file, UTF-8 hỏng, JSON sai) → thông báo cố định, không ném, không kèm nội dung/đường dẫn/env. */
+export function loadFixture(url = DEFAULT_FIXTURE_URL) {
+  try {
+    return { fx: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(url))) };
+  } catch (e) {
+    const why = e instanceof SyntaxError ? 'JSON không hợp lệ' : e instanceof TypeError ? 'ký tự UTF-8 không hợp lệ' : 'không đọc được tệp';
+    return { problem: `fixture: ${why}` };
+  }
+}
+
+export function run(argv, env, io = defaultIo, now = new Date(), tty = false, fixtureUrl = DEFAULT_FIXTURE_URL) {
   const args = parseArgs(argv);
   if (args.errors.length) { args.errors.forEach((e) => io.err(`USAGE: ${e}`)); return EXIT.USAGE; }
-  const fx = JSON.parse(readFileSync(new URL('./fixtures.synthetic.json', import.meta.url), 'utf8'));
-  const assetProblems = [...validateFixture(fx), ...validateCatalog()];
+  const loaded = loadFixture(fixtureUrl);
+  const assetProblems = [...('problem' in loaded ? [loaded.problem] : validateFixture(loaded.fx)), ...validateCatalog()];
   if (assetProblems.length) { assetProblems.forEach((e) => io.err(`ASSET_INVALID: ${e}`)); return EXIT.GATE_DENIED; }
   if (args.listCatalog) CATALOG.forEach((e) => io.out(`${e.id}\t${e.area}\t${e.status}\t${e.title}`));
   if (!args.execute) {
