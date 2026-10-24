@@ -1,0 +1,30 @@
+{
+  "_doc": "Fixture TỔNG HỢP (không dữ liệu thật) cho chuẩn hóa tên DB dùng chung giữa scripts/guards/forbidden-db.mjs (ESM) và test/helpers/test-db-guard.ts (TS). Ký tự đặc biệt viết bằng escape JSON (u+XXXX). forbidden=true: cả hai guard phải coi là DB cấm. forbidden=false: không bị coi là cấm theo danh sách, nhưng guard TS vẫn phải từ chối vì không khớp allowlist (allowlisted=false). allowlisted=true: guard TS (hồ sơ legacy-shared-app) chấp nhận.",
+  "cases": [
+    { "id": "plain-dev", "name": "siscom_crm_dev", "forbidden": true, "allowlisted": false },
+    { "id": "upper-dev", "name": "SISCOM_CRM_DEV", "forbidden": true, "allowlisted": false },
+    { "id": "padded-dev", "name": "  siscom_crm_dev  ", "forbidden": true, "allowlisted": false },
+    { "id": "soft-hyphen-middle", "name": "siscom_crm_­dev", "forbidden": true, "allowlisted": false },
+    { "id": "soft-hyphen-leading", "name": "­siscom_crm_dev", "forbidden": true, "allowlisted": false },
+    { "id": "zero-width-space", "name": "siscom_crm_​dev", "forbidden": true, "allowlisted": false },
+    { "id": "zero-width-joiner", "name": "siscom_crm_‍dev", "forbidden": true, "allowlisted": false },
+    { "id": "bom", "name": "﻿siscom_crm_dev", "forbidden": true, "allowlisted": false },
+    { "id": "word-joiner", "name": "siscom_crm_⁠dev", "forbidden": true, "allowlisted": false },
+    { "id": "control-char", "name": "siscom_crm_\u0001dev", "forbidden": true, "allowlisted": false },
+    { "id": "fullwidth-nfkc", "name": "ｓｉｓｃｏｍ_crm_dev", "forbidden": true, "allowlisted": false },
+    { "id": "baseline-restore-locked", "name": "siscom_crm_restore_20261014_214105", "forbidden": true, "allowlisted": false },
+    { "id": "system-postgres", "name": "postgres", "forbidden": true, "allowlisted": false },
+    { "id": "system-template1", "name": "template1", "forbidden": true, "allowlisted": false },
+    { "id": "shared-role-name", "name": "siscom_app", "forbidden": true, "allowlisted": false },
+    { "id": "empty", "name": "", "forbidden": true, "allowlisted": false },
+    { "id": "only-soft-hyphen", "name": "­­", "forbidden": true, "allowlisted": false },
+    { "id": "only-whitespace", "name": "   ", "forbidden": true, "allowlisted": false },
+    { "id": "confusable-cyrillic-o", "name": "siscоm_crm_dev", "forbidden": false, "allowlisted": false },
+    { "id": "confusable-greek-omicron", "name": "siscοm_crm_dev", "forbidden": false, "allowlisted": false },
+    { "id": "suffix-lookalike", "name": "siscom_crm_dev2", "forbidden": false, "allowlisted": false },
+    { "id": "c1-control-not-stripped", "name": "siscom_crm_\u0085dev", "forbidden": false, "allowlisted": false },
+    { "id": "upper-test-db", "name": "SISCOM_CRM_TEST_20261024_120000", "forbidden": false, "allowlisted": false },
+    { "id": "allowed-test", "name": "siscom_crm_test_20261024_120000", "forbidden": false, "allowlisted": true },
+    { "id": "allowed-restore", "name": "siscom_crm_restore_20261024_120000", "forbidden": false, "allowlisted": true }
+  ]
+}
