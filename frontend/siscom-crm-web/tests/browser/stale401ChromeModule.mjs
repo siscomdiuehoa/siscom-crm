@@ -11,8 +11,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { busyPorts, listenOnLoopback, withTimeout, createCleanup, spawnChrome, rmDirBestEffort } from './harnessGuard.mjs';
 
+const CDP_CALL_MS = 15000, GLOBAL_DEADLINE_MS = 120000;
 const MUTANT = process.argv.includes('--mutant');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'); // frontend/siscom-crm-web
 const WEB_PORT = 4611, API_PORT = 4612, CDP_PORT = 9344;
@@ -96,12 +97,13 @@ const webServer = http.createServer((req, res) => {
 // ---------------- CDP tối thiểu ----------------
 let ws, nextId = 1; const pending = new Map(); let sessionId; const netReqs = []; const consoleErrors = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const send = (method, params = {}, sess = sessionId) => new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params, ...(sess ? { sessionId: sess } : {}) })); });
+const send = (method, params = {}, sess = sessionId) => withTimeout(new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params, ...(sess ? { sessionId: sess } : {}) })); }), CDP_CALL_MS, 'CDP ' + method);
 async function launch(profile) {
-  const proc = spawn(chrome, ['--headless=new', '--remote-debugging-port=' + CDP_PORT, '--user-data-dir=' + profile, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1000,700', 'about:blank'], { stdio: 'ignore' });
-  let info; for (let i = 0; i < 50 && !info; i++) { await sleep(200); try { info = await (await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version')).json(); } catch (e) { /* chưa sẵn sàng */ } }
+  spawnChrome(cleanup, chrome, ['--headless=new', '--remote-debugging-port=' + CDP_PORT, '--user-data-dir=' + profile, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1000,700', 'about:blank']);
+  let info; for (let i = 0; i < 50 && !info; i++) { await sleep(200); try { info = await (await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(1000) })).json(); } catch (e) { /* chưa sẵn sàng */ } }
   if (!info) throw new Error('Không kết nối được CDP');
-  ws = new WebSocket(info.webSocketDebuggerUrl); await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
+  ws = new WebSocket(info.webSocketDebuggerUrl); await withTimeout(new Promise((r, j) => { ws.onopen = r; ws.onerror = j; }), CDP_CALL_MS, 'mở WebSocket CDP');
+  ws.onclose = () => { for (const p of pending.values()) p.reject(new Error('CDP đóng kết nối')); pending.clear(); };
   ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { const p = pending.get(d.id); pending.delete(d.id); d.error ? p.reject(new Error(d.error.message)) : p.resolve(d.result); } else if (d.method) {
     if (d.method === 'Network.requestWillBeSent') netReqs.push(d.params.request.url);
     if (d.method === 'Runtime.exceptionThrown') consoleErrors.push(d.params.exceptionDetails.text);
@@ -109,7 +111,6 @@ async function launch(profile) {
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' }, undefined);
   ({ sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }, undefined));
   await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
-  return proc;
 }
 const ev = async (expr) => { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.text + ' ' + JSON.stringify(r.exceptionDetails.exception && r.exceptionDetails.exception.description)); return r.result.value; };
 const ctl = async (p) => (await fetch(API + p)).json();
@@ -164,11 +165,15 @@ async function K4() { // đối chứng: 401 hợp lệ vẫn hủy phiên (ch�
   check('K4.2 sau thu hồi, yêu cầu kế tiếp bị chặn trước mạng (AuthRequiredError, không thêm request)', r2.cls === 'AuthRequiredError' && after === before, JSON.stringify(r2));
 }
 
+const busy = await busyPorts([WEB_PORT, API_PORT, CDP_PORT]);
+if (busy.length) { console.log('BLOCKED: cổng loopback đang bị chiếm (có thể Chrome/harness cũ còn treo): ' + busy.join(', ')); process.exit(2); }
+const cleanup = createCleanup({ deadlineMs: GLOBAL_DEADLINE_MS });
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'siscom-g06-'));
-let proc;
+cleanup.add(() => rmDirBestEffort(profile));
 try {
-  await new Promise((r) => apiServer.listen(API_PORT, '127.0.0.1', r)); await new Promise((r) => webServer.listen(WEB_PORT, '127.0.0.1', r));
-  proc = await launch(profile);
+  await listenOnLoopback(apiServer, API_PORT); await listenOnLoopback(webServer, WEB_PORT);
+  cleanup.add(() => { apiServer.close(); webServer.close(); });
+  await launch(profile);
   await send('Page.navigate', { url: WEB + '/page' });
   await waitFor(() => ev('window.READY === true').catch(() => false), 'trang thử nạp module');
   console.log('Trình duyệt: ' + (await (await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version')).json()).Browser + (MUTANT ? ' | CHẾ ĐỘ MUTANT (kỳ vọng FAIL ở K1.3)' : ''));
@@ -178,8 +183,8 @@ try {
   check('Z2 không có ngoại lệ JS chưa bắt trong trang', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
 } catch (e) { console.log('LỖI HARNESS: ' + e.message); R.push({ name: 'harness', pass: false }); }
 finally {
-  try { ws && ws.close(); } catch (e) { /* bỏ qua */ } if (proc) proc.kill(); apiServer.close(); webServer.close();
-  await sleep(500); try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* bỏ qua */ }
+  try { ws && ws.close(); } catch (e) { /* bỏ qua */ }
+  cleanup.run(); cleanup.cancelDeadline();
 }
 const failed = R.filter((r) => !r.pass);
 console.log(`\nTỔNG: ${R.length - failed.length}/${R.length} PASS${MUTANT ? ' (mutant)' : ''}` + (failed.length ? ' | FAIL: ' + failed.map((f) => f.name.split(' ')[0]).join(', ') : ''));
