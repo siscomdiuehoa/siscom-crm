@@ -7,8 +7,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { busyPorts, listenOnLoopback, withTimeout, createCleanup, spawnChrome, rmDirBestEffort } from './harnessGuard.mjs';
 
+const CDP_CALL_MS = 15000, GLOBAL_DEADLINE_MS = 600000;
 const DIST = path.resolve(process.argv[2] || '');
 const API_PORT = 4599, WEB_PORT = 4600, CDP_PORT = 9333;
 const CHROMES = ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'];
@@ -69,14 +70,15 @@ const webServer = http.createServer((req, res) => {
 
 // ---------------- CDP tối thiểu ----------------
 let ws, nextId = 1; const pending = new Map(); const events = []; let sessionId;
-const send = (method, params = {}, sess = sessionId) => new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params, ...(sess ? { sessionId: sess } : {}) })); });
+const send = (method, params = {}, sess = sessionId) => withTimeout(new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params, ...(sess ? { sessionId: sess } : {}) })); }), CDP_CALL_MS, 'CDP ' + method);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const netReqs = []; const consoleErrors = [];
 async function launch(profile) {
-  const proc = spawn(chrome, ['--headless=new', '--remote-debugging-port=' + CDP_PORT, '--user-data-dir=' + profile, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1400,900', 'about:blank'], { stdio: 'ignore' });
-  let info; for (let i = 0; i < 50 && !info; i++) { await sleep(200); try { info = await (await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version')).json(); } catch (e) { /* chưa sẵn sàng */ } }
+  spawnChrome(cleanup, chrome, ['--headless=new', '--remote-debugging-port=' + CDP_PORT, '--user-data-dir=' + profile, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1400,900', 'about:blank']);
+  let info; for (let i = 0; i < 50 && !info; i++) { await sleep(200); try { info = await (await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(1000) })).json(); } catch (e) { /* chưa sẵn sàng */ } }
   if (!info) throw new Error('Không kết nối được CDP');
-  ws = new WebSocket(info.webSocketDebuggerUrl); await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
+  ws = new WebSocket(info.webSocketDebuggerUrl); await withTimeout(new Promise((r, j) => { ws.onopen = r; ws.onerror = j; }), CDP_CALL_MS, 'mở WebSocket CDP');
+  ws.onclose = () => { for (const p of pending.values()) p.reject(new Error('CDP đóng kết nối')); pending.clear(); };
   ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { const p = pending.get(d.id); pending.delete(d.id); d.error ? p.reject(new Error(d.error.message)) : p.resolve(d.result); } else if (d.method) {
     if (d.method === 'Network.requestWillBeSent') netReqs.push({ method: d.params.request.method, url: d.params.request.url });
     if (d.method === 'Runtime.exceptionThrown') consoleErrors.push(d.params.exceptionDetails.text + ' ' + ((d.params.exceptionDetails.exception || {}).description || ''));
@@ -85,7 +87,6 @@ async function launch(profile) {
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' }, undefined);
   ({ sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }, undefined));
   await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
-  return proc;
 }
 const ev = async (expr) => { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.text + ' ' + JSON.stringify(r.exceptionDetails.exception && r.exceptionDetails.exception.description)); return r.result.value; };
 // about:blank trước để luôn tải lại tài liệu (điều hướng chỉ khác phần #hash sẽ KHÔNG tải lại, giữ nguyên state React cũ)
@@ -251,16 +252,20 @@ async function scenarioCustomer429() {
   check('X6 kịch bản 429 không có lỗi JS chưa bắt trong console', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 }
 
+const busy = await busyPorts([API_PORT, WEB_PORT, CDP_PORT]);
+if (busy.length) { console.log('BLOCKED: cổng loopback đang bị chiếm (có thể Chrome/harness cũ còn treo): ' + busy.join(', ')); process.exit(2); }
+const cleanup = createCleanup({ deadlineMs: GLOBAL_DEADLINE_MS });
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-browser-'));
-let proc;
+cleanup.add(() => rmDirBestEffort(profile));
 try {
-  await new Promise((r) => apiServer.listen(API_PORT, '127.0.0.1', r)); await new Promise((r) => webServer.listen(WEB_PORT, '127.0.0.1', r));
-  proc = await launch(profile);
+  await listenOnLoopback(apiServer, API_PORT); await listenOnLoopback(webServer, WEB_PORT);
+  cleanup.add(() => { apiServer.close(); webServer.close(); });
+  await launch(profile);
   console.log('Trình duyệt:', chrome, '|', (await send('Browser.getVersion', {}, undefined)).product);
   for (const s of [scenarioOff, scenarioLogin, scenarioApi, scenarioBothFlags, scenarioApiRepeat, scenarioCustomer429]) { try { await s(); } catch (e) { check('LỖI KỊCH BẢN ' + s.name, false, e.message); } }
 } finally {
-  try { ws && ws.close(); } catch (e) { /* bỏ qua */ } if (proc) proc.kill(); apiServer.close(); webServer.close();
-  await sleep(500); try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* bỏ qua */ }
+  try { ws && ws.close(); } catch (e) { /* bỏ qua */ }
+  cleanup.run(); cleanup.cancelDeadline();
 }
 const failed = R.filter((r) => !r.pass);
 console.log(`\nTỔNG: ${R.length - failed.length}/${R.length} đạt`); failed.forEach((f) => console.log('  FAIL: ' + f.name + ' — ' + f.detail));
