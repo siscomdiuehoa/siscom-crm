@@ -36,6 +36,7 @@ const apiServer = http.createServer((req, res) => {
     const gate = S[req.method + ':' + u.pathname.split('/')[1]] || S[req.method];
     if (gate === '401') return err(res, 401, 'AUTH_REQUIRED', 'Chưa đăng nhập');
     if (gate === '403') return err(res, 403, 'FORBIDDEN', 'Không đủ quyền');
+    if (gate === '429') return err(res, 429, 'TOO_MANY_REQUESTS', 'Quá nhiều yêu cầu');
     if (u.pathname === '/lookups') return ok(res, lookups);
     if (u.pathname === '/customers' && req.method === 'GET') {
       const page = Number(u.searchParams.get('page') || 1), ps = Number(u.searchParams.get('pageSize') || 20), q = (u.searchParams.get('search') || '').toLowerCase();
@@ -235,13 +236,28 @@ async function scenarioApiRepeat() {
   check('E4 không có lỗi JS chưa bắt trong console (kịch bản D/E)', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 }
 
+async function scenarioCustomer429() {
+  console.log('--- F. Customer API 429 (API giả): fail-closed, không retry/logout/demo, nút Thử lại ---');
+  await goto(base('api')); await ev(`localStorage.clear()`); await fetch(`http://127.0.0.1:${API_PORT}/__reset`); netReqs.length = 0; consoleErrors.length = 0;
+  const listCalls = async () => (await apiLog()).filter((l) => l.p === '/customers').length;
+  await setApi('GET', '429'); await goto(base('api') + '#/customers'); await sleep(1500);
+  const t = await flat(); const n1 = await listCalls(); await sleep(2500); const n2 = await listCalls();
+  check('X1 429 trên danh sách: hiện "Yêu cầu thất bại (429)", KHÔNG hiện dữ liệu demo/cũ', t.includes('Yêu cầu thất bại (429)') && !t.includes('Công ty Thử 1') && !/Trang \d+\/\d+/.test(t), t.slice(0, 300));
+  check('X2 429: đúng 1 yêu cầu danh sách, không tự thử lại sau 2,5 giây', n1 === 1 && n2 === n1, n1 + ' -> ' + n2);
+  check('X3 429: không rơi về demo (localStorage không có dữ liệu khách hàng)', !(await ev(`JSON.stringify(Object.entries(localStorage))`)).includes('Công ty'));
+  check('X4 429: không chuyển sang đăng nhập, không hiện lỗi 401 "Chưa đăng nhập"', !(await ev(`!!document.querySelector('#login-identifier')`)) && !t.includes('Chưa đăng nhập'));
+  await setApi('GET', 'ok'); const clickedRetry = await clickText('Thử lại'); await sleep(1200);
+  check('X5 hết 429: bấm "Thử lại" tải lại được danh sách (đúng 1 yêu cầu mới)', clickedRetry === true && /Trang 1\/3/.test(await flat()) && (await listCalls()) === n2 + 1, 'clickedRetry=' + clickedRetry);
+  check('X6 kịch bản 429 không có lỗi JS chưa bắt trong console', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
+}
+
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-browser-'));
 let proc;
 try {
   await new Promise((r) => apiServer.listen(API_PORT, '127.0.0.1', r)); await new Promise((r) => webServer.listen(WEB_PORT, '127.0.0.1', r));
   proc = await launch(profile);
   console.log('Trình duyệt:', chrome, '|', (await send('Browser.getVersion', {}, undefined)).product);
-  for (const s of [scenarioOff, scenarioLogin, scenarioApi, scenarioBothFlags, scenarioApiRepeat]) { try { await s(); } catch (e) { check('LỖI KỊCH BẢN ' + s.name, false, e.message); } }
+  for (const s of [scenarioOff, scenarioLogin, scenarioApi, scenarioBothFlags, scenarioApiRepeat, scenarioCustomer429]) { try { await s(); } catch (e) { check('LỖI KỊCH BẢN ' + s.name, false, e.message); } }
 } finally {
   try { ws && ws.close(); } catch (e) { /* bỏ qua */ } if (proc) proc.kill(); apiServer.close(); webServer.close();
   await sleep(500); try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* bỏ qua */ }
