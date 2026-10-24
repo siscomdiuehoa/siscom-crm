@@ -10,3 +10,5 @@ Chạy tay, **không** thuộc `node --test` mặc định và không thêm depe
 2. `node tests/browser/browserSmoke.mjs <gốc>` (tuỳ chọn `BROWSER_EXE` để chỉ định trình duyệt).
 
 Máy chủ giả chỉ nghe `127.0.0.1` (4599 API, 4600 tĩnh, CDP 9333). Không backend, không DB, không bí mật; đăng nhập preview luôn bị từ chối. Mã thoát 0 = đạt, 1 = có FAIL, 2 = BLOCKED (thiếu trình duyệt/dist). Dòng `KNOWN` = lỗi đã biết có PR sửa riêng.
+
+Kịch bản F (X1–X6) dùng bản build `api/`: cổng 429 của API giả; kiểm tra lỗi "Yêu cầu thất bại (429)", đúng 1 yêu cầu (không tự thử lại), không rơi về demo, không chuyển sang đăng nhập, nút "Thử lại" hoạt động.
