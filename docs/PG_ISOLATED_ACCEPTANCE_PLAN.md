@@ -32,14 +32,15 @@ Mật khẩu: sinh ngẫu nhiên ≥ 32 ký tự khi chạy, giữ trong biến 
 
 ### 4.2 Guard bắt buộc (mọi điều kiện phải đúng, sai một → exit ≠ 0, không kết nối thêm)
 Áp dụng cho cả `TEST_DATABASE_URL` và URL dùng cho `migrate deploy`:
-1. Giao thức `postgresql://`; host chính xác `127.0.0.1` (hoặc `localhost` đã giải thành loopback); cổng khớp cụm thử đã khai báo.
+1. Giao thức `postgresql://`; host chính xác `127.0.0.1` (so khớp chuỗi tuyệt đối; **từ chối** `localhost`, `::1`, tên miền, IP LAN, socket Unix để không giải tên sang đích khác); cổng khớp cụm thử đã khai báo (nếu dùng container tạm: cổng khác 5432 và khác cổng cụm dev).
 2. Tên DB khớp `^siscom_crm_test_\d{8}_\d{6}$` (chỉ `test`, **không** chấp nhận `restore` ở đường này) và khác danh sách cấm: `siscom_crm_dev`, 2 DB baseline, `postgres`, `template0/1`.
 3. User khớp `^siscom_t_(owner|app)_\d{8}_\d{6}$` và stamp trùng stamp trong tên DB; từ chối `postgres`, `siscom_app`, `siscom_migrator`.
-4. Không có tham số URL lạ làm đổi đích (`host=`, `dbname=`, `options=`, `service=`); không có nhiều host.
+4. Không có tham số URL lạ làm đổi đích (`host=`, `dbname=`, `options=`, `service=`); không có nhiều host. Kiểm cả biến môi trường libpq có thể đổi đích ngầm: `PGHOST`, `PGHOSTADDR`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGSERVICE`, `PGSERVICEFILE`, `PGPASSFILE`, `PGOPTIONS` — phải không đặt trong tiến trình con; không dùng `.pgpass`/`pg_service.conf` (mật khẩu chỉ qua biến tiến trình con).
 5. `DATABASE_URL` **không được đặt** trong tiến trình con (xóa trước khi chạy; chỉ truyền biến thử). Không đọc `.env`; dotenv của Prisma phải bị vô hiệu bằng cách chạy từ thư mục không có `.env` hoặc truyền `--schema`/biến tường minh (cần xác minh khi duyệt — chưa kiểm chứng).
 6. Sau khi nối (chỉ đọc): `current_database()` = tên mong đợi; `current_user` đúng vai; `rolsuper/rolcreaterole/rolcreatedb/rolbypassrls/rolreplication` đều `false`; owner DB = `siscom_t_owner_<stamp>`; không có dòng dữ liệu `is_demo = false` trong bảng nghiệp vụ.
 7. Nhãn sở hữu: `COMMENT ON DATABASE` = `SISCOM_DISPOSABLE_TEST:<stamp>:<ISO8601>` do bước tạo đặt; guard từ chối DB thiếu nhãn.
-8. Xác nhận người: gõ lại đúng tên DB (giữ như `run-customers-tests.ps1`).
+8. Xác nhận người (confirmation stamp): bước tạo (§6 bước 1) in ra một **mã xác nhận một lần** gắn chặt `<tên DB>|<stamp>|127.0.0.1:<cổng>|<thời điểm tạo>`; người dùng gõ lại **đúng tên DB và mã** (không có tham số `-Force`/`-Yes`/chế độ không tương tác để bỏ qua). Mã hết hạn sau 2 giờ kể từ lúc tạo và chỉ dùng cho đúng DB đó; nhãn §4.2.7 phải khớp. Mã/tên sai, hết hạn hoặc không có TTY → dừng, exit ≠ 0, không kết nối.
+9. Chống dùng lại DB cũ: DB đích phải do bước tạo của chính đợt này sinh ra (nhãn có thời điểm trong 2 giờ gần nhất); DB đã tồn tại từ trước hoặc nhãn cũ hơn bị từ chối.
 
 ### 4.3 Kiểm thử guard (offline, không cần DB) — đề xuất cho PR code sau
 Bảng ca âm/dương cho hàm thuần `assertDisposableTestUrl(url)`: dev DB, DB baseline, host `0.0.0.0`/tên miền, cổng sai, user `postgres`/`siscom_app`, stamp lệch, `restore_*`, thiếu mật khẩu, URL có `?host=`, URL rác, `DATABASE_URL` đang đặt. Chạy bằng `npm run test:unit` (không DB).
@@ -58,9 +59,9 @@ Bảng ca âm/dương cho hàm thuần `assertDisposableTestUrl(url)`: dev DB, D
 | 2 | Guard §4.2 (chỉ đọc) | script mới | owner | dừng nếu sai |
 | 3 | `prisma migrate deploy` | Prisma | owner | duy nhất lệnh Prisma được phép; không `dev/reset/push/execute` |
 | 4 | Cấp quyền ít quyền | `B1.3_S1_APP_GRANTS` điều chỉnh tên role | owner | fail-closed nếu có bảng chưa phân loại |
-| 5 | Kiểm quyền | `B1.3_S1_PRIVILEGE_TESTS` (tự `ROLLBACK`) | superuser | kỳ vọng 0 FAIL |
+| 5 | Kiểm quyền | `B1.3_S1_PRIVILEGE_TESTS` (tự `ROLLBACK`) | superuser | kỳ vọng 0 FAIL; kết nối thẳng `-d siscom_crm_test_<stamp>`, không `-d postgres`/DB dev |
 | 6 | Constraint tests M1/M1.1/M1.2 | các `*_CONSTRAINT_TESTS.sql.txt` | owner | mỗi file tự rollback |
-| 7 | Integration | `run-customers-tests` (bản dùng role mới) + `audit.int-spec` | `siscom_t_app_<stamp>` | chỉ suite liên quan; không benchmark |
+| 7 | Integration | script mới (PR riêng) + `audit.int-spec`; **KHÔNG** chạy nguyên trạng `run-customers-tests.ps1`/`run-audit-tests.ps1` | `siscom_t_app_<stamp>` | chỉ suite liên quan; không benchmark. Hai script hiện có đọc mật khẩu `siscom_app` từ `.env` và chấp nhận `restore_*` → trái nguyên tắc §3 |
 | 8 | Drift | `prisma migrate status` (+ `migrate diff` chỉ đọc) | owner | không có drift |
 | 9 | Rollback/dọn | §7 | `postgres` | sau khi lưu log |
 
@@ -70,6 +71,12 @@ Bảng ca âm/dương cho hàm thuần `assertDisposableTestUrl(url)`: dev DB, D
 - Rollback migration (M1.2 → M1.1 → M1) dùng các `*_ROLLBACK.sql.txt` đã có, chỉ trên DB thử, để kiểm đường lùi; không chạy trên DB khác.
 - Nếu giữa chừng lỗi: dừng, giữ DB để điều tra, không tự sửa/dọn; chỉ xóa sau khi có log.
 - Không chạm `siscom_crm_dev`, không `REASSIGN OWNED` (ảnh hưởng DB khác).
+
+### 7.1 Hủy an toàn (abort)
+- Hủy bất kỳ lúc nào (Ctrl+C, guard sai, mã hết hạn, người dùng từ chối): script **không** tự `DROP`/`REASSIGN`, không kết nối sang DB khác, xóa biến mật khẩu/URL khỏi tiến trình, đóng phiên psql.
+- Trước bước 1 (chưa tạo gì): hủy = không có gì cần dọn.
+- Sau bước 1: in tên DB/role đã tạo và lệnh dọn (§7) để người dùng quyết; lệnh `DROP` chỉ được in sau khi chạy lại guard §4.2.2/§4.2.7 trên tên đó (tên không khớp `siscom_crm_test_*`, thiếu nhãn hoặc thuộc danh sách cấm → không in).
+- `DROP ROLE` chỉ cho role đúng stamp; nếu role còn sở hữu đối tượng ở DB khác thì dừng và báo, không `REASSIGN OWNED`.
 
 ## 8. Tiêu chí hoàn thành (exit criteria)
 Tất cả phải có **bằng chứng chạy thật** (log + mã thoát); thiếu một mục = không đạt:
@@ -88,5 +95,31 @@ Tất cả phải có **bằng chứng chạy thật** (log + mã thoát); thi�
 3. Phiên bản PostgreSQL mục tiêu của môi trường thử (khớp production/VPS).
 4. Cho phép chạy bước 1–9 trên DB `siscom_crm_test_<stamp>` cụ thể (cung cấp stamp).
 
-## 10. Phạm vi KHÔNG làm trong PR này
+## 10. Kết quả rà soát bảo mật (task SISCOM-FOLLOWUP-C-04; chỉ đọc kho + sửa tài liệu)
+**Đã xác minh từ kho:**
+- Tài liệu này **không** dùng `.env` thật làm nguồn mật khẩu/URL và **không** dùng `siscom_app` làm đích (chỉ nhắc ở §2/§4.2 như khoảng trống và tên bị cấm). Role mới `siscom_t_*_<stamp>`, mật khẩu sinh ngẫu nhiên.
+- `run-customers-tests.ps1`/`run-audit-tests.ps1` (đọc `.env`, ép user `siscom_app`, regex `(restore|test)`) và `test-db.ts` (ép `siscom_app`) **trái** kế hoạch này → đã ghi rõ không dùng nguyên trạng (§6 bước 7).
+
+**Thiếu điều kiện then chốt đã bổ sung:** (a) từ chối `localhost`/`::1`, kiểm biến `PG*`, `.pgpass` (§4.2.1, §4.2.4); (b) mã xác nhận một lần có hạn, không có cờ bỏ qua (§4.2.8); (c) cấm dùng lại DB trùng tên cũ (§4.2.9); (d) quy trình hủy an toàn (§7.1); (e) bước 5 phải trỏ đúng DB thử.
+
+**Chưa kiểm chứng (NOT_RUN):** hành vi dotenv của Prisma khi không có `.env`; các guard mới chỉ là đặc tả, chưa có mã; không kết nối PostgreSQL nào.
+
+### 10.1 Checklist kiểm soát (mỗi mục cần bằng chứng trước khi chạy bất kỳ lệnh DB nào)
+| # | Hạng mục | Điều kiện đạt | Tham chiếu |
+|---|---|---|---|
+| 1 | Guard 1 – host/cổng | `127.0.0.1` đúng chuỗi, cổng cụm thử; không `localhost`/`::1` | §4.2.1 |
+| 2 | Guard 2 – tên DB | `^siscom_crm_test_\d{8}_\d{6}$`, không thuộc danh sách cấm | §4.2.2 |
+| 3 | Guard 3 – role | `siscom_t_(owner/app)_<stamp>` khớp stamp; không `postgres`/`siscom_app`/`siscom_migrator` | §4.2.3 |
+| 4 | Guard 4 – đổi đích ngầm | không `host=`/`service=`/`options=`; không `PG*`, `.pgpass`, `pg_service.conf` | §4.2.4 |
+| 5 | Guard 5 – `.env` | không đọc `.env`; `DATABASE_URL` không đặt; Prisma không nạp dotenv | §4.2.5 |
+| 6 | Guard 6 – xác minh sau nối | `current_database()`, `current_user`, 5 cờ đặc quyền = false, owner đúng | §4.2.6 |
+| 7 | Guard 7 – nhãn | `COMMENT ON DATABASE` đúng mẫu, trong thời hạn | §4.2.7, §4.2.9 |
+| 8 | Guard 8 – xác nhận | gõ tên DB + mã một lần, không cờ bỏ qua, có TTY | §4.2.8 |
+| 9 | Role không đặc quyền | NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOREPLICATION/NOBYPASSRLS | §4.1 |
+| 10 | Cụm cô lập | ưu tiên container/cụm tạm riêng; nếu dùng cụm chung: rủi ro được duyệt rõ | §3, §9.1 |
+| 11 | Không dùng script cũ nguyên trạng | không chạy `run-*-tests.ps1` hiện có trên DB thử | §6 bước 7 |
+| 12 | Hủy an toàn | không tự DROP; lệnh dọn chỉ in sau guard | §7.1 |
+| 13 | Phê duyệt văn bản | có comment chủ sở hữu cho stamp cụ thể | §9.4 |
+
+## 11. Phạm vi KHÔNG làm trong PR này
 Không code, không test mới, không đổi `package.json`, workflow, migration, `schema.prisma`, `test-db.ts`; không bật AuthController, không nới DenyAll/CSRF/CORS/guard; không quyết Bearer/JWT/refresh/CSRF production.
