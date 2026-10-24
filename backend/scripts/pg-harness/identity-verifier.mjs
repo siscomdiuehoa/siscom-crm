@@ -232,7 +232,7 @@ export async function runPreMigrateIdentityCheck({ executor, gateInputs: gateInp
     const app = structuredClone(await executor.readIdentity('app'));
     const connection = isObj(owner) && isObj(owner.connection) ? owner.connection : undefined;
     evidence = { connection, owner: isObj(owner) ? stripConnection(owner) : owner, app: isObj(app) ? stripConnection(app) : app };
-    if (isObj(app) && isObj(app.connection) && JSON.stringify(app.connection) !== JSON.stringify(connection)) {
+    if (isObj(app) && (connection !== undefined && !isObj(app.connection) || isObj(app.connection) && JSON.stringify(app.connection) !== JSON.stringify(connection))) {
       return { ok: false, reasons: [{ code: 'CONNECTION_INCONSISTENT', message: 'Hai vai kết nối tới đích khác nhau.' }] };
     }
   } catch {
