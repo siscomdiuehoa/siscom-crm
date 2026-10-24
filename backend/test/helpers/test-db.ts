@@ -1,19 +1,16 @@
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { resolveTestDatabase, type TestEnvLike } from './test-db-guard';
 
 export const TEST_DB_RE = /^siscom_crm_(restore|test)_\d{8}_\d{6}$/;
 
-// Chỉ chấp nhận database thử. Xoá DATABASE_URL khỏi tiến trình test để URL của siscom_crm_dev không bao giờ lọt vào.
-export function testDatabase(): { url: string; name: string } {
-  delete process.env.DATABASE_URL;
-  const url = process.env.TEST_DATABASE_URL;
-  if (!url) throw new Error('Thiếu TEST_DATABASE_URL. Chạy qua scripts\\windows\\run-customers-tests.bat (đã kiểm tra tên database).');
-  let u: URL;
-  try { u = new URL(url); } catch { throw new Error('TEST_DATABASE_URL không hợp lệ.'); }
-  const name = decodeURIComponent(u.pathname.replace(/^\//, ''));
-  if (name === 'siscom_crm_dev' || !TEST_DB_RE.test(name)) throw new Error('Từ chối: "' + name + '" không phải database thử (siscom_crm_restore_* / siscom_crm_test_*).');
-  if (u.hostname !== '127.0.0.1') throw new Error('Từ chối: host phải là 127.0.0.1.');
-  if (decodeURIComponent(u.username) !== 'siscom_app') throw new Error('Từ chối: tài khoản phải là siscom_app.');
-  return { url, name };
+// Luồng hiện hữu (run-customers-tests.ps1): chỉ chấp nhận DB thử + siscom_app@127.0.0.1:5432. F-03: logic kiểm tra nằm ở test-db-guard.ts (thuần, có test); thêm từ chối DB baseline đã khóa và URL có query.
+export function testDatabase(env: TestEnvLike = process.env): { url: string; name: string } {
+  return resolveTestDatabase(env, 'legacy-shared-app');
+}
+
+// DB cô lập (F-02/E-03): siscom_crm_test_<stamp>, role siscom_t_*_<stamp>, cổng khác 5432. Chưa nối vào luồng nào; cần chủ repo duyệt riêng trước khi dùng.
+export function disposableTestDatabase(env: TestEnvLike = process.env): { url: string; name: string } {
+  return resolveTestDatabase(env, 'disposable');
 }
 
 export function createTestPrisma(): { prisma: PrismaService; name: string } {
