@@ -139,3 +139,23 @@ test('cách ly tĩnh: guard không import/IO; test-db.ts ủy quyền cho guard'
   assert.ok(td.includes("resolveTestDatabase(env, 'legacy-shared-app')") && td.includes("resolveTestDatabase(env, 'disposable')"));
   assert.ok(!/delete process\.env/.test(td), 'test-db.ts không tự xóa process.env nữa (xóa qua env tiêm)');
 });
+
+test('PG* env (PGHOST/PGDATABASE/PGSERVICE/...) có thể đổi đích ngầm → từ chối, không tự xóa hay đoán', () => {
+  const ok = () => ({ TEST_DATABASE_URL: legacy() });
+  for (const key of ['PGHOST', 'PGHOSTADDR', 'PGPORT', 'PGDATABASE', 'PGUSER', 'PGPASSWORD', 'PGSERVICE', 'PGSERVICEFILE', 'PGPASSFILE', 'PGOPTIONS', 'PGSSLMODE', 'PGSYSCONFDIR', 'pghost', 'PgDatabase']) {
+    const env = { ...ok(), [key]: 'x' };
+    assert.throws(() => resolveTestDatabase(env, 'legacy-shared-app'), /ENV_PG_REDIRECT/, key);
+    assert.throws(() => resolveTestDatabase({ ...env, TEST_DATABASE_URL: disp() }, 'disposable'), /ENV_PG_REDIRECT/, key);
+    assert.equal(env[key], 'x', 'không tự xóa biến của người gọi');
+  }
+  assert.throws(() => resolveTestDatabase({ ...ok(), PGHOST: '' }, 'legacy-shared-app'), /ENV_PG_REDIRECT/); // rỗng vẫn bị từ chối
+  assert.equal(resolveTestDatabase({ ...ok(), PGHOST: undefined }, 'legacy-shared-app').name, 'siscom_crm_test_' + S); // undefined = không đặt
+  assert.equal(resolveTestDatabase({ ...ok(), PATH: 'x', PGLIKE: undefined, NOT_PG: 'x', APPG: 'x' }, 'legacy-shared-app').name, 'siscom_crm_test_' + S); // không khớp tiền tố PG
+});
+
+test('PG* env: lý do chỉ nêu tên biến cố định, không phản chiếu giá trị', () => {
+  let msg = '';
+  try { resolveTestDatabase({ TEST_DATABASE_URL: legacy(), PGHOST: 'secret-host-zz', PGPASSWORD: PW }, 'legacy-shared-app'); } catch (e) { msg = String(e.message); }
+  assert.ok(msg.includes('ENV_PG_REDIRECT'));
+  for (const frag of ['secret-host-zz', PW]) assert.ok(!msg.includes(frag), 'lộ giá trị');
+});
