@@ -52,6 +52,21 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
       - name: Unit test
         run: npm run test:unit
+      - name: Node test offline (PG harness + guards, mock, khong DB, khong .env)
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=node-tests-junit.xml \
+            scripts/guards/forbidden-db.test.mjs \
+            scripts/guards/pg-dryrun-guard.test.mjs \
+            scripts/pg-harness/harness.cli.test.mjs \
+            scripts/pg-harness/harness.fixture-guard.test.mjs \
+            scripts/pg-harness/harness.test.mjs \
+            scripts/pg-harness/identity-target-bind.test.mjs \
+            scripts/pg-harness/identity-toctou-snapshot.test.mjs \
+            scripts/pg-harness/identity-verifier.test.mjs
+          node scripts/ci/check-node-test-count.mjs node-tests-junit.xml "${MIN_NODE_TESTS}"
+        env:
+          MIN_NODE_TESTS: "250"
 
   frontend:
     name: Frontend (build)
