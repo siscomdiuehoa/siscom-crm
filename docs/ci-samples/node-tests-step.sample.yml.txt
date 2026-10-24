@@ -1,0 +1,20 @@
+# MAU DE OWNER XEM XET - KHONG PHAI WORKFLOW. Tep nay co duoi .txt va nam ngoai .github/ nen khong co hieu luc.
+# Ap dung can PR `ci/` rieng, owner phe duyet rieng (sua .github/workflows/ci.yml), nguoi duyet khac tac gia.
+# Chen vao job `backend` ngay sau buoc "Unit test". working-directory mac dinh la backend/ (defaults.run).
+# Khac ban nhap #128: (1) dem testcase bang script co test (check-node-test-count.mjs) thay vi grep;
+# (2) chan ca 0 test, duoi nguong, <failure>/<error>; (3) khong dung `|| true`.
+      - name: Node test offline (PG harness, guards; khong DB, khong .env)
+        run: |
+          node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=node-tests-junit.xml "scripts/pg-harness/**/*.test.mjs" "scripts/guards/**/*.test.mjs" "test/helpers/*.test.mjs"
+          node scripts/ci/check-node-test-count.mjs node-tests-junit.xml "${MIN_NODE_TESTS}"
+        env:
+          MIN_NODE_TESTS: "250"   # dat lai theo so test thuc tren dau chuoi da ghep (xem doc J05 muc 4)
+      - name: Luu bao cao node --test (JUnit)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4   # action moi: owner quyet co ghim SHA hay khong
+        with:
+          name: node-tests-junit
+          path: backend/node-tests-junit.xml
+          if-no-files-found: error
+          retention-days: 14
+# Tuy chon: them `node --test scripts/ci/check-node-test-count.test.mjs` truoc buoc tren de tu kiem tra bo dem.
