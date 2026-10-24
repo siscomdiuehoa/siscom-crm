@@ -214,7 +214,11 @@ function missingMethods(executor) {
  * Không bao giờ gọi migrateDeploy; trả verdict để guardedMigrateDeploy dùng.
  * @returns {Promise<{ok:boolean, reasons:{code:string,message:string}[], verdict?:object}>}
  */
-export async function runPreMigrateIdentityCheck({ executor, gateInputs, expected }) {
+export async function runPreMigrateIdentityCheck({ executor, gateInputs: gateInputsArg, expected: expectedArg }) {
+  // H01 (TOCTOU): chụp BẤT BIẾN một lần ngay đầu hàm; mọi bước sau chỉ dùng bản chụp, không bao giờ đọc lại object gốc.
+  const snap = snapshotInputs(gateInputsArg, expectedArg);
+  if (snap === null) return { ok: false, reasons: [{ code: 'INPUT_SNAPSHOT_INVALID', message: 'Đầu vào (gateInputs/expected) không chụp được an toàn; từ chối mặc định.' }] };
+  const { gateInputs, expected } = snap;
   const missing = missingMethods(executor);
   if (missing.length > 0) return { ok: false, reasons: [{ code: 'EXECUTOR_INVALID', message: 'Bộ thực thi thiếu phương thức bắt buộc.' }] };
   const gate = evaluateExecutionGate(gateInputs);
@@ -243,6 +247,44 @@ export async function runPreMigrateIdentityCheck({ executor, gateInputs, expecte
   const granted = Object.freeze({ ok: true, reasons: Object.freeze([]), db: expected.db, stamp: expected.stamp });
   grants.set(granted, { executor, db: expected.db, issuedAt: expected.now.getTime(), labelCreatedAt });
   return { ok: true, reasons: [], verdict: granted };
+}
+
+const PLAIN_PROTOS = new Set([Object.prototype, null, Array.prototype, Date.prototype]);
+
+/** Cây dữ liệu gốc chỉ gồm primitive/object thuần/mảng/Date, khóa chuỗi. Chỉ dùng mô tả thuộc tính (không gọi getter); Proxy đã bị structuredClone từ chối trước đó. */
+function isPlainTree(v, seen = new WeakSet()) {
+  if (typeof v === 'function' || typeof v === 'symbol') return false;
+  if (v === null || typeof v !== 'object') return true;
+  if (seen.has(v)) return true;
+  seen.add(v);
+  if (!PLAIN_PROTOS.has(Object.getPrototypeOf(v))) return false;
+  for (const key of Reflect.ownKeys(v)) {
+    if (typeof key === 'symbol') return false;
+    const d = Object.getOwnPropertyDescriptor(v, key);
+    if (d && 'value' in d && !isPlainTree(d.value, seen)) return false;
+  }
+  return true;
+}
+
+function deepFreeze(v, seen = new WeakSet()) {
+  if (v === null || typeof v !== 'object' || seen.has(v)) return v;
+  seen.add(v);
+  for (const k of Reflect.ownKeys(v)) deepFreeze(v[k], seen);
+  return Object.freeze(v);
+}
+
+/**
+ * Chụp một lần {gateInputs, expected}: structuredClone (getter chạy đúng một lần; Proxy/hàm/Symbol/getter ném lỗi → DataCloneError),
+ * kiểm kiểu bất thường (Map/Set/RegExp/lớp tuỳ biến/khóa Symbol…) rồi đóng băng sâu bản chụp. Trả null nếu không an toàn (fail-closed).
+ */
+function snapshotInputs(gateInputs, expected) {
+  try {
+    const copy = structuredClone({ gateInputs, expected });
+    if (!isPlainTree(copy) || !isPlainTree({ gateInputs, expected })) return null;
+    return deepFreeze(copy);
+  } catch {
+    return null;
+  }
 }
 
 function stripConnection(snap) {
