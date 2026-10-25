@@ -13,6 +13,8 @@ export const MSG = {
   taxFmt: 'MST gồm 10 chữ số, hoặc 13 chữ số dạng 0123456789-001', email: 'Email chưa đúng định dạng', website: 'Website chưa đúng định dạng (VD: congty.vn)',
 };
 const s = (v) => String(v == null ? '' : v).trim();
+// Zero-width chars are not stripped by trim(): a name made only of them looks empty to people but would pass the length check.
+const blankName = (v) => !s(String(v == null ? '' : v).replace(/[​-‍⁠﻿]/g, ''));
 
 // Configurable defaults for tier/status (only values from the allowed lists are accepted).
 export function getCustomerDefaults() {
@@ -31,7 +33,7 @@ export function setCustomerDefaults(p) { return storage.set(DEFAULTS_KEY, JSON.s
 export function validateCustomer(c, opts = {}) {
   const { customers = [], selfId, original } = opts; const e = {};
   const same = (k) => !!original && s(original[k]) === s(c[k]);
-  if (!s(c.name)) e.name = MSG.name; else if (s(c.name).length < 2) e.name = MSG.nameShort;
+  if (blankName(c.name)) e.name = MSG.name; else if (s(c.name).length < 2) e.name = MSG.nameShort;
   if (!s(c.phone)) e.phone = MSG.phone; else if (!U.isPhone(c.phone) && !same('phone')) e.phone = MSG.phoneFmt;
   const tax = s(c.taxId);
   if (tax) {

@@ -32,7 +32,7 @@ function wrap(e) {
 }
 
 const malformed = (what) => new CustomerRepoError('malformed', 'Phản hồi máy chủ không hợp lệ (' + what + ').');
-const blank = (v) => String(v == null ? '' : v).trim() === '';
+const blank = (v) => String(v == null ? '' : v).replace(/[​-‍⁠﻿]/g, '').trim() === ''; // zero-width chars count as empty
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const needsLookups = (ui) => Object.keys(LOOKUP_FIELDS).some((f) => !blank(ui[f]));
 
