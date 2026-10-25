@@ -15,12 +15,14 @@ export function parseJunit(xml) {
 
 export function evaluate(xml, minTests) {
   const r = parseJunit(xml);
+  const executed = r.testcases - r.skipped; // OVN05: skip/todo la <testcase> + <skipped>, khong duoc tinh vao nguong
   const problems = [];
   if (!Number.isInteger(minTests) || minTests < 1) problems.push(`minTests khong hop le: ${minTests}`);
   if (r.testcases === 0) problems.push('0 testcase: glob rong hoac bao cao rong');
-  else if (r.testcases < minTests) problems.push(`${r.testcases} testcase < nguong ${minTests}`);
+  else if (executed < minTests) problems.push(`${executed} testcase da chay < nguong ${minTests}`);
+  if (r.skipped > 0) problems.push(`skipped=${r.skipped}: cong offline khong cho phep skip/todo`);
   if (r.failures > 0 || r.errors > 0) problems.push(`failures=${r.failures} errors=${r.errors}`);
-  return { ...r, minTests, ok: problems.length === 0, problems };
+  return { ...r, executed, minTests, ok: problems.length === 0, problems };
 }
 
 function main(argv) {
