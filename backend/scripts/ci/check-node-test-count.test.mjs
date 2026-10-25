@@ -36,3 +36,27 @@ test('CLI: thieu tep => exit 2; rong => exit 1; du => exit 0', () => {
     assert.equal(run(ok, '3'), 0);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// OVN05: test bị skip/todo vẫn là <testcase> + <skipped>; không được tính vào ngưỡng và không được lọt cổng (fail-open trước đây).
+const skippedTc = (n) => '<testcase name="s"><skipped type="skipped" message="x"/></testcase>'.repeat(n);
+test('toàn bộ test bị skip => fail dù đủ số testcase', () => {
+  const xml = `<testsuites><testsuite>${skippedTc(300)}</testsuite></testsuites>`;
+  const r = evaluate(xml, 250);
+  assert.equal(r.ok, false);
+  assert.match(r.problems.join(), /skipped/);
+});
+test('một test skip trong bộ đủ ngưỡng => fail (cổng offline không cho phép skip)', () => {
+  const xml = `<testsuites><testsuite>${'<testcase name="t"/>'.repeat(300)}${skippedTc(1)}</testsuite></testsuites>`;
+  assert.equal(evaluate(xml, 250).ok, false);
+});
+test('ngưỡng chỉ tính test đã chạy: 260 chạy + 50 skip vs ngưỡng 300 => fail', () => {
+  const xml = `<testsuites><testsuite>${'<testcase name="t"/>'.repeat(260)}${skippedTc(50)}</testsuite></testsuites>`;
+  const r = evaluate(xml, 300);
+  assert.equal(r.ok, false);
+  assert.equal(r.executed, 260);
+});
+test('không skip, đủ ngưỡng => vẫn ok (không làm hỏng đường đạt)', () => {
+  const r = evaluate(tc(272), 250);
+  assert.equal(r.ok, true);
+  assert.equal(r.executed, 272);
+});
