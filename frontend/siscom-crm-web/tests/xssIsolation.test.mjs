@@ -151,9 +151,8 @@ test('A-ERR: thông điệp lỗi độc hại từ máy chủ (400/403/409/500)
   }
 });
 
-// GHI NHẬN (todo, KHÔNG vá trong PR test-only): phản hồi vi phạm hợp đồng (website là object…) làm CustomerApiDetail ném 'c.website.replace is not a function'
-// và sập cả cây (không có error boundary). Không phải XSS (không thực thi/chèn DOM), nhưng là độ bền khi máy chủ trả sai kiểu. Chờ chủ repo quyết có vá hay không.
-test('A-KIND: giá trị sai kiểu từ máy chủ (object/mảng/số/null thay cho chuỗi) không sập và không sinh DOM thực thi', { todo: 'ghi nhận: detail sập khi website sai kiểu (c.website.replace); cần quyết định vá riêng' }, async () => {
+// R01: phản hồi vi phạm hợp đồng (website là object…) từng làm CustomerApiDetail ném 'c.website.replace is not a function' và sập cả cây. Đã vá ở customerAdapter (không phải chuỗi -> '').
+test('A-KIND: giá trị sai kiểu từ máy chủ (object/mảng/số/null thay cho chuỗi) không sập và không sinh DOM thực thi', async () => {
   const row = { ...hostileRow(PAYLOADS[1]), name: { toString: 'x', html: PAYLOADS[0] }, shortName: [PAYLOADS[0]], email: 12345, website: { a: 1 }, note: null, address: ['a', PAYLOADS[2]] };
   fetchImpl = server(res(200, { data: { items: [row], page: 1, pageSize: 20, total: 1, totalPages: 1 } }), res(200, { data: row }));
   for (const h of ['#/customers', '#/customers/' + ID]) {
