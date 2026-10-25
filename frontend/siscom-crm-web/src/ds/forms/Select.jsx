@@ -19,7 +19,7 @@ export function Select({ options = [], value, defaultValue, onChange, placeholde
   const cls = ['sg-control', 'sg-select__trigger', size === 'sm' && 'sg-control--sm', error && 'sg-control--error', disabled && 'sg-control--disabled'].filter(Boolean).join(' ');
   const ctl = (
     <div className={'sg-select ' + className} ref={ref}>
-      <button type="button" className={cls} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
+      <button type="button" className={cls} aria-haspopup="listbox" aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
         {icon ? <Icon name={icon} size={16} /> : null}
         {sel && sel.icon ? <Icon name={sel.icon} size={16} color="var(--text-3)" /> : null}
         <span className={'sg-select__value' + (sel ? '' : ' sg-select__value--ph')}>{sel ? sel.label : placeholder}</span>
