@@ -5,6 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCustomerRepository, CustomerRepoError } from '../src/data/api/customerRepository.js';
 import { validateCustomer, normalizeCustomer, MSG } from '../src/data/customerRules.js';
+import { parseCsv, norm } from '../src/data/util.js';
+import { importCustomers, RepoError } from '../src/data/repository/mutations.js';
 
 const BASE = 'http://127.0.0.1:3000/api/v1';
 const ON = { VITE_CRM_API_ENABLED: 'true', VITE_CRM_API_BASE: BASE };
@@ -91,4 +93,42 @@ test('đường CSV: normalizeCustomer + validateCustomer (như CustomerIO) cũn
     const errs = Object.values(validateCustomer(normalizeCustomer({ name: v, phone: '0901234567' }), { customers: [] }));
     assert.ok(errs.includes(MSG.name), JSON.stringify(v));
   }
+});
+
+// S05: đường nhập CSV thật ở tầng dữ liệu. Chạy U.parseCsv THẬT -> ánh xạ cột (sao chép từ CustomerIO.take: nằm trong component JSX nên không import được
+// offline) -> importCustomers THẬT (data/repository/mutations.js: normalizeCustomer + validateCustomer + quyền customer.import). KHÔNG chạy component React,
+// không đọc File/FileReader, không trình duyệt: đây KHÔNG phải E2E nhập CSV trên giao diện.
+const csvRows = (text) => {
+  const data = parseCsv(text); const head = (data[0] || []).map((h) => norm(h.trim()));
+  const col = (label) => head.indexOf(norm(label));
+  const map = { name: col('Tên công ty'), taxId: col('Mã số thuế'), industry: col('Ngành nghề'), city: col('Tỉnh/Thành phố'), address: col('Địa chỉ'), phone: col('Điện thoại'), email: col('Email'), tier: col('Phân hạng') };
+  return data.slice(1).map((r) => Object.fromEntries(Object.entries(map).map(([k, i]) => [k, i >= 0 ? (r[i] || '').trim() : '']))).filter((r) => Object.values(r).some(Boolean));
+};
+const HEADER = 'Tên công ty,Mã số thuế,Ngành nghề,Tỉnh/Thành phố,Địa chỉ,Điện thoại,Email,Phân hạng';
+const DB0 = { customers: [], contacts: [], auditLog: [] };
+const ADMIN = { user: { name: 'Quản trị', role: 'admin' } };
+
+test('đường nhập CSV thật (parseCsv -> importCustomers): name chỉ ký tự vô hình/trộn khoảng trắng -> RepoError, không thêm khách, DB không đổi', () => {
+  for (const v of INVISIBLE_ONLY) {
+    const rows = csvRows(HEADER + '\n"' + v + '",,,,,0901234567,,');
+    assert.equal(rows.length, 1, JSON.stringify(v));
+    const d = structuredClone(DB0);
+    assert.throws(() => importCustomers(d, rows, ADMIN), (e) => e instanceof RepoError && e.title === 'Dữ liệu nhập chưa hợp lệ' && Boolean(e.fields.name), JSON.stringify(v));
+    assert.deepEqual(d, DB0, 'DB không bị thay đổi');
+  }
+});
+test('đường nhập CSV thật: phone chỉ ký tự vô hình -> RepoError có fields.phone, không thêm khách', () => {
+  for (const v of INVISIBLE_ONLY) {
+    const rows = csvRows(HEADER + '\n"Công ty A",,,,,"' + v + '",,');
+    const d = structuredClone(DB0);
+    assert.throws(() => importCustomers(d, rows, ADMIN), (e) => e instanceof RepoError && Boolean(e.fields.phone), JSON.stringify(v));
+    assert.deepEqual(d, DB0);
+  }
+});
+test('đường nhập CSV thật: tên tiếng Việt hợp lệ (NFC/NFD) được nhập, giữ nguyên từng điểm mã; có audit import', () => {
+  const names = ['Công ty TNHH Đại Phát', 'Cong\u0302 ty \u0110a\u0323i Pha\u0301t'];
+  const rows = csvRows(HEADER + '\n' + names.map((n) => '"' + n + '",,,,,0901234567,,').join('\n'));
+  const out = importCustomers(structuredClone(DB0), rows, ADMIN);
+  assert.deepEqual(out.customers.map((c) => c.name), names);
+  assert.equal(out.auditLog[0].action, 'import');
 });
