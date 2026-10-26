@@ -131,3 +131,31 @@ test('token/credential không bị lưu vào localStorage/sessionStorage/cookie 
   } finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete globalThis[k]; else globalThis[k] = v; } }
   assert.deepEqual(w, []);
 });
+
+// S05: ca còn thiếu ở tầng cầu nối. Phiên mô phỏng đúng ngữ nghĩa loginSession: chỉ hủy khi header được báo KHỚP phiên hiện tại.
+function revokingSession(token) {
+  let t = token; const calls401 = [];
+  return { getState: () => ({ status: t ? 'AUTHENTICATED' : 'IDLE' }), getAuthHeader: () => (t ? 'Bearer ' + t : null), handleUnauthorized: (h) => { calls401.push(h); if (h === (t ? 'Bearer ' + t : null)) t = null; }, set(v) { t = v; }, calls401, token: () => t };
+}
+
+for (const [name, drive] of [
+  ['createCustomerRepository', (auth, f) => createCustomerRepository({ env: ON, fetchImpl: f, auth }).list({}).catch((e) => e)],
+  ['createCustomerApiUi', async (auth, f) => { const ui = createCustomerApiUi({ env: ON, fetchImpl: f, auth }); await ui.load({}); return ui.getState().list; }],
+]) {
+  test(`401 muộn của A sau khi chuyển sang B qua ${name}: handleUnauthorized nhận header CŨ của A, phiên B giữ nguyên và yêu cầu kế tiếp dùng B`, async () => {
+    const s = revokingSession(TOKEN_A);
+    let release; const gate = new Promise((r) => { release = r; });
+    let n = 0;
+    const f = mockFetch(async () => { if (n++ === 0) { await gate; return res(401, E401); } return res(200, LIST); });
+    const pending = drive(s, f);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(f.calls.length, 1); assert.equal(hdr(f.calls[0]), 'Bearer ' + TOKEN_A); // yêu cầu A đã đi với token A
+    s.set(TOKEN_B); release();
+    await pending;
+    assert.deepEqual(s.calls401, ['Bearer ' + TOKEN_A]);   // báo đúng header đã dùng, không phải header hiện tại
+    assert.equal(s.token(), TOKEN_B);                       // phiên B KHÔNG bị hủy bởi 401 của A
+    assert.equal(s.getState().status, 'AUTHENTICATED');
+    await createCustomerRepository({ env: ON, fetchImpl: f, auth: s }).list({});
+    assert.equal(hdr(f.calls[f.calls.length - 1]), 'Bearer ' + TOKEN_B);
+  });
+}
