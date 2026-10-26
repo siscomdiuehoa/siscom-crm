@@ -52,7 +52,7 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
       - name: Unit test
         run: npm run test:unit
-      - name: Node test offline (PG harness R02/M03: che loi, mock, khong DB, khong .env, khong --execute)
+      - name: Node test offline (PG harness R02/M03 - che loi, mock, khong DB, khong .env, khong --execute)
         run: |
           set -euo pipefail
           FILES="scripts/pg-harness/harness.redaction.test.mjs scripts/pg-harness/migrate-error-redaction.test.mjs scripts/pg-harness/identity-negative-matrix.test.mjs"
