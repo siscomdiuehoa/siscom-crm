@@ -262,38 +262,65 @@ describe('D. Phiên cũ A -> phiên mới B (stale session) qua FE thật + BE t
   });
 });
 
-describe('E. Cầu nối auth UI->repo->client: kiểm HÀNH VI (không đọc mã nguồn bằng toString)', () => {
-  // S03: thay assertion toString (dễ vỡ/không bắt được việc thêm auth) bằng hành vi quan sát được trên đúng nền.
-  // Không khóa vĩnh viễn việc thiếu auth: #149 (38001cd, đã có bản sửa riêng chưa tích hợp) thêm tùy chọn auth; test chấp nhận cả hai trạng thái
-  // nhưng buộc kết quả NHẤT QUÁN (có header => thành công bằng đúng phiên; không header => 401 fail-closed, không hủy phiên).
-  const provider = () => bearerProvider({ 'customer.read': 'ALL' } as Partial<Record<Permission, Scope>>);
-  it('đối chứng: client có phiên hợp lệ gửi Bearer => backend trả 200 (test này THẬT SỰ phân biệt có/không auth)', async () => {
-    const service = makeService(); const app = await makeApp(service, provider());
+describe('E. Cầu nối auth UI->repo->client: kiểm HÀNH VI trên đúng nền (không đọc mã nguồn bằng toString)', () => {
+  // KỲ VỌNG LEGACY CỦA NỀN NÀY (#142, cd31e82, CHƯA có #149): createCustomerRepository / createCustomerApiUi KHÔNG nhận/truyền `auth`.
+  // => khi truyền phiên hợp lệ, các lớp trên client vẫn gọi mạng KHÔNG có Authorization; backend trả 401; repository trả CustomerRepoError
+  //    unauthenticated/401/UNAUTHENTICATED; UI list.status='error' (denied, không data/fallback); không ghi local; phiên không bị hủy.
+  // Kỳ vọng được khẳng định CỨNG, không chấp nhận "có hoặc không auth". Khi nền có #149 (38001cd), THAY kỳ vọng ở MỘT thay đổi riêng
+  // (phải 200 + đúng Bearer của phiên); không được nới thành chấp nhận cả hai.
+  const provider = (seen: string[]) => bearerProvider({ 'customer.read': 'ALL' } as Partial<Record<Permission, Scope>>, seen);
+  const headerNames = (init: any) => Object.keys(init.headers || {}).map((h) => h.toLowerCase());
+
+  it('đối chứng: client có phiên hợp lệ => 200 payload đúng + Bearer đúng phiên; không phiên => 401 và không Authorization', async () => {
+    const service = makeService(); const seen: string[] = []; const app = await makeApp(service, provider(seen));
     try {
       const session = fakeSession('tok-e-me'); const f = bridge(app);
       const api = fe.client.createCustomerApi(fe.client.readApiConfig(ON), f, { auth: session });
-      await expect(api.list({})).resolves.toBeDefined();
+      await expect(api.list({})).resolves.toMatchObject({ items: [], page: 1, pageSize: 20, total: 0, totalPages: 0 });
+      expect(f.calls).toHaveLength(1);
       expect(f.calls[0].init.headers.Authorization).toBe('Bearer tok-e-me');
+      expect([...new Set(seen)]).toEqual(['Bearer tok-e-me']); // backend (2 guard đọc header) chỉ thấy đúng header của phiên
+      expect(service.list).toHaveBeenCalledTimes(1);
+      expect(session.revoked).toEqual([]);
       const none = bridge(app);
       await expect(fe.client.createCustomerApi(fe.client.readApiConfig(ON), none).list({})).rejects.toMatchObject({ status: 401 });
-      expect(Object.keys(none.calls[0].init.headers).map((h) => h.toLowerCase())).not.toContain('authorization');
+      expect(headerNames(none.calls[0].init)).not.toContain('authorization');
+      expect(service.list).toHaveBeenCalledTimes(1); // ca không phiên không tới service
     } finally { await app.close(); }
   });
-  it.each([
-    ['createCustomerRepository', (auth: unknown, f: unknown) => fe.repo.createCustomerRepository({ env: ON, fetchImpl: f, local: {}, auth }).list({ page: 1 })],
-    ['createCustomerApiUi', (auth: unknown, f: unknown) => fe.ui.createCustomerApiUi({ env: ON, fetchImpl: f, auth }).load({ page: 1 })],
-  ])('%s truyền phiên auth: hoặc gửi đúng Bearer của phiên và thành công, hoặc (nền chưa có cầu nối) 401 fail-closed — không bao giờ giả danh/hủy phiên sai', async (_n, run) => {
-    const service = makeService(); const app = await makeApp(service, provider());
+
+  it('LEGACY createCustomerRepository({ auth }) trên nền chưa có #149: 401 unauthenticated, không Authorization, không fallback local, phiên không bị hủy', async () => {
+    const service = makeService(); const seen: string[] = []; const app = await makeApp(service, provider(seen));
     try {
       const session = fakeSession('tok-e-me'); const f = bridge(app);
-      await (run as (a: unknown, f: unknown) => Promise<unknown>)(session, f).catch(() => undefined);
-      expect(f.calls.length).toBeGreaterThanOrEqual(1);
-      const header = f.calls[0].init.headers.Authorization;
-      if (header !== undefined) {
-        expect(header).toBe('Bearer tok-e-me'); expect(session.revoked).toEqual([]); expect(service.list).toHaveBeenCalledTimes(1);
-      } else {
-        expect(service.list).not.toHaveBeenCalled(); expect(session.revoked).toEqual([]); // BLOCKED_DEPENDENCY: cầu nối #149 chưa tích hợp trên nền này
-      }
+      const local = { list: jest.fn(), create: jest.fn(), get: jest.fn(), update: jest.fn() };
+      const repo = fe.repo.createCustomerRepository({ env: ON, fetchImpl: f, local, auth: session });
+      expect(repo.mode).toBe('api');
+      await expect(repo.list({ page: 1 })).rejects.toMatchObject({ name: 'CustomerRepoError', kind: 'unauthenticated', status: 401, code: 'UNAUTHENTICATED' });
+      expect(f.calls).toHaveLength(1);
+      expect(headerNames(f.calls[0].init)).not.toContain('authorization');
+      expect([...new Set(seen)]).toEqual(['']); // backend không nhận Authorization nào
+      expect(service.list).not.toHaveBeenCalled();
+      for (const fn of Object.values(local)) expect(fn).not.toHaveBeenCalled();
+      expect(session.revoked).toEqual([]); expect(session.getAuthHeader()).toBe('Bearer tok-e-me');
+    } finally { await app.close(); }
+  });
+
+  it('LEGACY createCustomerApiUi({ auth }) trên nền chưa có #149: list.status=error đúng kind/status, không data, không Authorization, phiên không bị hủy', async () => {
+    const service = makeService(); const seen: string[] = []; const app = await makeApp(service, provider(seen));
+    try {
+      const session = fakeSession('tok-e-me'); const f = bridge(app);
+      const ui = fe.ui.createCustomerApiUi({ env: ON, fetchImpl: f, auth: session });
+      await ui.load({ page: 1 });
+      const list = ui.getState().list;
+      expect(list.status).toBe('error');
+      expect(list.items).toEqual([]); expect(list.paging).toBeNull();
+      expect(list.error).toMatchObject({ kind: 'unauthenticated', status: 401, code: 'UNAUTHENTICATED', denied: true, retryable: false });
+      expect(f.calls).toHaveLength(1);
+      expect(headerNames(f.calls[0].init)).not.toContain('authorization');
+      expect([...new Set(seen)]).toEqual(['']);
+      expect(service.list).not.toHaveBeenCalled();
+      expect(session.revoked).toEqual([]); expect(session.getAuthHeader()).toBe('Bearer tok-e-me');
     } finally { await app.close(); }
   });
 });
