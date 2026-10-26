@@ -185,8 +185,18 @@ describe('Quyền ghi hỗn hợp: đọc được nhưng phạm vi ghi hẹp h�
   });
   it('CONTACT create: read=ALL, update=OWN, contact.create=ALL, khách người khác -> không tạo liên hệ', async () => {
     const { res, prisma } = await run({ 'customer.read': 'ALL', 'customer.update': 'OWN', 'contact.create': 'ALL' }, 'post', URL_ID + '/contacts', { fullName: 'A', phone: '0903123456' });
-    expect([403, 404]).toContain(res.status);
-    expect(prisma.contact.create).not.toHaveBeenCalled();
+    // Hợp đồng: khách TRONG phạm vi đọc nhưng NGOÀI phạm vi ghi -> 403 FORBIDDEN (customers.contacts.service.ts: create(), nhánh forbidden;
+    // customers.contacts.service.spec.ts:95). Khác 404 (chỉ dành cho khách ngoài phạm vi ĐỌC / không tồn tại).
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('FORBIDDEN');
+    noWrite(prisma);
+  });
+  it('CONTACT create: read=OWN, khách người khác (ngoài phạm vi đọc) -> 404 CUSTOMER_NOT_FOUND, không lộ khách, không ghi', async () => {
+    const { res, prisma } = await run({ 'customer.read': 'OWN', 'customer.update': 'OWN', 'contact.create': 'ALL' }, 'post', URL_ID + '/contacts', { fullName: 'A', phone: '0903123456' });
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('CUSTOMER_NOT_FOUND');
+    expect(JSON.stringify(res.body)).not.toMatch(/KH-00001|Công ty ABC|e-o/);
+    noWrite(prisma);
   });
 });
 
@@ -303,7 +313,14 @@ describe('Lỗi cấp quyền GIỮA CHỪNG (guard qua, service hỏi lại) ->
     { name: 'PATCH', method: 'patch', url: URL_ID, body: { version: 1, note: 'x' } },
     { name: 'DELETE', method: 'delete', url: URL_ID },
     { name: 'RESTORE', method: 'post', url: URL_ID + '/restore', found: row('e-me', 'd1', { deletedAt: new Date() }) },
+    { name: 'POST', method: 'post', url: '/api/v1/customers', body: { name: 'Công ty A', phone: '0903123456' } },
+    { name: 'CONTACT create', method: 'post', url: URL_ID + '/contacts', body: { fullName: 'A', phone: '0903123456' } },
+    { name: 'CONTACT list', method: 'get', url: URL_ID + '/contacts' },
   ];
+  // Scope lạ (ngoài ALL/DEPARTMENT/OWN) => inScope() = false (scope.ts, fail-closed): route theo :id che sự tồn tại bằng 404 CUSTOMER_NOT_FOUND;
+  // POST /customers (scope !== 'ALL') từ chối 403 FORBIDDEN; GET list trả tập rỗng 200. Không bao giờ 500, không ghi.
+  const invalidScope = (name: string): { status: number; code?: string } =>
+    name === 'GET list' ? { status: 200 } : name === 'POST' ? { status: 403, code: 'FORBIDDEN' } : { status: 404, code: 'CUSTOMER_NOT_FOUND' };
   for (const c of cases) {
     it(`${c.name}: scopeFor ném lỗi ở lần hỏi lại -> 500 chung, không lộ nội dung, không ghi`, async () => {
       const prisma = makePrisma();
@@ -335,7 +352,13 @@ describe('Lỗi cấp quyền GIỮA CHỪNG (guard qua, service hỏi lại) ->
         if (c.name === 'GET list') { // danh sách: scope lạ => điều kiện "không khớp dòng nào" (fail-closed bằng tập rỗng, không lộ dữ liệu)
           expect(res.status).toBe(200);
           expect(prisma.customer.count.mock.calls[0][0].where.AND).toEqual([{ id: { in: [] } }]);
-        } else expect(res.status).toBeGreaterThanOrEqual(400);
+        } else {
+          const want = invalidScope(c.name);
+          expect(res.status).not.toBe(500);
+          expect(res.status).toBe(want.status);
+          expect(res.body.error.code).toBe(want.code);
+          expect(JSON.stringify(res.body)).not.toMatch(/KH-00001|Công ty ABC/);
+        }
         noWrite(prisma);
       } finally { await app.close(); }
     });
