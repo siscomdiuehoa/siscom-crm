@@ -4,7 +4,6 @@ name: CI
 # Moi PR chay dung mot lan (su kien pull_request); sau khi merge, chay lai tren main (push). Huy lan chay cu khi co commit moi.
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
@@ -53,6 +52,16 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
       - name: Unit test
         run: npm run test:unit
+      - name: Jest muc tieu #154 (ma tran authz): spec duoc jest-unit thu nhan, khong skip
+        run: |
+          set -euo pipefail
+          SPEC="src/modules/customers/authz-matrix.http.spec.ts"
+          test -f "$SPEC" || { echo "THIEU spec: $SPEC"; exit 1; }
+          npx jest --config ./test/jest-unit.json --listTests | grep -F "$(basename "$SPEC")"
+          npx jest --config ./test/jest-unit.json --runInBand --ci --runTestsByPath "$SPEC" --json --outputFile=jest-targeted.json
+          node -e 'const r=require("./jest-targeted.json");console.log("total",r.numTotalTests,"pass",r.numPassedTests,"fail",r.numFailedTests,"pending",r.numPendingTests,"todo",r.numTodoTests);if(r.numFailedTests>0||r.numPendingTests>0||r.numTodoTests>0||r.numPassedTests<Number(process.env.MIN_JEST_TESTS)){console.error("LOI: spec muc tieu fail/skip/todo hoac it hon nguong");process.exit(1)}'
+        env:
+          MIN_JEST_TESTS: "60"
 
   frontend:
     name: Frontend (build)
