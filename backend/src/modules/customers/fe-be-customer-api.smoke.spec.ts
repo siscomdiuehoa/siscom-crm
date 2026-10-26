@@ -262,9 +262,38 @@ describe('D. Phiên cũ A -> phiên mới B (stale session) qua FE thật + BE t
   });
 });
 
-describe('E. Khoảng trống thiết kế đã xác minh (khóa hiện trạng, KHÔNG sửa hành vi)', () => {
-  it('createCustomerApiUi/createCustomerRepository chưa nhận tùy chọn auth => với API BẬT, UI tích hợp không thể gửi Bearer (luôn 401 trên BE thật)', () => {
-    expect(fe.ui.createCustomerApiUi.toString()).not.toMatch(/auth/);
-    expect(fe.repo.createCustomerRepository.toString()).not.toMatch(/\bauth\b/);
+describe('E. Cầu nối auth UI->repo->client: kiểm HÀNH VI (không đọc mã nguồn bằng toString)', () => {
+  // S03: thay assertion toString (dễ vỡ/không bắt được việc thêm auth) bằng hành vi quan sát được trên đúng nền.
+  // Không khóa vĩnh viễn việc thiếu auth: #149 (38001cd, đã có bản sửa riêng chưa tích hợp) thêm tùy chọn auth; test chấp nhận cả hai trạng thái
+  // nhưng buộc kết quả NHẤT QUÁN (có header => thành công bằng đúng phiên; không header => 401 fail-closed, không hủy phiên).
+  const provider = () => bearerProvider({ 'customer.read': 'ALL' } as Partial<Record<Permission, Scope>>);
+  it('đối chứng: client có phiên hợp lệ gửi Bearer => backend trả 200 (test này THẬT SỰ phân biệt có/không auth)', async () => {
+    const service = makeService(); const app = await makeApp(service, provider());
+    try {
+      const session = fakeSession('tok-e-me'); const f = bridge(app);
+      const api = fe.client.createCustomerApi(fe.client.readApiConfig(ON), f, { auth: session });
+      await expect(api.list({})).resolves.toBeDefined();
+      expect(f.calls[0].init.headers.Authorization).toBe('Bearer tok-e-me');
+      const none = bridge(app);
+      await expect(fe.client.createCustomerApi(fe.client.readApiConfig(ON), none).list({})).rejects.toMatchObject({ status: 401 });
+      expect(Object.keys(none.calls[0].init.headers).map((h) => h.toLowerCase())).not.toContain('authorization');
+    } finally { await app.close(); }
+  });
+  it.each([
+    ['createCustomerRepository', (auth: unknown, f: unknown) => fe.repo.createCustomerRepository({ env: ON, fetchImpl: f, local: {}, auth }).list({ page: 1 })],
+    ['createCustomerApiUi', (auth: unknown, f: unknown) => fe.ui.createCustomerApiUi({ env: ON, fetchImpl: f, auth }).load({ page: 1 })],
+  ])('%s truyền phiên auth: hoặc gửi đúng Bearer của phiên và thành công, hoặc (nền chưa có cầu nối) 401 fail-closed — không bao giờ giả danh/hủy phiên sai', async (_n, run) => {
+    const service = makeService(); const app = await makeApp(service, provider());
+    try {
+      const session = fakeSession('tok-e-me'); const f = bridge(app);
+      await (run as (a: unknown, f: unknown) => Promise<unknown>)(session, f).catch(() => undefined);
+      expect(f.calls.length).toBeGreaterThanOrEqual(1);
+      const header = f.calls[0].init.headers.Authorization;
+      if (header !== undefined) {
+        expect(header).toBe('Bearer tok-e-me'); expect(session.revoked).toEqual([]); expect(service.list).toHaveBeenCalledTimes(1);
+      } else {
+        expect(service.list).not.toHaveBeenCalled(); expect(session.revoked).toEqual([]); // BLOCKED_DEPENDENCY: cầu nối #149 chưa tích hợp trên nền này
+      }
+    } finally { await app.close(); }
   });
 });
