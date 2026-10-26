@@ -67,6 +67,8 @@ jobs:
           node scripts/ci/check-node-test-count.mjs node-tests-junit.xml "${MIN_NODE_TESTS}"
         env:
           MIN_NODE_TESTS: "250"
+      - name: Node test hoi quy bo dem JUnit (check-node-test-count, offline)
+        run: node --test scripts/ci/check-node-test-count.test.mjs
 
   frontend:
     name: Frontend (build)

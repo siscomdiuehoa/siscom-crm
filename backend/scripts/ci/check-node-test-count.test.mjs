@@ -60,3 +60,22 @@ test('không skip, đủ ngưỡng => vẫn ok (không làm hỏng đường đ�
   assert.equal(r.ok, true);
   assert.equal(r.executed, 272);
 });
+
+// S03: test todo (node --test ghi <skipped type="todo">) cũng bị từ chối; CLI trả exit 1 khi có skip.
+const todoTc = (n) => '<testcase name="d"><skipped type="todo" message="x"/></testcase>'.repeat(n);
+test('test todo => fail dù đủ số testcase', () => {
+  const xml = `<testsuites><testsuite>${'<testcase name="t"/>'.repeat(300)}${todoTc(1)}</testsuite></testsuites>`;
+  const r = evaluate(xml, 250);
+  assert.equal(r.ok, false);
+  assert.equal(r.skipped, 1);
+});
+test('CLI: có skip => exit 1; đủ không skip => exit 0', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'junit-'));
+  try {
+    const run = (f, m) => spawnSync(process.execPath, [script, f, m], { encoding: 'utf8' }).status;
+    const sk = join(dir, 's.xml'); writeFileSync(sk, `<testsuites><testsuite>${'<testcase name="t"/>'.repeat(300)}${skippedTc(1)}</testsuite></testsuites>`);
+    assert.equal(run(sk, '250'), 1);
+    const ok = join(dir, 'o.xml'); writeFileSync(ok, tc(272));
+    assert.equal(run(ok, '250'), 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
