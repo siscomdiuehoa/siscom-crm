@@ -49,19 +49,25 @@ export function decisionFor(task,comments,login){
   // A revoked task requires a new task ID; do not silently reinstate it.
   return decisions.find(d=>!d.approved)||decisions[0]||null;
 }
-export function chooseQueue(tasks,comments,processed,login){
+const rawScopes=body=>[...String(body||'').matchAll(/^SCOPE:\s*(\S+)\s*$/gm)].map(m=>m[1]);
+// Chủ repo huỷ task bằng dòng "STATUS: CANCELLED_BY_OWNER" trong chính comment task (không phải lỗi phạm vi).
+const cancelledTask=body=>/^STATUS\s*:\s*CANCELLED_BY_OWNER\s*$/im.test(String(body||''));
+// completedSources: id các task đã có comment CLAUDE_RESULT do chủ tin cậy đăng (chống nhận trùng dù state.processed mất).
+export function chooseQueue(tasks,comments,processed,login,completedSources=null){
   const completed=new Set((processed||[]).map(Number));
-  const admitted=[],waiting=[],revoked=[],invalid=[];
+  for(const x of completedSources||[])completed.add(Number(x));
+  const admitted=[],waiting=[],revoked=[],invalid=[],cancelled=[];
   for(const comment of tasks||[]){
     const t=parseTask(comment,login);
     if(!t || completed.has(t.id))continue;
     if(t.forbidden){invalid.push({id:t.id,reason:'FORBIDDEN'});continue}
-    if(!t.scope){invalid.push({id:t.id,reason:'INVALID_SCOPE'});continue}
+    if(cancelledTask(t.body)){cancelled.push({id:t.id});continue}
+    if(!t.scope){invalid.push({id:t.id,reason:'INVALID_SCOPE',scope:rawScopes(t.body).join(',')||null});continue}
     const d=decisionFor(t,comments,login);
     if(d?.approved){admitted.push({comment,approval:d.comment,scope:t.scope});continue}
     if(d && !d.approved){revoked.push({id:t.id});continue}
     waiting.push({id:t.id,scope:t.scope});
   }
   // Stable issue order; later authorized tasks may run while earlier tasks wait.
-  return {selected:admitted[0]||null,waiting,revoked,invalid,eligible:admitted.length};
+  return {selected:admitted[0]||null,waiting,revoked,invalid,cancelled,eligible:admitted.length};
 }
