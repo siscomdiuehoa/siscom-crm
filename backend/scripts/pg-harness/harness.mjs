@@ -53,21 +53,24 @@ export function validateFixture(fx) {
   if ([...(Array.isArray(cs) ? cs : []), ...(Array.isArray(ct) ? ct : [])].some((r) => r === null || typeof r !== 'object' || Array.isArray(r))) { p.push('customers/contacts: mỗi dòng phải là đối tượng'); return p; }
   const keys = new Set();
   const taxes = new Set();
-  for (const c of Array.isArray(cs) ? cs : []) {
-    if (c.isDemo !== true) p.push(`${c.key}: thiếu isDemo=true`);
-    if (!SYNTH_EMAIL_RE.test(c.email ?? '')) p.push(`${c.key}: email phải thuộc example.invalid`);
-    if (!/^9999\d{6}$/.test(c.taxId ?? '')) p.push(`${c.key}: MST ngoài dải giả 9999xxxxxx`);
-    if (!/^0900\d{6}$/.test(c.phone ?? '')) p.push(`${c.key}: SĐT ngoài dải giả 0900xxxxxx`);
-    if (keys.has(c.key)) p.push(`${c.key}: trùng key`);
+  // M03: chỉ định vị bằng chỉ số dòng; không phản chiếu giá trị do fixture cung cấp (key/fullName) ra thông báo.
+  (Array.isArray(cs) ? cs : []).forEach((c, i) => {
+    const at = `customers[${i}]`;
+    if (c.isDemo !== true) p.push(`${at}: thiếu isDemo=true`);
+    if (!SYNTH_EMAIL_RE.test(c.email ?? '')) p.push(`${at}: email phải thuộc example.invalid`);
+    if (!/^9999\d{6}$/.test(c.taxId ?? '')) p.push(`${at}: MST ngoài dải giả 9999xxxxxx`);
+    if (!/^0900\d{6}$/.test(c.phone ?? '')) p.push(`${at}: SĐT ngoài dải giả 0900xxxxxx`);
+    if (keys.has(c.key)) p.push(`${at}: trùng key`);
     keys.add(c.key);
-    if (taxes.has(c.taxId)) p.push(`${c.key}: trùng MST`);
+    if (taxes.has(c.taxId)) p.push(`${at}: trùng MST`);
     taxes.add(c.taxId);
-  }
-  for (const c of Array.isArray(ct) ? ct : []) {
-    if (c.isDemo !== true) p.push(`contact ${c.fullName}: thiếu isDemo=true`);
-    if (!keys.has(c.customer)) p.push(`contact ${c.fullName}: customer không tồn tại`);
-    if (!SYNTH_EMAIL_RE.test(c.email ?? '')) p.push(`contact ${c.fullName}: email phải thuộc example.invalid`);
-  }
+  });
+  (Array.isArray(ct) ? ct : []).forEach((c, i) => {
+    const at = `contacts[${i}]`;
+    if (c.isDemo !== true) p.push(`${at}: thiếu isDemo=true`);
+    if (!keys.has(c.customer)) p.push(`${at}: customer không tồn tại`);
+    if (!SYNTH_EMAIL_RE.test(c.email ?? '')) p.push(`${at}: email phải thuộc example.invalid`);
+  });
   return p;
 }
 
@@ -96,13 +99,14 @@ export function pickRedirectingEnv(env) {
 
 export function parseArgs(argv) {
   const out = { execute: false, listCatalog: false, errors: [] };
-  for (const a of argv) {
+  // M03: không phản chiếu giá trị argv (có thể là chuỗi kết nối/mật khẩu gõ nhầm) ra stderr; chỉ nêu vị trí.
+  argv.forEach((a, i) => {
     if (a === '--dry-run') out.execute = false;
     else if (a === '--execute') out.execute = true;
     else if (a === '--list-catalog') out.listCatalog = true;
-    else if (BYPASS_ARG_RE.test(a)) out.errors.push(`Cờ bỏ qua "${a}" không được phép.`);
-    else out.errors.push(`Tham số lạ "${a}".`);
-  }
+    else if (BYPASS_ARG_RE.test(a)) out.errors.push(`Cờ bỏ qua ở vị trí ${i + 1} không được phép.`);
+    else out.errors.push(`Tham số lạ ở vị trí ${i + 1}.`);
+  });
   return out;
 }
 
