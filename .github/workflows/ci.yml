@@ -55,7 +55,7 @@ jobs:
         run: npm run test:unit
       - name: Test Runner (node --test, khong mang, gh/claude gia)
         working-directory: .
-        run: node --test --test-reporter=tap tools/claude-auto-runner/ > runner-test.tap || { cat runner-test.tap; exit 1; }; grep -E "^# (tests|pass|fail|skipped|todo) " runner-test.tap; grep -qx "# fail 0" runner-test.tap && grep -qx "# skipped 0" runner-test.tap
+        run: node --test --test-reporter=tap tools/claude-auto-runner/*.test.mjs > runner-test.tap || { cat runner-test.tap; exit 1; }; grep -E "^# (tests|pass|fail|skipped|todo) " runner-test.tap; grep -qx "# fail 0" runner-test.tap && grep -qx "# skipped 0" runner-test.tap
 
   frontend:
     name: Frontend (build)
