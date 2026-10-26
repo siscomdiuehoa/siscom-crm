@@ -381,12 +381,12 @@ test('I04-8 readIdentity ném đồng bộ / reject / treo thenable lỗi / ch�
     assert.ok(!JSON.stringify(r).includes(PW), name);
   }
 });
-test('I04-8 migrateDeploy ném lỗi: lỗi được truyền ra, verdict đã bị tiêu thụ — thử lại KHÔNG gọi migrate lần 2', async () => {
+test('I04-8 migrateDeploy ném lỗi: bị che thành MIGRATE_EXECUTOR_ERROR (không lộ nội dung gốc), verdict đã bị tiêu thụ — thử lại KHÔNG gọi migrate lần 2', async () => {
   const { r, ex } = await pipelineOk();
   const orig = ex.migrateDeploy.bind(ex);
   let n = 0;
-  ex.migrateDeploy = async (db) => { n += 1; await orig(db); throw new Error('mô phỏng lỗi migrate'); };
-  await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB, NOW), /mô phỏng lỗi migrate/);
+  ex.migrateDeploy = async (db) => { n += 1; await orig(db); throw new Error(`mô phỏng lỗi migrate ${PW}`); };
+  await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB, NOW), (e) => e.code === 'MIGRATE_EXECUTOR_ERROR' && !String(e.message).includes('mô phỏng lỗi migrate') && !String(e.message).includes(PW) && e.cause === undefined);
   await assert.rejects(() => guardedMigrateDeploy(ex, r.verdict, DB, NOW), /MIGRATE_DENIED/);
   assert.equal(n, 1);
 });

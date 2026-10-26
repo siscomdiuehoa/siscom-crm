@@ -4,7 +4,6 @@ name: CI
 # Moi PR chay dung mot lan (su kien pull_request); sau khi merge, chay lai tren main (push). Huy lan chay cu khi co commit moi.
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
@@ -53,6 +52,16 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
       - name: Unit test
         run: npm run test:unit
+      - name: Node test offline (PG harness R02/M03 - che loi, mock, khong DB, khong .env, khong --execute)
+        run: |
+          set -euo pipefail
+          FILES="scripts/pg-harness/harness.redaction.test.mjs scripts/pg-harness/migrate-error-redaction.test.mjs scripts/pg-harness/identity-negative-matrix.test.mjs"
+          # node --test coi duong dan khong ton tai nhu glob rong va van thoat 0 -> bat buoc kiem tra ton tai.
+          for f in $FILES; do test -f "$f" || { echo "THIEU file test: $f"; exit 1; }; done
+          node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=node-tests-junit.xml $FILES
+          node scripts/ci/check-node-test-count.mjs node-tests-junit.xml "${MIN_NODE_TESTS}"
+        env:
+          MIN_NODE_TESTS: "227"
 
   frontend:
     name: Frontend (build)

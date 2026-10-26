@@ -334,5 +334,10 @@ export async function guardedMigrateDeploy(executor, verdict, db, now) {
     throw new Error('MIGRATE_DENIED: verdict đã cũ.');
   }
   grants.delete(verdict); // dùng một lần
-  return executor.migrateDeploy(db);
+  try {
+    return await executor.migrateDeploy(db);
+  } catch {
+    // R02: lỗi/cause của executor có thể chứa chuỗi kết nối/mật khẩu → không ném lại, không giữ cause; chỉ mã ổn định (vẫn fail-closed, verdict đã tiêu thụ).
+    throw Object.assign(new Error('MIGRATE_EXECUTOR_ERROR: bộ thực thi migrate báo lỗi; chi tiết đã được che.'), { code: 'MIGRATE_EXECUTOR_ERROR' });
+  }
 }
