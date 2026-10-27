@@ -129,3 +129,22 @@ test('R01 fromApiCustomer: chuỗi hợp lệ giữ nguyên (không đổi hành
   const ui = fromApiCustomer({ id: 'u1', name: 'Công ty A', website: 'b.vn', email: 'a@b.vn' });
   assert.equal(ui.name, 'Công ty A'); assert.equal(ui.website, 'b.vn'); assert.equal(ui.email, 'a@b.vn');
 });
+
+// R01-F1: tags chứa phần tử không phải chuỗi và createdAt/updatedAt không hợp lệ không được lọt tới UI (key={t}/{t} render, U.dmy(iso.includes))
+test('R01-F1 fromApiCustomer: tags không phải mảng -> []', () => {
+  for (const bad of [null, undefined, 'a', 5, { 0: 'a' }, true]) assert.deepEqual(fromApiCustomer({ id: 'u1', tags: bad }).tags, []);
+});
+test('R01-F1 fromApiCustomer: tags chỉ giữ chuỗi không rỗng, bỏ object/số/null/mảng lồng', () => {
+  const ui = fromApiCustomer({ id: 'u1', tags: ['vip', null, { a: 1 }, 7, ['x'], '', '  ', true, 'đối tác'] });
+  assert.deepEqual(ui.tags, ['vip', 'đối tác']);
+});
+for (const [kind, bad] of [['object', { a: 1 }], ['mảng', ['2026-01-01']], ['số', 123], ['boolean', true], ['chuỗi rác', 'không phải ngày'], ['chuỗi rỗng', '']]) {
+  test('R01-F1 fromApiCustomer: createdAt/updatedAt kiểu ' + kind + ' -> chuỗi rỗng, không ném', () => {
+    const ui = fromApiCustomer({ id: 'u1', createdAt: bad, updatedAt: bad });
+    assert.equal(ui.createdAt, ''); assert.equal(ui.updatedAt, '');
+  });
+}
+test('R01-F1 fromApiCustomer: createdAt/updatedAt ISO hợp lệ giữ nguyên', () => {
+  const ui = fromApiCustomer({ id: 'u1', createdAt: '2026-10-01', updatedAt: '2026-10-02T03:04:05.000Z' });
+  assert.equal(ui.createdAt, '2026-10-01'); assert.equal(ui.updatedAt, '2026-10-02T03:04:05.000Z');
+});
