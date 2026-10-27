@@ -117,3 +117,15 @@ test('client: lỗi 409 giữ code + details từ backend', async () => {
   const api = createCustomerApi({ enabled: true, baseUrl: 'http://x/api/v1' }, async () => resp(409, { error: { code: 'VERSION_CONFLICT', message: 'Đã bị sửa.', details: ['d'] } }));
   await assert.rejects(() => api.get(ID), (e) => e.status === 409 && e.code === 'VERSION_CONFLICT' && e.details[0] === 'd');
 });
+
+// R01: phản hồi API không đáng tin — trường chuỗi sai kiểu (null/object/mảng/số/boolean) -> '' (fail-closed), không ném, không làm lọt kiểu sai tới UI (c.website.replace)
+for (const [kind, bad] of [['null', null], ['object', { a: 1 }], ['array', ['b.vn']], ['number', 123], ['boolean', true], ['object có toString', { toString: () => 'javascript:alert(1)' }]]) {
+  test('R01 fromApiCustomer: website/name/email/... kiểu ' + kind + ' -> chuỗi rỗng, không ném', () => {
+    const ui = fromApiCustomer({ id: 'u1', code: bad, name: bad, shortName: bad, taxId: bad, address: bad, phone: bad, email: bad, website: bad, note: bad, owner: { id: 'o', fullName: bad } });
+    for (const k of ['code', 'name', 'short', 'taxId', 'address', 'phone', 'email', 'website', 'note', 'owner']) assert.equal(ui[k], '', k);
+  });
+}
+test('R01 fromApiCustomer: chuỗi hợp lệ giữ nguyên (không đổi hành vi bình thường)', () => {
+  const ui = fromApiCustomer({ id: 'u1', name: 'Công ty A', website: 'b.vn', email: 'a@b.vn' });
+  assert.equal(ui.name, 'Công ty A'); assert.equal(ui.website, 'b.vn'); assert.equal(ui.email, 'a@b.vn');
+});

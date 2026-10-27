@@ -61,15 +61,16 @@ export function toApiCustomer(ui, maps, opts = {}) {
 // api = one item of `data` from GET /customers/:id (detail) or GET /customers (list item, fewer fields). Missing optionals become ''.
 export function fromApiCustomer(api) {
   if (!api || !api.id) throw new AdapterError('Phản hồi khách hàng không hợp lệ (thiếu id).');
-  const lbl = (l) => (l && l.label) || '';
+  const lbl = (l) => (l && typeof l.label === 'string' && l.label) || '';
+  const str = (v) => (typeof v === 'string' ? v : ''); // response is untrusted: non-string (object/array/number/null) -> '' (fail-closed); never reaches .replace()/render
   const revenue = api.revenueVnd == null ? 0 : Number(api.revenueVnd);
   return {
     id: api.id, // stable id = backend uuid; business code is kept separately
-    code: api.code || '',
-    name: api.name || '', short: api.shortName || '', taxId: api.taxId || '',
+    code: str(api.code),
+    name: str(api.name), short: str(api.shortName), taxId: str(api.taxId),
     industry: lbl(api.industry), tier: lbl(api.tier), status: lbl(api.status), source: lbl(api.source), city: lbl(api.province),
-    owner: (api.owner && api.owner.fullName) || '', ownerId: (api.owner && api.owner.id) || null,
-    address: api.address || '', phone: api.phone || '', email: api.email || '', website: api.website || '', note: api.note || '',
+    owner: (api.owner && str(api.owner.fullName)) || '', ownerId: (api.owner && api.owner.id) || null,
+    address: str(api.address), phone: str(api.phone), email: str(api.email), website: str(api.website), note: str(api.note),
     tags: Array.isArray(api.tags) ? [...api.tags] : [],
     revenue: Number.isFinite(revenue) ? revenue : 0,
     version: api.version, createdAt: api.createdAt || '', updatedAt: api.updatedAt || '', deletedAt: api.deletedAt || null,
