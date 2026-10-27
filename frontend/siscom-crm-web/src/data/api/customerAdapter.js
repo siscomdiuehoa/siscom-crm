@@ -63,6 +63,8 @@ export function fromApiCustomer(api) {
   if (!api || !api.id) throw new AdapterError('Phản hồi khách hàng không hợp lệ (thiếu id).');
   const lbl = (l) => (l && typeof l.label === 'string' && l.label) || '';
   const str = (v) => (typeof v === 'string' ? v : ''); // response is untrusted: non-string (object/array/number/null) -> '' (fail-closed); never reaches .replace()/render
+  const date = (v) => (typeof v === 'string' && v && !Number.isNaN(Date.parse(v)) ? v : ''); // invalid/non-string timestamp -> '' (U.dmy calls iso.includes)
+  const tags = Array.isArray(api.tags) ? api.tags.filter((x) => typeof x === 'string' && x.trim()) : []; // only non-empty strings reach key={t}/{t}
   const revenue = api.revenueVnd == null ? 0 : Number(api.revenueVnd);
   return {
     id: api.id, // stable id = backend uuid; business code is kept separately
@@ -71,8 +73,8 @@ export function fromApiCustomer(api) {
     industry: lbl(api.industry), tier: lbl(api.tier), status: lbl(api.status), source: lbl(api.source), city: lbl(api.province),
     owner: (api.owner && str(api.owner.fullName)) || '', ownerId: (api.owner && api.owner.id) || null,
     address: str(api.address), phone: str(api.phone), email: str(api.email), website: str(api.website), note: str(api.note),
-    tags: Array.isArray(api.tags) ? [...api.tags] : [],
+    tags,
     revenue: Number.isFinite(revenue) ? revenue : 0,
-    version: api.version, createdAt: api.createdAt || '', updatedAt: api.updatedAt || '', deletedAt: api.deletedAt || null,
+    version: api.version, createdAt: date(api.createdAt), updatedAt: date(api.updatedAt), deletedAt: api.deletedAt || null,
   };
 }
