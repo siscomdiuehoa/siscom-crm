@@ -113,7 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           npx prisma migrate status
-          npx prisma migrate diff --from-config-datasource --to-schema-datamodel prisma/schema.prisma --exit-code
+          npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Integration test tren DB tam (npm run test:e2e:customers; test-db.ts tu choi moi DB khong phai siscom_crm_test_*/restore_*)
