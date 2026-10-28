@@ -152,6 +152,16 @@ model Employee {
   assignmentsMade    CustomerAssignment[] @relation("AssignmentAssignedBy")
   auditEntries       AuditLog[]
 
+  // B1.3 auth core (M1)
+  credential          EmployeeCredential?
+  authSessions        AuthSession[]
+  resetTokens         PasswordResetToken[]      @relation("ResetTokenEmployee")
+  resetTokensIssued   PasswordResetToken[]      @relation("ResetTokenCreatedBy")
+  privRequestsSubject PrivilegedChangeRequest[] @relation("PcrSubject")
+  privRequestsMade    PrivilegedChangeRequest[] @relation("PcrRequestedBy")
+  privRequestsDecided PrivilegedChangeRequest[] @relation("PcrApprovedBy")
+  privRequestsDone    PrivilegedChangeRequest[] @relation("PcrExecutedBy")
+
   @@index([departmentId])
   @@index([managerId])
   @@index([status])
@@ -170,6 +180,7 @@ model Role {
 
   permissions RolePermission[]
   employees   EmployeeRole[]
+  privChanges PrivilegedChangeRequest[] @relation("PcrSubjectRole")
 
   @@map("role")
 }
@@ -382,4 +393,140 @@ model AuditLog {
   @@index([occurredAt])
   @@index([actorId])
   @@map("audit_log")
+}
+
+// ───────── B1.3 Auth core (M1: 20261020000000_b1_3_auth_core) ─────────
+// Rang buoc Prisma khong mo ta duoc (CHECK, partial unique, trigger bat bien/chan duong vong/SoD) nam trong migration.sql (PART A/B).
+// Bang mau: docs/B1.3.2B_REPORT.md. Bam (refresh/csrf/reset/payload) = SHA-256 dang hex thuong 64 ky tu.
+enum CredentialStatus {
+  ACTIVE
+  DISABLED
+
+  @@map("credential_status")
+}
+
+enum PrivilegedChangeType {
+  ROLE_GRANT
+  ROLE_REVOKE_CRITICAL
+  PASSWORD_RESET
+  ROLE_PERMISSION_CHANGE
+
+  @@map("privileged_change_type")
+}
+
+enum PrivilegedChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  EXECUTED
+
+  @@map("privileged_change_status")
+}
+
+// 1 nhan vien - toi da 1 credential. Khong xoa cung (trigger); vo hieu = status DISABLED. token_version chi tang.
+model EmployeeCredential {
+  employeeId         String           @id @map("employee_id") @db.Uuid
+  passwordHash       String           @map("password_hash")
+  passwordAlgo       String           @map("password_algo") @db.VarChar(20)
+  passwordParams     Json             @map("password_params")
+  passwordChangedAt  DateTime         @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  mustChangePassword Boolean          @default(true) @map("must_change_password")
+  failedCount        Int              @default(0) @map("failed_count")
+  windowStartedAt    DateTime?        @map("window_started_at") @db.Timestamptz(3)
+  lockedUntil        DateTime?        @map("locked_until") @db.Timestamptz(3)
+  lockLevel          Int              @default(0) @map("lock_level")
+  tokenVersion       Int              @default(1) @map("token_version")
+  status             CredentialStatus @default(ACTIVE)
+  lastLoginAt        DateTime?        @map("last_login_at") @db.Timestamptz(3)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@map("employee_credential")
+}
+
+// Phien refresh (rotation theo family). Chi muc (employee_id) WHERE revoked_at IS NULL viet tay trong migration.
+model AuthSession {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId    String    @map("employee_id") @db.Uuid
+  familyId      String    @map("family_id") @db.Uuid
+  refreshHash   String    @unique @map("refresh_hash") @db.VarChar(64)
+  csrfHash      String    @map("csrf_hash") @db.VarChar(64)
+  issuedAt      DateTime  @default(now()) @map("issued_at") @db.Timestamptz(3)
+  lastUsedAt    DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  idleExpiresAt DateTime  @map("idle_expires_at") @db.Timestamptz(3)
+  absExpiresAt  DateTime  @map("abs_expires_at") @db.Timestamptz(3)
+  rotatedAt     DateTime? @map("rotated_at") @db.Timestamptz(3)
+  replacedById  String?   @unique @map("replaced_by") @db.Uuid
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokeReason  String?   @map("revoke_reason") @db.VarChar(40)
+  mfaVerifiedAt DateTime? @map("mfa_verified_at") @db.Timestamptz(3)
+  ipPrefix      String?   @map("ip_prefix") @db.VarChar(64)
+  uaShort       String?   @map("ua_short") @db.VarChar(200)
+
+  employee   Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  replacedBy AuthSession? @relation("SessionRotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces   AuthSession? @relation("SessionRotation")
+
+  @@index([familyId])
+  @@index([absExpiresAt])
+  @@map("auth_session")
+}
+
+// Ma reset mot lan. Chi INSERT duoc khi co yeu cau PASSWORD_RESET da duyet (trigger). 1 ma con hieu luc / nhan vien (partial unique).
+model PasswordResetToken {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId  String    @map("employee_id") @db.Uuid
+  tokenHash   String    @unique @map("token_hash") @db.VarChar(64)
+  requestId   String    @unique @map("request_id") @db.Uuid
+  createdById String    @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt      DateTime? @map("used_at") @db.Timestamptz(3)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(3)
+  attempts    Int       @default(0)
+
+  employee  Employee                @relation("ResetTokenEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  createdBy Employee                @relation("ResetTokenCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  request   PrivilegedChangeRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([createdById])
+  @@map("password_reset_token")
+}
+
+// Yeu cau thay doi dac quyen (hai nguoi, D11). Bat bien sau khi tao; trang thai mot chieu; khong xoa (trigger).
+// approved_by = nguoi QUYET DINH (duyet hoac tu choi); phai co access.approve, khac nguoi yeu cau va khac doi tuong.
+model PrivilegedChangeRequest {
+  id                String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type              PrivilegedChangeType
+  subjectEmployeeId String?                @map("subject_employee_id") @db.Uuid
+  subjectRoleId     String?                @map("subject_role_id") @db.Uuid
+  payload           Json
+  payloadHash       String                 @map("payload_hash") @db.VarChar(64)
+  requestedById     String                 @map("requested_by") @db.Uuid
+  approvedById      String?                @map("approved_by") @db.Uuid
+  executedById      String?                @map("executed_by") @db.Uuid
+  status            PrivilegedChangeStatus @default(PENDING)
+  createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  decidedAt         DateTime?              @map("decided_at") @db.Timestamptz(3)
+  expiresAt         DateTime               @map("expires_at") @db.Timestamptz(3)
+  executedAt        DateTime?              @map("executed_at") @db.Timestamptz(3)
+
+  subjectEmployee Employee?            @relation("PcrSubject", fields: [subjectEmployeeId], references: [id], onDelete: Restrict)
+  subjectRole     Role?                @relation("PcrSubjectRole", fields: [subjectRoleId], references: [id], onDelete: Restrict)
+  requestedBy     Employee             @relation("PcrRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  approvedBy      Employee?            @relation("PcrApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  executedBy      Employee?            @relation("PcrExecutedBy", fields: [executedById], references: [id], onDelete: Restrict)
+  resetTokens     PasswordResetToken[]
+
+  @@index([subjectEmployeeId])
+  @@index([subjectRoleId])
+  @@index([requestedById])
+  @@index([approvedById])
+  @@index([executedById])
+  @@index([status, expiresAt])
+  @@map("privileged_change_request")
 }

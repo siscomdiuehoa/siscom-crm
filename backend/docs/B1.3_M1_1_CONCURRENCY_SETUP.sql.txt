@@ -1,0 +1,53 @@
+-- SISCOM CRM - B1.3 M1.1: du lieu nen cho kiem thu SONG SONG S4 (2 phien psql). CHI CHAY TREN BAN SAO THU DUNG MOT LAN.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_M1_1_CONCURRENCY_SETUP.sql.txt (file moi; noi dung la SQL - chay bang psql -f).
+-- Chay qua: scripts\windows\auth-m11-verify.bat -Step concurrency (KHONG chay tay).
+-- CANH BAO: file nay COMMIT du lieu demo (is_demo) va DONG che do khoi tao (app_meta.auth_bootstrap_done) tren ban sao => khong rollback M1/M1.1
+--   va khong chay lai constraints duoc tren ban sao nay. Day phai la buoc CUOI; sau do bo ban sao (xoa thu cong khi duoc phep).
+-- Kich ban (phien A giu khoa advisory 'siscom.rbac' ~4 giay, phien B bat dau sau ~1 giay):
+--   C1: A cho CA1 nghi viec; B xoa mem CA2 (hai admin duy nhat)            => dung 1 phien thanh cong, con >= 1 admin hieu luc.
+--   C2: A go director cua CD2 qua yeu cau da duyet; B cho CD1 nghi phep     => dung 1 phien thanh cong, con >= 1 nguoi duyet hieu luc.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF to_regprocedure('public.fn_auth_employee_status_guard()') IS NULL OR to_regprocedure('public.fn_pcr_exec_guard()') IS NULL THEN
+    RAISE EXCEPTION 'Chua ap M1.1.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM role) OR EXISTS (SELECT 1 FROM permission) OR EXISTS (SELECT 1 FROM role_permission) OR EXISTS (SELECT 1 FROM employee_role)
+     OR EXISTS (SELECT 1 FROM privileged_change_request) OR EXISTS (SELECT 1 FROM app_meta WHERE key = 'auth_bootstrap_done') THEN
+    RAISE EXCEPTION 'Tien dieu kien: bang RBAC/yeu cau phai rong va chua co auth_bootstrap_done.';
+  END IF;
+END $$;
+BEGIN;
+-- Ky hieu id: quyen f1380000 | vai tro f1381000 | nhan vien f1382000 (01 CA1, 02 CA2, 03 CD1, 04 CD2, 05 CS) | yeu cau f1383000
+INSERT INTO permission (id, code) VALUES
+ ('f1380000-0000-4000-8000-000000000001', 'access.approve'), ('f1380000-0000-4000-8000-000000000002', 'access.request');
+INSERT INTO role (id, code, name, is_system) VALUES
+ ('f1381000-0000-4000-8000-000000000001', 'admin', 'System Admin (thu song song)', true),
+ ('f1381000-0000-4000-8000-000000000002', 'director', 'Giam doc (thu song song)', true);
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('f1382000-0000-4000-8000-000000000001', 'B131C Admin 1', 'b131c.a1@example.invalid', 'ACTIVE', true),
+ ('f1382000-0000-4000-8000-000000000002', 'B131C Admin 2', 'b131c.a2@example.invalid', 'ACTIVE', true),
+ ('f1382000-0000-4000-8000-000000000003', 'B131C Director 1', 'b131c.d1@example.invalid', 'ACTIVE', true),
+ ('f1382000-0000-4000-8000-000000000004', 'B131C Director 2', 'b131c.d2@example.invalid', 'ACTIVE', true),
+ ('f1382000-0000-4000-8000-000000000005', 'B131C Staff', 'b131c.s1@example.invalid', 'ACTIVE', true);
+INSERT INTO role_permission (role_id, permission_id, scope) VALUES
+ ('f1381000-0000-4000-8000-000000000001', 'f1380000-0000-4000-8000-000000000002', 'ALL'),
+ ('f1381000-0000-4000-8000-000000000002', 'f1380000-0000-4000-8000-000000000001', 'ALL');
+INSERT INTO employee_role (employee_id, role_id) VALUES
+ ('f1382000-0000-4000-8000-000000000001', 'f1381000-0000-4000-8000-000000000001'), ('f1382000-0000-4000-8000-000000000002', 'f1381000-0000-4000-8000-000000000001'),
+ ('f1382000-0000-4000-8000-000000000003', 'f1381000-0000-4000-8000-000000000002'), ('f1382000-0000-4000-8000-000000000004', 'f1381000-0000-4000-8000-000000000002');
+INSERT INTO app_meta (key, value) VALUES ('auth_bootstrap_done', 'b131c');
+-- Yeu cau C2: go director cua CD2; CS yeu cau, CD1 duyet (CS se thuc thi trong phien A).
+SELECT set_config('app.actor_employee_id', 'f1382000-0000-4000-8000-000000000005', true);
+INSERT INTO privileged_change_request (id, type, subject_employee_id, subject_role_id, payload, payload_hash, requested_by, expires_at)
+VALUES ('f1383000-0000-4000-8000-000000000001', 'ROLE_REVOKE_CRITICAL', 'f1382000-0000-4000-8000-000000000004', 'f1381000-0000-4000-8000-000000000002',
+        '{"n":1}', encode(sha256(convert_to('{"n": 1}', 'UTF8')), 'hex'), 'f1382000-0000-4000-8000-000000000005', clock_timestamp() + interval '1 hour');
+SELECT set_config('app.actor_employee_id', 'f1382000-0000-4000-8000-000000000003', true);
+UPDATE privileged_change_request SET status = 'APPROVED', approved_by = 'f1382000-0000-4000-8000-000000000003' WHERE id = 'f1383000-0000-4000-8000-000000000001';
+COMMIT;
+SELECT 'SETUP_OK' AS ket_qua;

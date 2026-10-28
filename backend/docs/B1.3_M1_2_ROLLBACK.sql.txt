@@ -1,0 +1,64 @@
+-- SISCOM CRM - ROLLBACK B1.3 M1.2 (20261020180000_b1_3_auth_m1_2_priv_api). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_M1_2_ROLLBACK.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) - qua scripts\windows\auth-s1s3-verify.bat -Step rollback12.
+-- Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu + kiem tra khoi phuc.
+-- THU TU: (neu da tach role) B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt TRUOC; roi file nay; roi B1.3_M1_1_ROLLBACK.sql.txt; roi B1.3_M1_ROLLBACK.sql.txt.
+--   Rollback M1 khi M1.2 con: DROP TYPE privileged_change_type bi chan (ham M1.2 dung kieu nay) => tu huy (fail-closed).
+-- Tu choi neu da co app_meta.auth_bootstrap_done (go M1.2 luc do la ha bao ve S3) hoac neu chua tach role nguoc (chu so huu DB khac siscom_app).
+-- Lam trong 1 transaction: go 2 trigger -> xoa 17 ham -> xoa dong _prisma_migrations cua M1.2. KHONG dong toi du lieu va doi tuong M1/M1.1.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback M1.2.', current_database();
+  END IF;
+  IF to_regprocedure('public.fn_cred_secret_guard()') IS NULL AND to_regprocedure('public.fn_auth_api_role_grant(uuid, uuid)') IS NULL THEN
+    RAISE EXCEPTION 'M1.2 chua duoc ap. Khong co gi de rollback.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.app_meta WHERE key = 'auth_bootstrap_done') THEN
+    RAISE EXCEPTION 'TU CHOI: da co app_meta.auth_bootstrap_done (da khoi tao xac thuc).';
+  END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> 'siscom_app' THEN
+    RAISE EXCEPTION 'TU CHOI: chu so huu database khong phai siscom_app (con dang tach role?). Chay B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt truoc.';
+  END IF;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_cred_revoke_sessions ON public.employee_credential;
+DROP TRIGGER IF EXISTS trg_cred_secret_guard    ON public.employee_credential;
+DROP FUNCTION IF EXISTS public.fn_auth_bootstrap_close(text);
+DROP FUNCTION IF EXISTS public.fn_auth_api_credential_disable(uuid, uuid, text);
+DROP FUNCTION IF EXISTS public.fn_auth_api_credential_create(uuid, uuid);
+DROP FUNCTION IF EXISTS public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb);
+DROP FUNCTION IF EXISTS public.fn_auth_api_reset_password(uuid, text, text, text, jsonb);
+DROP FUNCTION IF EXISTS public.fn_auth_api_reset_token_issue(uuid, uuid, text, integer);
+DROP FUNCTION IF EXISTS public.fn_auth_api_role_permission_change(uuid, uuid);
+DROP FUNCTION IF EXISTS public.fn_auth_api_role_revoke(uuid, uuid, uuid, uuid);
+DROP FUNCTION IF EXISTS public.fn_auth_api_role_grant(uuid, uuid);
+DROP FUNCTION IF EXISTS public.fn_auth_api_request_expire(uuid);
+DROP FUNCTION IF EXISTS public.fn_auth_api_request_decide(uuid, uuid, boolean);
+DROP FUNCTION IF EXISTS public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer);
+DROP FUNCTION IF EXISTS public.fn_auth_api_check_secret(text, text, jsonb);
+DROP FUNCTION IF EXISTS public.fn_auth_api_audit(text, uuid, text, text, uuid, text, jsonb);
+DROP FUNCTION IF EXISTS public.fn_auth_api_actor(uuid, text);
+DROP FUNCTION IF EXISTS public.fn_cred_revoke_sessions();
+DROP FUNCTION IF EXISTS public.fn_cred_secret_guard();
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261020180000_b1_3_auth_m1_2_priv_api';
+
+CREATE TEMP VIEW v_m12_left AS SELECT
+  (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+     AND (p.proname LIKE 'fn\_auth\_api\_%' OR p.proname IN ('fn_auth_bootstrap_close', 'fn_cred_secret_guard', 'fn_cred_revoke_sessions'))) AS ham_con,
+  (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_cred_secret_guard', 'trg_cred_revoke_sessions')) AS trigger_con,
+  (SELECT count(*) FROM public._prisma_migrations WHERE migration_name = '20261020180000_b1_3_auth_m1_2_priv_api') AS lich_su_con;
+SELECT * FROM v_m12_left;
+DO $$ BEGIN
+  IF (SELECT ham_con + trigger_con + lich_su_con FROM v_m12_left) <> 0 THEN
+    RAISE EXCEPTION 'Rollback M1.2 chua sach. Huy transaction.';
+  END IF;
+END $$;
+DROP VIEW v_m12_left;
+COMMIT;
+SELECT 'ROLLBACK M1.2 XONG' AS ket_qua;
