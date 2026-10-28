@@ -33,14 +33,12 @@ case "$cmd" in
     ver="$(psql_su -tA -c 'SHOW server_version')"
     echo "PostgreSQL server (container tam): $ver"
     # Role ung dung: khong superuser, khong tao DB/role. Mat khau truyen qua bien psql (khong vao log).
+    # Luu y: psql KHONG thay the :'pw' ben trong khoi $$...$$, nen dung SELECT ... \gexec thay vi DO.
     psql_su -v "pw=$pw" <<'SQL'
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app') THEN
-    EXECUTE format('CREATE ROLE siscom_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD %L', :'pw');
-  ELSE
-    EXECUTE format('ALTER ROLE siscom_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', :'pw');
-  END IF;
-END $$;
+SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app')
+  THEN format('ALTER ROLE siscom_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', :'pw')
+  ELSE format('CREATE ROLE siscom_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD %L', :'pw')
+END \gexec
 SQL
     psql_su -c "CREATE DATABASE \"$name\" OWNER siscom_app ENCODING 'UTF8' TEMPLATE template0"
     # Xac nhan lai bang ket noi cua chinh siscom_app (khong superuser).
