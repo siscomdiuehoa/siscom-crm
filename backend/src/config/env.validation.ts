@@ -94,6 +94,16 @@ function validateAuthEnv(str: (k: string) => string, nodeEnv: string, corsList: 
   const absDays = intIn('REFRESH_ABS_DAYS', 30, 1, 90);
   if (idleDays > absDays) errors.push('REFRESH_IDLE_DAYS không được lớn hơn REFRESH_ABS_DAYS');
 
+  // B1.3 MVP session cookie (Issue #8, 28/10/2026): phien idle truot + han tuyet doi; gioi han dang nhap theo nguon; khoa credential tam.
+  const sessionIdle = intIn('SESSION_IDLE_MINUTES', 480, 5, 1440);
+  const sessionAbs = intIn('SESSION_ABS_HOURS', 12, 1, 24 * 30);
+  if (sessionIdle > sessionAbs * 60) errors.push('SESSION_IDLE_MINUTES không được lớn hơn SESSION_ABS_HOURS (tính theo phút)');
+  const loginWindow = intIn('LOGIN_WINDOW_MINUTES', 15, 1, 1440);
+  const loginMaxSource = intIn('LOGIN_MAX_PER_SOURCE', 30, 1, 10000);
+  const loginMaxIdent = intIn('LOGIN_MAX_PER_IDENTIFIER', 5, 1, 1000);
+  const lockMinutes = intIn('LOGIN_LOCK_MINUTES', 15, 1, 1440);
+  const lockAfter = intIn('LOGIN_LOCK_AFTER_FAILURES', 5, 1, 100);
+
   const cookieRaw = (str('COOKIE_SECURE') || 'true').toLowerCase();
   if (cookieRaw !== 'true' && cookieRaw !== 'false') errors.push('COOKIE_SECURE phải là true hoặc false');
   if (nodeEnv === 'production' && cookieRaw === 'false') errors.push('Môi trường production không được đặt COOKIE_SECURE=false');
@@ -125,6 +135,13 @@ function validateAuthEnv(str: (k: string) => string, nodeEnv: string, corsList: 
     REFRESH_IDLE_DAYS: idleDays,
     REFRESH_ABS_DAYS: absDays,
     COOKIE_SECURE: cookieRaw !== 'false',
+    SESSION_IDLE_MINUTES: sessionIdle,
+    SESSION_ABS_HOURS: sessionAbs,
+    LOGIN_WINDOW_MINUTES: loginWindow,
+    LOGIN_MAX_PER_SOURCE: loginMaxSource,
+    LOGIN_MAX_PER_IDENTIFIER: loginMaxIdent,
+    LOGIN_LOCK_MINUTES: lockMinutes,
+    LOGIN_LOCK_AFTER_FAILURES: lockAfter,
     AUTH_ALLOWED_ORIGIN_LIST: origins,
     TRUST_PROXY: trustProxy,
   };
