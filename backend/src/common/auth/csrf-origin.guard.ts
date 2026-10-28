@@ -1,0 +1,44 @@
+import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common';
+import type { Request } from 'express';
+import { DomainException } from '../errors/domain.exception';
+import { AUTH_CONFIG, AuthConfig } from './auth.config';
+import { ACTOR_PROVIDER, ActorProvider } from './actor';
+import { checkCsrfToken, checkOrigin } from './session/csrf-origin.policy';
+import { SessionActorProvider, SessionRequest } from './session/session-actor.provider';
+import { CSRF_HEADER, readSessionCookie } from './session/session-token';
+
+// Guard toàn cục (APP_GUARD) chống CSRF cho xác thực bằng cookie. Với MỌI phương thức ghi (POST/PUT/PATCH/DELETE):
+//   - có cookie phiên => bắt buộc Origin thuộc AUTH_ALLOWED_ORIGINS VÀ X-CSRF-Token khớp csrf_hash của phiên (so sánh hằng thời gian);
+//   - không có cookie (vd. đăng nhập) => chỉ kiểm Origin NẾU trình duyệt gửi (bỏ qua khi thiếu: công cụ CLI/kiểm thử).
+// GET/HEAD/OPTIONS không bị kiểm (không đổi trạng thái). Sai => 403 CSRF_FAILED, không lộ lý do, không đổi phiên.
+const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const csrfFailed = (): DomainException => new DomainException(403, 'CSRF_FAILED', 'Yêu cầu bị từ chối (kiểm tra nguồn gốc).');
+
+@Injectable()
+export class CsrfOriginGuard implements CanActivate {
+  constructor(@Inject(ACTOR_PROVIDER) private readonly provider: ActorProvider, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const req = context.switchToHttp().getRequest<SessionRequest>();
+    if (!UNSAFE.has(req.method.toUpperCase())) return true;
+    const hasCookie = readSessionCookie(req.headers.cookie) !== null;
+    const origin = header(req, 'origin');
+    if (!hasCookie) {
+      if (origin !== undefined && !checkOrigin(origin, this.cfg.allowedOrigins).ok) throw csrfFailed();
+      return true;
+    }
+    if (!checkOrigin(origin, this.cfg.allowedOrigins).ok) throw csrfFailed();
+    // Chỉ provider phiên thật mới có csrf_hash; provider khác (test giả) => không có phiên cookie thật để bảo vệ => từ chối (fail-closed).
+    const provider = this.provider;
+    if (!(provider instanceof SessionActorProvider)) throw csrfFailed();
+    if (req.authSession === undefined) req.authSession = await provider.lookup(req.headers.cookie);
+    const s = req.authSession;
+    if (!s) throw csrfFailed();
+    if (!checkCsrfToken(header(req, CSRF_HEADER), s.csrfHash).ok) throw csrfFailed();
+    return true;
+  }
+}
+
+function header(req: Request, name: string): unknown {
+  return req.headers[name];
+}

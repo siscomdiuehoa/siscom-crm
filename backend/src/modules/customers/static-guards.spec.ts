@@ -21,9 +21,12 @@ describe('kiểm tra tĩnh mã production (src, không tính *.spec.ts)', () => 
     expect(prod.filter((p) => /from ['"][^'"]*\/test\//.test(text(p)))).toEqual([]);
     expect(prod.filter((p) => /TestLinksChecker|TestActorProvider/.test(text(p)))).toEqual([]);
   });
-  it('AuthModule nối DenyAllActorProvider; không có provider thay thế nào khác trong src', () => {
+  // B1.3 MVP: thay DenyAll bằng SessionActorProvider (phiên cookie server-side). DenyAllActorProvider vẫn tồn tại nhưng không được gắn ở đâu.
+  it('AuthModule nối SessionActorProvider; không có provider thay thế nào khác trong src; DenyAll không còn được gắn', () => {
     const auth = text(join(SRC, 'common', 'auth', 'auth.module.ts'));
-    expect(auth).toMatch(/useClass: DenyAllActorProvider/);
+    expect(auth).toMatch(/useClass: SessionActorProvider/);
+    expect(prod.filter((p) => /useClass: DenyAllActorProvider/.test(text(p)))).toEqual([]);
+    expect(prod.filter((p) => /x-(actor|employee|user)-id|X-(Actor|Employee|User)-Id/.test(text(p)))).toEqual([]);
     expect(prod.filter((p) => /provide: ACTOR_PROVIDER/.test(text(p)))).toEqual([join(SRC, 'common', 'auth', 'auth.module.ts')]);
   });
   it('AuditModule nối DbAuditPort (B1.3.2a); PendingAuditPort không còn được gắn ở đâu trong src', () => {
