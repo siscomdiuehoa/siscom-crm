@@ -52,10 +52,10 @@ function Get-AppPasswordFromEnv([string]$envPath) {
   $user = [uri]::UnescapeDataString($ui.Substring(0, $ix)); $pw = [uri]::UnescapeDataString($ui.Substring($ix + 1))
   $port = $u.Port; if ($port -lt 0) { $port = 5432 }
   $src = [uri]::UnescapeDataString($u.AbsolutePath.TrimStart('/'))
-  if ($user -ne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
+  if ($user -cne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
   if ($u.Host -ne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
   if ($port -ne 5432) { Fail ('DATABASE_URL dung port ' + $port + ', can 5432.') }
-  if ($src -ne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi database "' + $src + '", ky vong siscom_crm_dev (nguon).') }
+  if ($src -cne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi database "' + $src + '", ky vong siscom_crm_dev (nguon).') }
   if (-not $pw) { Fail 'DATABASE_URL khong co mat khau.' }
   Say ('DATABASE_URL hop le: user=siscom_app host=127.0.0.1 port=5432 database_nguon=siscom_crm_dev (chi de doi chieu, KHONG dung lam dich). Mat khau lay tu .env, khong in.')
   $val = $null; $line = $null; $ui = $null; $u = $null
@@ -185,7 +185,7 @@ function Save-State([string]$key, $val) {
   ($s | ConvertTo-Json) | Set-Content -LiteralPath $stateFile -Encoding ASCII
 }
 try {
-  if ($Db -notmatch '^siscom_crm_restore_\d{8}_\d{6}$') { Fail 'Ten database khong dung mau siscom_crm_restore_YYYYMMDD_HHMMSS. Script CHI cho phep database thu do restore-test.bat tao (siscom_crm_dev bi tu choi).' }
+  if ($Db -cnotmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z') { Fail 'Ten database khong dung mau siscom_crm_restore_YYYYMMDD_HHMMSS. Script CHI cho phep database thu do restore-test.bat tao (siscom_crm_dev bi tu choi).' }
   if (-not (Test-Path -LiteralPath $Dir)) { Fail ('Khong thay thu muc ' + $Dir) }
   $script:log = Join-Path $Dir ('rehearsal_' + $Step + '_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.txt')
   Set-Content -LiteralPath $script:log -Value ('B1.2.2 rehearsal rev2 step=' + $Step + ' db=' + $Db + ' at ' + (Get-Date -Format 'o')) -Encoding UTF8
@@ -194,13 +194,13 @@ try {
   $migF = Join-Path $Dir 'migration_rehearsal.sql'; $failF = Join-Path $Dir 'migration_fail_test.sql'
   Say ('Buoc: ' + $Step + ' | Database thu: ' + $Db)
   $c = Read-Host 'Go lai CHINH XAC ten database thu de xac nhan'
-  if ($c -ne $Db) { Fail 'Ten xac nhan khong khop. Dung lai.' }
+  if ($c -cne $Db) { Fail 'Ten xac nhan khong khop. Dung lai.' }
   $script:pw = Get-AppPasswordFromEnv (Join-Path $root '.env')
 
   # --- Dieu kien tien quyet: BAT KY cai nao sai => dung ngay (khong chay tiep) ---
   $info = (Scalar "SELECT current_database() || '|' || current_user || '|' || pg_get_userbyid(datdba) || '|' || current_setting('server_version') || '|' || current_setting('server_encoding') || '|' || current_setting('server_version_num') FROM pg_database WHERE datname = current_database();").Split('|')
-  if ($info[0] -ne $Db) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $Db + '".') }
-  if ($info[1] -ne 'siscom_app' -or $info[2] -ne 'siscom_app') { Fail 'Tai khoan hoac chu so huu database khong phai siscom_app.' }
+  if ($info[0] -cne $Db) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $Db + '".') }
+  if ($info[1] -cne 'siscom_app' -or $info[2] -cne 'siscom_app') { Fail 'Tai khoan hoac chu so huu database khong phai siscom_app.' }
   if ($info[4] -ne 'UTF8') { Fail ('Ma hoa database la ' + $info[4] + ', can UTF8.') }
   if ([int]$info[5] -lt 180000) { Fail ('PostgreSQL ' + $info[3] + ' < 18. Ke hoach nham muc tieu 18.x; DUNG, khong chay tiep.') }
   Ok ('Ket noi dung: db=' + $info[0] + ', user=' + $info[1] + ', chu so huu=' + $info[2] + ', PostgreSQL ' + $info[3] + ', ma hoa ' + $info[4])

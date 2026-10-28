@@ -40,7 +40,7 @@ try {
   Chk 'khong co vacuumError' (-not $j.vacuumError) ([string]$j.vacuumError)
   Chk 'snapshotBefore = snapshotAfter (fingerprint dau = cuoi)' ((($j.snapshotBefore | ConvertTo-Json -Compress) -eq ($j.snapshotAfter | ConvertTo-Json -Compress)) -and ($null -ne $j.snapshotBefore)) ''
   Chk 'statsPrecheck co mat (ban sao da ANALYZE)' ($null -ne $j.statsPrecheck) (($j.statsPrecheck | ConvertTo-Json -Compress))
-  Chk 'database la ban sao siscom_crm_restore_*' ([string]$j.database.name -match '^siscom_crm_restore_\d{8}_\d{6}$') ([string]$j.database.name)
+  Chk 'database la ban sao siscom_crm_restore_*' ([string]$j.database.name -cmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z') ([string]$j.database.name)
   Chk 'nhom 15 dung so dien thoai that' ($null -ne $j.realPhoneUsed) (($j.realPhoneUsed | ConvertTo-Json -Compress))
   $checks | Format-Table -AutoSize -Wrap | Out-String -Width 200 | Write-Host
   $bad = @($checks | Where-Object { $_.KetQua -ne 'DAT' })

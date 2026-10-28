@@ -64,10 +64,10 @@ function Get-AppPasswordFromEnv([string]$envPath) {
   $user = [uri]::UnescapeDataString($ui.Substring(0, $ix)); $pw = [uri]::UnescapeDataString($ui.Substring($ix + 1))
   $port = $u.Port; if ($port -lt 0) { $port = 5432 }
   $src = [uri]::UnescapeDataString($u.AbsolutePath.TrimStart('/'))
-  if ($user -ne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
+  if ($user -cne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
   if ($u.Host -ne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
   if ($port -ne 5432) { Fail ('DATABASE_URL dung port ' + $port + ', can 5432.') }
-  if ($src -ne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi database "' + $src + '", ky vong siscom_crm_dev (chi de doi chieu).') }
+  if ($src -cne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi database "' + $src + '", ky vong siscom_crm_dev (chi de doi chieu).') }
   if (-not $pw) { Fail 'DATABASE_URL khong co mat khau.' }
   Say 'DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.'
   $val = $null; $line = $null; $ui = $null; $u = $null
@@ -82,7 +82,7 @@ function Psql([string]$sql) {
   return (($out | ForEach-Object { $_.ToString() }) -join "`n").Trim()
 }
 try {
-  if ($DatabaseName -notmatch '^siscom_crm_(restore|test)_\d{8}_\d{6}$') { Fail 'Ten database phai la siscom_crm_restore_YYYYMMDD_HHMMSS (hoac siscom_crm_test_...). siscom_crm_dev bi tu choi.' }
+  if ($DatabaseName -cnotmatch '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}\z') { Fail 'Ten database phai la siscom_crm_restore_YYYYMMDD_HHMMSS (hoac siscom_crm_test_...). siscom_crm_dev bi tu choi.' }
   if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
   if (@($ProofOnly, $ScenariosOnly, $FailedOnly, $TimeoutProbe, $StatsClone, $ApiPerf, $P23aDiag).Where({ $_ }).Count -gt 1) { Write-Host 'Chi chon mot trong -ProofOnly, -ScenariosOnly, -FailedOnly, -TimeoutProbe, -StatsClone.' -ForegroundColor Red; exit 2 }
 $script:log = Join-Path $LogDir ($(if ($P23aDiag) { 'p23a_diag_' } elseif ($ApiPerf) { 'api_perf_' } elseif ($StatsClone) { 'stats_clone_' } elseif ($TimeoutProbe) { 'timeout_probe_' } elseif ($ProofOnly) { 'search_proof_' } elseif ($FailedOnly) { 'search_failed_' } elseif ($ScenariosOnly) { 'search_scen_' } else { 'search_bench_' }) + $DatabaseName + '_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.txt')
@@ -91,28 +91,28 @@ $script:log = Join-Path $LogDir ($(if ($P23aDiag) { 'p23a_diag_' } elseif ($ApiP
   $script:psql = Find-Tool 'psql.exe'; if (-not $script:psql) { Fail 'Khong tim thay psql.exe.' }
   Say ('Database thu: ' + $DatabaseName + $(if ($P23aDiag) { ' | P2-3a buoc A | CHAN DOAN CHI DOC tren ban sao PERF (khong ghi, khong dung toi DB goc/siscom_crm_dev)' } elseif ($ApiPerf) { ' | P2-3 ApiPerf | CHI DOC tren ban sao PERF (khong ghi, khong dung toi DB goc/siscom_crm_dev)' } elseif ($StatsClone) { ' | P1 r5-B StatsClone | GHI (commit) tren BAN SAO huy bo duoc; ANALYZE chi khi co -ApproveAnalyze (khong dung toi DB goc/siscom_crm_dev)' } elseif ($TimeoutProbe) { ' | P1 r5-A TimeoutProbe | T1 ghi 100 dong PERF roi ROLLBACK (timeout Prisma 2 s), T2 chi doc (khong dung toi siscom_crm_dev)' } elseif ($ProofOnly) { ' | P1 ProofOnly | CHI DOC, khong UPDATE/VACUUM (khong dung toi siscom_crm_dev)' } elseif ($FailedOnly) { ' | P1 FailedOnly | CHI 5 nhom (S0b,02,14,15,18), moi nhom 1 transaction + ROLLBACK (khong dung toi siscom_crm_dev)' } elseif ($ScenariosOnly) { ' | P1 ScenariosOnly | moi kich ban 1 transaction nho + ROLLBACK, VACUUM ANALYZE customer (khong dung toi siscom_crm_dev)' } else { ' | P1 benchmark | chi doc + transaction ROLLBACK (khong dung toi siscom_crm_dev)' })) 'Yellow'
   $c = Read-Host 'Go lai CHINH XAC ten database thu de xac nhan'
-  if ($c -ne $DatabaseName) { Fail 'Ten xac nhan khong khop. Dung lai.' }
+  if ($c -cne $DatabaseName) { Fail 'Ten xac nhan khong khop. Dung lai.' }
   if ($StatsClone) {
-    if ($CloneOf -notmatch '^siscom_crm_restore_\d{8}_\d{6}$' -or $CloneOf -eq $DatabaseName) { Fail 'Can -CloneOf <database nguon> hop le va khac ban sao.' }
-    if ((Read-Host 'Day la BAN SAO se bi GHI (commit). Go CLONE-HUY-BO-DUOC de xac nhan') -ne 'CLONE-HUY-BO-DUOC') { Fail 'Khong xac nhan. Dung lai.' }
+    if ($CloneOf -cnotmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z' -or $CloneOf -ceq $DatabaseName) { Fail 'Can -CloneOf <database nguon> hop le va khac ban sao.' }
+    if ((Read-Host 'Day la BAN SAO se bi GHI (commit). Go CLONE-HUY-BO-DUOC de xac nhan') -cne 'CLONE-HUY-BO-DUOC') { Fail 'Khong xac nhan. Dung lai.' }
   }
   $script:pw = Get-AppPasswordFromEnv (Join-Path $root '.env')
   $info = (Psql "SELECT current_database() || '|' || current_user || '|' || pg_get_userbyid(datdba) || '|' || (to_regclass('public.customer') IS NOT NULL AND to_regclass('public.lookup_item') IS NOT NULL AND to_regclass('public.audit_log') IS NOT NULL)::text || '|' || (SELECT count(*) FROM public._prisma_migrations WHERE migration_name = '20261012000000_b1_2_crm_core' AND finished_at IS NOT NULL AND rolled_back_at IS NULL)::text FROM pg_database WHERE datname = current_database();").Split('|')
-  if ($info[0] -ne $DatabaseName) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $DatabaseName + '".') }
-  if ($info[1] -ne 'siscom_app' -or $info[2] -ne 'siscom_app') { Fail 'Tai khoan hoac chu so huu database khong phai siscom_app.' }
+  if ($info[0] -cne $DatabaseName) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $DatabaseName + '".') }
+  if ($info[1] -cne 'siscom_app' -or $info[2] -cne 'siscom_app') { Fail 'Tai khoan hoac chu so huu database khong phai siscom_app.' }
   if ($info[3] -ne 'true') { Fail 'Database thu chua co schema B1.2. Chay: release-b122.bat -Target scratch -DatabaseName <DB> -Step deploy' }
   if ($info[4] -ne '1') { Fail 'Database thu chua ghi nhan migration 20261012000000_b1_2_crm_core (hoan tat) trong _prisma_migrations.' }
   Ok ('Dung database thu: ' + $info[0] + ', schema B1.2 co mat, lich su migration dung.')
   if ($StatsClone) {
     $mk = Psql "SELECT coalesce(shobj_description(oid, 'pg_database'), '') FROM pg_database WHERE datname = current_database();"
-    if ($mk -ne ('SISCOM_STATS_CLONE_OF:' + $CloneOf)) { Fail 'Database nay KHONG co nhan ban sao cua make-stats-clone (nhan khop -CloneOf). TU CHOI vi se GHI du lieu vao no.' }
+    if ($mk -cne ('SISCOM_STATS_CLONE_OF:' + $CloneOf)) { Fail 'Database nay KHONG co nhan ban sao cua make-stats-clone (nhan khop -CloneOf). TU CHOI vi se GHI du lieu vao no.' }
     Ok ('Database la ban sao co nhan hop le cua ' + $CloneOf + '. Script KHONG ket noi toi database goc.')
   }
   if ($CloneOf -and -not $StatsClone) {
     if (-not ($ScenariosOnly -or $FailedOnly -or $ApiPerf -or $P23aDiag)) { Fail '-CloneOf chi dung voi -StatsClone, -ScenariosOnly, -FailedOnly hoac -ApiPerf.' }
-    if ($CloneOf -notmatch '^siscom_crm_restore_\d{8}_\d{6}$' -or $CloneOf -eq $DatabaseName) { Fail 'Can -CloneOf <database nguon> hop le va khac ban sao.' }
+    if ($CloneOf -cnotmatch '^siscom_crm_restore_[0-9]{8}_[0-9]{6}\z' -or $CloneOf -ceq $DatabaseName) { Fail 'Can -CloneOf <database nguon> hop le va khac ban sao.' }
     $mk2 = Psql "SELECT coalesce(shobj_description(oid, 'pg_database'), '') FROM pg_database WHERE datname = current_database();"
-    if ($mk2 -ne ('SISCOM_STATS_CLONE_OF:' + $CloneOf)) { Fail 'Database nay KHONG co nhan ban sao cua make-stats-clone khop -CloneOf. TU CHOI chay r5-C.' }
+    if ($mk2 -cne ('SISCOM_STATS_CLONE_OF:' + $CloneOf)) { Fail 'Database nay KHONG co nhan ban sao cua make-stats-clone khop -CloneOf. TU CHOI chay r5-C.' }
     Ok ('r5-C: database la ban sao co nhan hop le cua ' + $CloneOf + '. Script KHONG ket noi toi database goc.')
   }
   $enc = [uri]::EscapeDataString($script:pw)
@@ -132,7 +132,7 @@ $script:log = Join-Path $LogDir ($(if ($P23aDiag) { 'p23a_diag_' } elseif ($ApiP
     if (-not $ApiPerf) { Fail '-Cases chi dung voi -ApiPerf.' }
     # Accept the exact two-case shorthand; pass a safe anchored regex to the existing Jest filter.
     if ($Cases -ceq 'list/all/p1,list/all/p100') { $Cases = '^list/all/p(1|100)$' }
-    if ($Cases -notmatch '^[A-Za-z0-9^$|()/._ =-]+$') { Fail '-Cases chua ky tu khong hop le.' }
+    if ($Cases -cnotmatch '^[A-Za-z0-9^$|()/._ =-]+\z') { Fail '-Cases chua ky tu khong hop le.' }
     $env:BENCH_CASES = $Cases
   }
   if ($ApiPerf) { if (-not $CloneOf) { Fail '-ApiPerf can -CloneOf <nguon> (ban sao PERF da ANALYZE).' }; $env:BENCH_API_PERF = '1' }

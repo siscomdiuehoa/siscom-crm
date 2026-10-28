@@ -38,10 +38,10 @@ function Get-AppPasswordFromEnv([string]$envPath) {
   $user = [uri]::UnescapeDataString($ui.Substring(0, $ix)); $pw = [uri]::UnescapeDataString($ui.Substring($ix + 1))
   $port = $u.Port; if ($port -lt 0) { $port = 5432 }
   $src = [uri]::UnescapeDataString($u.AbsolutePath.TrimStart('/'))
-  if ($user -ne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
+  if ($user -cne 'siscom_app') { Fail ('DATABASE_URL dung user "' + $user + '", can siscom_app.') }
   if ($u.Host -ne '127.0.0.1') { Fail ('DATABASE_URL dung host "' + $u.Host + '", can 127.0.0.1.') }
   if ($port -ne 5432) { Fail ('DATABASE_URL dung port ' + $port + ', can 5432.') }
-  if ($src -ne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi database "' + $src + '", ky vong siscom_crm_dev (chi de doi chieu).') }
+  if ($src -cne 'siscom_crm_dev') { Fail ('DATABASE_URL tro toi database "' + $src + '", ky vong siscom_crm_dev (chi de doi chieu).') }
   if (-not $pw) { Fail 'DATABASE_URL khong co mat khau.' }
   Say 'DATABASE_URL hop le (user/host/port/nguon da kiem tra). Mat khau lay tu .env, khong in.'
   $val = $null; $line = $null; $ui = $null; $u = $null
@@ -56,7 +56,7 @@ function Psql([string]$sql) {
   return (($out | ForEach-Object { $_.ToString() }) -join "`n").Trim()
 }
 try {
-  if ($DatabaseName -notmatch '^siscom_crm_(restore|test)_\d{8}_\d{6}$') { Fail 'Ten database phai la siscom_crm_restore_YYYYMMDD_HHMMSS (hoac siscom_crm_test_...). siscom_crm_dev bi tu choi.' }
+  if ($DatabaseName -cnotmatch '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}\z') { Fail 'Ten database phai la siscom_crm_restore_YYYYMMDD_HHMMSS (hoac siscom_crm_test_...). siscom_crm_dev bi tu choi.' }
   if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
   $script:log = Join-Path $LogDir ('audit_' + $Suite + '_' + $DatabaseName + '_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.txt')
   Set-Content -LiteralPath $script:log -Value ('B1.3.2a suite=' + $Suite + ' db=' + $DatabaseName + ' rounds=' + $Rounds + ' at ' + (Get-Date -Format 'o')) -Encoding UTF8
@@ -64,11 +64,11 @@ try {
   $script:psql = Find-Tool 'psql.exe'; if (-not $script:psql) { Fail 'Khong tim thay psql.exe.' }
   Say ('Database thu: ' + $DatabaseName + ' | Suite: ' + $Suite + ' | GHI vao database thu (khong dung toi siscom_crm_dev)') 'Yellow'
   $c = Read-Host 'Go lai CHINH XAC ten database thu de xac nhan'
-  if ($c -ne $DatabaseName) { Fail 'Ten xac nhan khong khop. Dung lai.' }
+  if ($c -cne $DatabaseName) { Fail 'Ten xac nhan khong khop. Dung lai.' }
   $script:pw = Get-AppPasswordFromEnv (Join-Path $root '.env')
   $info = (Psql "SELECT current_database() || '|' || current_user || '|' || pg_get_userbyid(datdba) || '|' || (to_regclass('public.customer') IS NOT NULL AND to_regclass('public.lookup_item') IS NOT NULL AND to_regclass('public.audit_log') IS NOT NULL)::text || '|' || (SELECT count(*) FROM public._prisma_migrations WHERE migration_name = '20261012000000_b1_2_crm_core' AND finished_at IS NOT NULL AND rolled_back_at IS NULL)::text FROM pg_database WHERE datname = current_database();").Split('|')
-  if ($info[0] -ne $DatabaseName) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $DatabaseName + '".') }
-  if ($info[1] -ne 'siscom_app' -or $info[2] -ne 'siscom_app') { Fail 'Tai khoan hoac chu so huu database khong phai siscom_app.' }
+  if ($info[0] -cne $DatabaseName) { Fail ('Dang noi vao "' + $info[0] + '" thay vi "' + $DatabaseName + '".') }
+  if ($info[1] -cne 'siscom_app' -or $info[2] -cne 'siscom_app') { Fail 'Tai khoan hoac chu so huu database khong phai siscom_app.' }
   if ($info[3] -ne 'true') { Fail 'Database thu chua co schema B1.2. Chay: release-b122.bat -Target scratch -DatabaseName <DB> -Step deploy' }
   if ($info[4] -ne '1') { Fail 'Database thu chua ghi nhan migration 20261012000000_b1_2_crm_core (hoan tat) trong _prisma_migrations.' }
   Ok ('Dung database thu: ' + $info[0] + ', schema B1.2 co mat, lich su migration dung.')
