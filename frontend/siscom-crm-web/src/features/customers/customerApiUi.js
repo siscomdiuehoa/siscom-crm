@@ -233,7 +233,8 @@ export function createCustomerApiController(repo) {
 
 // env = import.meta.env (or a plain object in tests). Returns null when the flag is not exactly "true" (demo mode, repository not even built).
 // auth (tùy chọn): phiên đã xác minh do thành phần tin cậy cấp; chỉ chuyển tiếp xuống repository.
-export function createCustomerApiUi({ env, fetchImpl, auth } = {}) {
+// session (tùy chọn): phiên cookie (createCookieSession); chỉ chuyển tiếp xuống repository.
+export function createCustomerApiUi({ env, fetchImpl, auth, session } = {}) {
   if (!env || env.VITE_CRM_API_ENABLED !== 'true') return null;
-  return createCustomerApiController(createCustomerRepository({ env, fetchImpl, auth }));
+  return createCustomerApiController(createCustomerRepository({ env, fetchImpl, auth, session }));
 }

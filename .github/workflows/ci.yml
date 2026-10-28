@@ -171,16 +171,16 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
-      - name: Test offline FE (R01 adapter + M02 XSS + S02 cau noi auth; node --test, khong Chrome, khong DB)
+      - name: Test offline FE (R01 adapter + M02 XSS + S02 cau noi auth + PR4 phien cookie; node --test, khong Chrome, khong DB)
         run: |
           set -euo pipefail
-          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs"
+          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs"
           # node --test coi duong dan khong ton tai nhu glob rong va van thoat 0 -> bat buoc kiem tra ton tai.
           for f in $FILES; do test -f "$f" || { echo "THIEU file test: $f"; exit 1; }; done
           node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=node-tests-junit.xml $FILES
           node ../../backend/scripts/ci/check-node-test-count.mjs node-tests-junit.xml "${MIN_NODE_TESTS}"
         env:
-          MIN_NODE_TESTS: "61"
+          MIN_NODE_TESTS: "80"
 
   secret-scan:
     name: Quet bi mat (gitleaks)

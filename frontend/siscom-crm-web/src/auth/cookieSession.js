@@ -1,0 +1,91 @@
+// Bộ điều khiển phiên COOKIE (headless, không React/DOM) — cùng giao diện với loginSession.js (getState/subscribe/submit/logout/
+// handleUnauthorized) để dùng lại LoginScreen, cộng thêm restore() (tải lại trang: hỏi /auth/me) và getCsrfToken().
+// - Không có token trong JS: cookie HttpOnly do trình duyệt giữ. CSRF token chỉ trong bộ nhớ (hoặc đọc lại từ cookie siscom_csrf
+//   khi tải lại trang), không ghi storage, không log, không nằm trong state công khai.
+// - Trạng thái: UNAVAILABLE | IDLE | LOADING | AUTHENTICATED | ERROR. `me` (employeeId, code, fullName, roles, permissions) chỉ từ server.
+// - epoch: kết quả async của thế hệ cũ (submit/logout/401 chen ngang) bị bỏ, không ghi đè trạng thái mới.
+import { parseLoginIdentifier, validatePassword } from './loginIdentifier.js';
+import { classifyAuthError } from './loginSession.js';
+import { readCsrfCookie } from './cookieAuthClient.js';
+
+const idle = () => ({ status: 'IDLE', error: null, employeeId: null, expiresAt: null, me: null });
+
+export function createCookieSession(client, { readCookie } = {}) {
+  let csrf = null;
+  let epoch = 0;
+  let state = client && client.enabled ? idle() : { status: 'UNAVAILABLE', error: null, employeeId: null, expiresAt: null, me: null };
+  const listeners = new Set();
+  const set = (s) => { state = s; listeners.forEach((l) => l(state)); };
+  const fail = (code) => set({ status: 'ERROR', error: code, employeeId: null, expiresAt: null, me: null });
+  const cookies = typeof readCookie === 'function' ? readCookie : () => (typeof document !== 'undefined' ? document.cookie : '');
+  const authed = (me) => set({ status: 'AUTHENTICATED', error: null, employeeId: me.employeeId, expiresAt: null, me });
+
+  return {
+    mode: 'cookie',
+    getState: () => state,
+    subscribe(l) { listeners.add(l); return () => listeners.delete(l); },
+    getAuthHeader: () => null, // không Bearer: cookie do trình duyệt gửi
+    // CSRF token hiện hành: bộ nhớ trước, cookie double-submit sau (sau khi tải lại trang). null khi chưa đăng nhập.
+    getCsrfToken() {
+      if (state.status !== 'AUTHENTICATED') return null;
+      return csrf || readCsrfCookie(cookies());
+    },
+    // Tải lại trang: cookie phiên có thể còn hiệu lực => hỏi /auth/me. Không ném lỗi; thất bại => IDLE (phải đăng nhập lại).
+    async restore() {
+      if (state.status === 'UNAVAILABLE') return state;
+      const my = ++epoch;
+      set({ status: 'LOADING', error: null, employeeId: null, expiresAt: null, me: null });
+      try {
+        const r = await client.me();
+        if (my !== epoch) return state;
+        csrf = null; // lấy từ cookie siscom_csrf khi cần
+        authed(r.me);
+      } catch (e) {
+        if (my !== epoch) return state;
+        set(idle());
+      }
+      return state;
+    },
+    async submit(loginInput, password) {
+      if (state.status === 'UNAVAILABLE' || state.status === 'LOADING') return state;
+      const reject = (code) => { epoch++; csrf = null; fail(code); return state; };
+      const id = parseLoginIdentifier(loginInput);
+      if (id.kind === 'INVALID') return reject('IDENTIFIER_INVALID');
+      const pe = validatePassword(password);
+      if (pe) return reject(pe);
+      const my = ++epoch;
+      csrf = null;
+      set({ status: 'LOADING', error: null, employeeId: null, expiresAt: null, me: null });
+      try {
+        const r = await client.login(id.value, password);
+        if (my !== epoch) return state;
+        csrf = r.csrfToken;
+        authed(r.me);
+      } catch (e) {
+        if (my !== epoch) return state;
+        csrf = null; fail(classifyAuthError(e));
+      }
+      return state;
+    },
+    async logout() {
+      if (state.status === 'UNAVAILABLE') return state;
+      const my = ++epoch;
+      const t = this.getCsrfToken ? this.getCsrfToken() : csrf;
+      const wasAuthed = state.status === 'AUTHENTICATED';
+      csrf = null;
+      if (wasAuthed) {
+        try { await client.logout(t); } catch (e) { if (my !== epoch) return state; set(idle()); return state; } // cookie phía server có thể còn: vẫn về IDLE (fail-safe cho UI), không giữ phiên
+        if (my !== epoch) return state;
+      }
+      set(idle());
+      return state;
+    },
+    // API khác trả 401: phiên server đã hết/thu hồi => về ERROR SESSION_EXPIRED (không tự đăng nhập lại). Khi đang LOADING: bỏ qua.
+    handleUnauthorized() {
+      if (state.status === 'LOADING') return state;
+      epoch++; csrf = null;
+      if (state.status === 'AUTHENTICATED') fail('SESSION_EXPIRED');
+      return state;
+    },
+  };
+}

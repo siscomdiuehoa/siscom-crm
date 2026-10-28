@@ -34,8 +34,17 @@ export function readApiConfig(env) {
   return { enabled: e.VITE_CRM_API_ENABLED === 'true' && !!baseUrl, baseUrl };
 }
 
+// options.session: phiên COOKIE (createCookieSession) — cookie do trình duyệt gửi (credentials:'include'); mọi phương thức ghi kèm X-CSRF-Token;
+// chưa AUTHENTICATED => AuthRequiredError TRƯỚC khi gọi mạng; 401 => session.handleUnauthorized(); phiên đổi trong lúc chờ => StaleSessionError.
+function sessionReady(session) {
+  try { return !!session && typeof session.getState === 'function' && session.getState().status === 'AUTHENTICATED'; } catch (e) { return false; }
+}
+function sessionKey(session) { try { const s = session.getState(); return s.status + ':' + (s.employeeId || ''); } catch (e) { return null; } }
+const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 export function createCustomerApi(config, fetchImpl, options) {
   const auth = options && options.auth ? options.auth : null;
+  const session = options && options.session ? options.session : null;
   const cfg = config || { enabled: false, baseUrl: '' };
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
   async function call(method, path, body) {
@@ -43,12 +52,23 @@ export function createCustomerApi(config, fetchImpl, options) {
     if (!doFetch) throw new Error('fetch không khả dụng.');
     let authHeader = null;
     if (auth) { authHeader = readVerifiedHeader(auth); if (!authHeader) throw new AuthRequiredError(); }
+    let csrf = null; let sessKey = null;
+    if (session) {
+      if (!sessionReady(session)) throw new AuthRequiredError();
+      sessKey = sessionKey(session);
+      if (UNSAFE.has(method)) { csrf = typeof session.getCsrfToken === 'function' ? session.getCsrfToken() : null; if (!csrf) throw new AuthRequiredError(); }
+    }
     const res = await doFetch(cfg.baseUrl + path, {
-      method, credentials: 'omit', headers: { Accept: 'application/json', ...(authHeader ? { Authorization: authHeader } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      method, credentials: session ? 'include' : 'omit',
+      headers: { Accept: 'application/json', ...(authHeader ? { Authorization: authHeader } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     let json = null;
     try { json = await res.json(); } catch (e) { /* non-JSON body */ }
+    if (session) {
+      if (res.status === 401) { try { session.handleUnauthorized(); } catch (e) { /* không che lỗi 401 gốc */ } }
+      else if (sessionKey(session) !== sessKey) throw new StaleSessionError();
+    }
     if (auth) {
       // 401 báo kèm header đã dùng: phiên chỉ hủy khi vẫn khớp token hiện tại (401 muộn không hủy phiên mới). 403 không hủy phiên.
       if (res.status === 401) { try { auth.handleUnauthorized(authHeader); } catch (e) { /* không che lỗi 401 gốc */ } }
