@@ -1,5 +1,6 @@
 // Pure, fail-closed SISCOM queue admission rules. No network or disk access.
-export const ALLOWED_SCOPES = new Set(['CODE_TEST_DRAFT_ONLY','ISOLATED_TEST_CONFIG_DRAFT_ONLY','READ_ONLY_QA']);
+// READ_ONLY_DIAGNOSTICS: owner duyệt 28/10/2026 (Issue #8, C3) — cùng mức chỉ đọc như READ_ONLY_QA.
+export const ALLOWED_SCOPES = new Set(['CODE_TEST_DRAFT_ONLY','ISOLATED_TEST_CONFIG_DRAFT_ONLY','READ_ONLY_QA','READ_ONLY_DIAGNOSTICS']);
 const validId = x => Number.isSafeInteger(Number(x)) && Number(x)>0;
 const taskScope = body => {
   const all=[...String(body||'').matchAll(/^SCOPE:\s*([A-Z0-9_]+)\s*$/gm)];

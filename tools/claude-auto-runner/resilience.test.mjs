@@ -280,11 +280,15 @@ test("KHÔNG nới cơ chế phê duyệt: task chưa duyệt vẫn ở hàng ch
   assert.equal(chooseQueue([task(40)], [approve(39, 40)], [], LOGIN).selected, null);
 });
 
-test("phạm vi chưa được cho phép (READ_ONLY_DIAGNOSTICS, READ_ONLY) vẫn INVALID — chỉ thêm chẩn đoán, không nới chính sách", () => {
-  assert.equal(ALLOWED_SCOPES.has("READ_ONLY_DIAGNOSTICS"), false);
+test("READ_ONLY_DIAGNOSTICS được phép (owner duyệt 28/10) nhưng vẫn cần OWNER_APPROVED đúng scope; READ_ONLY vẫn INVALID", () => {
+  assert.equal(ALLOWED_SCOPES.has("READ_ONLY_DIAGNOSTICS"), true);
+  assert.equal(ALLOWED_SCOPES.has("READ_ONLY"), false);
   const q = chooseQueue([task(50, "READ_ONLY_DIAGNOSTICS"), task(51, "READ_ONLY")], [approve(52, 50, "READ_ONLY_DIAGNOSTICS")], [], LOGIN);
-  assert.equal(q.selected, null);
-  assert.deepEqual(q.invalid.map((x) => [x.id, x.reason, x.scope]), [[50, "INVALID_SCOPE", "READ_ONLY_DIAGNOSTICS"], [51, "INVALID_SCOPE", "READ_ONLY"]]);
+  assert.equal(q.selected.comment.id, 50);
+  assert.deepEqual(q.invalid.map((x) => [x.id, x.reason, x.scope]), [[51, "INVALID_SCOPE", "READ_ONLY"]]);
+  // chưa duyệt -> chờ; duyệt sai scope -> không chạy
+  assert.equal(chooseQueue([task(53, "READ_ONLY_DIAGNOSTICS")], [], [], LOGIN).selected, null);
+  assert.equal(chooseQueue([task(53, "READ_ONLY_DIAGNOSTICS")], [approve(54, 53, "READ_ONLY_QA")], [], LOGIN).selected, null);
 });
 
 test("task bị chủ huỷ (STATUS: CANCELLED_BY_OWNER) được xếp 'cancelled', không bị tính là lỗi phạm vi, không chạy", () => {

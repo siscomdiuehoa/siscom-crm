@@ -73,7 +73,7 @@ test("IT1 nhận task hợp lệ -> ACK -> chạy -> RESULT -> chuyển sang tas
   const e = mkEnv({ comments: [
     T(100), A(101, 100), T(102), A(103, 102),
     T(104),                                           // chưa có phê duyệt -> chờ
-    T(105, "READ_ONLY_DIAGNOSTICS"), A(106, 105, "READ_ONLY_DIAGNOSTICS"), // phạm vi không được phép -> INVALID
+    T(105, "READ_ONLY"), A(106, 105, "READ_ONLY"), // phạm vi không được phép -> INVALID (READ_ONLY_DIAGNOSTICS đã được owner cho phép 28/10)
     T(107), A(108, 999),                              // approval cho task khác -> không có hiệu lực
   ] });
   const r = await startRunner(e);
@@ -86,7 +86,7 @@ test("IT1 nhận task hợp lệ -> ACK -> chạy -> RESULT -> chuyển sang tas
   for (const id of [100, 102]) { assert.equal(resultsFor(e, id).length, 1, "đúng 1 RESULT cho " + id); assert.equal(acksFor(e, id).length, 1, "đúng 1 ACK cho " + id); }
   const s = (await getStatus(e.port)).body;
   assert.ok(s.queue.waitingIds.includes(104) && s.queue.waitingIds.includes(107));
-  assert.ok(s.queue.invalidDetail.includes("105:INVALID_SCOPE(READ_ONLY_DIAGNOSTICS)"));
+  assert.ok(s.queue.invalidDetail.includes("105:INVALID_SCOPE(READ_ONLY)"));
   assert.equal(s.claude.state, "idle");
   assert.ok(!s.processed.includes(104) && !s.processed.includes(105) && !s.processed.includes(107));
   await r.kill();
