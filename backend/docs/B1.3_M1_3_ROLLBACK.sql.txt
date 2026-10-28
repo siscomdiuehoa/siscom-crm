@@ -1,0 +1,33 @@
+-- SISCOM CRM - ROLLBACK B1.3 M1.3 (20261021000000_b1_3_auth_m1_3_reset_revocation). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_M1_3_ROLLBACK.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu.
+-- THU TU: file nay TRUOC B1.3_M1_2_ROLLBACK.sql.txt (neu da tach role: B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt truoc nua). Chay bang chu so huu bang.
+-- Lam trong 1 transaction: go trigger -> xoa ham -> xoa dong _prisma_migrations cua M1.3. Khong dong toi du lieu. Ma reset da bi thu hoi (revoked_at) KHONG duoc khoi phuc (bat bien).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback M1.3.', current_database();
+  END IF;
+  IF to_regprocedure('public.fn_cred_revoke_reset_tokens()') IS NULL THEN
+    RAISE EXCEPTION 'M1.3 chua duoc ap. Khong co gi de rollback.';
+  END IF;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_cred_revoke_reset_tokens ON public.employee_credential;
+DROP FUNCTION IF EXISTS public.fn_cred_revoke_reset_tokens();
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261021000000_b1_3_auth_m1_3_reset_revocation';
+
+DO $$ BEGIN
+  IF to_regprocedure('public.fn_cred_revoke_reset_tokens()') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'trg_cred_revoke_reset_tokens')
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261021000000_b1_3_auth_m1_3_reset_revocation') THEN
+    RAISE EXCEPTION 'Rollback M1.3 chua sach. Huy transaction.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK M1.3 XONG' AS ket_qua;

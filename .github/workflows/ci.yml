@@ -116,6 +116,26 @@ jobs:
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      - name: Kiem thu rang buoc auth M1/M1.1/M1.2 + cau truc M1.3 (psql, moi file tu ROLLBACK; can bang RBAC rong => chay TRUOC integration)
+        run: |
+          set -euo pipefail
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_CONSTRAINT_TESTS.sql.txt res
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_CONSTRAINT_TESTS.sql.txt res
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_CONSTRAINT_TESTS.sql.txt res
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_STRUCTURE_TESTS.sql.txt ok
+      - name: Dien tap rollback auth (M1.3 -> M1.2 -> M1.1 -> M1), roi migrate deploy lai + status + drift
+        run: |
+          set -euo pipefail
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_ROLLBACK.sql.txt run
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_ROLLBACK.sql.txt run
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_ROLLBACK.sql.txt run
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_ROLLBACK.sql.txt run
+          npx prisma migrate status || true
+          npx prisma migrate deploy
+          npx prisma migrate status
+          npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Integration test tren DB tam (npm run test:e2e:customers; test-db.ts tu choi moi DB khong phai siscom_crm_test_*/restore_*)
         run: |
           set -euo pipefail

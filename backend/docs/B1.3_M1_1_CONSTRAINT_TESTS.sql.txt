@@ -1,0 +1,178 @@
+-- SISCOM CRM - B1.3 M1.1 (20261020120000_b1_3_auth_m1_1_guards): bo kiem thu S4/S5. CHI CHAY TREN BAN SAO THU MOI SAU KHI AP M1 + M1.1.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_M1_1_CONSTRAINT_TESTS.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f). TUYET DOI KHONG chay tren siscom_crm_dev / DB da khoa.
+-- Chay qua: scripts\windows\auth-m11-verify.bat -Step constraints11 (hoac psql -X -v ON_ERROR_STOP=1 -f ...).
+-- Tien dieu kien: role/permission/role_permission/employee_role va 4 bang M1 RONG, chua co app_meta.auth_bootstrap_done.
+-- Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu; sequence ma nhan vien van tang). Ca song song (2 phien) nam o -Step concurrency.
+-- Ky vong: cuoi file bao 0 dong FAIL. CHUA CHAY - ket qua that do nguoi dung cung cap.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, (SELECT value FROM app_meta WHERE key = 'schema_baseline') AS baseline;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF to_regclass('public.privileged_change_request') IS NULL THEN RAISE EXCEPTION 'Chua ap M1 (thieu privileged_change_request).'; END IF;
+  IF to_regprocedure('public.fn_auth_employee_status_guard()') IS NULL OR to_regprocedure('public.fn_pcr_exec_guard()') IS NULL THEN
+    RAISE EXCEPTION 'Chua ap M1.1 (thieu fn_auth_employee_status_guard / fn_pcr_exec_guard).';
+  END IF;
+  IF EXISTS (SELECT 1 FROM role) OR EXISTS (SELECT 1 FROM permission) OR EXISTS (SELECT 1 FROM role_permission) OR EXISTS (SELECT 1 FROM employee_role)
+     OR EXISTS (SELECT 1 FROM employee_credential) OR EXISTS (SELECT 1 FROM auth_session) OR EXISTS (SELECT 1 FROM password_reset_token)
+     OR EXISTS (SELECT 1 FROM privileged_change_request) OR EXISTS (SELECT 1 FROM app_meta WHERE key = 'auth_bootstrap_done') THEN
+    RAISE EXCEPTION 'Tien dieu kien: bang RBAC/auth phai rong va chua co auth_bootstrap_done.';
+  END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text);
+CREATE FUNCTION pg_temp.expect_err(p_label text, p_stmt text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_stmt;
+    INSERT INTO res VALUES (false, p_label || ' - KHONG bi chan');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = p_state THEN INSERT INTO res VALUES (true, p_label);
+    ELSE INSERT INTO res VALUES (false, p_label || ' - SQLSTATE ' || SQLSTATE || ' (' || SQLERRM || '), can ' || p_state); END IF;
+  END;
+END $$;
+CREATE FUNCTION pg_temp.expect_ok(p_label text, p_stmt text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN EXECUTE p_stmt; INSERT INTO res VALUES (true, p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_expr text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE r boolean;
+BEGIN
+  BEGIN EXECUTE 'SELECT (' || p_expr || ')' INTO r; INSERT INTO res VALUES (r IS TRUE, p_label);
+  EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' - loi ' || SQLSTATE || ' (' || SQLERRM || ')'); END;
+END $$;
+CREATE FUNCTION pg_temp.pcr(p_id uuid, p_type text, p_emp uuid, p_role uuid, p_payload jsonb, p_by uuid, p_ttl interval DEFAULT interval '1 hour')
+RETURNS void LANGUAGE sql AS $$
+  SELECT set_config('app.actor_employee_id', p_by::text, true);
+  INSERT INTO privileged_change_request (id, type, subject_employee_id, subject_role_id, payload, payload_hash, requested_by, expires_at)
+  VALUES (p_id, p_type::privileged_change_type, p_emp, p_role, p_payload, encode(sha256(convert_to(p_payload::text, 'UTF8')), 'hex'), p_by, clock_timestamp() + p_ttl) $$;
+CREATE FUNCTION pg_temp.ctx(p_req uuid, p_actor uuid) RETURNS void LANGUAGE sql AS $$
+  SELECT set_config('app.priv_request_id', coalesce(p_req::text, ''), true), set_config('app.actor_employee_id', coalesce(p_actor::text, ''), true) $$;
+CREATE FUNCTION pg_temp.approve(p_id uuid, p_by uuid) RETURNS void LANGUAGE sql AS $$
+  SELECT set_config('app.actor_employee_id', p_by::text, true);
+  UPDATE privileged_change_request SET status = 'APPROVED', approved_by = p_by WHERE id = p_id $$;
+
+-- Ky hieu id: quyen f1370000-..-0N | vai tro f1371000-..-0N | nhan vien f1372000-..-0N | yeu cau f1373000-..-NN | ma reset f1375000-..-0N
+--   E1 A1, E2 A2 (admin) | E3 D1, E4 D2 (director: access.approve) | E5 S1 (sales) | E6 S2 (khong vai tro) | E7 R1 (da nghi, van giu director)
+--   E8 X1 (admin, se xoa mem trong che do khoi tao) | E9 B1 (khong vai tro)
+-- 0. Du lieu nen o CHE DO KHOI TAO (phai thanh cong; loi o day => dung, bao toi)
+INSERT INTO permission (id, code) VALUES
+ ('f1370000-0000-4000-8000-000000000001', 'access.approve'), ('f1370000-0000-4000-8000-000000000002', 'access.request'),
+ ('f1370000-0000-4000-8000-000000000003', 'role.manage'),    ('f1370000-0000-4000-8000-000000000005', 'customer.read'),
+ ('f1370000-0000-4000-8000-000000000006', 'lookup.read');
+INSERT INTO role (id, code, name, is_system) VALUES
+ ('f1371000-0000-4000-8000-000000000001', 'admin', 'System Admin (thu M1.1)', true), ('f1371000-0000-4000-8000-000000000002', 'director', 'Giam doc (thu M1.1)', true),
+ ('f1371000-0000-4000-8000-000000000003', 'sales', 'Kinh doanh (thu M1.1)', true);
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('f1372000-0000-4000-8000-000000000001', 'B131 Admin 1', 'b131.a1@example.invalid', 'ACTIVE', true),
+ ('f1372000-0000-4000-8000-000000000002', 'B131 Admin 2', 'b131.a2@example.invalid', 'ACTIVE', true),
+ ('f1372000-0000-4000-8000-000000000003', 'B131 Director 1', 'b131.d1@example.invalid', 'ACTIVE', true),
+ ('f1372000-0000-4000-8000-000000000004', 'B131 Director 2', 'b131.d2@example.invalid', 'ACTIVE', true),
+ ('f1372000-0000-4000-8000-000000000005', 'B131 Sales 1', 'b131.s1@example.invalid', 'ACTIVE', true),
+ ('f1372000-0000-4000-8000-000000000006', 'B131 Staff 2', 'b131.s2@example.invalid', 'ACTIVE', true),
+ ('f1372000-0000-4000-8000-000000000007', 'B131 Da nghi', 'b131.r1@example.invalid', 'RESIGNED', true),
+ ('f1372000-0000-4000-8000-000000000008', 'B131 Admin xoa mem', 'b131.x1@example.invalid', 'ACTIVE', true),
+ ('f1372000-0000-4000-8000-000000000009', 'B131 Bootstrap', 'b131.b1@example.invalid', 'ACTIVE', true);
+INSERT INTO role_permission (role_id, permission_id, scope) VALUES
+ ('f1371000-0000-4000-8000-000000000001', 'f1370000-0000-4000-8000-000000000002', 'ALL'), ('f1371000-0000-4000-8000-000000000001', 'f1370000-0000-4000-8000-000000000003', 'ALL'),
+ ('f1371000-0000-4000-8000-000000000002', 'f1370000-0000-4000-8000-000000000001', 'ALL'), ('f1371000-0000-4000-8000-000000000002', 'f1370000-0000-4000-8000-000000000005', 'ALL'),
+ ('f1371000-0000-4000-8000-000000000003', 'f1370000-0000-4000-8000-000000000005', 'OWN');
+INSERT INTO employee_role (employee_id, role_id) VALUES
+ ('f1372000-0000-4000-8000-000000000001', 'f1371000-0000-4000-8000-000000000001'), ('f1372000-0000-4000-8000-000000000002', 'f1371000-0000-4000-8000-000000000001'),
+ ('f1372000-0000-4000-8000-000000000003', 'f1371000-0000-4000-8000-000000000002'), ('f1372000-0000-4000-8000-000000000004', 'f1371000-0000-4000-8000-000000000002'),
+ ('f1372000-0000-4000-8000-000000000005', 'f1371000-0000-4000-8000-000000000003'), ('f1372000-0000-4000-8000-000000000007', 'f1371000-0000-4000-8000-000000000002'),
+ ('f1372000-0000-4000-8000-000000000008', 'f1371000-0000-4000-8000-000000000001');
+
+-- 1. Che do khoi tao: giu nguyen quy tac M1 (khong kiem LAST_*, cho kich hoat lai)
+SELECT pg_temp.expect_true('khoi tao: dang mo', $q$ fn_auth_bootstrap_open() $q$);
+SELECT pg_temp.expect_ok('khoi tao: ca hai director nghi phep (khong kiem LAST_APPROVER)', $q$ UPDATE employee SET status = 'ON_LEAVE' WHERE id IN ('f1372000-0000-4000-8000-000000000003', 'f1372000-0000-4000-8000-000000000004') $q$);
+SELECT pg_temp.expect_ok('khoi tao: kich hoat lai ca hai director', $q$ UPDATE employee SET status = 'ACTIVE' WHERE id IN ('f1372000-0000-4000-8000-000000000003', 'f1372000-0000-4000-8000-000000000004') $q$);
+SELECT pg_temp.expect_ok('khoi tao: xoa mem admin X1', $q$ UPDATE employee SET deleted_at = now(), deleted_by = 'f1372000-0000-4000-8000-000000000001' WHERE id = 'f1372000-0000-4000-8000-000000000008' $q$);
+SELECT pg_temp.expect_ok('khoi tao: doi trang thai nhan vien khong vai tro', $q$ UPDATE employee SET status = 'ON_LEAVE' WHERE id = 'f1372000-0000-4000-8000-000000000009' $q$);
+SELECT pg_temp.expect_true('khoi tao: D1, D2 dang ACTIVE', $q$ (SELECT count(*) = 2 FROM employee WHERE id IN ('f1372000-0000-4000-8000-000000000003', 'f1372000-0000-4000-8000-000000000004') AND status = 'ACTIVE') $q$);
+
+-- Dong che do khoi tao (chi trong transaction nay)
+INSERT INTO app_meta (key, value) VALUES ('auth_bootstrap_done', 'b131-test');
+SELECT pg_temp.expect_true('khoi tao: da dong', $q$ NOT fn_auth_bootstrap_open() $q$);
+SELECT pg_temp.ctx(NULL, NULL);
+
+-- 2. S4 LAST_ADMIN (admin hieu luc: A1, A2; X1 da xoa mem)
+SELECT pg_temp.expect_err('LAST_ADMIN: cho ca hai admin nghi trong 1 cau lenh', $q$ UPDATE employee SET status = 'RESIGNED' WHERE id IN ('f1372000-0000-4000-8000-000000000001', 'f1372000-0000-4000-8000-000000000002') $q$, '23001');
+SELECT pg_temp.expect_true('LAST_ADMIN: A1, A2 van ACTIVE sau cau lenh bi chan', $q$ (SELECT count(*) = 2 FROM employee WHERE id IN ('f1372000-0000-4000-8000-000000000001', 'f1372000-0000-4000-8000-000000000002') AND status = 'ACTIVE') $q$);
+SELECT pg_temp.expect_ok('LAST_ADMIN: A1 nghi viec (con A2)', $q$ UPDATE employee SET status = 'RESIGNED' WHERE id = 'f1372000-0000-4000-8000-000000000001' $q$);
+SELECT pg_temp.expect_err('LAST_ADMIN: A2 nghi viec', $q$ UPDATE employee SET status = 'RESIGNED' WHERE id = 'f1372000-0000-4000-8000-000000000002' $q$, '23001');
+SELECT pg_temp.expect_err('LAST_ADMIN: A2 nghi phep', $q$ UPDATE employee SET status = 'ON_LEAVE' WHERE id = 'f1372000-0000-4000-8000-000000000002' $q$, '23001');
+SELECT pg_temp.expect_err('LAST_ADMIN: xoa mem A2', $q$ UPDATE employee SET deleted_at = now(), deleted_by = 'f1372000-0000-4000-8000-000000000002' WHERE id = 'f1372000-0000-4000-8000-000000000002' $q$, '23001');
+SELECT pg_temp.expect_ok('LAST_ADMIN: sua ten A2 (khong doi trang thai) van duoc', $q$ UPDATE employee SET full_name = 'B131 Admin 2 (doi ten)' WHERE id = 'f1372000-0000-4000-8000-000000000002' $q$);
+
+-- 3. S4 LAST_APPROVER (nguoi duyet hieu luc: D1, D2; R1 da nghi)
+SELECT pg_temp.expect_ok('LAST_APPROVER: D1 nghi phep (con D2)', $q$ UPDATE employee SET status = 'ON_LEAVE' WHERE id = 'f1372000-0000-4000-8000-000000000003' $q$);
+SELECT pg_temp.expect_err('LAST_APPROVER: D2 nghi viec', $q$ UPDATE employee SET status = 'RESIGNED' WHERE id = 'f1372000-0000-4000-8000-000000000004' $q$, '23001');
+SELECT pg_temp.expect_err('LAST_APPROVER: xoa mem D2', $q$ UPDATE employee SET deleted_at = now(), deleted_by = 'f1372000-0000-4000-8000-000000000002' WHERE id = 'f1372000-0000-4000-8000-000000000004' $q$, '23001');
+
+-- 4. S4 kich hoat lai / khoi phuc xoa mem
+SELECT pg_temp.expect_err('kich hoat lai: A1 RESIGNED -> ACTIVE (con giu admin)', $q$ UPDATE employee SET status = 'ACTIVE' WHERE id = 'f1372000-0000-4000-8000-000000000001' $q$, '42501');
+SELECT pg_temp.expect_err('kich hoat lai: D1 ON_LEAVE -> ACTIVE (con giu director)', $q$ UPDATE employee SET status = 'ACTIVE' WHERE id = 'f1372000-0000-4000-8000-000000000003' $q$, '42501');
+SELECT pg_temp.expect_ok('kich hoat lai: R1 RESIGNED -> ON_LEAVE (van chua hieu luc)', $q$ UPDATE employee SET status = 'ON_LEAVE' WHERE id = 'f1372000-0000-4000-8000-000000000007' $q$);
+SELECT pg_temp.expect_err('kich hoat lai: R1 ON_LEAVE -> ACTIVE (con giu director)', $q$ UPDATE employee SET status = 'ACTIVE' WHERE id = 'f1372000-0000-4000-8000-000000000007' $q$, '42501');
+SELECT pg_temp.expect_err('khoi phuc xoa mem: X1 (con giu admin)', $q$ UPDATE employee SET deleted_at = NULL, deleted_by = NULL WHERE id = 'f1372000-0000-4000-8000-000000000008' $q$, '42501');
+SELECT pg_temp.expect_ok('nhan vien khong vai tro quan trong: S1 nghi viec', $q$ UPDATE employee SET status = 'RESIGNED' WHERE id = 'f1372000-0000-4000-8000-000000000005' $q$);
+SELECT pg_temp.expect_ok('nhan vien khong vai tro quan trong: S1 kich hoat lai', $q$ UPDATE employee SET status = 'ACTIVE' WHERE id = 'f1372000-0000-4000-8000-000000000005' $q$);
+-- Quy trinh hop le: go director cua R1 qua yeu cau hai nguoi (A2 yeu cau, D2 duyet, A2 thuc thi) roi moi kich hoat lai.
+SELECT pg_temp.pcr('f1373000-0000-4000-8000-000000000010', 'ROLE_REVOKE_CRITICAL', 'f1372000-0000-4000-8000-000000000007', 'f1371000-0000-4000-8000-000000000002', '{"n":10}', 'f1372000-0000-4000-8000-000000000002');
+SELECT pg_temp.approve('f1373000-0000-4000-8000-000000000010', 'f1372000-0000-4000-8000-000000000004');
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000010', 'f1372000-0000-4000-8000-000000000002');
+SELECT pg_temp.expect_ok('kich hoat lai: go director cua R1 qua yeu cau da duyet', $q$ DELETE FROM employee_role WHERE employee_id = 'f1372000-0000-4000-8000-000000000007' AND role_id = 'f1371000-0000-4000-8000-000000000002' $q$);
+SELECT pg_temp.ctx(NULL, NULL);
+SELECT pg_temp.expect_ok('kich hoat lai: R1 ON_LEAVE -> ACTIVE sau khi go vai tro quan trong', $q$ UPDATE employee SET status = 'ACTIVE' WHERE id = 'f1372000-0000-4000-8000-000000000007' $q$);
+SELECT pg_temp.expect_true('kich hoat lai: R1 ACTIVE va khong co access.approve', $q$ (SELECT status = 'ACTIVE' FROM employee WHERE id = 'f1372000-0000-4000-8000-000000000007') AND NOT fn_auth_emp_can_approve('f1372000-0000-4000-8000-000000000007') $q$);
+
+-- 5. S5 chuyen EXECUTED (P11: ROLE_GRANT S2 -> sales, A2 yeu cau, D2 duyet)
+SELECT pg_temp.pcr('f1373000-0000-4000-8000-000000000011', 'ROLE_GRANT', 'f1372000-0000-4000-8000-000000000006', 'f1371000-0000-4000-8000-000000000003', '{"n":11}', 'f1372000-0000-4000-8000-000000000002');
+SELECT pg_temp.approve('f1373000-0000-4000-8000-000000000011', 'f1372000-0000-4000-8000-000000000004');
+SELECT pg_temp.ctx(NULL, NULL);
+SELECT pg_temp.expect_err('S5: UPDATE EXECUTED truc tiep, khong co ngu canh', $q$ UPDATE privileged_change_request SET status = 'EXECUTED', executed_by = 'f1372000-0000-4000-8000-000000000002' WHERE id = 'f1373000-0000-4000-8000-000000000011' $q$, '42501');
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000011', 'f1372000-0000-4000-8000-000000000002');
+SELECT pg_temp.expect_err('S5: UPDATE EXECUTED truc tiep, ngu canh dung', $q$ UPDATE privileged_change_request SET status = 'EXECUTED', executed_by = 'f1372000-0000-4000-8000-000000000002' WHERE id = 'f1373000-0000-4000-8000-000000000011' $q$, '42501');
+SELECT pg_temp.expect_err('S5: UPDATE EXECUTED truc tiep, executed_by gia (D1)', $q$ UPDATE privileged_change_request SET status = 'EXECUTED', executed_by = 'f1372000-0000-4000-8000-000000000003' WHERE id = 'f1373000-0000-4000-8000-000000000011' $q$, '42501');
+SELECT pg_temp.expect_err('S5: goi thang fn_auth_consume_request (ngoai trigger)', $q$ SELECT fn_auth_consume_request('ROLE_GRANT', 'f1372000-0000-4000-8000-000000000006', 'f1371000-0000-4000-8000-000000000003', NULL, NULL, NULL) $q$, '42501');
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000011', 'f1372000-0000-4000-8000-000000000001');
+SELECT pg_temp.expect_err('S5: nguoi thuc thi da nghi viec (A1)', $q$ INSERT INTO employee_role (employee_id, role_id) VALUES ('f1372000-0000-4000-8000-000000000006', 'f1371000-0000-4000-8000-000000000003') $q$, '42501');
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000011', 'f1372000-0000-4000-8000-000000000008');
+SELECT pg_temp.expect_err('S5: nguoi thuc thi da xoa mem (X1)', $q$ INSERT INTO employee_role (employee_id, role_id) VALUES ('f1372000-0000-4000-8000-000000000006', 'f1371000-0000-4000-8000-000000000003') $q$, '42501');
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000011', 'f1372000-0000-4000-8000-000000000009');
+SELECT pg_temp.expect_err('S5: nguoi thuc thi dang nghi phep (B1)', $q$ INSERT INTO employee_role (employee_id, role_id) VALUES ('f1372000-0000-4000-8000-000000000006', 'f1371000-0000-4000-8000-000000000003') $q$, '42501');
+SELECT pg_temp.expect_true('S5: P11 van APPROVED, chua co executed_by, S2 chua co sales', $q$ (SELECT status = 'APPROVED' AND executed_by IS NULL AND executed_at IS NULL FROM privileged_change_request WHERE id = 'f1373000-0000-4000-8000-000000000011') AND NOT EXISTS (SELECT 1 FROM employee_role WHERE employee_id = 'f1372000-0000-4000-8000-000000000006') $q$);
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000011', 'f1372000-0000-4000-8000-000000000002');
+SELECT pg_temp.expect_ok('S5: A2 (ACTIVE) thuc thi P11 qua employee_role', $q$ INSERT INTO employee_role (employee_id, role_id) VALUES ('f1372000-0000-4000-8000-000000000006', 'f1371000-0000-4000-8000-000000000003') $q$);
+SELECT pg_temp.expect_true('S5: P11 EXECUTED, executed_by = A2', $q$ (SELECT status = 'EXECUTED' AND executed_by = 'f1372000-0000-4000-8000-000000000002' AND executed_at IS NOT NULL FROM privileged_change_request WHERE id = 'f1373000-0000-4000-8000-000000000011') $q$);
+SELECT pg_temp.ctx(NULL, NULL);
+-- P12: ROLE_PERMISSION_CHANGE them lookup.read cho sales; P13: PASSWORD_RESET cho S1. Nguoi thuc thi da nghi => chan; ACTIVE => duoc.
+SELECT pg_temp.pcr('f1373000-0000-4000-8000-000000000012', 'ROLE_PERMISSION_CHANGE', NULL, 'f1371000-0000-4000-8000-000000000003', '{"op":"ADD","permissionId":"f1370000-0000-4000-8000-000000000006","scope":"ALL","n":12}', 'f1372000-0000-4000-8000-000000000002');
+SELECT pg_temp.approve('f1373000-0000-4000-8000-000000000012', 'f1372000-0000-4000-8000-000000000004');
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000012', 'f1372000-0000-4000-8000-000000000001');
+SELECT pg_temp.expect_err('S5: role_permission, nguoi thuc thi da nghi viec', $q$ INSERT INTO role_permission (role_id, permission_id, scope) VALUES ('f1371000-0000-4000-8000-000000000003', 'f1370000-0000-4000-8000-000000000006', 'ALL') $q$, '42501');
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000012', 'f1372000-0000-4000-8000-000000000002');
+SELECT pg_temp.expect_ok('S5: role_permission, A2 thuc thi P12', $q$ INSERT INTO role_permission (role_id, permission_id, scope) VALUES ('f1371000-0000-4000-8000-000000000003', 'f1370000-0000-4000-8000-000000000006', 'ALL') $q$);
+SELECT pg_temp.ctx(NULL, NULL);
+SELECT pg_temp.pcr('f1373000-0000-4000-8000-000000000013', 'PASSWORD_RESET', 'f1372000-0000-4000-8000-000000000005', NULL, '{"n":13}', 'f1372000-0000-4000-8000-000000000002');
+SELECT pg_temp.approve('f1373000-0000-4000-8000-000000000013', 'f1372000-0000-4000-8000-000000000004');
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000013', 'f1372000-0000-4000-8000-000000000001');
+SELECT pg_temp.expect_err('S5: ma reset, nguoi thuc thi da nghi viec', $q$ INSERT INTO password_reset_token (employee_id, token_hash, request_id, created_by, expires_at) VALUES ('f1372000-0000-4000-8000-000000000005', repeat('b', 64), 'f1373000-0000-4000-8000-000000000013', 'f1372000-0000-4000-8000-000000000001', now() + interval '20 minutes') $q$, '42501');
+SELECT pg_temp.ctx('f1373000-0000-4000-8000-000000000013', 'f1372000-0000-4000-8000-000000000002');
+SELECT pg_temp.expect_ok('S5: ma reset, A2 thuc thi P13', $q$ INSERT INTO password_reset_token (id, employee_id, token_hash, request_id, created_by, expires_at) VALUES ('f1375000-0000-4000-8000-000000000001', 'f1372000-0000-4000-8000-000000000005', repeat('b', 64), 'f1373000-0000-4000-8000-000000000013', 'f1372000-0000-4000-8000-000000000002', now() + interval '20 minutes') $q$);
+SELECT pg_temp.ctx(NULL, NULL);
+
+-- 6. Tong the
+SELECT pg_temp.expect_true('con it nhat 1 admin va 1 nguoi duyet hieu luc', $q$ EXISTS (SELECT 1 FROM employee_role er JOIN role r ON r.id = er.role_id JOIN employee e ON e.id = er.employee_id WHERE r.code = 'admin' AND e.status = 'ACTIVE' AND e.deleted_at IS NULL) AND EXISTS (SELECT 1 FROM employee e WHERE fn_auth_emp_can_approve(e.id)) $q$);
+SELECT pg_temp.expect_true('moi yeu cau EXECUTED deu do nhan vien ACTIVE thuc thi', $q$ NOT EXISTS (SELECT 1 FROM privileged_change_request q LEFT JOIN employee e ON e.id = q.executed_by WHERE q.status = 'EXECUTED' AND (e.id IS NULL OR e.status <> 'ACTIVE' OR e.deleted_at IS NOT NULL)) $q$);
+
+-- Tong ket
+SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS ket_qua, count(*) AS so_luong FROM res GROUP BY ok ORDER BY ok;
+SELECT label AS can_xem_lai FROM res WHERE NOT ok;
+ROLLBACK;
