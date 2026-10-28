@@ -2,13 +2,15 @@
 # Dich: D:\SISCOM-CRM\backend\scripts\windows\create-test-db.ps1 (file moi). Can mat khau postgres (hoi an, CHI de CREATE DATABASE, khong luu).
 # KHONG dung vao siscom_crm_dev hay bat ky database co san (tu choi neu ten da ton tai). Khong DROP/TRUNCATE/DELETE.
 # Buoc sau: auth-demo-stack.bat -Step migrate|bootstrap|start -DatabaseName <ten in ra cuoi script>.
-# -GrantSetParameter: GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO siscom_app (PostgreSQL >= 15; pham vi TOAN CLUSTER,
-#   chi can cho cac ham fn_auth_api_* cua M1.2 - dieu kien trien khai ghi o PR #166). Dang nhap/dang xuat/khach hang KHONG can quyen nay.
+# MAC DINH: GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO siscom_app (PostgreSQL >= 15; pham vi TOAN CLUSTER,
+#   dieu kien trien khai M1.2 ghi o PR #166). BAT BUOC de "prisma migrate deploy" ap duoc migration M1.2 bang siscom_app (khong phai
+#   superuser): cac ham fn_auth_api_* co menh de SET app.* => thieu quyen se loi P3018 / 42501 "permission denied to set parameter".
+#   -SkipGrantSetParameter: bo qua (chi khi quyen da cap tu truoc). GRANT lap lai khong gay hai.
 [CmdletBinding()]
 param(
   [ValidateSet('test', 'restore')][string]$Kind = 'test',
   [string]$DatabaseName,
-  [switch]$GrantSetParameter
+  [switch]$SkipGrantSetParameter
 )
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -49,12 +51,15 @@ try {
   Run-Psql $psql 'postgres' $adminPw 'postgres' ('CREATE DATABASE ' + $DatabaseName + " OWNER siscom_app ENCODING 'UTF8' TEMPLATE template0;") | Out-Null
   Run-Psql $psql 'postgres' $adminPw 'postgres' ('REVOKE ALL ON DATABASE ' + $DatabaseName + ' FROM PUBLIC; GRANT CONNECT ON DATABASE ' + $DatabaseName + ' TO siscom_app;') | Out-Null
   Ok ('Da tao database ' + $DatabaseName + ' (chu so huu siscom_app)')
-  if ($GrantSetParameter) {
-    if ([int]$ver -lt 150000) { Write-Host '[BO QUA] GRANT SET ON PARAMETER chi co tu PostgreSQL 15.' -ForegroundColor Yellow }
-    else {
+  if ([int]$ver -lt 150000) { Write-Host '[BO QUA] GRANT SET ON PARAMETER chi co tu PostgreSQL 15.' -ForegroundColor Yellow }
+  else {
+    if (-not $SkipGrantSetParameter) {
+      Write-Host 'Cap quyen (toan cluster) GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO siscom_app - can cho migration M1.2.' -ForegroundColor Yellow
       Run-Psql $psql 'postgres' $adminPw 'postgres' 'GRANT SET ON PARAMETER app.actor_employee_id TO siscom_app; GRANT SET ON PARAMETER app.priv_request_id TO siscom_app;' | Out-Null
-      Ok 'Da GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id cho siscom_app (toan cluster).'
     }
+    $gp = Run-Psql $psql 'postgres' $adminPw 'postgres' "SELECT has_parameter_privilege('siscom_app', 'app.actor_employee_id', 'SET') AND has_parameter_privilege('siscom_app', 'app.priv_request_id', 'SET');"
+    if ($gp -ne 't') { Fail 'siscom_app chua co quyen SET app.actor_employee_id / app.priv_request_id: migrate M1.2 se loi 42501. Chay lai KHONG kem -SkipGrantSetParameter.' }
+    Ok 'siscom_app co quyen SET app.actor_employee_id, app.priv_request_id (toan cluster).'
   }
   $chk = (Run-Psql $psql 'postgres' $adminPw 'postgres' ("SELECT datname || '|' || pg_get_userbyid(datdba) || '|' || pg_encoding_to_char(encoding) FROM pg_database WHERE datname='" + $DatabaseName + "';")).Split('|')
   $adminPw = $null

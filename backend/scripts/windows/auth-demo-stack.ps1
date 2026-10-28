@@ -114,6 +114,18 @@ try {
   try {
     switch ($Step) {
       'migrate' {
+        # Kiem tra truoc khi GHI: migration M1.2 can quyen SET tren 2 tham so app.* (PostgreSQL >= 15, siscom_app khong phai superuser).
+        $sv = Psql $DatabaseName 'SHOW server_version_num;'
+        if ([int]$sv -ge 150000) {
+          $gp = Psql $DatabaseName "SELECT has_parameter_privilege('app.actor_employee_id', 'SET') AND has_parameter_privilege('app.priv_request_id', 'SET');"
+          if ($gp -ne 't') { Fail 'siscom_app chua co quyen SET app.actor_employee_id / app.priv_request_id => migration M1.2 se loi P3018/42501. Chay create-test-db.bat (mac dinh cap quyen nay) roi migrate tren DB MOI. Chua ghi gi vao DB.' }
+          Ok 'siscom_app co quyen SET app.actor_employee_id, app.priv_request_id.'
+        }
+        $hasMig = Psql $DatabaseName "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = '_prisma_migrations';"
+        if ($hasMig -eq '1') {
+          $nf = Psql $DatabaseName 'SELECT count(*) FROM public._prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL;'
+          if ([int]$nf -gt 0) { Fail 'DB thu nay co migration bi loi do dang (P3018). KHONG sua tay / migrate resolve: bo DB nay, tao DB moi bang create-test-db.bat.' }
+        }
         $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
         try {
           $env:DATABASE_URL = $url
