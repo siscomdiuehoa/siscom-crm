@@ -1,6 +1,8 @@
 name: CI
 
-# Kiem tra thiet yeu cho moi Pull Request. KHONG dung PostgreSQL, KHONG chay migration/seed/reset/restore, KHONG chay benchmark/integration.
+# Kiem tra thiet yeu cho moi Pull Request. Job "backend-pg" dung PostgreSQL TAM (service container song trong job, huy sau job):
+# migrate deploy + migrate status/diff + integration tren DB siscom_crm_test_<stamp>. KHONG bao gio ket noi siscom_crm_dev hay may chu
+# ngoai 127.0.0.1 cua runner; KHONG seed/reset/restore du lieu that; KHONG chay benchmark.
 # Moi PR chay dung mot lan (su kien pull_request); sau khi merge, chay lai tren main (push). Huy lan chay cu khi co commit moi.
 on:
   pull_request:
@@ -52,6 +54,74 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
       - name: Unit test
         run: npm run test:unit
+
+  backend-pg:
+    name: Backend PostgreSQL (DB tam cach ly, migrate deploy, integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        # Cung dong 18 voi moi truong du an (PostgreSQL 18.x). Container tam cua job; mat khau superuser duoi day CHI cho container nay,
+        # khong phai bi mat cua du an va khong dung o bat ky noi nao khac.
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: ci_container_only_not_a_project_secret
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: ci_container_only_not_a_project_secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Bao dam npm 11.x (backend khai bao engines npm >=11.6, engine-strict)
+        run: npm install -g npm@11
+      - name: Cai dependency (npm ci)
+        run: npm ci
+      - name: Tao DB tam siscom_crm_test_<stamp> + role siscom_app (khong superuser); URL duoc mask
+        run: bash scripts/ci/pg-temp-db.sh create
+      - name: Prisma generate
+        run: npx prisma generate
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      - name: Migrate deploy tren DB tam (chi ap migration da co trong repo)
+        run: |
+          set -euo pipefail
+          test -n "${TEST_DB_NAME:-}"
+          echo "DB tam: ${TEST_DB_NAME}"
+          npx prisma migrate deploy
+      - name: Migrate status (khong con migration cho) + drift (schema.prisma khop DB; --exit-code => 2 neu lech)
+        run: |
+          set -euo pipefail
+          npx prisma migrate status
+          npx prisma migrate diff --from-config-datasource --to-schema-datamodel prisma/schema.prisma --exit-code
+      - name: Integration test tren DB tam (npm run test:e2e:customers; test-db.ts tu choi moi DB khong phai siscom_crm_test_*/restore_*)
+        run: |
+          set -euo pipefail
+          unset DATABASE_URL
+          npm run test:e2e:customers
+        env:
+          CONCURRENCY_ROUNDS: "20"
+      - name: Don DB tam (container cung bi huy sau job)
+        if: ${{ always() }}
+        run: bash scripts/ci/pg-temp-db.sh drop
 
   frontend:
     name: Frontend (build)
@@ -112,13 +182,14 @@ jobs:
   ci-gate:
     name: CI gate
     if: ${{ always() }}
-    needs: [backend, frontend, secret-scan]
+    needs: [backend, backend-pg, frontend, secret-scan]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Tat ca kiem tra bat buoc phai dat
         run: |
-          echo "backend=${{ needs.backend.result }} frontend=${{ needs.frontend.result }} secret-scan=${{ needs.secret-scan.result }}"
+          echo "backend=${{ needs.backend.result }} backend-pg=${{ needs.backend-pg.result }} frontend=${{ needs.frontend.result }} secret-scan=${{ needs.secret-scan.result }}"
           test "${{ needs.backend.result }}" = "success"
+          test "${{ needs.backend-pg.result }}" = "success"
           test "${{ needs.frontend.result }}" = "success"
           test "${{ needs.secret-scan.result }}" = "success"
