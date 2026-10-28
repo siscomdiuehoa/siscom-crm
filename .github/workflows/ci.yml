@@ -107,11 +107,15 @@ jobs:
           test -n "${TEST_DB_NAME:-}"
           echo "DB tam: ${TEST_DB_NAME}"
           npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Migrate status (khong con migration cho) + drift (schema.prisma khop DB; --exit-code => 2 neu lech)
         run: |
           set -euo pipefail
           npx prisma migrate status
           npx prisma migrate diff --from-config-datasource --to-schema-datamodel prisma/schema.prisma --exit-code
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Integration test tren DB tam (npm run test:e2e:customers; test-db.ts tu choi moi DB khong phai siscom_crm_test_*/restore_*)
         run: |
           set -euo pipefail
