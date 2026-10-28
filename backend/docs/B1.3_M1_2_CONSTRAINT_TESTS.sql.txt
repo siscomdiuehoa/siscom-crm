@@ -203,7 +203,10 @@ SELECT pg_temp.ctx(NULL, 'f1392000-0000-4000-8000-000000000001');
 SELECT pg_temp.expect_ok('Q13 PENDING han 2 giay (truc tiep)', $q$ INSERT INTO privileged_change_request (id, type, subject_employee_id, payload, payload_hash, requested_by, expires_at) VALUES ('f1393000-0000-4000-8000-000000000013', 'PASSWORD_RESET', 'f1392000-0000-4000-8000-000000000006', '{"n":13}', encode(sha256(convert_to('{"n":13}'::jsonb::text, 'UTF8')), 'hex'), 'f1392000-0000-4000-8000-000000000001', now() + interval '2 seconds') $q$);
 SELECT pg_temp.ctx(NULL, NULL);
 SELECT pg_temp.expect_true('expire: Q7 (APPROVED, chua het han) => false', $q$ NOT fn_auth_api_request_expire(pg_temp.q('Q7')) $q$);
-SELECT pg_sleep(greatest(0, extract(epoch FROM (now() + interval '2.5 seconds' - clock_timestamp()))::double precision));
+-- Ngu toi SAU han THAT da luu (T5/Q13) + 0,5 giay: khong phu thuoc now() (= dau transaction) nen khong bi lech khi transaction chay lau (CI).
+SELECT now() AS tx_now, clock_timestamp() AS clock_truoc, (SELECT expires_at FROM password_reset_token WHERE id = 'f1395000-0000-4000-8000-000000000005') AS t5_het_han, (SELECT expires_at FROM privileged_change_request WHERE id = 'f1393000-0000-4000-8000-000000000013') AS q13_het_han;
+SELECT pg_sleep(greatest(0, extract(epoch FROM (greatest((SELECT expires_at FROM password_reset_token WHERE id = 'f1395000-0000-4000-8000-000000000005'), (SELECT expires_at FROM privileged_change_request WHERE id = 'f1393000-0000-4000-8000-000000000013')) + interval '0.5 seconds' - clock_timestamp()))::double precision));
+SELECT clock_timestamp() AS clock_sau;
 SELECT pg_temp.expect_true('reset_pw: ma het han => EXPIRED va bi thu hoi', $q$ fn_auth_api_reset_password('f1392000-0000-4000-8000-000000000005', 'tok-e', '$argon2id$v=19$x', 'argon2id', '{}') = 'EXPIRED' AND (SELECT revoked_at IS NOT NULL FROM password_reset_token WHERE id = 'f1395000-0000-4000-8000-000000000005') $q$);
 SELECT pg_temp.expect_true('expire: Q13 qua han => true, EXPIRED', $q$ fn_auth_api_request_expire('f1393000-0000-4000-8000-000000000013') AND (SELECT status = 'EXPIRED' FROM privileged_change_request WHERE id = 'f1393000-0000-4000-8000-000000000013') $q$);
 
