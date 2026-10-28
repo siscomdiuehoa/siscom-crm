@@ -100,3 +100,14 @@ Checklist: `docs/MIGRATION_PLAN.md` §8 (in the design-system project).
 
 ## Next phases (not started)
 TypeScript, React Router, a real API layer replacing localStorage, tests, StrictMode, other modules.
+
+## Đăng nhập thật bằng phiên cookie (PR 4, Issue #8 — 28/10/2026)
+
+Mặc định (không có `.env.local`) ứng dụng vẫn là demo localStorage, không gọi mạng. Để chạy với backend thật:
+
+1. Backend chạy tại `http://127.0.0.1:3000` trên **DB thử** (`siscom_crm_test_*`) đã `npm run db:migrate` và `npm run auth:bootstrap` (xem `backend/docs/B1.3_AUTH_SESSION_MVP.md`).
+2. Sao chép `.env.example` thành `.env.local` (bị ignore): `VITE_CRM_AUTH_ENABLED=true`, `VITE_CRM_API_ENABLED=true`, `VITE_CRM_API_BASE=/api/v1`.
+3. `npm run dev` — Vite proxy `/api` → backend (đổi bằng `VITE_DEV_API_TARGET`), nên FE và API **cùng origin** `http://localhost:5173`: cookie phiên `siscom_sid` HttpOnly + SameSite=Lax hoạt động không cần CORS credentials.
+4. Màn hình đăng nhập (`AuthGate`) nhận email hoặc mã `NV-xxxx`; sau đăng nhập, `App` chạy chế độ API với quyền từ `me.permissions` (UI gate; backend vẫn kiểm quyền). Mọi thao tác ghi gửi `X-CSRF-Token` (lấy từ phản hồi login hoặc cookie `siscom_csrf` khi tải lại trang). Nút **Đăng xuất** ở thanh trên.
+
+Không có token trong JS/localStorage; 401 từ API đưa phiên về trạng thái hết hạn (phải đăng nhập lại). Test offline: `node --test tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs`.

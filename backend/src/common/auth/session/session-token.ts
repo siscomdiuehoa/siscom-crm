@@ -20,6 +20,17 @@ export function buildSessionCookie(token: string, o: CookieOptions): string {
   const maxAge = Math.max(1, Math.floor(o.maxAgeSeconds));
   return `${SESSION_COOKIE_NAME}=${token}; Path=${SESSION_COOKIE_PATH}; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${o.secure ? '; Secure' : ''}`;
 }
+// Cookie CSRF double-submit (PR 4): KHÔNG HttpOnly để FE đọc lại sau khi tải trang; không phải bí mật phiên (cookie phiên vẫn HttpOnly).
+// Server chỉ tin header X-CSRF-Token khớp csrf_hash; cookie này chỉ là nơi FE lấy giá trị. Cùng Path/SameSite/Secure/Max-Age với cookie phiên.
+export const CSRF_COOKIE_NAME = 'siscom_csrf';
+export function buildCsrfCookie(token: string, o: CookieOptions): string {
+  if (!isOpaqueToken(token)) throw new Error('CSRF_TOKEN_FORMAT_INVALID');
+  const maxAge = Math.max(1, Math.floor(o.maxAgeSeconds));
+  return `${CSRF_COOKIE_NAME}=${token}; Path=${SESSION_COOKIE_PATH}; SameSite=Lax; Max-Age=${maxAge}${o.secure ? '; Secure' : ''}`;
+}
+export function buildCsrfCookieClear(o: Pick<CookieOptions, 'secure'>): string {
+  return `${CSRF_COOKIE_NAME}=; Path=${SESSION_COOKIE_PATH}; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${o.secure ? '; Secure' : ''}`;
+}
 export function buildSessionCookieClear(o: Pick<CookieOptions, 'secure'>): string {
   return `${SESSION_COOKIE_NAME}=; Path=${SESSION_COOKIE_PATH}; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${o.secure ? '; Secure' : ''}`;
 }

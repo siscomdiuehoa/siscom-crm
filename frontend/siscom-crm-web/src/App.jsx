@@ -15,13 +15,17 @@ import { createCustomerApiUi } from './features/customers/customerApiUi.js';
 import ApiModeUnsupported, { API_UNSUPPORTED_NOTE } from './features/apiMode/ApiModeUnsupported.jsx';
 
 // null unless VITE_CRM_API_ENABLED === 'true' (default OFF = localStorage demo; no network code path is reachable).
-const CUSTOMER_API = createCustomerApiUi({ env: import.meta.env });
+// Khi được AuthGate dựng (VITE_CRM_AUTH_ENABLED=true), bộ điều khiển gắn phiên cookie được truyền qua prop `customerApi` thay cho bản này.
+const MODULE_CUSTOMER_API = createCustomerApiUi({ env: import.meta.env });
 
 // API mode never loads, migrates, backs up or saves the localStorage demo database; it starts from an EMPTY in-memory shape (nothing demo can be rendered).
-const API_ON = !!CUSTOMER_API;
 const EMPTY_DB = { customers: [], contacts: [], interactions: [], quotes: [], contracts: [], projects: [], opportunities: [], overdue: [], approvals: [], contractAlerts: [] };
-const API_CAN = createApiModeCan(null); // no server actor/permission set exists yet -> every sensitive action is denied in API mode (UI gate only; backend enforces)
-const NAV = API_ON ? SISCOM_NAV.map(({ badge, ...rest }) => rest) : SISCOM_NAV; // static badges (e.g. 8 opportunities) are demo counts
+// Quyền ở chế độ API: CHỈ từ `me.permissions` do server trả về sau đăng nhập (UI gate; backend vẫn là nơi kiểm quyền). Không phiên => từ chối hết.
+const grantsFromSession = (session) => {
+  const st = session && typeof session.getState === 'function' ? session.getState() : null;
+  const perms = st && st.status === 'AUTHENTICATED' && st.me && st.me.permissions ? st.me.permissions : null;
+  return createApiModeCan(perms ? new Set(Object.keys(perms)) : null);
+};
 const STORE = 'siscom-crm-demo-v1';
 // Fixed-state mode for QA/screenshots: ?route=/dashboard&theme=dark (no localStorage writes). Normal use: no query string.
 const INIT = (() => { const p = new URLSearchParams(location.search); const route = p.get('route'), theme = p.get('theme'); return route || theme ? { route, theme } : null; })();
@@ -73,7 +77,14 @@ function RoleSwitch({ user, setUserId }) {
   return <div className="app-role" title="Tài khoản demo — chỉ để thử phân quyền trên giao diện"><Select size="sm" icon="user-round" value={user.id} onChange={setUserId} options={DEMO_USERS.map((u) => ({ value: u.id, label: u.name + ' · ' + ROLES[u.role].label }))} /></div>;
 }
 
-function SiscomCrmApp() {
+// session (tùy chọn): phiên cookie từ AuthGate; customerApi (tùy chọn): bộ điều khiển Customer API gắn phiên đó.
+function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
+  const CUSTOMER_API = customerApi === undefined ? MODULE_CUSTOMER_API : customerApi;
+  const API_ON = !!CUSTOMER_API;
+  const NAV = React.useMemo(() => (API_ON ? SISCOM_NAV.map(({ badge, ...rest }) => rest) : SISCOM_NAV), [API_ON]); // static badges (e.g. 8 opportunities) are demo counts
+  const sessionState = React.useSyncExternalStore(session ? session.subscribe : () => () => {}, session ? session.getState : () => null, session ? session.getState : () => null);
+  const me = sessionState && sessionState.status === 'AUTHENTICATED' ? sessionState.me : null;
+  const API_CAN = React.useMemo(() => grantsFromSession(session), [session, sessionState]);
   const init = INIT;
   const [boot] = React.useState(() => (API_ON ? { db: EMPTY_DB, report: { readOnly: true, error: null, migrated: false } } : init ? { db: seedV2(), report: { readOnly: false, error: null, migrated: false } } : loadDatabase()));
   const [db, setDb] = React.useState(boot.db);
@@ -144,7 +155,10 @@ function SiscomCrmApp() {
   else if (route.page === 'customers') { title = 'Quản lý khách hàng'; crumbs = ['SISCOM CRM', 'Kinh doanh']; body = <CustomerListPage ui={ui} />; }
   else body = <div className="sg-card sg-glass" style={{ marginTop: 24 }}><EmptyState icon={navItem.icon || 'box'} title={(navItem.label || 'Module') + ' — chờ duyệt giai đoạn 1'} description="Module này sẽ được xây dựng sau khi Tổng quan điều hành và Quản lý khách hàng được duyệt." action={<Button onClick={() => navigate('/dashboard')}>Về Tổng quan</Button>} /></div>;
 
-  const sidebar = (extra) => <Sidebar items={NAV} active={route.page} onSelect={(id) => navigate('/' + id)} logoSrc={logo} user={API_ON ? { name: 'Phiên API', role: 'Xác thực do máy chủ quyết định' } : { name: user.name, role: ROLES[user.role].label }} {...extra} />;
+  const ROLE_LABELS = { sales: 'Kinh doanh', crm_admin: 'Quản trị CRM', technician: 'Kỹ thuật', accountant: 'Kế toán', admin: 'Quản trị hệ thống' };
+  const sessionUser = me ? { name: me.fullName, role: (me.roles || []).map((r) => ROLE_LABELS[r] || r).join(', ') || 'Chưa có vai trò' } : { name: 'Phiên API', role: 'Xác thực do máy chủ quyết định' };
+  const sidebar = (extra) => <Sidebar items={NAV} active={route.page} onSelect={(id) => navigate('/' + id)} logoSrc={logo} user={API_ON ? sessionUser : { name: user.name, role: ROLES[user.role].label }} {...extra} />;
+  const logoutButton = session ? <Button size="sm" variant="secondary" icon="log-out" onClick={() => session.logout()}>Đăng xuất</Button> : null;
   return (
     <div style={{ display: 'flex', height: '100%' }}>
       {mobile ? (navOpen ? (
@@ -154,10 +168,10 @@ function SiscomCrmApp() {
         </div>) : null) : sidebar({ collapsed, onToggle: () => setCollapsed(!collapsed) })}
       <main className="sg-scroll" style={{ flex: 1, minWidth: 0, overflow: 'auto', position: 'relative' }}>
         <Topbar title={title} breadcrumbs={crumbs} search={q} onSearch={setQ} notifications={API_ON ? 0 : 5} onAskAI={API_ON ? undefined : () => setChat(true)} onMenu={mobile ? () => setNavOpen(true) : undefined}
-          user={{ name: API_ON ? 'Phiên API' : user.name }} actions={<>{API_ON ? null : <RoleSwitch user={user} setUserId={setUserId} />}<ThemeSwitch mode={mode} setMode={setMode} /></>} />
+          user={{ name: API_ON ? sessionUser.name : user.name }} actions={<>{API_ON ? null : <RoleSwitch user={user} setUserId={setUserId} />}<ThemeSwitch mode={mode} setMode={setMode} />{logoutButton}</>} />
         <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px var(--page-gutter)', font: 'var(--type-caption)', color: 'var(--warning-text)', background: 'var(--warning-soft)', borderBottom: '1px solid var(--warning-border)', flexWrap: 'wrap' }}>
           <Icon name={API_ON ? 'server' : 'flask-conical'} size={14} />
-          {API_ON ? <span style={{ flex: 1, minWidth: 200 }}>Chế độ API — chỉ danh sách và chi tiết khách hàng lấy từ máy chủ. Các mô-đun khác {API_UNSUPPORTED_NOTE}; không hiển thị dữ liệu minh hoạ.</span>
+          {API_ON ? <span style={{ flex: 1, minWidth: 200 }}>{me ? 'Đang đăng nhập: ' + me.fullName + ' (' + me.code + ') — ' : 'Chế độ API — '}chỉ danh sách và chi tiết khách hàng lấy từ máy chủ. Các mô-đun khác {API_UNSUPPORTED_NOTE}; không hiển thị dữ liệu minh hoạ.</span>
             : <span style={{ flex: 1, minWidth: 200 }}>Bản demo giao diện — toàn bộ khách hàng và số liệu là <b>dữ liệu minh hoạ</b>, không phải hồ sơ kinh doanh thực tế. Thay đổi chỉ lưu trên trình duyệt này.</span>}
           {API_ON ? null : <DataTools ui={ui} getDb={() => dbRef.current} onRestoreText={(text) => { const next = parseBackupFile(text); backupNow('auto-restore'); replaceDb(next); }} onReset={() => { backupNow('auto-reset'); replaceDb(seedV2()); }} />}
         </div>

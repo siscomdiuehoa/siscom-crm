@@ -39,7 +39,7 @@ const needsLookups = (ui) => Object.keys(LOOKUP_FIELDS).some((f) => !blank(ui[f]
 // env: import.meta.env or a plain object. fetchImpl: injectable for tests. local: { list(params) -> Customer[], create(ui, ...rest) -> Customer, get(id) -> Customer, update(id, ui, ...rest) -> Customer } (sync or async).
 // Detail/update address the customer by its stable backend UUID (never by display code). Update never sends code/owner/id; `version` = optimistic lock from the loaded detail.
 // auth (tùy chọn): phiên đã xác minh do thành phần tin cậy cấp (getState/getAuthHeader/handleUnauthorized); chỉ chuyển nguyên vẹn xuống API client, repo không tạo/lưu/đọc token. Không có auth => hành vi cũ (không Authorization, backend trả 401).
-export function createCustomerRepository({ env, fetchImpl, local, auth } = {}) {
+export function createCustomerRepository({ env, fetchImpl, local, auth, session } = {}) {
   const e = env || {};
   const config = readApiConfig(e);
   const flagOn = e.VITE_CRM_API_ENABLED === 'true';
@@ -71,7 +71,7 @@ export function createCustomerRepository({ env, fetchImpl, local, auth } = {}) {
     try { return await rawFetch(...args); }
     catch (err) { throw new CustomerRepoError('network', 'Không kết nối được máy chủ. Dữ liệu không được lưu.', { cause: err }); }
   };
-  const api = createCustomerApi(config, guardedFetch, auth ? { auth } : undefined);
+  const api = createCustomerApi(config, guardedFetch, auth || session ? { auth, session } : undefined);
   const classify = (err) => {
     if (err instanceof AdapterError && sent) return malformed(err.message);
     if (err instanceof TypeError) return malformed('sai cấu trúc dữ liệu');

@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { ActorGuard } from '../../common/auth/actor.guard';
 import { AUTH_CONFIG, AuthConfig } from '../../common/auth/auth.config';
 import type { SessionRequest } from '../../common/auth/session/session-actor.provider';
-import { buildSessionCookie, buildSessionCookieClear } from '../../common/auth/session/session-token';
+import { buildCsrfCookie, buildCsrfCookieClear, buildSessionCookie, buildSessionCookieClear } from '../../common/auth/session/session-token';
 import { DomainException } from '../../common/errors/domain.exception';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -26,7 +26,8 @@ export class AuthController {
       source: req.socket?.remoteAddress ?? 'unknown', ip: req.socket?.remoteAddress ?? null,
       userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null, requestId: req.requestId,
     });
-    res.setHeader('Set-Cookie', buildSessionCookie(r.sessionToken, { secure: this.cfg.cookieSecure, maxAgeSeconds: r.maxAgeSeconds }));
+    const co = { secure: this.cfg.cookieSecure, maxAgeSeconds: r.maxAgeSeconds };
+    res.setHeader('Set-Cookie', [buildSessionCookie(r.sessionToken, co), buildCsrfCookie(r.csrfToken, co)]);
     res.setHeader('Cache-Control', 'no-store');
     return { data: { me: r.me, csrfToken: r.csrfToken } };
   }
@@ -45,7 +46,7 @@ export class AuthController {
     const s = req.authSession;
     if (!s) throw new DomainException(401, 'UNAUTHENTICATED', 'Chưa xác thực.');
     await this.auth.logout(s, req.requestId);
-    res.setHeader('Set-Cookie', buildSessionCookieClear({ secure: this.cfg.cookieSecure }));
+    res.setHeader('Set-Cookie', [buildSessionCookieClear({ secure: this.cfg.cookieSecure }), buildCsrfCookieClear({ secure: this.cfg.cookieSecure })]);
     res.setHeader('Cache-Control', 'no-store');
     return { data: { ok: true } };
   }

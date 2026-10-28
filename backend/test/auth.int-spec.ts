@@ -30,7 +30,7 @@ const USERS: BootstrapUser[] = [
 ];
 let prisma: PrismaService; let app: INestApplication; let codes: Record<string, string> = {}; let fx: Fixtures;
 const srv = () => request(app.getHttpServer());
-const cookieOf = (res: request.Response): string => { const sc = res.headers['set-cookie']; const first = Array.isArray(sc) ? sc[0] : String(sc ?? ''); return first.split(';')[0]; };
+const cookieOf = (res: request.Response): string => { const sc = res.headers['set-cookie']; const list = Array.isArray(sc) ? sc : [String(sc ?? '')]; return list.find((c) => c.startsWith('siscom_sid='))!.split(';')[0]; };
 const login = (login: string, password: string) => srv().post('/api/v1/auth/login').set('Origin', ORIGIN).send({ login, password });
 async function session(key: string): Promise<{ cookie: string; csrf: string; me: Record<string, unknown> }> {
   const u = USERS.find((x) => x.key === key)!;
@@ -79,8 +79,14 @@ describe('đăng nhập', () => {
   it('email đúng => 200 + cookie HttpOnly SameSite=Lax + csrfToken + me (vai trò, quyền); body không chứa token phiên', async () => {
     const u = USERS[2]; const res = await login(u.email, u.password);
     expect(res.status).toBe(200);
-    const sc = String(res.headers['set-cookie']);
+    const list = res.headers['set-cookie'] as unknown as string[];
+    expect(list).toHaveLength(2);
+    const sc = list.find((c) => c.startsWith('siscom_sid='))!;
     expect(sc).toMatch(/^siscom_sid=[A-Za-z0-9_-]{43}; Path=\/api\/v1; HttpOnly; SameSite=Lax; Max-Age=\d+/);
+    const cc = list.find((c) => c.startsWith('siscom_csrf='))!;
+    expect(cc).toMatch(/^siscom_csrf=[A-Za-z0-9_-]{43}; Path=\/api\/v1; SameSite=Lax; Max-Age=\d+/);
+    expect(cc).not.toMatch(/HttpOnly/);
+    expect(cc.split(';')[0].split('=')[1]).toBe(res.body.data.csrfToken);
     expect(res.body.data.csrfToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(res.body.data.me).toMatchObject({ code: codes.sale, roles: ['sales'], permissions: { 'customer.read': 'OWN', 'customer.update': 'OWN', 'lookup.read': 'ALL' } });
     expect(res.body.data.me.permissions['customer.delete']).toBeUndefined();
@@ -131,7 +137,7 @@ describe('phiên, /auth/me, logout', () => {
     expect((await srv().post('/api/v1/auth/logout').set('Cookie', s.cookie).set('Origin', ORIGIN)).status).toBe(403);
     expect((await srv().post('/api/v1/auth/logout').set('Cookie', s.cookie).set('Origin', 'http://evil.example').set('X-CSRF-Token', s.csrf)).status).toBe(403);
     const out = await srv().post('/api/v1/auth/logout').set('Cookie', s.cookie).set('Origin', ORIGIN).set('X-CSRF-Token', s.csrf);
-    expect(out.status).toBe(200); expect(String(out.headers['set-cookie'])).toMatch(/siscom_sid=; .*Max-Age=0/);
+    expect(out.status).toBe(200); expect(String(out.headers['set-cookie'])).toMatch(/siscom_sid=; .*Max-Age=0/); expect(String(out.headers['set-cookie'])).toMatch(/siscom_csrf=; .*Max-Age=0/);
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(401);
     const row = await prisma.authSession.findFirst({ where: { employeeId: (await prisma.employee.findFirstOrThrow({ where: { email: USERS[2].email } })).id, revokeReason: 'LOGOUT' } });
     expect(row).not.toBeNull();
