@@ -66,7 +66,8 @@ describe('bootstrap (chế độ khởi tạo M1) và ràng buộc', () => {
     await expect(bootstrapAuth(prisma, USERS)).rejects.toThrow('BOOTSTRAP_CLOSED');
   });
   it('không có hash/mật khẩu trong audit_log; mật khẩu lưu argon2id', async () => {
-    const rows = await prisma.auditLog.findMany({ where: { action: { startsWith: 'auth.' } } });
+    // Chỉ lấy cột chuỗi/JSON (cột id là BigInt, JSON.stringify không serialize được).
+    const rows = await prisma.auditLog.findMany({ where: { action: { startsWith: 'auth.' } }, select: { action: true, summary: true, changes: true, entityCode: true, actorRole: true } });
     const text = JSON.stringify(rows);
     for (const u of USERS) expect(text).not.toContain(u.password);
     const cred = await prisma.employeeCredential.findMany({ select: { passwordAlgo: true, passwordHash: true } });
@@ -177,14 +178,14 @@ describe('RBAC V2 qua Customer API thật (SessionActorProvider)', () => {
     expect((await srv().post(C).set(w(saleS)).send({ name: 'KH sale tao', phone: '0903123458' })).status).toBe(403);
     expect((await srv().delete(C + '/' + mine.id).set(w(saleS))).status).toBe(403);
     expect((await srv().post(C + '/' + mine.id + '/restore').set(w(saleS))).status).toBe(403);
-    const other = await prisma.customer.findFirstOrThrow({ where: { ownerId: { not: saleId }, deletedAt: null }, select: { id: true, version: true } });
+    const other = await makeCustomer(prisma, fx, { ownerId: fx.empB, phone: '0903123459', phoneE164: '+84903123459' }); // khách của nhân viên khác (cùng phòng thử)
     expect((await srv().patch(C + '/' + other.id).set(w(saleS)).send({ version: other.version, note: 'x' })).status).toBe(404);
     expect((await srv().patch(C + '/' + other.id).set(w(acctS)).send({ version: other.version, note: 'x' })).status).toBe(403);
   });
   it('audit: đăng nhập/đăng xuất được ghi với actor; không có mật khẩu/token trong nhật ký', async () => {
     const n = await prisma.auditLog.count({ where: { action: { in: ['auth.login_ok', 'auth.logout', 'auth.login_failed'] } } });
     expect(n).toBeGreaterThan(5);
-    const text = JSON.stringify(await prisma.auditLog.findMany({ where: { action: { startsWith: 'auth.' } } }));
-    expect(text).not.toMatch(/\$argon2|siscom_sid=/);
+    const text = JSON.stringify(await prisma.auditLog.findMany({ where: { action: { startsWith: 'auth.' } }, select: { action: true, summary: true, changes: true, entityCode: true, actorRole: true, requestId: true } }));
+    expect(text).not.toMatch(/\$argon2|siscom_sid=|[A-Za-z0-9_-]{43}/);
   });
 });
