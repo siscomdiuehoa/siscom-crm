@@ -22,3 +22,7 @@ Chrome thật nạp **nguyên văn** `loginSession`/`authClient`/`customerApiCli
 
 Cả hai harness dùng chung `harnessGuard.mjs`: kiểm tra cổng loopback rảnh trước khi chạy (bị chiếm => `BLOCKED`, mã thoát 2, không đính nhầm Chrome cũ), hạn chót 15 giây cho mỗi lệnh CDP và hạn chót toàn cục (smoke 600 giây, stale-401 120 giây), dọn **cả cây** tiến trình Chrome (Windows: `taskkill /T /F`) kể cả khi lỗi sớm/Ctrl-C/ngoại lệ, và Chrome chạy với cờ chặn mạng nền + `--host-resolver-rules` chỉ cho `127.0.0.1`.
 Kiểm tra bản thân helper (không cần Chrome/build): `node --test tests/browser/harnessGuard.test.mjs`.
+
+## E2E backend THẬT + DB thử — 4 vai trò (PR 5/5) — `sessionRolesChrome.mjs`
+
+`node tests/browser/sessionRolesChrome.mjs` (CDP cổng 9355). Khác hai harness trên: **không máy chủ giả** — cần backend thật chạy trên database thử (`backend\scripts\windows\auth-demo-stack.bat -Step start`) và FE build với `VITE_CRM_AUTH_ENABLED=true` + `VITE_CRM_API_ENABLED=true` phục vụ bằng `npm run preview` (proxy `/api`, cùng origin `http://127.0.0.1:4173`). Mật khẩu thử qua `BOOTSTRAP_PASSWORD_ADMIN/SALE/TECHNICIAN/ACCOUNTANT` (không in). Kịch bản S0–S8: đăng nhập/sai mật khẩu, quyền theo ma trận V2 từ `/auth/me`, cookie `siscom_sid` HttpOnly + `siscom_csrf`, CSRF 403/201, phạm vi đọc OWN/DEPARTMENT/ALL (ghi **1 khách** vào DB thử), tải lại trang giữ phiên, đăng xuất. Bằng chứng JSON vào `docs/evidence/`. Hướng dẫn đầy đủ: `docs/B1.3_DEMO_PACK.md`. Không chạy trong CI.
