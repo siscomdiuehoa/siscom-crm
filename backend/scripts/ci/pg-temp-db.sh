@@ -41,6 +41,10 @@ SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app')
 END \gexec
 SQL
     psql_su -c "CREATE DATABASE \"$name\" OWNER siscom_app ENCODING 'UTF8' TEMPLATE template0"
+    # PostgreSQL >= 15: role thuong CHI duoc dung GUC tuy bien (app.*) trong "CREATE FUNCTION ... SET app.x = ..." (M1.2) khi co
+    # GRANT SET ON PARAMETER (pg_parameter_acl). SET LOCAL trong phien thi ai cung dung duoc. Day cung la DIEU KIEN TRIEN KHAI
+    # tren DB that: superuser cap quyen nay cho role chay "prisma migrate deploy" TRUOC khi ap M1.2 (ghi trong PR #166).
+    psql_su -c "GRANT SET ON PARAMETER app.actor_employee_id TO siscom_app" -c "GRANT SET ON PARAMETER app.priv_request_id TO siscom_app"
     # Xac nhan lai bang ket noi cua chinh siscom_app (khong superuser).
     PGPASSWORD="$pw" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$PGPORT" -U siscom_app -d "$name" -tA \
       -c "SELECT current_database() || ' ' || current_user || ' super=' || (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)::text"
