@@ -76,7 +76,7 @@ function Run-Node([string[]]$a, [hashtable]$extraEnv) {
   $set = @()
   try {
     foreach ($k in $extraEnv.Keys) { Set-Item -Path ('Env:' + $k) -Value $extraEnv[$k]; $set += $k }
-    & node @a; $code = $LASTEXITCODE
+    & node @a | Out-Host; $code = $LASTEXITCODE   # Out-Host: stdout cua node KHONG lot vao gia tri tra ve (chi tra ma thoat)
   } finally { $ErrorActionPreference = $prev; foreach ($k in $set) { Remove-Item -Path ('Env:' + $k) -ErrorAction SilentlyContinue } }
   return $code
 }
