@@ -1,0 +1,96 @@
+-- SISCOM CRM - ROLLBACK B1.3 M1 (20261020000000_b1_3_auth_core). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_M1_ROLLBACK.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) - qua scripts\windows\auth-m1-verify.bat -Step rollback.
+-- Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu + kiem tra khoi phuc.
+-- Tu choi neu 4 bang M1 co du lieu hoac da co app_meta.auth_bootstrap_done (= da khoi tao that).
+-- Lam trong 1 transaction: go trigger tren bang cu -> xoa 4 bang -> xoa 3 enum -> xoa ham -> xoa dong _prisma_migrations cua M1
+-- (de `prisma migrate deploy` ap lai duoc). KHONG dong toi du lieu khach hang/nhan vien/vai tro/nhat ky.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback M1.', current_database();
+  END IF;
+  IF to_regclass('public.privileged_change_request') IS NULL THEN
+    RAISE EXCEPTION 'M1 chua duoc ap (khong co privileged_change_request). Khong co gi de rollback.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.employee_credential) OR EXISTS (SELECT 1 FROM public.auth_session)
+     OR EXISTS (SELECT 1 FROM public.password_reset_token) OR EXISTS (SELECT 1 FROM public.privileged_change_request) THEN
+    RAISE EXCEPTION 'TU CHOI: bang M1 dang co du lieu. Rollback chi cho ban sao chua dung that.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.app_meta WHERE key = 'auth_bootstrap_done') THEN
+    RAISE EXCEPTION 'TU CHOI: da co app_meta.auth_bootstrap_done (da khoi tao xac thuc).';
+  END IF;
+END $$;
+
+-- 1. Trigger M1 tren bang CU (bang moi se mat trigger cung bang)
+DROP TRIGGER IF EXISTS trg_employee_role_guard          ON public.employee_role;
+DROP TRIGGER IF EXISTS trg_employee_role_no_update      ON public.employee_role;
+DROP TRIGGER IF EXISTS trg_employee_role_no_truncate    ON public.employee_role;
+DROP TRIGGER IF EXISTS trg_employee_role_sod            ON public.employee_role;
+DROP TRIGGER IF EXISTS trg_role_permission_guard        ON public.role_permission;
+DROP TRIGGER IF EXISTS trg_role_permission_no_truncate  ON public.role_permission;
+DROP TRIGGER IF EXISTS trg_role_permission_sod          ON public.role_permission;
+DROP TRIGGER IF EXISTS trg_app_meta_bootstrap_lock      ON public.app_meta;
+DROP TRIGGER IF EXISTS trg_app_meta_bootstrap_truncate  ON public.app_meta;
+DROP TRIGGER IF EXISTS trg_permission_guard_delete      ON public.permission;
+
+-- 2. Bang moi (thu tu theo FK). Khong CASCADE de lo ra phu thuoc la neu co.
+DROP TABLE public.password_reset_token;
+DROP TABLE public.auth_session;
+DROP TABLE public.employee_credential;
+DROP TABLE public.privileged_change_request;
+
+-- 3. Ham M1 (fn_block_mutation cua B1.2 GIU NGUYEN). Xoa TRUOC enum vi fn_auth_consume_request nhan tham so privileged_change_type.
+DROP FUNCTION public.fn_app_meta_bootstrap_lock();
+DROP FUNCTION public.fn_sess_before_update();
+DROP FUNCTION public.fn_cred_before_update();
+DROP FUNCTION public.fn_prt_before_update();
+DROP FUNCTION public.fn_prt_before_insert();
+DROP FUNCTION public.fn_auth_role_permission_sod();
+DROP FUNCTION public.fn_auth_role_permission_guard();
+DROP FUNCTION public.fn_auth_employee_role_sod();
+DROP FUNCTION public.fn_auth_employee_role_guard();
+DROP FUNCTION public.fn_pcr_before_update();
+DROP FUNCTION public.fn_pcr_before_insert();
+DROP FUNCTION public.fn_auth_consume_request(public.privileged_change_type, uuid, uuid, uuid, text, text);
+DROP FUNCTION public.fn_auth_setting_uuid(text);
+DROP FUNCTION public.fn_auth_emp_can_approve(uuid);
+DROP FUNCTION public.fn_auth_emp_has_class(uuid, text);
+DROP FUNCTION public.fn_auth_bootstrap_open();
+DROP FUNCTION public.fn_auth_perm_class(text);
+
+-- 4. Enum
+DROP TYPE public.privileged_change_status;
+DROP TYPE public.privileged_change_type;
+DROP TYPE public.credential_status;
+
+-- 5. Lich su Prisma cua M1 (de ap lai bang `prisma migrate deploy` khi thu lai)
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261020000000_b1_3_auth_core';
+
+-- 6. Kiem tra sau rollback: phai la 0 doi tuong M1 con lai (in ra de doi chieu; khoi DO RAISE neu con sot => khong COMMIT)
+CREATE TEMP VIEW v_m1_left AS SELECT
+  (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'
+     AND c.relname IN ('employee_credential', 'auth_session', 'password_reset_token', 'privileged_change_request')) AS bang_con,
+  (SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'public'
+     AND t.typname IN ('credential_status', 'privileged_change_type', 'privileged_change_status')) AS enum_con,
+  (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+     AND (p.proname LIKE 'fn\_auth\_%' OR p.proname IN ('fn_pcr_before_insert', 'fn_pcr_before_update', 'fn_prt_before_insert',
+          'fn_prt_before_update', 'fn_cred_before_update', 'fn_sess_before_update', 'fn_app_meta_bootstrap_lock'))) AS ham_con,
+  (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_employee_role_guard', 'trg_employee_role_no_update',
+     'trg_employee_role_no_truncate', 'trg_employee_role_sod', 'trg_role_permission_guard', 'trg_role_permission_no_truncate',
+     'trg_role_permission_sod', 'trg_app_meta_bootstrap_lock', 'trg_app_meta_bootstrap_truncate', 'trg_permission_guard_delete')) AS trigger_con,
+  (SELECT count(*) FROM public._prisma_migrations WHERE migration_name = '20261020000000_b1_3_auth_core') AS lich_su_con;
+SELECT * FROM v_m1_left;
+DO $$ BEGIN
+  IF (SELECT bang_con + enum_con + ham_con + trigger_con + lich_su_con FROM v_m1_left) <> 0 THEN
+    RAISE EXCEPTION 'Rollback M1 chua sach (con doi tuong M1). Huy transaction.';
+  END IF;
+END $$;
+DROP VIEW v_m1_left;
+COMMIT;
+SELECT 'ROLLBACK M1 XONG' AS ket_qua;
