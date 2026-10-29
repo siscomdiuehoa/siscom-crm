@@ -65,7 +65,7 @@ export default function CustomerApiDetail({ ui, id }) {
         <InfoRow icon="globe" label="Website">{c.website ? <a href={'https://' + c.website.replace(/^https?:\/\//, '')} target="_blank" rel="noreferrer">{c.website}</a> : null}</InfoRow>
         <InfoRow icon="briefcase" label="Ngành nghề">{c.industry || null}</InfoRow>
         <InfoRow icon="megaphone" label="Nguồn">{c.source || null}</InfoRow>
-        <InfoRow icon="calendar" label="Ngày tạo">{c.createdAt ? U.dmy(String(c.createdAt).slice(0, 10)) : null}</InfoRow>
+        <InfoRow icon="calendar" label="Ngày tạo">{c.createdAt ? U.dmyVN(c.createdAt) : null}</InfoRow>
         {c.note ? <InfoRow icon="sticky-note" label="Ghi chú">{c.note}</InfoRow> : null}
         <div style={{ height: 8 }} />
       </section>

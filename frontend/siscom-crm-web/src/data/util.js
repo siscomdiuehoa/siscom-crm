@@ -3,6 +3,9 @@
   const vnd = (v) => Math.round(v).toLocaleString('vi-VN');
   const norm = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
   const dmy = (iso) => (iso && iso.includes('-') ? iso.split('-').reverse().join('/') : iso || '—');
+  // D.0: mốc thời gian API là UTC (ISO "...Z"); hiển thị NGÀY theo giờ Việt Nam (Asia/Ho_Chi_Minh, UTC+7), không phụ thuộc máy người dùng, không cắt chuỗi ISO.
+  const VN_DATE = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const dmyVN = (iso) => { if (!iso) return '—'; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : VN_DATE.format(d); };
   const isTax = (s) => /^\d{10}(-\d{3})?$/.test(String(s).trim());
   const isPhone = (s) => { let p = String(s == null ? '' : s).trim().replace(/[\s.()-]/g, ''); if (/^00[1-9]/.test(p)) p = '+' + p.slice(2); if (p.startsWith('+84')) p = '0' + p.slice(3); if (/^0\d{9,10}$/.test(p)) return true; return /^\+(?!84)[1-9]\d{7,14}$/.test(p); };
   const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(s).trim());
@@ -33,4 +36,4 @@
   const STATUS_TONE = { 'Đang giao dịch': 'success', 'Tiềm năng': 'blue', 'Tạm ngưng': 'warning', 'Ngừng giao dịch': 'neutral' };
   const Q_TONE = { 'Nháp': 'neutral', 'Chờ duyệt': 'warning', 'Đã gửi': 'blue', 'Thắng': 'success', 'Từ chối': 'error', 'Hết hạn': 'outline' };
   const C_TONE = { 'Đang thực hiện': 'blue', 'Đã nghiệm thu': 'success', 'Sắp hết hạn': 'warning', 'Chờ ký': 'cyan' };
-export { ty, money, vnd, norm, dmy, isTax, isPhone, isEmail, isUrl, downloadCsv, parseCsv, today, TIER_TONE, STATUS_TONE, Q_TONE, C_TONE };
+export { ty, money, vnd, norm, dmy, dmyVN,isTax, isPhone, isEmail, isUrl, downloadCsv, parseCsv, today, TIER_TONE, STATUS_TONE, Q_TONE, C_TONE };

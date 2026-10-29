@@ -381,10 +381,10 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
     }
   });
 
-  it('nhật ký: created_at của auth.login_ok mới nhất ≈ now() của DB', async () => {
+  it('nhật ký: occurred_at của auth.login_ok mới nhất ≈ now() của DB', async () => {
     await session('admin');
     const r = await prisma.$queryRaw<{ d: number }[]>`
-      SELECT extract(epoch FROM created_at - now())::float8 * 1000 AS d FROM audit_log WHERE action = 'auth.login_ok' ORDER BY id DESC LIMIT 1`;
+      SELECT extract(epoch FROM occurred_at - now())::float8 * 1000 AS d FROM audit_log WHERE action = 'auth.login_ok' ORDER BY id DESC LIMIT 1`;
     expect(Math.abs(r[0].d)).toBeLessThan(TOL);
   });
 });
