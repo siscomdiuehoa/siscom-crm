@@ -84,7 +84,7 @@ describe('đăng nhập', () => {
     const sc = list.find((c) => c.startsWith('siscom_sid='))!;
     expect(sc).toMatch(/^siscom_sid=[A-Za-z0-9_-]{43}; Path=\/api\/v1; HttpOnly; SameSite=Lax; Max-Age=\d+/);
     const cc = list.find((c) => c.startsWith('siscom_csrf='))!;
-    expect(cc).toMatch(/^siscom_csrf=[A-Za-z0-9_-]{43}; Path=\/api\/v1; SameSite=Lax; Max-Age=\d+/);
+    expect(cc).toMatch(/^siscom_csrf=[A-Za-z0-9_-]{43}; Path=\/; SameSite=Lax; Max-Age=\d+/);
     expect(cc).not.toMatch(/HttpOnly/);
     expect(cc.split(';')[0].split('=')[1]).toBe(res.body.data.csrfToken);
     expect(res.body.data.csrfToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
