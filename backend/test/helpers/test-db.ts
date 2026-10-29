@@ -30,6 +30,14 @@ export async function assertTestConnection(prisma: PrismaService, name: string):
   if (!r[0]?.migrated) throw new Error('Database thử chưa có schema B1.2 (chạy release-b122.bat -Target scratch -Step deploy).');
 }
 
+// D.0: mô phỏng máy chủ PostgreSQL có múi giờ mặc định khác UTC (máy Windows tại VN mặc định Asia/Ho_Chi_Minh, +07).
+// Đặt ở mức DATABASE (chỉ áp cho phiên MỚI). CHỈ trên DB thử (tên khớp TEST_DB_RE); tz=null => trả về mặc định máy chủ.
+export async function setDatabaseDefaultTimeZone(prisma: PrismaService, name: string, tz: string | null): Promise<void> {
+  if (name === 'siscom_crm_dev' || !TEST_DB_RE.test(name)) throw new Error('Từ chối đổi múi giờ: "' + name + '" không phải database thử.');
+  if (tz !== null && !/^[A-Za-z_]+(\/[A-Za-z_]+)*$/.test(tz)) throw new Error('Tên múi giờ không hợp lệ: ' + tz);
+  await prisma.$executeRawUnsafe(tz === null ? 'ALTER DATABASE "' + name + '" RESET timezone' : 'ALTER DATABASE "' + name + '" SET timezone TO \'' + tz + '\'');
+}
+
 export const sleep = (ms: number): Promise<void> => new Promise((res) => setTimeout(res, ms));
 export async function caught(p: Promise<unknown>): Promise<unknown> {
   try { await p; } catch (e) { return e; }
