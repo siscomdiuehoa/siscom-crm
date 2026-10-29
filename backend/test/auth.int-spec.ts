@@ -1,6 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import request from 'supertest';
 import { AUTH_CONFIG, AuthConfig } from '../src/common/auth/auth.config';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
@@ -11,7 +11,7 @@ import { CustomersModule } from '../src/modules/customers/customers.module';
 import { LookupsModule } from '../src/modules/lookups/lookups.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { leaks } from './helpers/test-app';
-import { assertTestConnection, createTestPrisma } from './helpers/test-db';
+import { assertTestConnection, createTestPrisma, setDatabaseDefaultTimeZone } from './helpers/test-db';
 import { ensureFixtures, Fixtures, makeCustomer } from './helpers/fixtures';
 
 // B1.3 MVP — ĐĂNG NHẬP THẬT trên DATABASE THỬ: bootstrap 4+1 tài khoản (chế độ khởi tạo M1, sau đó đóng vĩnh viễn trên DB thử này),
@@ -28,7 +28,7 @@ const USERS: BootstrapUser[] = [
   { key: 'technician', email: 'kythuat@' + DOMAIN, fullName: 'Ky Thuat', password: pw(), departmentCode: 'KT' },
   { key: 'accountant', email: 'ketoan@' + DOMAIN, fullName: 'Ke Toan', password: pw(), departmentCode: 'KETOAN' },
 ];
-let prisma: PrismaService; let app: INestApplication; let codes: Record<string, string> = {}; let fx: Fixtures;
+let prisma: PrismaService; let app: INestApplication; let codes: Record<string, string> = {}; let fx: Fixtures; let dbName = '';
 const srv = () => request(app.getHttpServer());
 const cookieOf = (res: request.Response): string => { const sc = res.headers['set-cookie']; const list = Array.isArray(sc) ? sc : [String(sc ?? '')]; return list.find((c) => c.startsWith('siscom_sid='))!.split(';')[0]; };
 const login = (login: string, password: string) => srv().post('/api/v1/auth/login').set('Origin', ORIGIN).send({ login, password });
@@ -40,6 +40,11 @@ async function session(key: string): Promise<{ cookie: string; csrf: string; me:
 }
 
 beforeAll(async () => {
+  // D.0: chạy toàn bộ bộ test xác thực như máy chủ tại VN (DB mặc định +07); kết nối của ứng dụng phải tự chạy UTC.
+  const setup = createTestPrisma(); dbName = setup.name;
+  await assertTestConnection(setup.prisma, dbName);
+  await setDatabaseDefaultTimeZone(setup.prisma, dbName, 'Asia/Ho_Chi_Minh');
+  await setup.prisma.$disconnect();
   const t = createTestPrisma(); prisma = t.prisma;
   await assertTestConnection(prisma, t.name);
   const open = await prisma.$queryRaw<{ open: boolean }[]>`SELECT public.fn_auth_bootstrap_open() AS open`;
@@ -56,7 +61,13 @@ beforeAll(async () => {
   app.useGlobalFilters(new AllExceptionsFilter());
   await app.init(); await app.listen(0, '127.0.0.1');
 }, 120000);
-afterAll(async () => { await app?.close(); await prisma?.$disconnect(); });
+afterAll(async () => {
+  await app?.close();
+  // Trả múi giờ mặc định của DB thử về như cũ kể cả khi beforeAll lỗi giữa chừng; luôn đóng kết nối.
+  const p = prisma ?? (dbName ? createTestPrisma().prisma : undefined);
+  if (!p) return;
+  try { await setDatabaseDefaultTimeZone(p, dbName, null); } finally { await p.$disconnect(); }
+});
 
 describe('bootstrap (chế độ khởi tạo M1) và ràng buộc', () => {
   it('đã đóng khởi tạo; 5 tài khoản có mã NV-xxxx, không chạy lại được', async () => {
@@ -302,5 +313,81 @@ describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A
   it('nhật ký auth.* của nhân viên không chứa mật khẩu nào (gốc, mới, sai)', async () => {
     const text = JSON.stringify(await prisma.auditLog.findMany({ where: { entityId: empId, action: { startsWith: 'auth.' } }, select: { action: true, summary: true, changes: true } }));
     expect(text).not.toMatch(new RegExp([ORIG, NEW, 'Sai-mat-khau', 'ketoan-yeu'].map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')));
+  });
+});
+
+// D.0 — Toàn bộ file chạy với DB mặc định Asia/Ho_Chi_Minh (+07). Mốc thời gian phải là thời điểm thật (UTC) trong DB:
+// so với now() của DB (cùng đồng hồ) bằng epoch, và các quyết định hết hạn phải đúng theo now() của DB.
+describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định +07)', () => {
+  const TOL = 60_000;
+  const MIN = 60_000;
+  const hashOf = (cookie: string): string => createHash('sha256').update(cookie.split('=')[1], 'utf8').digest('hex');
+  const ME = '/api/v1/auth/me';
+  const CP = '/api/v1/auth/change-password';
+
+  it('đăng nhập: issued_at, last_login_at ≈ now() của DB; hạn idle 30 phút và hạn tuyệt đối 2 giờ tính từ now() của DB', async () => {
+    const s = await session('admin');
+    const r = await prisma.$queryRaw<{ issued: number; idle: number; abs: number; lastLogin: number }[]>`
+      SELECT extract(epoch FROM s.issued_at - now())::float8 * 1000 AS issued,
+             extract(epoch FROM s.idle_expires_at - now())::float8 * 1000 AS idle,
+             extract(epoch FROM s.abs_expires_at - now())::float8 * 1000 AS abs,
+             extract(epoch FROM c.last_login_at - now())::float8 * 1000 AS "lastLogin"
+      FROM auth_session s JOIN employee_credential c ON c.employee_id = s.employee_id WHERE s.refresh_hash = ${hashOf(s.cookie)}`;
+    expect(r).toHaveLength(1);
+    expect(Math.abs(r[0].issued)).toBeLessThan(TOL);
+    expect(Math.abs(r[0].lastLogin)).toBeLessThan(TOL);
+    expect(Math.abs(r[0].idle - cfg.sessionIdleMinutes * MIN)).toBeLessThan(TOL);
+    expect(Math.abs(r[0].abs - cfg.sessionAbsHours * 60 * MIN)).toBeLessThan(TOL);
+  });
+
+  it('hết hạn phiên theo thời điểm thật: idle_expires_at = now() + 5 phút => 200; = now() - 1 phút => 401', async () => {
+    const s = await session('admin'); const h = hashOf(s.cookie);
+    await prisma.$executeRaw`UPDATE auth_session SET idle_expires_at = now() + interval '5 minutes' WHERE refresh_hash = ${h}`;
+    expect((await srv().get(ME).set('Cookie', s.cookie)).status).toBe(200);
+    await prisma.$executeRaw`UPDATE auth_session SET idle_expires_at = now() - interval '1 minute' WHERE refresh_hash = ${h}`;
+    expect((await srv().get(ME).set('Cookie', s.cookie)).status).toBe(401);
+  });
+
+  it('khoá đăng nhập: locked_until = now() của DB + 15 phút; còn hạn => 401 kể cả đúng mật khẩu; quá hạn theo now() của DB => 200', async () => {
+    const u = USERS[3];
+    for (let i = 0; i < cfg.lockAfterFailures; i++) expect((await login(u.email, 'sai-utc-' + i)).status).toBe(401);
+    const r = await prisma.$queryRaw<{ left: number }[]>`
+      SELECT extract(epoch FROM c.locked_until - now())::float8 * 1000 AS "left"
+      FROM employee_credential c JOIN employee e ON e.id = c.employee_id WHERE e.email = ${u.email}`;
+    expect(Math.abs(r[0].left - cfg.lockMinutes * MIN)).toBeLessThan(TOL);
+    await prisma.$executeRaw`UPDATE employee_credential c SET locked_until = now() + interval '2 minutes' FROM employee e WHERE e.id = c.employee_id AND e.email = ${u.email}`;
+    expect((await login(u.email, u.password)).status).toBe(401);
+    await prisma.$executeRaw`UPDATE employee_credential c SET locked_until = now() - interval '1 minute' FROM employee e WHERE e.id = c.employee_id AND e.email = ${u.email}`;
+    expect((await login(u.email, u.password)).status).toBe(200);
+  });
+
+  it('đổi mật khẩu: password_changed_at ≈ now() của DB; revoked_at do trigger M1.2 ghi bằng now() của DB đọc qua Prisma ≈ đồng hồ ứng dụng', async () => {
+    const acct = USERS[4]; const orig = acct.password; const TMP = 'Thoi-gian-UTC#2026-ok';
+    const s = await session('accountant'); const other = await session('accountant');
+    const t = Date.now();
+    const res = await srv().post(CP).set({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf }).send({ currentPassword: orig, newPassword: TMP, confirmPassword: TMP });
+    expect(res.status).toBe(200);
+    acct.password = TMP;
+    try {
+      const r = await prisma.$queryRaw<{ changed: number }[]>`
+        SELECT extract(epoch FROM c.password_changed_at - now())::float8 * 1000 AS changed
+        FROM employee_credential c JOIN employee e ON e.id = c.employee_id WHERE e.email = ${acct.email}`;
+      expect(Math.abs(r[0].changed)).toBeLessThan(TOL);
+      const old = await prisma.authSession.findUniqueOrThrow({ where: { refreshHash: hashOf(other.cookie) }, select: { revokedAt: true, revokeReason: true } });
+      expect(old.revokeReason).toBe('TOKEN_VERSION');
+      expect(Math.abs(old.revokedAt!.getTime() - t)).toBeLessThan(TOL);
+    } finally {
+      const s2 = await session('accountant');
+      const back = await srv().post(CP).set({ Cookie: s2.cookie, Origin: ORIGIN, 'X-CSRF-Token': s2.csrf }).send({ currentPassword: TMP, newPassword: orig, confirmPassword: orig });
+      expect(back.status).toBe(200);
+      acct.password = orig;
+    }
+  });
+
+  it('nhật ký: occurred_at của auth.login_ok mới nhất ≈ now() của DB', async () => {
+    await session('admin');
+    const r = await prisma.$queryRaw<{ d: number }[]>`
+      SELECT extract(epoch FROM occurred_at - now())::float8 * 1000 AS d FROM audit_log WHERE action = 'auth.login_ok' ORDER BY id DESC LIMIT 1`;
+    expect(Math.abs(r[0].d)).toBeLessThan(TOL);
   });
 });
