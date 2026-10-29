@@ -20,7 +20,10 @@ beforeAll(async () => {
   fx = await ensureFixtures(prisma);
 }, 60000);
 afterAll(async () => {
-  if (prisma) { await setDatabaseDefaultTimeZone(prisma, name, null); await prisma.$disconnect(); }
+  // Trả múi giờ mặc định của DB thử về như cũ kể cả khi beforeAll lỗi giữa chừng; luôn đóng kết nối.
+  const p = prisma ?? (name ? createTestPrisma().prisma : undefined);
+  if (!p) return;
+  try { await setDatabaseDefaultTimeZone(p, name, null); } finally { await p.$disconnect(); }
 });
 
 describe('D.0 — phiên DB và mốc thời gian (DB mặc định +07)', () => {
@@ -30,9 +33,10 @@ describe('D.0 — phiên DB và mốc thời gian (DB mặc định +07)', () =>
     try { expect((await c.query<{ TimeZone: string }>('SHOW TimeZone')).rows[0].TimeZone).toBe(VN); } finally { await c.end(); }
   });
 
-  it('phiên của ứng dụng (PrismaService) luôn chạy UTC', async () => {
-    const r = await prisma.$queryRaw<{ tz: string }[]>`SELECT current_setting('TimeZone') AS tz`;
+  it('phiên của ứng dụng (PrismaService) luôn chạy UTC, định dạng ngày ISO', async () => {
+    const r = await prisma.$queryRaw<{ tz: string; ds: string }[]>`SELECT current_setting('TimeZone') AS tz, current_setting('DateStyle') AS ds`;
     expect(r[0].tz).toBe('UTC');
+    expect(r[0].ds).toMatch(/^ISO/);
   });
 
   it('Date do ứng dụng ghi (giá trị truyền vào và @default(now()) Prisma sinh phía ứng dụng) lưu đúng thời điểm thật trong DB', async () => {

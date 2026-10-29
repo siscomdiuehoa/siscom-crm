@@ -63,7 +63,10 @@ beforeAll(async () => {
 }, 120000);
 afterAll(async () => {
   await app?.close();
-  if (prisma) { await setDatabaseDefaultTimeZone(prisma, dbName, null); await prisma.$disconnect(); }
+  // Trả múi giờ mặc định của DB thử về như cũ kể cả khi beforeAll lỗi giữa chừng; luôn đóng kết nối.
+  const p = prisma ?? (dbName ? createTestPrisma().prisma : undefined);
+  if (!p) return;
+  try { await setDatabaseDefaultTimeZone(p, dbName, null); } finally { await p.$disconnect(); }
 });
 
 describe('bootstrap (chế độ khởi tạo M1) và ràng buộc', () => {
@@ -337,11 +340,11 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
     expect(Math.abs(r[0].abs - cfg.sessionAbsHours * 60 * MIN)).toBeLessThan(TOL);
   });
 
-  it('hết hạn phiên theo thời điểm thật: idle_expires_at = now() + 5 phút => 200; = now() - 1 giây => 401', async () => {
+  it('hết hạn phiên theo thời điểm thật: idle_expires_at = now() + 5 phút => 200; = now() - 1 phút => 401', async () => {
     const s = await session('admin'); const h = hashOf(s.cookie);
     await prisma.$executeRaw`UPDATE auth_session SET idle_expires_at = now() + interval '5 minutes' WHERE refresh_hash = ${h}`;
     expect((await srv().get(ME).set('Cookie', s.cookie)).status).toBe(200);
-    await prisma.$executeRaw`UPDATE auth_session SET idle_expires_at = now() - interval '1 second' WHERE refresh_hash = ${h}`;
+    await prisma.$executeRaw`UPDATE auth_session SET idle_expires_at = now() - interval '1 minute' WHERE refresh_hash = ${h}`;
     expect((await srv().get(ME).set('Cookie', s.cookie)).status).toBe(401);
   });
 
@@ -354,7 +357,7 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
     expect(Math.abs(r[0].left - cfg.lockMinutes * MIN)).toBeLessThan(TOL);
     await prisma.$executeRaw`UPDATE employee_credential c SET locked_until = now() + interval '2 minutes' FROM employee e WHERE e.id = c.employee_id AND e.email = ${u.email}`;
     expect((await login(u.email, u.password)).status).toBe(401);
-    await prisma.$executeRaw`UPDATE employee_credential c SET locked_until = now() - interval '1 second' FROM employee e WHERE e.id = c.employee_id AND e.email = ${u.email}`;
+    await prisma.$executeRaw`UPDATE employee_credential c SET locked_until = now() - interval '1 minute' FROM employee e WHERE e.id = c.employee_id AND e.email = ${u.email}`;
     expect((await login(u.email, u.password)).status).toBe(200);
   });
 

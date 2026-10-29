@@ -18,6 +18,11 @@ test('dmyVN: chuỗi có múi giờ khác vẫn quy đúng về giờ Việt Nam
   assert.equal(dmyVN('2026-10-29T23:30:00-05:00'), '30/10/2026'); // = 04:30Z 30/10 = 11:30 giờ VN
 });
 
+test('dmyVN: ngày không kèm giờ (dữ liệu demo "YYYY-MM-DD") giữ nguyên ngày', () => {
+  assert.equal(dmyVN('2026-09-10'), '10/09/2026');
+  assert.equal(dmyVN('2026-12-31'), '31/12/2026');
+});
+
 test('dmyVN: rỗng / null / không hợp lệ => "—"', () => {
   assert.equal(dmyVN(''), '—');
   assert.equal(dmyVN(null), '—');

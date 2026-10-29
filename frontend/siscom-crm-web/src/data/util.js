@@ -36,4 +36,4 @@
   const STATUS_TONE = { 'Đang giao dịch': 'success', 'Tiềm năng': 'blue', 'Tạm ngưng': 'warning', 'Ngừng giao dịch': 'neutral' };
   const Q_TONE = { 'Nháp': 'neutral', 'Chờ duyệt': 'warning', 'Đã gửi': 'blue', 'Thắng': 'success', 'Từ chối': 'error', 'Hết hạn': 'outline' };
   const C_TONE = { 'Đang thực hiện': 'blue', 'Đã nghiệm thu': 'success', 'Sắp hết hạn': 'warning', 'Chờ ký': 'cyan' };
-export { ty, money, vnd, norm, dmy, dmyVN,isTax, isPhone, isEmail, isUrl, downloadCsv, parseCsv, today, TIER_TONE, STATUS_TONE, Q_TONE, C_TONE };
+export { ty, money, vnd, norm, dmy, dmyVN, isTax, isPhone, isEmail, isUrl, downloadCsv, parseCsv, today, TIER_TONE, STATUS_TONE, Q_TONE, C_TONE };

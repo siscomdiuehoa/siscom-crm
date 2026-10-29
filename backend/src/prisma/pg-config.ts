@@ -13,11 +13,22 @@ export interface PgPoolConfig {
   options: string;
 }
 
+// pg ưu tiên tham số trong chuỗi kết nối hơn cấu hình => "options" trong DATABASE_URL sẽ âm thầm ghi đè TimeZone=UTC.
+// pg-connection-string giải mã tên tham số (%6Fptions) và nhận cả "?options" không có "=" => kiểm theo tên đã giải mã.
+function hasOptionsParam(connectionString: string): boolean {
+  try {
+    for (const key of new URL(connectionString).searchParams.keys()) if (key.toLowerCase() === 'options') return true;
+    return false;
+  } catch {
+    return /[?&]options(=|&|#|$)/i.test(decodeURIComponentSafe(connectionString)); // chuỗi không phải URL chuẩn: kiểm thô sau giải mã
+  }
+}
+function decodeURIComponentSafe(s: string): string { try { return decodeURIComponent(s); } catch { return s; } }
+
 export function pgPoolConfig(connectionString: string): PgPoolConfig {
-  // pg ưu tiên tham số trong chuỗi kết nối hơn cấu hình => "options" trong DATABASE_URL sẽ âm thầm ghi đè TimeZone=UTC.
-  const q = connectionString.indexOf('?');
-  if (q >= 0 && /(^|&)options=/i.test(connectionString.slice(q + 1))) {
+  if (hasOptionsParam(connectionString)) {
     throw new Error('DATABASE_URL không được chứa tham số "options": ứng dụng tự đặt TimeZone=' + DB_SESSION_TIME_ZONE + ' cho mọi phiên (D.0).');
   }
-  return { connectionString, max: 10, connectionTimeoutMillis: 2000, idleTimeoutMillis: 30000, options: '-c TimeZone=' + DB_SESSION_TIME_ZONE };
+  // DateStyle=ISO: bộ đọc của adapter-pg chỉ hiểu đúng định dạng ngày giờ ISO (mặc định của PostgreSQL, ghim lại cho chắc).
+  return { connectionString, max: 10, connectionTimeoutMillis: 2000, idleTimeoutMillis: 30000, options: '-c TimeZone=' + DB_SESSION_TIME_ZONE + ' -c DateStyle=ISO' };
 }
