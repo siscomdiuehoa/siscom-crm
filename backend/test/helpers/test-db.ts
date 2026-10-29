@@ -31,9 +31,10 @@ export async function assertTestConnection(prisma: PrismaService, name: string):
 }
 
 // D.0: mô phỏng máy chủ PostgreSQL có múi giờ mặc định khác UTC (máy Windows tại VN mặc định Asia/Ho_Chi_Minh, +07).
-// Đặt ở mức DATABASE (chỉ áp cho phiên MỚI). CHỈ trên DB thử (tên khớp TEST_DB_RE); tz=null => trả về mặc định máy chủ.
+// Đặt ở mức DATABASE (chỉ áp cho phiên MỚI) = ghi cấu hình catalog, nên CHỈ trên DB thử dùng một lần siscom_crm_test_*
+// (không nhận bản siscom_crm_restore_* đã khoá baseline); tz=null => RESET về mặc định máy chủ.
 export async function setDatabaseDefaultTimeZone(prisma: PrismaService, name: string, tz: string | null): Promise<void> {
-  if (name === 'siscom_crm_dev' || !TEST_DB_RE.test(name)) throw new Error('Từ chối đổi múi giờ: "' + name + '" không phải database thử.');
+  if (!/^siscom_crm_test_\d{8}_\d{6}$/.test(name)) throw new Error('Từ chối đổi múi giờ: "' + name + '" không phải database thử siscom_crm_test_*.');
   if (tz !== null && !/^[A-Za-z_]+(\/[A-Za-z_]+)*$/.test(tz)) throw new Error('Tên múi giờ không hợp lệ: ' + tz);
   await prisma.$executeRawUnsafe(tz === null ? 'ALTER DATABASE "' + name + '" RESET timezone' : 'ALTER DATABASE "' + name + '" SET timezone TO \'' + tz + '\'');
 }
