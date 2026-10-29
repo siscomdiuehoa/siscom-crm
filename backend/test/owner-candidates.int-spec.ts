@@ -39,10 +39,14 @@ describe('Ứng viên chủ sở hữu', () => {
     const c = await as(t.app, 'createReadOwn').get(U); // create=ALL, update=ALL => ALL dù read=OWN
     expect(c.status).toBe(200); expect(c.body.data.scope).toBe('ALL');
   });
-  it('không có customer.create lẫn customer.update -> 403; thiếu danh tính -> 401; ghi -> 404', async () => {
+  it('không có customer.create lẫn customer.update -> 403; thiếu danh tính -> 401; ghi: POST 404 (không có route), PATCH/DELETE 400 (":id" không phải uuid), không đổi dữ liệu', async () => {
     expect((await as(t.app, 'readonly').get(U)).status).toBe(403);
     expect((await as(t.app, 'none').get(U)).status).toBe(403);
     expect((await as(t.app).get(U)).status).toBe(401);
-    for (const m of ['post', 'patch', 'delete'] as const) expect((await as(t.app, 'all')[m](U)).status).toBe(404);
+    const before = await prisma.customer.count();
+    expect((await as(t.app, 'all').post(U)).status).toBe(404);
+    expect((await as(t.app, 'all').patch(U, { version: 1 })).status).toBe(400); // khớp PATCH ':id' => ParseUUIDPipe từ chối
+    expect((await as(t.app, 'all').delete(U)).status).toBe(400);
+    expect(await prisma.customer.count()).toBe(before);
   });
 });
