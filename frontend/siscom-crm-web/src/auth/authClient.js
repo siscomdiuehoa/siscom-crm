@@ -9,7 +9,8 @@ export class AuthUnavailableError extends Error {
   constructor() { super('Xác thực chưa khả dụng.'); this.name = 'AuthUnavailableError'; }
 }
 export class AuthHttpError extends Error {
-  constructor(status, code) { super(code); this.name = 'AuthHttpError'; this.status = status; this.code = code; }
+  // details: `error.details` của backend (mảng thông điệp VALIDATION_FAILED, hoặc đối tượng); null khi không có. Không bao giờ chứa mật khẩu.
+  constructor(status, code, details) { super(code); this.name = 'AuthHttpError'; this.status = status; this.code = code; this.details = details === undefined ? null : details; }
 }
 export class AuthNetworkError extends Error {
   constructor() { super('NETWORK'); this.name = 'AuthNetworkError'; }

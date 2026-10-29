@@ -80,6 +80,26 @@ export function createCookieSession(client, { readCookie } = {}) {
       set(idle());
       return state;
     },
+    // PR 8: đổi mật khẩu của chính mình. Chỉ khi AUTHENTICATED (nếu không => BLOCKED, không gọi mạng). Thành công: máy chủ cấp phiên + CSRF mới
+    // => thay csrf trong bộ nhớ và me (mustChangePassword=false), phiên vẫn AUTHENTICATED. 401 => phiên đã bị thu hồi => SESSION_EXPIRED.
+    // Lỗi khác (400/403/429/mạng) => trả { ok:false, error } và KHÔNG đổi trạng thái phiên. Không giữ mật khẩu.
+    async changePassword(currentPassword, newPassword, confirmPassword) {
+      if (state.status !== 'AUTHENTICATED') return { ok: false, error: { code: 'BLOCKED', details: null } };
+      const my = epoch;
+      const token = this.getCsrfToken ? this.getCsrfToken() : csrf;
+      try {
+        const r = await client.changePassword(currentPassword, newPassword, confirmPassword, token);
+        if (my !== epoch) return { ok: false, error: { code: 'SESSION_EXPIRED', details: null } };
+        csrf = r.csrfToken;
+        authed(r.me);
+        return { ok: true };
+      } catch (e) {
+        if (my !== epoch) return { ok: false, error: { code: 'SESSION_EXPIRED', details: null } };
+        if (e && e.name === 'AuthHttpError' && e.status === 401) { this.handleUnauthorized(); return { ok: false, error: { code: 'SESSION_EXPIRED', details: null } }; }
+        if (e && e.name === 'AuthNetworkError') return { ok: false, error: { code: 'NETWORK', details: null } };
+        return { ok: false, error: { code: (e && e.code) || 'UNKNOWN', details: e && e.details !== undefined ? e.details : null } };
+      }
+    },
     // API khác trả 401: phiên server đã hết/thu hồi => về ERROR SESSION_EXPIRED (không tự đăng nhập lại). Khi đang LOADING: bỏ qua.
     handleUnauthorized() {
       if (state.status === 'LOADING') return state;

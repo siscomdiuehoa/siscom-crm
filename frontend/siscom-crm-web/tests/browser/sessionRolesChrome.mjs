@@ -8,7 +8,7 @@
 // Biến môi trường: BOOTSTRAP_PASSWORD_ADMIN / _SALE / _TECHNICIAN / _ACCOUNTANT (bắt buộc, giống lúc bootstrap; KHÔNG in ra),
 //   E2E_WEB (mặc định http://127.0.0.1:4173), E2E_API (http://127.0.0.1:3000), E2E_EMAIL_DOMAIN (siscom.local),
 //   E2E_EVIDENCE (đường dẫn JSON bằng chứng; mặc định docs/evidence/b1.3_e2e_session_roles_<thời điểm>.json), E2E_CDP_PORT (9355), BROWSER_EXE.
-// Phạm vi ghi: tạo 1 khách hàng trong DB THỬ (bằng crm_admin) để chứng minh phạm vi đọc OWN/DEPARTMENT/ALL. Mọi socket chỉ 127.0.0.1;
+// Phạm vi ghi: tạo khách hàng trong DB THỬ (crm_admin + sales) để chứng minh phạm vi đọc/ghi; S9 đổi mật khẩu sales rồi đổi lại mật khẩu gốc. Mọi socket chỉ 127.0.0.1;
 // hostname của E2E_WEB/E2E_API bắt buộc 127.0.0.1 (Chrome chạy với host-resolver chỉ cho loopback). Không bao giờ trỏ siscom_crm_dev
 // (harness không biết DB; backend do auth-demo-stack.ps1 khởi động đã kiểm tra tên DB thử).
 // Mã thoát: 0 = đạt (có thể có KNOWN), 1 = có FAIL, 2 = BLOCKED (thiếu trình duyệt / backend / FE / mật khẩu).
@@ -265,10 +265,70 @@ try {
 
     roleEvidence[r.key] = { email, code, fullName, dbRole: roles[0] || null, permissions: meData ? meData.permissions : null, customersTotal: total };
 
+    if (r.key === 'sale') await runS9(r); // S9 (PR 8) trong phiên sales, trước khi đăng xuất
+
     // S7 — đăng xuất: về màn hình đăng nhập, /auth/me 401, cookie xoá.
     await logout();
     const meAfter = await pageFetch('/auth/me');
     check(`S7.${r.key} đăng xuất => màn hình đăng nhập, /auth/me 401, cookie đã xoá`, meAfter.status === 401 && (await csrfCookie()) === null && (await cookies()).length === 0, 'status=' + meAfter.status);
+  }
+  // S9 — Đổi mật khẩu của chính mình (PR 8, B1.3.3): sales đổi qua hộp thoại Liquid Glass; phiên cũ (cookie HttpOnly đọc qua CDP) bị thu hồi (401),
+  // phiên mới hoạt động; cuối cùng đổi lại mật khẩu gốc để tài khoản demo giữ nguyên. Hạn mức D18 A = 5 lần/15 phút theo nhân viên (bộ nhớ backend):
+  // mỗi lượt S9 tốn 3 lần gọi (1 sai + 2 đúng) => chạy lại harness liên tiếp trong 15 phút có thể gặp 429 (khởi động lại backend để reset).
+  // Chạy NGAY TRONG phiên của sales (trước S7 đăng xuất) để không tốn thêm lần đăng nhập (login limiter 5/15 phút theo tài khoản).
+  async function runS9(sale) {
+    const NEWPW = 'Kinhdoanh-Moi#' + STAMP; // 4 nhóm, không chứa "sale"/mã NV
+    const DIALOG = "[role=dialog][aria-label=\"Đổi mật khẩu\"]";
+    const clearField = (id) => ev(`(()=>{const e=document.getElementById(${JSON.stringify(id)});if(!e)return false;const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;s.call(e,'');e.dispatchEvent(new Event('input',{bubbles:true}));return true})()`);
+    const fill = async (c, n, f) => { for (const [id, v] of [['cp-current', c], ['cp-next', n], ['cp-confirm', f]]) { await clearField(id); await typeInto('#' + id, v); } };
+    const submitCp = async () => { if (!(await clickText('Đổi mật khẩu', DIALOG + ' button[type=submit]'))) throw new Error('không bấm được nút gửi đổi mật khẩu'); };
+    const openCp = async () => { if (!(await clickText('Đổi mật khẩu'))) throw new Error('không thấy nút Đổi mật khẩu trên thanh đầu trang'); await waitFor("!!document.querySelector('" + DIALOG + " #cp-current')", 'hộp thoại đổi mật khẩu'); };
+    const errText = (id) => ev(`(document.getElementById(${JSON.stringify(id)}) || { textContent: '' }).textContent`);
+    // F2: nếu đã đổi (S9.4) mà không đổi lại được (429/lỗi), finally dùng fetch từ Node (đăng nhập bằng NEWPW -> cookie + csrf -> POST đổi lại) để
+    // tài khoản demo không bị kẹt ở mật khẩu mới; nếu vẫn thất bại thì in rõ mật khẩu hiện tại để owner xử lý.
+    let changed = false; let restored = false;
+    const restoreViaApi = async () => {
+      const lg = await fetch(API + '/api/v1/auth/login', { method: 'POST', headers: { 'content-type': 'application/json', origin: WEB }, body: JSON.stringify({ login: sale.local + '@' + DOMAIN, password: NEWPW }), signal: AbortSignal.timeout(8000) });
+      if (lg.status !== 200) return 'login=' + lg.status;
+      const sid = (lg.headers.get('set-cookie') || '').match(/siscom_sid=([^;]+)/); const j = await lg.json();
+      if (!sid) return 'no-cookie';
+      const cp = await fetch(API + '/api/v1/auth/change-password', { method: 'POST', headers: { 'content-type': 'application/json', origin: WEB, cookie: 'siscom_sid=' + sid[1], 'x-csrf-token': j.data.csrfToken }, body: JSON.stringify({ currentPassword: NEWPW, newPassword: pwOf(sale), confirmPassword: pwOf(sale) }), signal: AbortSignal.timeout(8000) });
+      return 'change=' + cp.status;
+    };
+    try {
+    await waitFor(LOGGED_IN, 'đang đăng nhập sale (S9)');
+    await ev("location.hash = '/customers'"); await sleep(300);
+    const oldSid = (await send('Network.getCookies', { urls: [WEB + '/api/v1/'] })).cookies.find((c) => c.name === 'siscom_sid');
+    await openCp();
+    check('S9.1 nút "Đổi mật khẩu" mở hộp thoại Liquid Glass có 3 ô mật khẩu + thanh độ mạnh', await ev("['cp-current','cp-next','cp-confirm','cp-strength'].every(id => !!document.getElementById(id)) && !!document.querySelector('" + DIALOG + " form.sg-glass-strong')"));
+    await fill('Sai-mat-khau#2026', NEWPW, NEWPW); await submitCp();
+    await waitFor("!!document.getElementById('cp-current-error')", 'lỗi mật khẩu hiện tại sai');
+    check('S9.2 mật khẩu hiện tại sai => lỗi tại ô hiện tại (400 PASSWORD_CURRENT_INVALID), ô đã xoá, vẫn đăng nhập', (await errText('cp-current-error')).includes('không đúng') && (await ev("document.getElementById('cp-current').value")) === '' && (await pageFetch('/auth/me')).status === 200);
+    await fill(pwOf(sale), 'kinhdoanh-yeu', 'kinhdoanh-yeu'); await submitCp();
+    await waitFor("!!document.getElementById('cp-next-error')", 'lỗi mật khẩu mới yếu');
+    check('S9.3 mật khẩu mới yếu => lỗi tại ô mật khẩu mới (chính sách D17, chặn ở máy khách), hộp thoại vẫn mở', (await errText('cp-next-error')).length > 0 && (await ev("!!document.querySelector('" + DIALOG + "')")));
+    await fill(pwOf(sale), NEWPW, NEWPW); await submitCp();
+    await waitFor("!document.querySelector('" + DIALOG + "') && document.body.textContent.includes('Đã đổi mật khẩu')", 'đổi mật khẩu thành công (hộp thoại đóng + toast)');
+    changed = true;
+    const meNew = await pageFetch('/auth/me');
+    const oldRes = oldSid ? await fetch(API + '/api/v1/auth/me', { headers: { cookie: 'siscom_sid=' + oldSid.value }, signal: AbortSignal.timeout(5000) }) : { status: 'no-old-cookie' };
+    check('S9.4 đổi thành công: toast, /auth/me 200 với phiên mới; cookie phiên cũ => 401 (đã thu hồi, D19)', meNew.status === 200 && meNew.body.data.me.mustChangePassword === false && oldRes.status === 401, 'me=' + meNew.status + ' old=' + oldRes.status);
+    await openCp();
+    await fill(NEWPW, pwOf(sale), pwOf(sale)); await submitCp();
+    await waitFor("!document.querySelector('" + DIALOG + "')", 'đổi lại mật khẩu gốc');
+    const relogin = await fetch(API + '/api/v1/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: sale.local + '@' + DOMAIN, password: pwOf(sale) }), signal: AbortSignal.timeout(5000) });
+    restored = relogin.status === 200;
+    check('S9.5 đổi lại mật khẩu gốc => đăng nhập bằng mật khẩu gốc 200 (tài khoản demo giữ nguyên); phiên hiện tại vẫn 200', restored && (await pageFetch('/auth/me')).status === 200, 'relogin=' + relogin.status);
+    roleEvidence.sale = { ...(roleEvidence.sale || {}), passwordChange: { oldSessionRevoked: oldRes.status === 401, restored } };
+    } finally {
+      if (changed && !restored) {
+        let r = 'skip';
+        try { r = await restoreViaApi(); } catch (e) { r = 'error: ' + e.message; }
+        restored = r === 'change=200';
+        if (restored) rec('S9.R khôi phục mật khẩu gốc qua API sau sự cố', 'PASS', r);
+        else rec('S9.R KHÔNG khôi phục được mật khẩu gốc — MẬT KHẨU sale HIỆN LÀ: Kinhdoanh-Moi#' + STAMP + ' (đổi lại tay hoặc khởi động lại backend rồi chạy lại)', 'FAIL', r);
+      }
+    }
   }
   check('S8 không có lỗi console/ngoại lệ JS trong suốt kịch bản', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 } catch (e) {

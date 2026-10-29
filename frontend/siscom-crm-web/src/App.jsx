@@ -13,6 +13,8 @@ import CustomerProfilePage from './pages/CustomerProfile.jsx';
 import CustomerApiDetail from './features/customers/CustomerApiDetail.jsx';
 import { createCustomerApiUi } from './features/customers/customerApiUi.js';
 import ApiModeUnsupported, { API_UNSUPPORTED_NOTE } from './features/apiMode/ApiModeUnsupported.jsx';
+import ChangePasswordDialog from './features/auth/ChangePasswordDialog.jsx';
+import { CHANGE_PASSWORD_UI_TEXT } from './auth/changePasswordModel.js';
 
 // null unless VITE_CRM_API_ENABLED === 'true' (default OFF = localStorage demo; no network code path is reachable).
 // Khi được AuthGate dựng (VITE_CRM_AUTH_ENABLED=true), bộ điều khiển gắn phiên cookie được truyền qua prop `customerApi` thay cho bản này.
@@ -159,6 +161,9 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
   const sessionUser = me ? { name: me.fullName, role: (me.roles || []).map((r) => ROLE_LABELS[r] || r).join(', ') || 'Chưa có vai trò' } : { name: 'Phiên API', role: 'Xác thực do máy chủ quyết định' };
   const sidebar = (extra) => <Sidebar items={NAV} active={route.page} onSelect={(id) => navigate('/' + id)} logoSrc={logo} user={API_ON ? sessionUser : { name: user.name, role: ROLES[user.role].label }} {...extra} />;
   const logoutButton = session ? <Button size="sm" variant="secondary" icon="log-out" onClick={() => session.logout()}>Đăng xuất</Button> : null;
+  // PR 8: đổi mật khẩu của chính mình (chế độ API có phiên cookie). Thành công => toast; các thiết bị khác đã bị đăng xuất phía máy chủ.
+  const [pwOpen, setPwOpen] = React.useState(false);
+  const changePasswordButton = session ? <Button size="sm" variant="secondary" icon="key-round" onClick={() => setPwOpen(true)}>{CHANGE_PASSWORD_UI_TEXT.title}</Button> : null;
   return (
     <div style={{ display: 'flex', height: '100%' }}>
       {mobile ? (navOpen ? (
@@ -168,7 +173,7 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
         </div>) : null) : sidebar({ collapsed, onToggle: () => setCollapsed(!collapsed) })}
       <main className="sg-scroll" style={{ flex: 1, minWidth: 0, overflow: 'auto', position: 'relative' }}>
         <Topbar title={title} breadcrumbs={crumbs} search={q} onSearch={setQ} notifications={API_ON ? 0 : 5} onAskAI={API_ON ? undefined : () => setChat(true)} onMenu={mobile ? () => setNavOpen(true) : undefined}
-          user={{ name: API_ON ? sessionUser.name : user.name }} actions={<>{API_ON ? null : <RoleSwitch user={user} setUserId={setUserId} />}<ThemeSwitch mode={mode} setMode={setMode} />{logoutButton}</>} />
+          user={{ name: API_ON ? sessionUser.name : user.name }} actions={<>{API_ON ? null : <RoleSwitch user={user} setUserId={setUserId} />}<ThemeSwitch mode={mode} setMode={setMode} />{changePasswordButton}{logoutButton}</>} />
         <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px var(--page-gutter)', font: 'var(--type-caption)', color: 'var(--warning-text)', background: 'var(--warning-soft)', borderBottom: '1px solid var(--warning-border)', flexWrap: 'wrap' }}>
           <Icon name={API_ON ? 'server' : 'flask-conical'} size={14} />
           {API_ON ? <span style={{ flex: 1, minWidth: 200 }}>{me ? 'Đang đăng nhập: ' + me.fullName + ' (' + me.code + ') — ' : 'Chế độ API — '}chỉ danh sách và chi tiết khách hàng lấy từ máy chủ. Các mô-đun khác {API_UNSUPPORTED_NOTE}; không hiển thị dữ liệu minh hoạ.</span>
@@ -189,6 +194,7 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
               : { text: 'Theo dữ liệu minh hoạ: nên ưu tiên Hoàng Gia Riverside (cơ hội 12,6 tỷ đang đàm phán) và BV An Khang (báo giá chờ duyệt).', sources: 'Nguồn: dữ liệu demo' }), 1000))} />
         </div>
       ) : null}
+      {session ? <ChangePasswordDialog open={pwOpen} session={session} onClose={() => setPwOpen(false)} onDone={() => { setPwOpen(false); toast({ tone: 'success', title: CHANGE_PASSWORD_UI_TEXT.title, message: CHANGE_PASSWORD_UI_TEXT.success }); }} /> : null}
       <Modal open={!!dlg} onClose={() => setDlg(null)} size="sm" icon={dlg && dlg.icon} tone={dlg && dlg.tone} title={dlg ? dlg.title : ''} description={dlg && dlg.description}
         footer={dlg ? <><Button variant="secondary" onClick={() => setDlg(null)}>{dlg.cancelLabel || 'Huỷ'}</Button><Button variant={dlg.tone === 'error' ? 'danger' : 'primary'} onClick={() => { const f = dlg.onConfirm; setDlg(null); f && f(); }}>{dlg.confirmLabel || 'Xác nhận'}</Button></> : null} />
       <div className="sg-toast-stack">{toasts.map((t) => <Toast key={t.id} {...t} onClose={() => setToasts((l) => l.filter((x) => x.id !== t.id))} />)}</div>

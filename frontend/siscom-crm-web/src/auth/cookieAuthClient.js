@@ -57,7 +57,7 @@ export function createCookieAuthClient(config, fetchImpl) {
     } catch (e) { throw new AuthNetworkError(); }
     let json = null;
     try { json = await res.json(); } catch (e) { /* thân không phải JSON */ }
-    if (!res.ok) throw new AuthHttpError(res.status, String((json && json.error && json.error.code) || (json && json.code) || 'REQUEST_FAILED'));
+    if (!res.ok) throw new AuthHttpError(res.status, String((json && json.error && json.error.code) || (json && json.code) || 'REQUEST_FAILED'), json && json.error && json.error.details !== undefined ? json.error.details : (json && json.details !== undefined ? json.details : null));
     const data = json && json.data !== undefined ? json.data : json;
     if (data === null || typeof data !== 'object') throw new AuthHttpError(res.status, 'BAD_RESPONSE');
     return data;
@@ -75,6 +75,14 @@ export function createCookieAuthClient(config, fetchImpl) {
       const d = await call('GET', '/auth/me');
       if (!isMe(d.me)) throw new AuthHttpError(200, 'BAD_RESPONSE');
       return { me: d.me };
+    },
+    // PR 8: đổi mật khẩu của chính mình. Thiếu CSRF => không gọi mạng. Phản hồi: me + csrfToken MỚI (máy chủ đã cấp phiên mới, mọi phiên cũ bị thu hồi).
+    async changePassword(currentPassword, newPassword, confirmPassword, csrfToken) {
+      if (typeof csrfToken !== 'string' || !csrfToken) throw new AuthHttpError(403, 'CSRF_FAILED');
+      for (const v of [currentPassword, newPassword, confirmPassword]) if (typeof v !== 'string' || !v) throw new AuthHttpError(400, 'REQUEST_INVALID');
+      const d = await call('POST', '/auth/change-password', { body: { currentPassword, newPassword, confirmPassword }, csrf: csrfToken });
+      if (!isMe(d.me) || typeof d.csrfToken !== 'string' || !B64URL_256.test(d.csrfToken)) throw new AuthHttpError(200, 'BAD_RESPONSE');
+      return { me: d.me, csrfToken: d.csrfToken };
     },
     async logout(csrfToken) {
       if (typeof csrfToken !== 'string' || !csrfToken) throw new AuthHttpError(403, 'CSRF_FAILED'); // không gọi mạng khi thiếu CSRF
