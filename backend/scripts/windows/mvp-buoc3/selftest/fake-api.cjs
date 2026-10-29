@@ -46,7 +46,7 @@ http.createServer(async (req, res) => {
     else if (!ORIGINS.has(origin) || !sess || req.headers['x-csrf-token'] !== sess.csrf) return err(res, 403, 'CSRF_FAILED', 'Yeu cau bi tu choi (kiem tra nguon goc).');
   }
   if (p === '/api/v1/auth/login' && req.method === 'POST') {
-    const body = JSON.parse((await readBody(req)) || '{}');
+    let body; try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return err(res, 400, 'VALIDATION', 'Body khong phai JSON.'); }
     const role = String(body.login || '').startsWith('ketoan') ? 'ketoan' : 'admin';
     const newSid = randomUUID().replace(/-/g, ''); const csrf = randomUUID().replace(/-/g, '');
     sessions.set(newSid, { csrf, role });

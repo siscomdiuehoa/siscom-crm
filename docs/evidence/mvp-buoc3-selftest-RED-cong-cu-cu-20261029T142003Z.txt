@@ -1,4 +1,4 @@
-Cong cu: C:\Users\HOMEPH~1\AppData\Local\Temp\claude\D--SISCOM-CRM\7ca69e3d-41d7-455c-894e-35adcd7218c7\scratchpad\mvp-kiem-tra-xoa-mem.OLD.ps1
+Cong cu: <thu-muc-tam>\mvp-kiem-tra-xoa-mem.OLD.ps1
 --- dau ra cong cu ---
 [PASS] Dang nhap: Quan tri CRM (gia) (NV-0002) vai tro DB crm_admin
 Quyen customer.delete: ALL | customer.restore: ALL
@@ -10,7 +10,7 @@ Khach thu: KH-00013 (id 2fee292e-66bc-4078-a761-5c3dd973149e)
 [PASS] Dang xuat
 
 KET QUA BUOC 3 (NV-0002): FAIL 3 muc.
-[DAT] Da ghi bang chung: C:\Users\HOMEPH~1\AppData\Local\Temp\mvp-buoc3-selftest-1eb77c42d990424f8526a7eb5489085f\mvp-buoc3-xoa-mem-NV-0002-20261029T141940Z.txt
+[DAT] Da ghi bang chung: <TEMP>\mvp-buoc3-selftest-1eb77c42d990424f8526a7eb5489085f\mvp-buoc3-xoa-mem-NV-0002-20261029T141940Z.txt
 --- het ---
 [FAIL] Ma thoat cong cu = 0 (thuc te 1)
 [FAIL] (1) DELETE: doc duoc ma loi DELETE_LINKS_UNVERIFIED tu body 409

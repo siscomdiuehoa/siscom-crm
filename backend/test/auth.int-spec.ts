@@ -216,7 +216,7 @@ describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A
   const U = '/api/v1/auth/change-password';
   const ME = '/api/v1/auth/me';
   const w = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
-  const acct = USERS[4]; // accountant: không dùng ở các describe khác
+  const acct = USERS[4]; // accountant: các describe sau (RBAC, Bước 3, D.0) đăng nhập qua session() nên đọc USERS[4].password đã cập nhật; afterAll đổi lại mật khẩu gốc
   const ORIG = acct.password;
   const NEW = 'Taichinh-Moi#2026-ok';
   const body = (currentPassword: string, newPassword = NEW, confirmPassword = newPassword) => ({ currentPassword, newPassword, confirmPassword });
@@ -362,14 +362,13 @@ describe('Nghiệm thu Bước 3 — xoá mềm/khôi phục qua phiên thật (
     expect((await prisma.customer.findUniqueOrThrow({ where: { id: target.id } })).deletedAt).toBeNull();
   });
 
-  it('kế toán / kỹ thuật / kinh doanh: DELETE và restore bị từ chối (403 FORBIDDEN hoặc 404 ngoài phạm vi), không đổi dữ liệu', async () => {
+  it('kế toán / kỹ thuật / kinh doanh: DELETE và restore => 403 FORBIDDEN (kiểm quyền trước phạm vi, không lộ 404), không đổi dữ liệu', async () => {
     for (const key of ['accountant', 'technician', 'sale']) {
       const s = await session(key);
       const d = await srv().delete(C + '/' + target.id).set(w(s));
-      expect([403, 404]).toContain(d.status);
-      if (d.status === 403) expect(errBody(d).error?.code).toBe('FORBIDDEN');
+      expect(d.status).toBe(403); expect(errBody(d).error?.code).toBe('FORBIDDEN');
       const r = await srv().post(C + '/' + target.id + '/restore').set(w(s));
-      expect([403, 404]).toContain(r.status);
+      expect(r.status).toBe(403); expect(errBody(r).error?.code).toBe('FORBIDDEN');
       const noCsrf = await srv().delete(C + '/' + target.id).set({ Cookie: s.cookie, Origin: ORIGIN });
       expect(noCsrf.status).toBe(403); expect(errBody(noCsrf).error?.code).toBe('CSRF_FAILED');
     }

@@ -10,7 +10,7 @@ Khach thu: KH-00013 (id 2fee292e-66bc-4078-a761-5c3dd973149e)
 [PASS] Dang xuat
 
 KET QUA BUOC 3 (NV-0002): PASS (xoa mem dang khoa theo N2, khoi phuc tu choi dung, CSRF dung).
-[DAT] Da ghi bang chung: C:\Users\HOMEPH~1\AppData\Local\Temp\mvp-buoc3-selftest-b0bb6cd155df4aa6903418343279bc92\mvp-buoc3-xoa-mem-NV-0002-20261029T142123Z.txt
+[DAT] Da ghi bang chung: <TEMP>\mvp-buoc3-selftest-b0bb6cd155df4aa6903418343279bc92\mvp-buoc3-xoa-mem-NV-0002-20261029T142123Z.txt
 --- het ---
 [PASS] Ma thoat cong cu = 0 (thuc te 0)
 [PASS] (1) DELETE: doc duoc ma loi DELETE_LINKS_UNVERIFIED tu body 409

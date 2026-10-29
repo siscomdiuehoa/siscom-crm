@@ -33,7 +33,8 @@ function Finish() {
   try {
     if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Force -Path $OutDir | Out-Null }
     $f = Join-Path $OutDir ('mvp-buoc3-xoa-mem-' + $script:who + '-' + $script:stamp + '.txt')
-    $hdr = @('# MVP BUOC 3 - XOA MEM / KHOI PHUC qua API that - ' + $script:stamp + ' (UTC)', '# API ' + $Api + ' | Origin ' + $Origin + ' | khach thu ' + $CustomerCode + ' | khong ghi mat khau/cookie/token' + $(if ($SelfTest) { ' | SELFTEST (API gia)' } else { '' }), '')
+    # Boc tung phan tu trong ( ) vi toan tu "," uu tien cao hon "+" trong PowerShell (khong boc => mang chi co 1 phan tu).
+    $hdr = @(('# MVP BUOC 3 - XOA MEM / KHOI PHUC qua API that - ' + $script:stamp + ' (UTC)'), ('# API ' + $Api + ' | Origin ' + $Origin + ' | khach thu ' + $CustomerCode + ' | khong ghi mat khau/cookie/token' + $(if ($SelfTest) { ' | SELFTEST (API gia)' } else { '' })), '')
     ($hdr + $script:lines) -join "`n" | Out-File -FilePath $f -Encoding utf8
     Write-Host ('[DAT] Da ghi bang chung: ' + $f) -ForegroundColor Cyan
   } catch { Write-Host ('[LOI] Khong ghi duoc file bang chung: ' + $_.Exception.Message) -ForegroundColor Red }
@@ -70,6 +71,11 @@ function Call([string]$method, [string]$path, $body, [string]$csrf) {
 }
 function Code($res) { try { return [string]((ConvertFrom-Json $res.body).error.code) } catch { return '' } }
 
+if ($SelfTest) {
+  # Chi cho API GIA tren may cuc bo: tranh chay nham vao backend that (tao 1 dong login_failed + 1 file bang chung FAIL gay nham bien ban).
+  $apiHost = ([uri]$Api).Host
+  if (@('127.0.0.1', 'localhost', '::1') -notcontains $apiHost) { Write-Host ('[LOI] -SelfTest chi dung voi API gia tren 127.0.0.1/localhost, khong phai ' + $apiHost) -ForegroundColor Red; exit 2 }
+}
 if ($SelfTest) { $email = 'selftest@siscom.local'; $sec = ConvertTo-SecureString 'selftest-gia-khong-dung-that' -AsPlainText -Force }
 else { $email = Read-Host 'Email tai khoan thu (vd admin@siscom.local)'; $sec = Read-Host 'Mat khau (nhap an)' -AsSecureString }
 $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
