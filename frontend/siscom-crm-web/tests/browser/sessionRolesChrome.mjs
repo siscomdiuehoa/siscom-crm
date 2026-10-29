@@ -265,6 +265,8 @@ try {
 
     roleEvidence[r.key] = { email, code, fullName, dbRole: roles[0] || null, permissions: meData ? meData.permissions : null, customersTotal: total };
 
+    if (r.key === 'sale') await runS9(r); // S9 (PR 8) trong phiên sales, trước khi đăng xuất
+
     // S7 — đăng xuất: về màn hình đăng nhập, /auth/me 401, cookie xoá.
     await logout();
     const meAfter = await pageFetch('/auth/me');
@@ -273,8 +275,8 @@ try {
   // S9 — Đổi mật khẩu của chính mình (PR 8, B1.3.3): sales đổi qua hộp thoại Liquid Glass; phiên cũ (cookie HttpOnly đọc qua CDP) bị thu hồi (401),
   // phiên mới hoạt động; cuối cùng đổi lại mật khẩu gốc để tài khoản demo giữ nguyên. Hạn mức D18 A = 5 lần/15 phút theo nhân viên (bộ nhớ backend):
   // mỗi lượt S9 tốn 3 lần gọi (1 sai + 2 đúng) => chạy lại harness liên tiếp trong 15 phút có thể gặp 429 (khởi động lại backend để reset).
-  {
-    const sale = ROLES.find((r) => r.key === 'sale');
+  // Chạy NGAY TRONG phiên của sales (trước S7 đăng xuất) để không tốn thêm lần đăng nhập (login limiter 5/15 phút theo tài khoản).
+  async function runS9(sale) {
     const NEWPW = 'Kinhdoanh-Moi#' + STAMP; // 4 nhóm, không chứa "sale"/mã NV
     const DIALOG = "[role=dialog][aria-label=\"Đổi mật khẩu\"]";
     const clearField = (id) => ev(`(()=>{const e=document.getElementById(${JSON.stringify(id)});if(!e)return false;const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;s.call(e,'');e.dispatchEvent(new Event('input',{bubbles:true}));return true})()`);
@@ -294,9 +296,8 @@ try {
       return 'change=' + cp.status;
     };
     try {
-    await goto(WEB + '/');
-    await login(sale.local + '@' + DOMAIN, pwOf(sale));
-    await waitFor(LOGGED_IN, 'đăng nhập sale (S9)');
+    await waitFor(LOGGED_IN, 'đang đăng nhập sale (S9)');
+    await ev("location.hash = '/customers'"); await sleep(300);
     const oldSid = (await send('Network.getCookies', { urls: [WEB + '/api/v1/'] })).cookies.find((c) => c.name === 'siscom_sid');
     await openCp();
     check('S9.1 nút "Đổi mật khẩu" mở hộp thoại Liquid Glass có 3 ô mật khẩu + thanh độ mạnh', await ev("['cp-current','cp-next','cp-confirm','cp-strength'].every(id => !!document.getElementById(id)) && !!document.querySelector('" + DIALOG + " form.sg-glass-strong')"));
@@ -305,7 +306,7 @@ try {
     check('S9.2 mật khẩu hiện tại sai => lỗi tại ô hiện tại (400 PASSWORD_CURRENT_INVALID), ô đã xoá, vẫn đăng nhập', (await errText('cp-current-error')).includes('không đúng') && (await ev("document.getElementById('cp-current').value")) === '' && (await pageFetch('/auth/me')).status === 200);
     await fill(pwOf(sale), 'kinhdoanh-yeu', 'kinhdoanh-yeu'); await submitCp();
     await waitFor("!!document.getElementById('cp-next-error')", 'lỗi mật khẩu mới yếu');
-    check('S9.3 mật khẩu mới yếu => lỗi tại ô mật khẩu mới (chính sách D17, chặn ở máy khách), hộp thoại vẫn mở', (await errText('cp-next-error')).length > 0 && !!(await ev("document.querySelector('" + DIALOG + "')")));
+    check('S9.3 mật khẩu mới yếu => lỗi tại ô mật khẩu mới (chính sách D17, chặn ở máy khách), hộp thoại vẫn mở', (await errText('cp-next-error')).length > 0 && (await ev("!!document.querySelector('" + DIALOG + "')")));
     await fill(pwOf(sale), NEWPW, NEWPW); await submitCp();
     await waitFor("!document.querySelector('" + DIALOG + "') && document.body.textContent.includes('Đã đổi mật khẩu')", 'đổi mật khẩu thành công (hộp thoại đóng + toast)');
     changed = true;
@@ -319,7 +320,6 @@ try {
     restored = relogin.status === 200;
     check('S9.5 đổi lại mật khẩu gốc => đăng nhập bằng mật khẩu gốc 200 (tài khoản demo giữ nguyên); phiên hiện tại vẫn 200', restored && (await pageFetch('/auth/me')).status === 200, 'relogin=' + relogin.status);
     roleEvidence.sale = { ...(roleEvidence.sale || {}), passwordChange: { oldSessionRevoked: oldRes.status === 401, restored } };
-    await logout();
     } finally {
       if (changed && !restored) {
         let r = 'skip';
