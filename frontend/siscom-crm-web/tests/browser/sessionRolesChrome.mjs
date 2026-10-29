@@ -159,10 +159,19 @@ try {
       const ok = await pageFetch('/customers', { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': await csrfCookie() }, body });
       if (r.key === 'admin') {
         createdCode = ok.body && ok.body.data ? ok.body.data.code : null;
-        check('S4.admin.3 POST /customers với X-CSRF-Token đúng => 201, có mã khách', ok.status === 201 && !!createdCode, 'status=' + ok.status + ' code=' + createdCode);
-        await ev("location.hash = '/'"); await sleep(200); await ev("location.hash = '/customers'");
-        await waitFor(`document.body.textContent.includes(${JSON.stringify(createdCode || '__none__')})`, 'khách vừa tạo hiện trên danh sách UI');
-        rec('S4.admin.4 khách vừa tạo hiện trên danh sách UI', 'PASS', createdCode);
+        const errCode = ok.body && ok.body.error ? ok.body.error.code : null;
+        if (ok.status === 400 && errCode === 'LOOKUP_INVALID') {
+          // DB thử mới chưa seed danh mục (D3, customers.defaults.ts): tier/status mặc định POTENTIAL không tồn tại => 400. CSRF đã qua
+          // (không phải 403). Ghi KNOWN và bỏ S4.admin.4/S5 (không có khách để kiểm phạm vi) thay vì dừng cả lượt chạy.
+          rec('S4.admin.3 POST /customers với X-CSRF-Token đúng => 400 LOOKUP_INVALID (CSRF qua; DB chưa seed danh mục D3)', 'KNOWN', 'field=' + (ok.body.error.details ? ok.body.error.details.field : '?'));
+        } else {
+          check('S4.admin.3 POST /customers với X-CSRF-Token đúng => 201, có mã khách', ok.status === 201 && !!createdCode, 'status=' + ok.status + ' code=' + createdCode + (errCode ? ' error=' + errCode : ''));
+          if (createdCode) {
+            await ev("location.hash = '/'"); await sleep(200); await ev("location.hash = '/customers'");
+            await waitFor(`document.body.textContent.includes(${JSON.stringify(createdCode)})`, 'khách vừa tạo hiện trên danh sách UI');
+            rec('S4.admin.4 khách vừa tạo hiện trên danh sách UI', 'PASS', createdCode);
+          }
+        }
       } else {
         rec('S4.sale.3 POST /customers (sales, scope OWN) => ' + ok.status + ' ' + (ok.body && ok.body.error ? ok.body.error.code : ''), ok.status === 403 ? 'KNOWN' : 'FAIL', 'D12: tạo khách cần scope ALL cho tới B3 CustomerAssignment; kỳ vọng 403');
       }
