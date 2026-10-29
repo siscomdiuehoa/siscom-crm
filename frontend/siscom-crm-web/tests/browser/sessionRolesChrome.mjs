@@ -43,7 +43,7 @@ const ROLES = [
 const pwOf = (r) => process.env['BOOTSTRAP_PASSWORD_' + r.key.toUpperCase()];
 
 // ---------------- Kết quả ----------------
-const results = []; const roleEvidence = {}; let createdCode = null; let createdId = null; let createdVersion = null;
+const results = []; const roleEvidence = {}; let createdCode = null; let createdId = null; let createdVersion = null; let adminEmployeeId = null;
 const rec = (id, status, detail) => { results.push({ id, status, detail: detail || '' }); console.log('[' + status + '] ' + id + (detail ? ' — ' + detail : '')); };
 const check = (id, ok, detail) => rec(id, ok ? 'PASS' : 'FAIL', detail);
 const blocked = (msg) => { console.log('BLOCKED: ' + msg); process.exit(2); };
@@ -167,7 +167,7 @@ try {
     const ok = await pageFetch('/customers', { method: 'POST', headers: await hdr(), body });
     if (r.key === 'admin') {
       const c = ok.body && ok.body.data;
-      createdCode = c ? c.code : null; createdId = c ? c.id : null; createdVersion = c ? c.version : null;
+      createdCode = c ? c.code : null; createdId = c ? c.id : null; createdVersion = c ? c.version : null; adminEmployeeId = meData ? meData.employeeId : null;
       check('S4.admin.3 tạo: POST /customers CSRF đúng => 201, mã KH-xxxxx, tier/status mặc định POTENTIAL, source WEBSITE (D3 đã seed)', ok.status === 201 && /^KH-\d{5,}$/.test(createdCode || '') && !!c && c.tier && c.tier.code === 'POTENTIAL' && c.status && c.status.code === 'POTENTIAL' && c.source && c.source.code === 'WEBSITE' && c.version === 1, 'status=' + ok.status + ' code=' + createdCode + (errOf(ok) ? ' error=' + errOf(ok) + ' ' + JSON.stringify(ok.body.error.details || null) : ''));
       if (!createdId) throw new Error('crm_admin không tạo được khách => không kiểm được xem/sửa/phạm vi (status ' + ok.status + ' ' + errOf(ok) + ')');
       // Danh sách FE tải một lần rồi giữ trong bộ nhớ (CustomerList: chỉ load khi status 'idle'); khách tạo ngoài biểu mẫu UI chỉ hiện sau khi
@@ -196,7 +196,27 @@ try {
       rec('S4.admin.10 trang chi tiết (#/customers/:id) hiện tên đã sửa', 'PASS');
       await ev("location.hash = '/customers'"); await sleep(300);
     } else if (r.key === 'sale') {
-      rec('S4.sale.3 POST /customers (sales, scope OWN) => ' + ok.status + ' ' + errOf(ok), ok.status === 403 && errOf(ok) === 'FORBIDDEN' ? 'KNOWN' : 'FAIL', 'D12: tạo khách cần scope ALL cho tới B3 CustomerAssignment; kỳ vọng 403');
+      // B3 (PR 6, đóng D12): sales tạo với phạm vi OWN => 201, chủ sở hữu = chính mình (D14), có phân công OWNER; xem/sửa khách của mình; không được bàn giao.
+      const c = ok.body && ok.body.data;
+      const saleCode = c ? c.code : null; const saleId = c ? c.id : null;
+      check('S4.sale.3 tạo (B3): POST /customers phạm vi OWN => 201, chủ sở hữu = chính mình', ok.status === 201 && !!c && !!c.owner && c.owner.id === (meData && meData.employeeId) && c.version === 1, 'status=' + ok.status + ' code=' + saleCode + (errOf(ok) ? ' error=' + errOf(ok) : '') + ' owner=' + (c && c.owner ? c.owner.code : null));
+      if (saleId) {
+        const g = await pageFetch('/customers/' + saleId);
+        check('S4.sale.4 xem khách của mình: GET /customers/:id => 200', g.status === 200 && g.body.data.code === saleCode, 'status=' + g.status);
+        const up = await pageFetch('/customers/' + saleId, { method: 'PATCH', headers: await hdr(), body: JSON.stringify({ version: 1, note: 'ghi chú của sales' }) });
+        check('S4.sale.5 sửa khách của mình (OWN) => 200, version 2', up.status === 200 && up.body.data.version === 2, 'status=' + up.status + (errOf(up) ? ' code=' + errOf(up) : ''));
+        const give = await pageFetch('/customers/' + saleId, { method: 'PATCH', headers: await hdr(), body: JSON.stringify({ version: 2, ownerId: adminEmployeeId || '00000000-0000-4000-8000-000000000000' }) });
+        check('S4.sale.6 bàn giao cho người khác (OWN) => 403 FORBIDDEN', give.status === 403 && errOf(give) === 'FORBIDDEN', 'status=' + give.status + ' code=' + errOf(give));
+        const l3 = await pageFetch('/customers?page=1&pageSize=50');
+        const items3 = (l3.body && l3.body.data && l3.body.data.items) || [];
+        check('S4.sale.7 danh sách OWN: THẤY khách của mình, KHÔNG thấy khách crm_admin', items3.some((x) => x.code === saleCode) && !items3.some((x) => x.code === createdCode), 'total=' + (l3.body && l3.body.data ? l3.body.data.total : null));
+        await send('Page.reload', { ignoreCache: true }); await sleep(500);
+        await waitFor(LOGGED_IN, 'khôi phục phiên sau tải lại (sales)');
+        await ev("location.hash = '/customers'"); await sleep(300);
+        await waitFor("!document.body.textContent.includes('Đang tải danh sách khách hàng')", 'danh sách khách hàng tải xong (sales)');
+        await waitFor(`document.body.textContent.includes(${JSON.stringify(saleCode)})`, 'khách của sales hiện trên danh sách UI');
+        rec('S4.sale.8 khách của mình hiện trên danh sách UI (sau tải lại trang)', 'PASS', saleCode);
+      }
     } else {
       check(`S4.${r.key}.3 POST /customers (không có customer.create) => 403 FORBIDDEN`, ok.status === 403 && errOf(ok) === 'FORBIDDEN', 'status=' + ok.status + ' code=' + errOf(ok));
     }

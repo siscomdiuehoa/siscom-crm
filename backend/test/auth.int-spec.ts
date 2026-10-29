@@ -177,11 +177,16 @@ describe('RBAC V2 qua Customer API thật (SessionActorProvider)', () => {
     expect((await srv().get(C + '/' + id).set('Cookie', techS.cookie)).status).toBe(404); // khác phòng => không thấy (không lộ tồn tại)
     expect((await srv().get(C + '/' + id).set('Cookie', saleS.cookie)).status).toBe(404); // không phải chủ sở hữu
   });
-  it('SALE: tạo khách bị từ chối vì chỉ có create=OWN (service hiện yêu cầu ALL để tạo — ghi nhận, B3 mở OWN); sửa khách của mình OK; sửa khách người khác 404; xoá/khôi phục 403', async () => {
+  it('SALE (B3): tạo khách với create=OWN => 201, chủ sở hữu = chính mình, có phân công OWNER, tự xem được; sửa khách của mình OK; sửa khách người khác 404; xoá/khôi phục 403', async () => {
     const mine = await makeCustomer(prisma, fx, { ownerId: saleId, phone: '0903123457', phoneE164: '+84903123457' });
     const upd = await srv().patch(C + '/' + mine.id).set(w(saleS)).send({ version: mine.version, note: 'ghi chu' });
     expect(upd.status).toBe(200);
-    expect((await srv().post(C).set(w(saleS)).send({ name: 'KH sale tao', phone: '0903123458' })).status).toBe(403);
+    const made = await srv().post(C).set(w(saleS)).send({ name: 'KH sale tao', phone: '0903123458' });
+    expect(made.status).toBe(201);
+    expect(made.body.data.owner).toMatchObject({ id: saleId, code: codes.sale });
+    expect(await prisma.customerAssignment.count({ where: { customerId: made.body.data.id, employeeId: saleId, role: 'OWNER', endedAt: null, assignedById: saleId } })).toBe(1);
+    expect((await srv().get(C + '/' + made.body.data.id).set('Cookie', saleS.cookie)).status).toBe(200);
+    expect((await srv().post(C).set(w(saleS)).send({ name: 'KH sale tao 2', phone: '0903123458', ownerId: fx.empB })).status).toBe(403); // OWN: không được đặt người khác
     expect((await srv().delete(C + '/' + mine.id).set(w(saleS))).status).toBe(403);
     expect((await srv().post(C + '/' + mine.id + '/restore').set(w(saleS))).status).toBe(403);
     const other = await makeCustomer(prisma, fx, { ownerId: fx.empB, phone: '0903123459', phoneE164: '+84903123459' }); // khách của nhân viên khác (cùng phòng thử)

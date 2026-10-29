@@ -4,6 +4,7 @@ import type { LookupKey } from './customers.defaults';
 export const customerErrors = {
   validation: (details: string[]) => new DomainException(400, 'VALIDATION_FAILED', 'Dữ liệu gửi lên không hợp lệ.', details),
   lookupInvalid: (field: LookupKey) => new DomainException(400, 'LOOKUP_INVALID', 'Giá trị danh mục không hợp lệ hoặc đã ngừng sử dụng.', { field }),
+  ownerInvalid: () => new DomainException(400, 'OWNER_INVALID', 'Chủ sở hữu không hợp lệ: nhân viên không tồn tại, không còn làm việc hoặc đã bị xoá.', { field: 'ownerId' }),
   forbidden: (message = 'Không có quyền thực hiện thao tác này.') => new DomainException(403, 'FORBIDDEN', message),
   notFound: () => new DomainException(404, 'CUSTOMER_NOT_FOUND', 'Không tìm thấy khách hàng.'),
   duplicateTaxId: (visibleConflict: { code: string; name: string } | null) =>

@@ -181,8 +181,59 @@ describe('phạm vi truy cập và bảo mật', () => {
     expect((await a('readonly').patch(URL + '/' + c.id, { version: 1, note: 'x' })).status).toBe(403);
     expect((await a('ownA').patch(URL + '/' + c.id, { version: 1, note: 'x' })).status).toBe(404);
   });
-  it('tạo khách với phạm vi OWN/DEPARTMENT bị từ chối (B-1: chưa có chủ sở hữu)', async () => {
-    expect((await a('ownA').post(URL, { name: 'Công ty OWN ' + uniq(), phone: '0903123456' })).status).toBe(403);
+  it('B-3 tạo với phạm vi OWN: chủ sở hữu = chính mình (D14), có phân công OWNER, người tạo xem được; người cùng phòng (DEPARTMENT) xem được', async () => {
+    const r = await a('ownA').post(URL, { name: 'Công ty OWN ' + uniq(), phone: '0903123456', ownerReason: 'tự tạo' });
+    expect(r.status).toBe(201);
+    expect(r.body.data.owner).toMatchObject({ id: fx.empA });
+    const asg = await prisma.customerAssignment.findMany({ where: { customerId: r.body.data.id } });
+    expect(asg).toHaveLength(1);
+    expect(asg[0]).toMatchObject({ employeeId: fx.empA, role: 'OWNER', assignedById: fx.empA, endedAt: null, reason: 'tự tạo' });
+    expect(t.audit.entries.at(-1)?.changes).toMatchObject({ ownerId: [null, fx.empA] });
+    expect((await a('ownA').get(URL + '/' + r.body.data.id)).status).toBe(200);
+    expect((await a('ownB').get(URL + '/' + r.body.data.id)).status).toBe(404);
+    expect((await a('deptA').get(URL + '/' + r.body.data.id)).status).toBe(200);
+    expect((await a('deptC').get(URL + '/' + r.body.data.id)).status).toBe(404);
+  });
+  it('B-3 tạo: OWN gửi ownerId người khác -> 403; DEPARTMENT gửi người khác phòng -> 403; ownerId không tồn tại/nghỉ việc -> 400 OWNER_INVALID; không tạo dòng', async () => {
+    const before = await prisma.customer.count();
+    expect((await a('ownA').post(URL, { name: 'X ' + uniq(), phone: '0903123456', ownerId: fx.empB })).status).toBe(403);
+    expect((await a('deptA').post(URL, { name: 'X ' + uniq(), phone: '0903123456', ownerId: fx.empC })).status).toBe(403);
+    const r1 = await a().post(URL, { name: 'X ' + uniq(), phone: '0903123456', ownerId: NIL });
+    expect(r1.status).toBe(400); expect(r1.body.error.code).toBe('OWNER_INVALID');
+    const resigned = await prisma.employee.create({ data: { fullName: 'TEST NV nghỉ ' + uniq(), departmentId: fx.d1, isDemo: true, status: 'RESIGNED', deletedAt: new Date() }, select: { id: true } });
+    const r2 = await a().post(URL, { name: 'X ' + uniq(), phone: '0903123456', ownerId: resigned.id });
+    expect(r2.status).toBe(400); expect(r2.body.error.code).toBe('OWNER_INVALID');
+    expect(await prisma.customer.count()).toBe(before);
+  });
+  it('B-3 tạo ALL kèm ownerId: phân công cho người đó; sửa đổi chủ sở hữu: đóng phân công cũ + mở mới cùng transaction, version tăng, nhật ký [cũ, mới]; gửi lại giá trị cũ không tạo phân công', async () => {
+    const c = (await a().post(URL, { name: 'Công ty bàn giao ' + uniq(), phone: '0903123456', ownerId: fx.empB })).body.data;
+    expect(c.owner.id).toBe(fx.empB);
+    const u = await a().patch(URL + '/' + c.id, { version: 1, ownerId: fx.empC, ownerReason: 'bàn giao phòng 2' });
+    expect(u.status).toBe(200);
+    expect(u.body.data).toMatchObject({ version: 2, owner: { id: fx.empC } });
+    expect(t.audit.entries.at(-1)?.changes).toEqual({ ownerId: [fx.empB, fx.empC] });
+    const asg = await prisma.customerAssignment.findMany({ where: { customerId: c.id }, orderBy: { assignedAt: 'asc' } });
+    expect(asg).toHaveLength(2);
+    expect(asg[0]).toMatchObject({ employeeId: fx.empB, role: 'OWNER' }); expect(asg[0].endedAt).not.toBeNull();
+    expect(asg[1]).toMatchObject({ employeeId: fx.empC, role: 'OWNER', endedAt: null, assignedById: fx.empA, reason: 'bàn giao phòng 2' });
+    const same = await a().patch(URL + '/' + c.id, { version: 2, ownerId: fx.empC });
+    expect(same.status).toBe(200); expect(same.body.data.version).toBe(2);
+    expect(await prisma.customerAssignment.count({ where: { customerId: c.id } })).toBe(2);
+    expect((await a('deptC').get(URL + '/' + c.id)).status).toBe(200); // giờ thuộc phòng 2
+    expect((await a('deptA').get(URL + '/' + c.id)).status).toBe(404);
+    const cleared = await a().patch(URL + '/' + c.id, { version: 2, ownerId: null });
+    expect(cleared.status).toBe(200); expect(cleared.body.data.owner).toBeNull();
+    expect(await prisma.customerAssignment.count({ where: { customerId: c.id, endedAt: null } })).toBe(0);
+  });
+  it('B-3 sửa chủ sở hữu theo phạm vi: OWN đặt người khác -> 403; DEPARTMENT đặt khác phòng -> 403, cùng phòng -> 200', async () => {
+    const own = await makeCustomer(prisma, fx, { ownerId: fx.empA });
+    expect((await a('ownA').patch(URL + '/' + own.id, { version: 1, ownerId: fx.empB })).status).toBe(403);
+    expect((await a('ownA').patch(URL + '/' + own.id, { version: 1, ownerId: null })).status).toBe(403);
+    const dept = await makeCustomer(prisma, fx, { ownerId: fx.empA });
+    expect((await a('deptA').patch(URL + '/' + dept.id, { version: 1, ownerId: fx.empC })).status).toBe(403);
+    const ok = await a('deptA').patch(URL + '/' + dept.id, { version: 1, ownerId: fx.empB });
+    expect(ok.status).toBe(200); expect(ok.body.data.owner.id).toBe(fx.empB);
+    expect(await prisma.customerAssignment.count({ where: { customerId: dept.id, endedAt: null, employeeId: fx.empB } })).toBe(1);
   });
   it('19. phản hồi lỗi không lộ thông tin nội bộ', async () => {
     const tax = uniqueTax();

@@ -20,12 +20,14 @@ const lookups = [{ id: 't1', type: 'customer_tier', code: 'POTENTIAL', isActive:
 function build(scopes: Scopes = ALL, links: { check: () => Promise<{ verified: boolean; unchecked: string[] }> } = new UnverifiedLinksChecker()) {
   const customer = { findFirst: jest.fn(), findUnique: jest.fn(), findUniqueOrThrow: jest.fn(), findMany: jest.fn(), count: jest.fn(), create: jest.fn(), updateMany: jest.fn() };
   const lookupItem = { findMany: jest.fn() };
-  const tx = { $executeRaw: jest.fn().mockResolvedValue(0), $queryRaw: jest.fn(), customer, lookupItem };
+  const employee = { findFirst: jest.fn() };
+  const customerAssignment = { create: jest.fn().mockResolvedValue({ id: 'as1' }) };
+  const tx = { $executeRaw: jest.fn().mockResolvedValue(0), $queryRaw: jest.fn(), customer, lookupItem, employee, customerAssignment };
   const prisma = { customer, lookupItem, $transaction: jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx)) };
   const actors = { resolve: jest.fn(), scopeFor: jest.fn((_a: Actor, p: Permission) => scopes[p] ?? null) };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const svc = new CustomersService(prisma as never, actors as never, audit as never, links as never);
-  return { svc, customer, lookupItem, tx, prisma, audit };
+  return { svc, customer, lookupItem, employee, customerAssignment, tx, prisma, audit };
 }
 async function err(p: Promise<unknown>): Promise<DomainException> {
   try { await p; } catch (e) { if (e instanceof DomainException) return e; throw e; }
@@ -65,12 +67,49 @@ describe('create', () => {
     expect(r.revenueVnd).toBe('0');
     expect(r.code).toBe('KH-00001');
   });
-  it('không có quyền / không phải phạm vi ALL -> 403 và không mở transaction', async () => {
-    for (const sc of [{}, { 'customer.read': 'ALL', 'customer.create': 'OWN' }, { 'customer.create': 'DEPARTMENT' }] as Scopes[]) {
-      const e = build(sc);
-      expect((await err(e.svc.create(ctx, input))).code).toBe('FORBIDDEN');
-      expect(e.prisma.$transaction).not.toHaveBeenCalled();
-    }
+  it('không có quyền customer.create -> 403 và không mở transaction', async () => {
+    const e = build({});
+    expect((await err(e.svc.create(ctx, input))).code).toBe('FORBIDDEN');
+    expect(e.prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('B-3 ALL không gửi ownerId: không có chủ sở hữu, không tạo phân công', async () => {
+    const e = ready();
+    await e.svc.create(ctx, input);
+    expect(e.customer.create.mock.calls[0][0].data.ownerId).toBeNull();
+    expect(e.employee.findFirst).not.toHaveBeenCalled();
+    expect(e.customerAssignment.create).not.toHaveBeenCalled();
+    expect(e.audit.record.mock.calls[0][1].changes).not.toHaveProperty('ownerId');
+  });
+  it('B-3 OWN không gửi ownerId (D14): chủ sở hữu = chính mình, phân công OWNER cùng transaction, nhật ký ownerId', async () => {
+    const e = build({ 'customer.read': 'OWN', 'customer.create': 'OWN' });
+    e.lookupItem.findMany.mockResolvedValue(lookups);
+    e.employee.findFirst.mockResolvedValue({ id: 'e1', departmentId: 'd1' });
+    e.customer.create.mockResolvedValue({ id: ID, code: 'KH-00001' });
+    e.customer.findUniqueOrThrow.mockResolvedValue(row({ ownerId: 'e1', owner: { id: 'e1', code: 'NV-0001', fullName: 'A', departmentId: 'd1' } }));
+    const r = await e.svc.create(ctx, { ...(input as object), ownerReason: ' tự tạo ' } as never);
+    expect(e.employee.findFirst.mock.calls[0][0].where).toEqual({ id: 'e1', deletedAt: null, status: 'ACTIVE' });
+    expect(e.customer.create.mock.calls[0][0].data.ownerId).toBe('e1');
+    expect(e.customerAssignment.create.mock.calls[0][0].data).toEqual({ customerId: ID, employeeId: 'e1', role: 'OWNER', assignedById: 'e1', reason: 'tự tạo' });
+    expect(e.audit.record.mock.calls[0][1].changes.ownerId).toEqual([null, 'e1']);
+    expect(r.owner).toEqual({ id: 'e1', code: 'NV-0001', fullName: 'A' });
+  });
+  it('B-3 OWN gửi ownerId người khác -> 403 trước transaction; DEPARTMENT gửi người khác phòng -> 403 trong transaction, không tạo khách', async () => {
+    const own = build({ 'customer.create': 'OWN' });
+    expect((await err(own.svc.create(ctx, { ...(input as object), ownerId: 'e2' } as never))).code).toBe('FORBIDDEN');
+    expect(own.prisma.$transaction).not.toHaveBeenCalled();
+    const dept = build({ 'customer.create': 'DEPARTMENT' });
+    dept.lookupItem.findMany.mockResolvedValue(lookups);
+    dept.employee.findFirst.mockResolvedValue({ id: 'e2', departmentId: 'd2' });
+    expect((await err(dept.svc.create(ctx, { ...(input as object), ownerId: 'e2' } as never))).code).toBe('FORBIDDEN');
+    expect(dept.customer.create).not.toHaveBeenCalled();
+  });
+  it('B-3 ownerId không tồn tại / không ACTIVE -> 400 OWNER_INVALID, không tạo khách', async () => {
+    const e = ready();
+    e.employee.findFirst.mockResolvedValue(null);
+    const x = await err(e.svc.create(ctx, { ...(input as object), ownerId: 'e9' } as never));
+    expect(x.code).toBe('OWNER_INVALID');
+    expect(e.customer.create).not.toHaveBeenCalled();
+    expect(e.customerAssignment.create).not.toHaveBeenCalled();
   });
   it('SĐT sai -> VALIDATION_FAILED, không mở transaction', async () => {
     const e = build();
@@ -144,6 +183,39 @@ describe('update', () => {
     const entry = e.audit.record.mock.calls[0][1];
     expect(entry.action).toBe('customer.update');
     expect(entry.changes).toEqual({ note: '(đã thay đổi)', address: '(đã thay đổi)' });
+  });
+  it('B-3 đổi chủ sở hữu: kiểm ứng viên, ghi ownerId, đóng phân công cũ (giờ DB) + mở phân công mới, nhật ký [cũ, mới]', async () => {
+    const e = ready(row({ ownerId: 'e2', owner: { id: 'e2', code: 'NV-0002', fullName: 'B', departmentId: 'd1' } }));
+    e.employee.findFirst.mockResolvedValue({ id: 'e3', departmentId: 'd1' });
+    await e.svc.update(ctx, ID, { version: 1, ownerId: 'e3', ownerReason: 'bàn giao' } as never);
+    expect(e.employee.findFirst.mock.calls[0][0].where).toEqual({ id: 'e3', deletedAt: null, status: 'ACTIVE' });
+    expect(e.customer.updateMany.mock.calls[0][0].data).toEqual({ ownerId: 'e3', updatedById: 'e1', version: { increment: 1 } });
+    expect(e.tx.$executeRaw).toHaveBeenCalledTimes(3); // 2 SET LOCAL + 1 UPDATE customer_assignment ... ended_at = now()
+    expect(e.customerAssignment.create.mock.calls[0][0].data).toEqual({ customerId: ID, employeeId: 'e3', role: 'OWNER', assignedById: 'e1', reason: 'bàn giao' });
+    expect(e.audit.record.mock.calls[0][1].changes).toEqual({ ownerId: ['e2', 'e3'] });
+  });
+  it('B-3 ownerId bằng hiện tại -> không đổi, không phân công; null (ALL) -> bỏ chủ: đóng phân công, không mở mới', async () => {
+    const same = ready(row({ ownerId: 'e2', owner: { id: 'e2', code: 'NV-0002', fullName: 'B', departmentId: 'd1' } }));
+    await same.svc.update(ctx, ID, { version: 1, ownerId: 'e2' } as never);
+    expect(same.customer.updateMany).not.toHaveBeenCalled();
+    expect(same.customerAssignment.create).not.toHaveBeenCalled();
+    const clear = ready(row({ ownerId: 'e2', owner: { id: 'e2', code: 'NV-0002', fullName: 'B', departmentId: 'd1' } }));
+    await clear.svc.update(ctx, ID, { version: 1, ownerId: null } as never);
+    expect(clear.customer.updateMany.mock.calls[0][0].data.ownerId).toBeNull();
+    expect(clear.tx.$executeRaw).toHaveBeenCalledTimes(3);
+    expect(clear.customerAssignment.create).not.toHaveBeenCalled();
+    expect(clear.employee.findFirst).not.toHaveBeenCalled();
+    expect(clear.audit.record.mock.calls[0][1].changes).toEqual({ ownerId: ['e2', null] });
+  });
+  it('B-3 phạm vi OWN: đặt chủ sở hữu người khác/null -> 403; ứng viên không ACTIVE -> 400 OWNER_INVALID', async () => {
+    const own = ready(row({ ownerId: 'e1', owner: { id: 'e1', code: 'NV-0001', fullName: 'A', departmentId: 'd1' } }), { 'customer.read': 'OWN', 'customer.update': 'OWN' });
+    expect((await err(own.svc.update(ctx, ID, { version: 1, ownerId: 'e2' } as never))).code).toBe('FORBIDDEN');
+    expect((await err(own.svc.update(ctx, ID, { version: 1, ownerId: null } as never))).code).toBe('FORBIDDEN');
+    expect(own.customer.updateMany).not.toHaveBeenCalled();
+    const bad = ready(row());
+    bad.employee.findFirst.mockResolvedValue(null);
+    expect((await err(bad.svc.update(ctx, ID, { version: 1, ownerId: 'e9' } as never))).code).toBe('OWNER_INVALID');
+    expect(bad.customer.updateMany).not.toHaveBeenCalled();
   });
   it('không đổi gì -> trả bản hiện tại, không tăng version, không ghi nhật ký', async () => {
     const e = ready(row());
