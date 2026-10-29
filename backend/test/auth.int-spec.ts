@@ -200,3 +200,107 @@ describe('RBAC V2 qua Customer API thật (SessionActorProvider)', () => {
     expect(text).not.toMatch(/\$argon2|siscom_sid=|[A-Za-z0-9_-]{43}/);
   });
 });
+
+describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A/D19)', () => {
+  const U = '/api/v1/auth/change-password';
+  const ME = '/api/v1/auth/me';
+  const w = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
+  const acct = USERS[4]; // accountant: không dùng ở các describe khác
+  const ORIG = acct.password;
+  const NEW = 'Ketoan-Moi#2026-ok';
+  const body = (currentPassword: string, newPassword = NEW, confirmPassword = newPassword) => ({ currentPassword, newPassword, confirmPassword });
+  let empId = '';
+  const cred = () => prisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: empId } });
+  const failedLogs = () => prisma.auditLog.count({ where: { action: 'auth.password_change_failed', entityId: empId } });
+  beforeAll(async () => { empId = (await prisma.employee.findFirstOrThrow({ where: { email: acct.email } })).id; });
+  afterAll(async () => {
+    // Đổi lại mật khẩu gốc để các bộ test khác không phụ thuộc thứ tự (dùng phiên mới sau khi đổi).
+    if (acct.password === ORIG) return;
+    const s = await session('accountant');
+    const r = await srv().post(U).set(w(s)).send(body(acct.password, ORIG));
+    expect(r.status).toBe(200);
+    acct.password = ORIG;
+  });
+
+  it('thành công: hash Argon2id mới, token_version+1, mọi phiên cũ 401 (cả thiết bị khác), phiên mới dùng được, nhật ký; mật khẩu cũ không đăng nhập được', async () => {
+    const s1 = await session('accountant'); const s2 = await session('accountant');
+    const before = await cred();
+    const res = await srv().post(U).set(w(s1)).send(body(ORIG));
+    expect(res.status).toBe(200);
+    expect(res.body.data.me).toMatchObject({ code: codes.accountant, roles: ['accountant'], mustChangePassword: false });
+    expect(res.body.data.csrfToken).toMatch(/^[A-Za-z0-9_-]{43}$/); expect(res.body.data.csrfToken).not.toBe(s1.csrf);
+    expect(res.headers['cache-control']).toBe('no-store');
+    const fresh = cookieOf(res); expect(fresh).not.toBe(s1.cookie);
+    expect((await srv().get(ME).set('Cookie', s1.cookie)).status).toBe(401);
+    expect((await srv().get(ME).set('Cookie', s2.cookie)).status).toBe(401);
+    expect((await srv().get(ME).set('Cookie', fresh)).status).toBe(200);
+    const after = await cred();
+    expect(after.passwordHash).toMatch(/^\$argon2id\$/); expect(after.passwordHash).not.toBe(before.passwordHash);
+    expect(after.passwordAlgo).toBe('argon2id'); expect(after.tokenVersion).toBe(before.tokenVersion + 1); expect(after.mustChangePassword).toBe(false);
+    expect(after.passwordChangedAt.getTime()).toBeGreaterThan(before.passwordChangedAt.getTime());
+    expect(await prisma.authSession.count({ where: { employeeId: empId, revokeReason: 'TOKEN_VERSION' } })).toBeGreaterThanOrEqual(2);
+    const log = await prisma.auditLog.findFirst({ where: { action: 'auth.password_changed', entityId: empId }, orderBy: { id: 'desc' } });
+    expect(log).toMatchObject({ actorType: 'USER', actorId: empId, entityType: 'employee' });
+    expect((log!.changes as { sessionsRevoked: number; tokenVersion: number }).sessionsRevoked).toBeGreaterThanOrEqual(2);
+    expect((log!.changes as { tokenVersion: number }).tokenVersion).toBe(after.tokenVersion);
+    expect(await prisma.auditLog.count({ where: { action: 'PASSWORD_CHANGE', entityId: empId } })).toBeGreaterThanOrEqual(1); // audit của hàm M1.2
+    expect((await login(acct.email, ORIG)).status).toBe(401);
+    expect((await login(acct.email, NEW)).status).toBe(200);
+    acct.password = NEW;
+  });
+  it('mật khẩu hiện tại sai => 400 PASSWORD_CURRENT_INVALID; hash/token_version không đổi; nhật ký auth.password_change_failed; phiên vẫn dùng được (không khoá)', async () => {
+    const s = await session('accountant');
+    const before = await cred(); const n = await failedLogs();
+    const r = await srv().post(U).set(w(s)).send(body('Sai-mat-khau#2026'));
+    expect(r.status).toBe(400); expect(r.body.error.code).toBe('PASSWORD_CURRENT_INVALID');
+    const after = await cred();
+    expect(after.passwordHash).toBe(before.passwordHash); expect(after.tokenVersion).toBe(before.tokenVersion); expect(after.lockedUntil).toBeNull();
+    expect(await failedLogs()).toBe(n + 1);
+    expect((await srv().get(ME).set('Cookie', s.cookie)).status).toBe(200);
+  });
+  it('chính sách yếu / xác nhận lệch / trùng mật khẩu hiện tại / trường lạ => 400, không đổi hash, không so mật khẩu (không nhật ký thất bại)', async () => {
+    const s = await session('accountant');
+    const before = await cred(); const n = await failedLogs();
+    const weak = await srv().post(U).set(w(s)).send(body(acct.password, 'ketoan-yeu'));
+    expect(weak.status).toBe(400); expect(weak.body.error.code).toBe('VALIDATION_FAILED'); expect(weak.body.details.length).toBeGreaterThan(0);
+    const mismatch = await srv().post(U).set(w(s)).send(body(acct.password, 'Ketoan-Khac#2026-ok', 'Ketoan-Khac#2026-xx'));
+    expect(mismatch.status).toBe(400); expect(mismatch.body.details).toEqual(['Mật khẩu xác nhận không khớp']);
+    const same = await srv().post(U).set(w(s)).send(body(acct.password, acct.password));
+    expect(same.status).toBe(400); expect(same.body.details).toEqual(['Mật khẩu mới phải khác mật khẩu hiện tại']);
+    expect((await srv().post(U).set(w(s)).send({ ...body(acct.password), login: 'x' })).status).toBe(400);
+    expect((await cred()).passwordHash).toBe(before.passwordHash);
+    expect(await failedLogs()).toBe(n);
+    expect(JSON.stringify([weak.body, mismatch.body, same.body])).not.toMatch(/ketoan-yeu|Ketoan-Khac|Ketoan-Moi/);
+  });
+  it('không cookie => 401; cookie nhưng thiếu X-CSRF-Token / thiếu Origin => 403 CSRF_FAILED trước khi so mật khẩu (không nhật ký, không đổi)', async () => {
+    const s = await session('accountant');
+    const before = await cred(); const n = await failedLogs();
+    expect((await srv().post(U).set('Origin', ORIGIN).send(body(acct.password))).status).toBe(401);
+    const noCsrf = await srv().post(U).set('Cookie', s.cookie).set('Origin', ORIGIN).send(body('Sai-mat-khau#2026'));
+    expect(noCsrf.status).toBe(403); expect(noCsrf.body.error.code).toBe('CSRF_FAILED');
+    expect((await srv().post(U).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf).send(body(acct.password))).status).toBe(403);
+    expect(await failedLogs()).toBe(n);
+    expect((await cred()).passwordHash).toBe(before.passwordHash);
+  });
+  it('D18 A: 6 lần sai liên tiếp (hạn mức 5/15 phút theo cặp nguồn + nhân viên) => lần thứ 6 là 429 PASSWORD_CHANGE_THROTTLED; tài khoản KHÔNG bị khoá đăng nhập', async () => {
+    const cfgT: AuthConfig = { ...cfg, loginMaxPerIdentifier: 5 };
+    const modT = await Test.createTestingModule({ imports: [AuthApiModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AUTH_CONFIG).useValue(cfgT).compile();
+    const appT = modT.createNestApplication();
+    appT.useLogger(false); appT.setGlobalPrefix('api/v1'); appT.use(requestContext);
+    appT.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    appT.useGlobalFilters(new AllExceptionsFilter());
+    await appT.init();
+    try {
+      const s = await session('accountant');
+      for (let i = 0; i < 5; i++) expect((await request(appT.getHttpServer()).post(U).set(w(s)).send(body('Sai-mat-khau#2026'))).status).toBe(400);
+      const sixth = await request(appT.getHttpServer()).post(U).set(w(s)).send(body(acct.password));
+      expect(sixth.status).toBe(429); expect(sixth.body.error.code).toBe('PASSWORD_CHANGE_THROTTLED');
+      expect((await cred()).lockedUntil).toBeNull();
+      expect((await login(acct.email, acct.password)).status).toBe(200);
+    } finally { await appT.close(); }
+  });
+  it('nhật ký auth.* của nhân viên không chứa mật khẩu nào (gốc, mới, sai)', async () => {
+    const text = JSON.stringify(await prisma.auditLog.findMany({ where: { entityId: empId, action: { startsWith: 'auth.' } }, select: { action: true, summary: true, changes: true } }));
+    expect(text).not.toMatch(new RegExp([ORIG, NEW, 'Sai-mat-khau', 'ketoan-yeu'].map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')));
+  });
+});

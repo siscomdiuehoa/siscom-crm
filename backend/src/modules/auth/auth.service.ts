@@ -1,20 +1,28 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AUTH_CONFIG, AuthConfig } from '../../common/auth/auth.config';
-import { Argon2PasswordHasher, ARGON2_ALGO } from '../../common/auth/login/argon2.hasher';
+import { Argon2PasswordHasher, ARGON2_ALGO, ARGON2_PARAMS } from '../../common/auth/login/argon2.hasher';
 import { parseLoginIdentifier } from '../../common/auth/login/login-identifier';
 import { ResolvedSession, SessionActorProvider } from '../../common/auth/session/session-actor.provider';
 import { newOpaqueToken, SESSION_COOKIE_NAME, sha256Hex } from '../../common/auth/session/session-token';
 import { DomainException } from '../../common/errors/domain.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LoginLimiter } from './login-limiter';
+import { checkPasswordPolicy } from '../../common/auth/login/password-policy';
 
 export interface LoginInput { login: string; password: string; source: string; ip: string | null; userAgent: string | null; requestId?: string }
+// B1.3.3 (PR 8): đổi mật khẩu của chính mình — D16 hợp đồng, D18 A hạn mức, D19 thu hồi mọi phiên rồi cấp phiên mới.
+export interface ChangePasswordInput { currentPassword: string; newPassword: string; confirmPassword: string; source: string; ip: string | null; userAgent: string | null; requestId?: string }
 export interface LoginResult { sessionToken: string; csrfToken: string; maxAgeSeconds: number; me: MeView }
 export interface MeView { employeeId: string; code: string; fullName: string; departmentId: string | null; roles: readonly string[]; permissions: Readonly<Record<string, string>>; mustChangePassword: boolean }
 
 const LOGIN_FAILED = () => new DomainException(401, 'LOGIN_INVALID', 'Tên đăng nhập hoặc mật khẩu không đúng.');
 const THROTTLED = () => new DomainException(429, 'LOGIN_THROTTLED', 'Quá nhiều lần thử, vui lòng thử lại sau.');
+const PASSWORD_CURRENT_INVALID = () => new DomainException(400, 'PASSWORD_CURRENT_INVALID', 'Mật khẩu hiện tại không đúng.');
+const PASSWORD_CHANGE_THROTTLED = () => new DomainException(429, 'PASSWORD_CHANGE_THROTTLED', 'Bạn đã thử quá nhiều lần, vui lòng thử lại sau.');
+const VALIDATION = (details: string[]) => new DomainException(400, 'VALIDATION_FAILED', 'Dữ liệu gửi lên không hợp lệ.', details);
+const PASSWORD_CHANGE_CONFLICT = () => new DomainException(409, 'PASSWORD_CHANGE_CONFLICT', 'Thông tin đăng nhập vừa thay đổi ở nơi khác. Vui lòng đăng nhập lại rồi thử lại.');
+const CP_EMPLOYEE_FACTOR = 4; // F4: trần theo NHÂN VIÊN (mọi nguồn) = 4 x LOGIN_MAX_PER_IDENTIFIER, chặn xoay IP mà không để nguồn khác bị lây sớm
 
 // Đăng nhập / đăng xuất / thông tin phiên. Mọi thất bại đăng nhập trả cùng 401 LOGIN_INVALID (không lộ tài khoản có tồn tại hay bị khoá).
 // Nhật ký: auth.login_ok / auth.login_failed / auth.logout vào audit_log (không ghi mật khẩu, token, email thô).
@@ -23,9 +31,28 @@ export class AuthService {
   private readonly log = new Logger('Auth');
   private readonly hasher = new Argon2PasswordHasher();
   private readonly limiter: LoginLimiter;
+  private readonly cpLimiter: LoginLimiter; // D18 A: hạn mức đổi mật khẩu theo (nguồn + nhân viên), cùng cấu hình với đăng nhập, không khoá tài khoản
+  private readonly cpEmployeeLimiter: LoginLimiter; // D18 A (F4): trần theo nhân viên bất kể nguồn
 
   constructor(private readonly prisma: PrismaService, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig, private readonly sessions: SessionActorProvider) {
     this.limiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: cfg.loginMaxPerSource, maxPerIdentifier: cfg.loginMaxPerIdentifier });
+    this.cpLimiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: cfg.loginMaxPerSource, maxPerIdentifier: cfg.loginMaxPerIdentifier });
+    this.cpEmployeeLimiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: 1_000_000_000, maxPerIdentifier: cfg.loginMaxPerIdentifier * CP_EMPLOYEE_FACTOR });
+  }
+
+  // Dữ liệu một phiên mới (token đục 256-bit, DB chỉ lưu SHA-256). Dùng chung cho login và changePassword.
+  private newSession(employeeId: string, now: Date, ip: string | null, userAgent: string | null) {
+    const sessionToken = newOpaqueToken();
+    const csrfToken = newOpaqueToken();
+    const idle = new Date(now.getTime() + this.cfg.sessionIdleMinutes * 60_000);
+    const abs = new Date(now.getTime() + this.cfg.sessionAbsHours * 3_600_000);
+    const data = {
+      employeeId, familyId: randomUUID(), refreshHash: sha256Hex(sessionToken), csrfHash: sha256Hex(csrfToken),
+      issuedAt: now, lastUsedAt: now, idleExpiresAt: idle < abs ? idle : abs, absExpiresAt: abs,
+      ipPrefix: ipPrefix(ip), uaShort: userAgent ? userAgent.slice(0, 200) : null,
+    };
+    const maxAgeSeconds = Math.min(abs.getTime() - now.getTime(), this.cfg.sessionIdleMinutes * 60_000) / 1000;
+    return { sessionToken, csrfToken, data, maxAgeSeconds };
   }
 
   async login(input: LoginInput): Promise<LoginResult> {
@@ -54,21 +81,77 @@ export class AuthService {
       throw LOGIN_FAILED();
     }
 
-    const sessionToken = newOpaqueToken();
-    const csrfToken = newOpaqueToken();
-    const idle = new Date(now.getTime() + this.cfg.sessionIdleMinutes * 60_000);
-    const abs = new Date(now.getTime() + this.cfg.sessionAbsHours * 3_600_000);
+    const ns = this.newSession(row!.id, now, input.ip, input.userAgent);
+    const { sessionToken, csrfToken } = ns;
     await this.prisma.$transaction(async (tx) => {
       await tx.employeeCredential.update({ where: { employeeId: row!.id }, data: { failedCount: 0, windowStartedAt: null, lockedUntil: null, lockLevel: 0, lastLoginAt: now } });
-      await tx.authSession.create({ data: {
-        employeeId: row!.id, familyId: randomUUID(), refreshHash: sha256Hex(sessionToken), csrfHash: sha256Hex(csrfToken),
-        issuedAt: now, lastUsedAt: now, idleExpiresAt: idle < abs ? idle : abs, absExpiresAt: abs,
-        ipPrefix: ipPrefix(input.ip), uaShort: input.userAgent ? input.userAgent.slice(0, 200) : null,
-      } });
+      await tx.authSession.create({ data: ns.data });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: row!.id, action: 'auth.login_ok', entityType: 'employee', entityId: row!.id, entityCode: row!.code, summary: 'Đăng nhập thành công', requestId: rid(input.requestId) } });
     });
     const me = await this.me(await this.sessions.lookup(sessionCookieFor(sessionToken)), row!);
-    return { sessionToken, csrfToken, maxAgeSeconds: Math.min(abs.getTime() - now.getTime(), this.cfg.sessionIdleMinutes * 60_000) / 1000, me };
+    return { sessionToken, csrfToken, maxAgeSeconds: ns.maxAgeSeconds, me };
+  }
+
+  // Đổi mật khẩu của chính mình (B1.3.3). Thứ tự: hạn mức (D18 A: nguồn+nhân viên, và trần theo nhân viên) -> xác nhận khớp -> tải nhân viên/credential
+  // -> chính sách (D17, có email/mã NV) -> so mật khẩu hiện tại (sai => nhật ký + 400, KHÔNG cộng vào bộ đếm khoá) -> mới ≠ hiện tại
+  // -> transaction (D19): cột bí mật + token_version qua fn_auth_api_change_own_password của M1.2 (SECURITY DEFINER, khoá lạc quan token_version,
+  // trigger DB thu hồi MỌI phiên + mã reset, audit PASSWORD_CHANGE), Prisma chỉ cập nhật cột không bí mật (bộ đếm khoá, password_changed_at),
+  // phiên mới cho thiết bị này, nhật ký auth.password_changed {sessionsRevoked, tokenVersion}. Không ghi mật khẩu.
+  async changePassword(s: ResolvedSession, input: ChangePasswordInput): Promise<LoginResult> {
+    const employeeId = s.actor.employeeId;
+    const okSource = this.cpLimiter.allow(input.source, 'cp:' + employeeId);
+    const okEmployee = this.cpEmployeeLimiter.allow('employee', 'cp:' + employeeId);
+    if (!okSource || !okEmployee) throw PASSWORD_CHANGE_THROTTLED();
+    if (input.confirmPassword !== input.newPassword) throw VALIDATION(['Mật khẩu xác nhận không khớp']);
+    const row = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { id: true, code: true, fullName: true, email: true, departmentId: true, status: true,
+        credential: { select: { passwordHash: true, passwordAlgo: true, status: true, mustChangePassword: true, tokenVersion: true } } },
+    });
+    const problems = checkPasswordPolicy(input.newPassword, { email: row?.email ?? null, code: row?.code ?? null });
+    if (problems.length) throw VALIDATION(problems);
+    const cred = row?.credential ?? null;
+    const usable = row !== null && row.status === 'ACTIVE' && cred !== null && cred.status === 'ACTIVE' && cred.passwordAlgo === ARGON2_ALGO;
+    const ok = await this.hasher.verify(usable ? cred!.passwordHash : null, input.currentPassword);
+    if (!usable || !ok) {
+      await this.recordPasswordChangeFailure(employeeId, input.requestId);
+      throw PASSWORD_CURRENT_INVALID();
+    }
+    if (await this.hasher.verify(cred!.passwordHash, input.newPassword)) throw VALIDATION(['Mật khẩu mới phải khác mật khẩu hiện tại']);
+    const passwordHash = await this.hasher.hash(input.newPassword);
+    const now = new Date();
+    const ns = this.newSession(employeeId, now, input.ip, input.userAgent);
+    let tokenVersion = -1;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const sessionsRevoked = await tx.authSession.count({ where: { employeeId, revokedAt: null } });
+        // Cột bí mật + token_version: CHỈ qua hàm đặc quyền M1.2 (siscom_app không ghi thẳng password_hash sau S1). Khoá lạc quan: token_version
+        // phải bằng giá trị vừa đọc; lệch (đổi đồng thời ở nơi khác) => DB ném STALE_TOKEN_VERSION => 409.
+        const r = await tx.$queryRaw<{ tv: number }[]>`SELECT public.fn_auth_api_change_own_password(${employeeId}::uuid, ${cred!.tokenVersion}, ${passwordHash}, ${ARGON2_ALGO}, ${JSON.stringify({ ...ARGON2_PARAMS })}::jsonb) AS tv`;
+        tokenVersion = Number(r[0]?.tv ?? -1);
+        await tx.employeeCredential.update({ where: { employeeId }, data: { failedCount: 0, windowStartedAt: null, lockedUntil: null, lockLevel: 0, passwordChangedAt: now } });
+        await tx.authSession.create({ data: ns.data });
+        await tx.auditLog.create({ data: { actorType: 'USER', actorId: employeeId, action: 'auth.password_changed', entityType: 'employee', entityId: employeeId, entityCode: row!.code, summary: 'Đổi mật khẩu; thu hồi các phiên cũ', changes: { sessionsRevoked, tokenVersion }, requestId: rid(input.requestId) } });
+      });
+    } catch (e) {
+      if (isStaleTokenVersion(e)) throw PASSWORD_CHANGE_CONFLICT();
+      throw e;
+    }
+    // F8: transaction đã commit (mật khẩu đổi, phiên cũ thu hồi). Tra cứu phiên mới thất bại thoáng qua => vẫn trả cookie mới với me từ phiên cũ
+    // (vai trò/quyền không đổi trong transaction), tránh 500 sau khi đã đổi.
+    const emp = { ...row!, credential: { mustChangePassword: false } };
+    let me: MeView;
+    try { me = await this.me(await this.sessions.lookup(sessionCookieFor(ns.sessionToken)), emp); }
+    catch (e) { this.log.warn('Không tra cứu được phiên mới sau đổi mật khẩu: ' + (e instanceof Error ? e.message : 'lỗi')); me = await this.me(s, emp); }
+    return { sessionToken: ns.sessionToken, csrfToken: ns.csrfToken, maxAgeSeconds: ns.maxAgeSeconds, me };
+  }
+
+  private async recordPasswordChangeFailure(employeeId: string, requestId?: string): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({ data: { actorType: 'USER', actorId: employeeId, action: 'auth.password_change_failed', entityType: 'employee', entityId: employeeId, summary: 'Đổi mật khẩu thất bại (mật khẩu hiện tại sai)', requestId: rid(requestId) } });
+    } catch (e) {
+      this.log.warn('Không ghi được lần đổi mật khẩu sai: ' + (e instanceof Error ? e.message : 'lỗi'));
+    }
   }
 
   // Tăng đếm sai trong cửa sổ; đủ ngưỡng => khoá tạm (leo thang theo lock_level). CHECK ck_cred_window: failed_count > 0 cần window_started_at.
@@ -106,6 +189,12 @@ export class AuthService {
 }
 
 const rid = (r?: string): string | null => (typeof r === 'string' && r.length > 0 ? r.slice(0, 64) : null);
+// Lỗi STALE_TOKEN_VERSION do fn_auth_api_change_own_password ném (ERRCODE check_violation 23514, thông điệp bắt đầu bằng STALE_TOKEN_VERSION).
+function isStaleTokenVersion(e: unknown): boolean {
+  const text = e instanceof Error ? e.message : '';
+  const meta = (e as { meta?: { message?: unknown; code?: unknown } })?.meta;
+  return /STALE_TOKEN_VERSION/.test(text) || /STALE_TOKEN_VERSION/.test(String(meta?.message ?? ''));
+}
 const sessionCookieFor = (token: string): string => SESSION_COOKIE_NAME + '=' + token;
 // Chỉ lưu tiền tố IP (IPv4 /24, IPv6 /48) để nhận diện phiên bất thường mà không lưu địa chỉ đầy đủ.
 function ipPrefix(ip: string | null): string | null {
