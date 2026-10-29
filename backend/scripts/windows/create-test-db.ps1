@@ -69,6 +69,7 @@ try {
   Write-Host ('TEN DATABASE THU: ' + $DatabaseName) -ForegroundColor Cyan
   Write-Host 'Buoc tiep (cung thu muc):'
   Write-Host ('  auth-demo-stack.bat -Step migrate   -DatabaseName ' + $DatabaseName)
+  Write-Host ('  auth-demo-stack.bat -Step seed      -DatabaseName ' + $DatabaseName)
   Write-Host ('  auth-demo-stack.bat -Step bootstrap -DatabaseName ' + $DatabaseName)
   Write-Host ('  auth-demo-stack.bat -Step start     -DatabaseName ' + $DatabaseName)
   Write-Host ('Xoa khi khong can (ban tu chay, can mat khau postgres): DROP DATABASE ' + $DatabaseName + ';') -ForegroundColor DarkGray

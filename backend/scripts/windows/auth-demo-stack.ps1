@@ -5,6 +5,8 @@
 # duoc doi chieu voi current_database() truoc moi buoc ghi. Khong prisma migrate dev / db push / reset; khong DROP/TRUNCATE/DELETE.
 #   -Step list      : liet ke database thu ma siscom_app ket noi duoc (CHI DOC; khong can -DatabaseName).
 #   -Step migrate   : prisma migrate deploy + migrate status tren DB thu (GHI schema, chi migration da co trong repo).
+#   -Step seed      : node dist/cli/seed-lookups.js -> danh muc chuan D3 (customer_tier/customer_status/source/industry), IDEMPOTENT
+#                     (ON CONFLICT DO NOTHING), chi DB thu (CLI tu choi siscom_crm_dev / baseline da khoa). Can "npm run build" truoc.
 #   -Step bootstrap : node dist/cli/bootstrap-auth.js -> 4+1 tai khoan thu (sysadmin/admin/sale/kythuat/ketoan@siscom.local).
 #                     Mat khau qua bien BOOTSTRAP_PASSWORD_SYSADMIN/ADMIN/SALE/TECHNICIAN/ACCOUNTANT (>= 12 ky tu); thieu thi hoi an.
 #                     Can "npm run build" truoc (dist/). Chay dung MOT lan (sau do fn_auth_bootstrap_close khoa vinh vien).
@@ -14,7 +16,7 @@
 #   -NonInteractive : bo buoc go lai ten DB de xac nhan (danh cho harness tu dong); moi kiem tra khac giu nguyen.
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][ValidateSet('list', 'migrate', 'bootstrap', 'start', 'status')][string]$Step,
+  [Parameter(Mandatory = $true)][ValidateSet('list', 'migrate', 'seed', 'bootstrap', 'start', 'status')][string]$Step,
   [string]$DatabaseName,
   [string]$EnvPath,
   [ValidateRange(1024, 65535)][int]$Port = 3000,
@@ -97,7 +99,7 @@ try {
   }
   if (-not $DatabaseName) { Fail ('Buoc ' + $Step + ' can -DatabaseName <siscom_crm_test_YYYYMMDD_HHMMSS>.') }
   if ($DatabaseName -notmatch '^siscom_crm_(restore|test)_\d{8}_\d{6}$') { Fail 'Ten database phai la siscom_crm_test_YYYYMMDD_HHMMSS (hoac siscom_crm_restore_...). siscom_crm_dev bi tu choi.' }
-  $ghi = ''; if ($Step -eq 'migrate' -or $Step -eq 'bootstrap') { $ghi = ' (GHI vao database thu)' }
+  $ghi = ''; if ($Step -eq 'migrate' -or $Step -eq 'seed' -or $Step -eq 'bootstrap') { $ghi = ' (GHI vao database thu)' }
   Say ('Database thu: ' + $DatabaseName + ' | Buoc: ' + $Step + $ghi) 'Yellow'
   if (-not $NonInteractive) {
     $c = Read-Host 'Go lai CHINH XAC ten database thu de xac nhan'
@@ -139,6 +141,12 @@ try {
         } finally { $ErrorActionPreference = $prev; Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue }
         if ($c1 -ne 0 -or $c2 -ne 0) { Fail 'migrate deploy/status that bai. KHONG chay lai; gui log.' }
         Ok 'Schema da ap len database thu, migrate status up to date.'
+      }
+      'seed' {
+        if (-not (Test-Path -LiteralPath (Join-Path $root 'dist\cli\seed-lookups.js'))) { Fail 'Thieu dist\cli\seed-lookups.js: chay "npm run build" trong backend truoc.' }
+        $code = Run-Node @('dist\cli\seed-lookups.js') @{ DATABASE_URL = $url; NODE_ENV = 'development' }
+        if ($code -ne 0) { Fail ('seed-lookups ma thoat ' + $code + '. Khong ghi them gi; gui log.') }
+        Ok 'Da seed danh muc chuan D3 (idempotent; chay lai khong trung).'
       }
       'bootstrap' {
         if (-not (Test-Path -LiteralPath (Join-Path $root 'dist\cli\bootstrap-auth.js'))) { Fail 'Thieu dist\cli\bootstrap-auth.js: chay "npm run build" trong backend truoc.' }

@@ -30,18 +30,20 @@ const EVIDENCE = process.env.E2E_EVIDENCE || path.join(REPO, 'docs', 'evidence',
 const CHROMES = ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'];
 const chrome = process.env.BROWSER_EXE || CHROMES.find((p) => fs.existsSync(p));
 
-// Ma trận V2 đã duyệt (bootstrap.ts BIZ). Thứ tự chạy: crm_admin tạo khách trước để các vai trò sau chứng minh phạm vi đọc.
+// Ma trận V2 đã duyệt (bootstrap.ts BIZ). Thứ tự chạy: crm_admin tạo khách trước để các vai trò sau chứng minh phạm vi đọc/ghi.
+// onCreated = mã HTTP kỳ vọng khi vai trò đó xem (GET /customers/:id) / sửa (PATCH) khách do crm_admin tạo (KHÔNG có chủ sở hữu, B3 chưa có):
+//   xem ngoài phạm vi => 404 (không lộ sự tồn tại); sửa không có quyền customer.update => 403; có quyền OWN nhưng ngoài phạm vi => 404.
 const BIZ_KEYS = ['customer.read', 'customer.create', 'customer.update', 'customer.delete', 'customer.restore', 'contact.read', 'contact.create', 'lookup.read'];
 const ROLES = [
-  { key: 'admin', local: 'admin', dbRole: 'crm_admin', label: 'Quản trị CRM', expect: { 'customer.read': 'ALL', 'customer.create': 'ALL', 'customer.update': 'ALL', 'customer.delete': 'ALL', 'customer.restore': 'ALL', 'contact.read': 'ALL', 'contact.create': 'ALL', 'lookup.read': 'ALL' }, seesCreated: true },
-  { key: 'accountant', local: 'ketoan', dbRole: 'accountant', label: 'Kế toán', expect: { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL' }, seesCreated: true },
-  { key: 'technician', local: 'kythuat', dbRole: 'technician', label: 'Kỹ thuật', expect: { 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'lookup.read': 'ALL' }, seesCreated: false },
-  { key: 'sale', local: 'sale', dbRole: 'sales', label: 'Kinh doanh', expect: { 'customer.read': 'OWN', 'customer.create': 'OWN', 'customer.update': 'OWN', 'contact.read': 'OWN', 'contact.create': 'OWN', 'lookup.read': 'ALL' }, seesCreated: false },
+  { key: 'admin', local: 'admin', dbRole: 'crm_admin', label: 'Quản trị CRM', expect: { 'customer.read': 'ALL', 'customer.create': 'ALL', 'customer.update': 'ALL', 'customer.delete': 'ALL', 'customer.restore': 'ALL', 'contact.read': 'ALL', 'contact.create': 'ALL', 'lookup.read': 'ALL' }, seesCreated: true, onCreated: { view: 200, update: 200 } },
+  { key: 'accountant', local: 'ketoan', dbRole: 'accountant', label: 'Kế toán', expect: { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL' }, seesCreated: true, onCreated: { view: 200, update: 403 } },
+  { key: 'technician', local: 'kythuat', dbRole: 'technician', label: 'Kỹ thuật', expect: { 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'lookup.read': 'ALL' }, seesCreated: false, onCreated: { view: 404, update: 403 } },
+  { key: 'sale', local: 'sale', dbRole: 'sales', label: 'Kinh doanh', expect: { 'customer.read': 'OWN', 'customer.create': 'OWN', 'customer.update': 'OWN', 'contact.read': 'OWN', 'contact.create': 'OWN', 'lookup.read': 'ALL' }, seesCreated: false, onCreated: { view: 404, update: 404 } },
 ];
 const pwOf = (r) => process.env['BOOTSTRAP_PASSWORD_' + r.key.toUpperCase()];
 
 // ---------------- Kết quả ----------------
-const results = []; const roleEvidence = {}; let createdCode = null;
+const results = []; const roleEvidence = {}; let createdCode = null; let createdId = null; let createdVersion = null;
 const rec = (id, status, detail) => { results.push({ id, status, detail: detail || '' }); console.log('[' + status + '] ' + id + (detail ? ' — ' + detail : '')); };
 const check = (id, ok, detail) => rec(id, ok ? 'PASS' : 'FAIL', detail);
 const blocked = (msg) => { console.log('BLOCKED: ' + msg); process.exit(2); };
@@ -149,40 +151,67 @@ try {
     const total = list.body && list.body.data ? list.body.data.total : null;
     check(`S3.${r.key} danh sách khách hàng: UI không lỗi, GET /customers 200`, !uiErr && list.status === 200, 'total=' + total);
 
-    // S4 — ghi + CSRF (admin: tạo khách thật; sale: 403 theo D12 = KNOWN).
-    if (r.key === 'admin' || r.key === 'sale') {
-      const body = JSON.stringify({ name: 'E2E ' + r.key + ' ' + STAMP, phone: '0901234567' });
-      const noCsrf = await pageFetch('/customers', { method: 'POST', headers: { 'content-type': 'application/json' }, body });
-      check(`S4.${r.key}.1 POST /customers KHÔNG X-CSRF-Token => 403 CSRF_FAILED`, noCsrf.status === 403 && noCsrf.body && noCsrf.body.error && noCsrf.body.error.code === 'CSRF_FAILED', 'status=' + noCsrf.status);
-      const badCsrf = await pageFetch('/customers', { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': 'x'.repeat(43) }, body });
-      check(`S4.${r.key}.2 POST /customers X-CSRF-Token SAI => 403`, badCsrf.status === 403, 'status=' + badCsrf.status);
-      const ok = await pageFetch('/customers', { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': await csrfCookie() }, body });
-      if (r.key === 'admin') {
-        createdCode = ok.body && ok.body.data ? ok.body.data.code : null;
-        const errCode = ok.body && ok.body.error ? ok.body.error.code : null;
-        if (ok.status === 400 && errCode === 'LOOKUP_INVALID') {
-          // DB thử mới chưa seed danh mục (D3, customers.defaults.ts): tier/status mặc định POTENTIAL không tồn tại => 400. CSRF đã qua
-          // (không phải 403). Ghi KNOWN và bỏ S4.admin.4/S5 (không có khách để kiểm phạm vi) thay vì dừng cả lượt chạy.
-          rec('S4.admin.3 POST /customers với X-CSRF-Token đúng => 400 LOOKUP_INVALID (CSRF qua; DB chưa seed danh mục D3)', 'KNOWN', 'field=' + (ok.body.error.details ? ok.body.error.details.field : '?'));
-        } else {
-          check('S4.admin.3 POST /customers với X-CSRF-Token đúng => 201, có mã khách', ok.status === 201 && !!createdCode, 'status=' + ok.status + ' code=' + createdCode + (errCode ? ' error=' + errCode : ''));
-          if (createdCode) {
-            await ev("location.hash = '/'"); await sleep(200); await ev("location.hash = '/customers'");
-            await waitFor(`document.body.textContent.includes(${JSON.stringify(createdCode)})`, 'khách vừa tạo hiện trên danh sách UI');
-            rec('S4.admin.4 khách vừa tạo hiện trên danh sách UI', 'PASS', createdCode);
-          }
-        }
-      } else {
-        rec('S4.sale.3 POST /customers (sales, scope OWN) => ' + ok.status + ' ' + (ok.body && ok.body.error ? ok.body.error.code : ''), ok.status === 403 ? 'KNOWN' : 'FAIL', 'D12: tạo khách cần scope ALL cho tới B3 CustomerAssignment; kỳ vọng 403');
-      }
+    // S4 — danh mục D3 (lookup.read ALL cho mọi vai trò) + tạo/xem/sửa + CSRF + phân quyền ghi.
+    const lk = await pageFetch('/lookups?type=customer_tier,customer_status,source');
+    const lkd = (lk.body && lk.body.data) || {};
+    const hasLk = (t, c) => Array.isArray(lkd[t]) && lkd[t].some((x) => x.code === c);
+    check(`S4.${r.key}.lookups GET /lookups => 200, danh mục D3 có POTENTIAL (tier/status) và WEBSITE (source)`, lk.status === 200 && hasLk('customer_tier', 'POTENTIAL') && hasLk('customer_status', 'POTENTIAL') && hasLk('source', 'WEBSITE'), 'status=' + lk.status + ' tier=' + (lkd.customer_tier || []).length + ' status=' + (lkd.customer_status || []).length + ' source=' + (lkd.source || []).length);
+    const JSONH = { 'content-type': 'application/json' };
+    const hdr = async () => Object.assign({}, JSONH, { 'x-csrf-token': await csrfCookie() });
+    const errOf = (res) => (res.body && res.body.error ? res.body.error.code : null);
+    const body = JSON.stringify({ name: 'E2E ' + r.key + ' ' + STAMP, phone: '0901234567', source: 'WEBSITE' }); // không gửi tier/status => mặc định POTENTIAL (D3)
+    const noCsrf = await pageFetch('/customers', { method: 'POST', headers: JSONH, body });
+    check(`S4.${r.key}.1 POST /customers KHÔNG X-CSRF-Token => 403 CSRF_FAILED`, noCsrf.status === 403 && errOf(noCsrf) === 'CSRF_FAILED', 'status=' + noCsrf.status);
+    const badCsrf = await pageFetch('/customers', { method: 'POST', headers: Object.assign({}, JSONH, { 'x-csrf-token': 'x'.repeat(43) }), body });
+    check(`S4.${r.key}.2 POST /customers X-CSRF-Token SAI => 403`, badCsrf.status === 403, 'status=' + badCsrf.status);
+    const ok = await pageFetch('/customers', { method: 'POST', headers: await hdr(), body });
+    if (r.key === 'admin') {
+      const c = ok.body && ok.body.data;
+      createdCode = c ? c.code : null; createdId = c ? c.id : null; createdVersion = c ? c.version : null;
+      check('S4.admin.3 tạo: POST /customers CSRF đúng => 201, mã KH-xxxxx, tier/status mặc định POTENTIAL, source WEBSITE (D3 đã seed)', ok.status === 201 && /^KH-\d{5,}$/.test(createdCode || '') && !!c && c.tier && c.tier.code === 'POTENTIAL' && c.status && c.status.code === 'POTENTIAL' && c.source && c.source.code === 'WEBSITE' && c.version === 1, 'status=' + ok.status + ' code=' + createdCode + (errOf(ok) ? ' error=' + errOf(ok) + ' ' + JSON.stringify(ok.body.error.details || null) : ''));
+      if (!createdId) throw new Error('crm_admin không tạo được khách => không kiểm được xem/sửa/phạm vi (status ' + ok.status + ' ' + errOf(ok) + ')');
+      await ev("location.hash = '/'"); await sleep(200); await ev("location.hash = '/customers'");
+      await waitFor(`document.body.textContent.includes(${JSON.stringify(createdCode)})`, 'khách vừa tạo hiện trên danh sách UI');
+      rec('S4.admin.4 khách vừa tạo hiện trên danh sách UI', 'PASS', createdCode);
+      const g = await pageFetch('/customers/' + createdId);
+      check('S4.admin.5 xem: GET /customers/:id => 200, đúng mã, version 1', g.status === 200 && g.body.data.code === createdCode && g.body.data.version === 1, 'status=' + g.status);
+      const newName = 'E2E admin ' + STAMP + ' (đã sửa)';
+      const up = await pageFetch('/customers/' + createdId, { method: 'PATCH', headers: await hdr(), body: JSON.stringify({ version: 1, name: newName, tier: 'VIP', status: 'ACTIVE' }) });
+      const u = up.body && up.body.data;
+      check('S4.admin.6 sửa: PATCH /customers/:id (version 1; tên, tier VIP, status ACTIVE) => 200, version 2, giá trị mới', up.status === 200 && !!u && u.name === newName && u.tier.code === 'VIP' && u.status.code === 'ACTIVE' && u.version === 2, 'status=' + up.status + (errOf(up) ? ' error=' + errOf(up) : ''));
+      createdVersion = u ? u.version : createdVersion;
+      const stale = await pageFetch('/customers/' + createdId, { method: 'PATCH', headers: await hdr(), body: JSON.stringify({ version: 1, name: newName + ' x' }) });
+      check('S4.admin.7 sửa với version cũ => 409 (khoá lạc quan)', stale.status === 409, 'status=' + stale.status + ' code=' + errOf(stale));
+      const upNoCsrf = await pageFetch('/customers/' + createdId, { method: 'PATCH', headers: JSONH, body: JSON.stringify({ version: 2, name: newName + ' y' }) });
+      check('S4.admin.8 PATCH KHÔNG X-CSRF-Token => 403 CSRF_FAILED', upNoCsrf.status === 403 && errOf(upNoCsrf) === 'CSRF_FAILED', 'status=' + upNoCsrf.status);
+      const badTier = await pageFetch('/customers/' + createdId, { method: 'PATCH', headers: await hdr(), body: JSON.stringify({ version: 2, tier: 'KHONG_CO_TRONG_DANH_MUC' }) });
+      check('S4.admin.9 PATCH tier ngoài danh mục => 400 LOOKUP_INVALID (field tier)', badTier.status === 400 && errOf(badTier) === 'LOOKUP_INVALID' && badTier.body.error.details && badTier.body.error.details.field === 'tier', 'status=' + badTier.status + ' code=' + errOf(badTier));
+      await ev("location.hash = '/customers/" + createdId + "'");
+      await waitFor(`document.body.textContent.includes(${JSON.stringify(newName)})`, 'trang chi tiết (#/customers/:id) hiện tên đã sửa');
+      rec('S4.admin.10 trang chi tiết (#/customers/:id) hiện tên đã sửa', 'PASS');
+      await ev("location.hash = '/customers'"); await sleep(300);
+    } else if (r.key === 'sale') {
+      rec('S4.sale.3 POST /customers (sales, scope OWN) => ' + ok.status + ' ' + errOf(ok), ok.status === 403 && errOf(ok) === 'FORBIDDEN' ? 'KNOWN' : 'FAIL', 'D12: tạo khách cần scope ALL cho tới B3 CustomerAssignment; kỳ vọng 403');
+    } else {
+      check(`S4.${r.key}.3 POST /customers (không có customer.create) => 403 FORBIDDEN`, ok.status === 403 && errOf(ok) === 'FORBIDDEN', 'status=' + ok.status + ' code=' + errOf(ok));
     }
 
-    // S5 — phạm vi đọc: khách do crm_admin tạo (chưa có chủ sở hữu) chỉ ALL thấy; OWN/DEPARTMENT không thấy.
-    if (createdCode) {
+    // S5 — phân quyền trên khách do crm_admin tạo (chưa có chủ sở hữu): danh sách + xem + sửa + xoá theo ma trận V2.
+    if (createdId) {
       const l2 = await pageFetch('/customers?page=1&pageSize=50');
       const items = (l2.body && l2.body.data && l2.body.data.items) || [];
       const sees = items.some((c) => c.code === createdCode);
-      check(`S5.${r.key} phạm vi ${r.expect['customer.read']}: ${r.seesCreated ? 'THẤY' : 'KHÔNG thấy'} khách ${createdCode}`, sees === r.seesCreated, 'total=' + (l2.body && l2.body.data ? l2.body.data.total : null));
+      check(`S5.${r.key}.list phạm vi ${r.expect['customer.read']}: ${r.seesCreated ? 'THẤY' : 'KHÔNG thấy'} khách ${createdCode}`, sees === r.seesCreated, 'total=' + (l2.body && l2.body.data ? l2.body.data.total : null));
+      if (r.key !== 'admin') {
+        const g2 = await pageFetch('/customers/' + createdId);
+        check(`S5.${r.key}.view xem GET /customers/:id => ${r.onCreated.view}`, g2.status === r.onCreated.view, 'status=' + g2.status + ' code=' + errOf(g2));
+        const u2 = await pageFetch('/customers/' + createdId, { method: 'PATCH', headers: await hdr(), body: JSON.stringify({ version: createdVersion, name: 'E2E ' + r.key + ' sửa trái phép' }) });
+        check(`S5.${r.key}.update sửa PATCH /customers/:id => ${r.onCreated.update}`, u2.status === r.onCreated.update, 'status=' + u2.status + ' code=' + errOf(u2));
+        const d2 = await pageFetch('/customers/' + createdId, { method: 'DELETE', headers: await hdr() });
+        check(`S5.${r.key}.delete xoá DELETE /customers/:id (không có customer.delete) => 403 FORBIDDEN`, d2.status === 403 && errOf(d2) === 'FORBIDDEN', 'status=' + d2.status + ' code=' + errOf(d2));
+        const g3 = await pageFetch('/customers/' + createdId, { headers: {} });
+        if (r.onCreated.view === 200) check(`S5.${r.key}.intact sau sửa/xoá trái phép khách không đổi (version ${createdVersion})`, g3.status === 200 && g3.body.data.version === createdVersion, 'version=' + (g3.body && g3.body.data ? g3.body.data.version : null));
+      }
     }
 
     // S6 — tải lại trang: phiên khôi phục qua /auth/me, CSRF lấy lại từ cookie.
