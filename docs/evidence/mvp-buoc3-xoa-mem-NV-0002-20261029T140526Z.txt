@@ -1,0 +1,11 @@
+﻿# MVP BUOC 3 - XOA MEM / KHOI PHUC qua API that - 20261029T140526Z (UTC) # API http://127.0.0.1:3000/api/v1 | Origin http://127.0.0.1:4175 | khach thu KH-00013 | khong ghi mat khau/cookie/token 
+[PASS] Dang nhap: Quản trị CRM (NV-0002) vai tro DB crm_admin
+Quyen customer.delete: ALL | customer.restore: ALL
+Khach thu: KH-00013 (id 2fee292e-66bc-4078-a761-5c3dd973149e)
+[FAIL] DELETE => HTTP 409  (ky vong 409 DELETE_LINKS_UNVERIFIED)
+[PASS] Sau DELETE: khach van con (deletedAt trong) - khong co du lieu bi xoa
+[FAIL] restore => HTTP 409  (ky vong 409 CUSTOMER_NOT_DELETED)
+[FAIL] DELETE khong CSRF => HTTP 409 
+[PASS] Dang xuat
+
+KET QUA BUOC 3 (NV-0002): FAIL 3 muc.

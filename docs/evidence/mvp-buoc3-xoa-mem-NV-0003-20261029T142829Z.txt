@@ -1,0 +1,20 @@
+﻿# MVP BUOC 3 - XOA MEM / KHOI PHUC qua API that - 20261029T142829Z (UTC) # API http://127.0.0.1:3000/api/v1 | Origin http://127.0.0.1:4175 | khach thu KH-00013 | khong ghi mat khau/cookie/token 
+  > POST /auth/login [header: Accept,Origin] => HTTP 200
+[PASS] Dang nhap: Nhân viên kinh doanh (NV-0003) vai tro DB sales
+Quyen customer.delete: KHONG CO | customer.restore: KHONG CO
+  > GET /customers?search=KH-00013&pageSize=5 [header: Accept,Origin] => HTTP 200
+[PASS] Khong thay KH-00013 trong danh sach (ngoai pham vi doc cua vai tro nay) - dung thiet ke.
+  > GET /customers?pageSize=1 [header: Accept,Origin] => HTTP 200
+Khach thu: KH-00016 (id 4fac71ea-d1cd-4ae4-aaaf-a24e1dfb4948)
+  > DELETE /customers/4fac71ea-d1cd-4ae4-aaaf-a24e1dfb4948 [header: Accept,Origin,X-CSRF-Token] => HTTP 403
+[PASS] DELETE => 403 FORBIDDEN (vai tro khong co customer.delete)
+  > GET /customers/4fac71ea-d1cd-4ae4-aaaf-a24e1dfb4948 [header: Accept,Origin] => HTTP 200
+[PASS] Sau DELETE: khach van con (deletedAt trong) - khong co du lieu bi xoa
+  > POST /customers/4fac71ea-d1cd-4ae4-aaaf-a24e1dfb4948/restore [header: Accept,Origin,X-CSRF-Token] => HTTP 403
+[PASS] restore => 403 FORBIDDEN (khong co quyen/ngoai pham vi)
+  > DELETE /customers/4fac71ea-d1cd-4ae4-aaaf-a24e1dfb4948 [header: Accept,Origin] => HTTP 403
+[PASS] DELETE khong co X-CSRF-Token => 403 CSRF_FAILED
+  > POST /auth/logout [header: Accept,Origin,X-CSRF-Token] => HTTP 200
+[PASS] Dang xuat
+
+KET QUA BUOC 3 (NV-0003): PASS (xoa mem dang khoa theo N2, khoi phuc tu choi dung, CSRF dung).

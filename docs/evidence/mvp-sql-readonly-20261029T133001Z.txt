@@ -1,0 +1,77 @@
+﻿# MVP SQL CHI DOC - DB siscom_crm_test_20261029_062004 - 20261029T133001Z - psql exit 0
+SET
+BEGIN
+=== Q0: database hien tai (ky vong: DB thu) ===
+        current_database         |           luc_chay            
+---------------------------------+-------------------------------
+ siscom_crm_test_20261029_062004 | 2026-10-29 20:30:01.258132+07
+
+=== Q1: so khach hang con hieu luc (ky vong >= 14, ma lien tuc KH-00001..) ===
+ so_khach | ma_nho_nhat | ma_lon_nhat 
+----------+-------------+-------------
+       16 | KH-00001    | KH-00016
+
+=== Q1b: khach da xoa mem (ky vong 0 vi DELETE dang khoa N2) ===
+ so_khach_da_xoa 
+-----------------
+               0
+
+=== Q2: chu so huu hien hanh (ky vong: E2E sale ... -> NV-0003; E2E admin ... -> trong) ===
+   code   |                 ten                 | phu_trach 
+----------+-------------------------------------+-----------
+ KH-00001 | E2E admin 20261029T013356Z          | 
+ KH-00002 | E2E admin 20261029T013523Z (đã sửa) | 
+ KH-00003 | E2E admin 20261029T035913Z (đã sửa) | 
+ KH-00004 | E2E sale 20261029T035913Z           | NV-0003
+ KH-00005 | E2E admin 20261029T042812Z (đã sửa) | 
+ KH-00006 | E2E sale 20261029T042812Z           | NV-0003
+ KH-00007 | E2E admin 20261029T064510Z (đã sửa) | 
+ KH-00008 | E2E sale 20261029T064510Z           | NV-0003
+ KH-00009 | E2E admin 20261029T064553Z (đã sửa) | 
+ KH-00010 | E2E sale 20261029T064553Z           | NV-0003
+ KH-00011 | E2E admin 20261029T064904Z (đã sửa) | 
+ KH-00012 | E2E sale 20261029T064904Z           | NV-0003
+ KH-00013 | E2E admin 20261029T072521Z (đã sửa) | 
+ KH-00014 | Công ty Alpha                       | NV-0003
+ KH-00015 | Nghiem thu MVP 29-10                | NV-0003
+ KH-00016 | Trách nhiệm phan kiệm               | NV-0003
+
+=== Q3: danh muc D3 (ky vong: customer_status 4, customer_tier 4, industry 10, source 5; khong co province) ===
+      type       | so_muc 
+-----------------+--------
+ customer_status |      4
+ customer_tier   |      4
+ industry        |     10
+ source          |      5
+
+=== Q4: phien bi thu hoi (ky vong: co dong TOKEN_VERSION) ===
+ revoke_reason | so_phien 
+---------------+----------
+ LOGOUT        |       41
+ TOKEN_VERSION |       17
+
+=== Q5: nhat ky xac thuc theo hanh dong (ky vong: login_ok, logout, login_failed, password_changed, password_change_failed) ===
+           action            | so_dong 
+-----------------------------+---------
+ auth.bootstrap_user         |       5
+ auth.login_failed           |      13
+ auth.login_ok               |      51
+ auth.logout                 |      41
+ auth.password_change_failed |       4
+ auth.password_changed       |       8
+
+=== Q5b: dong nhat ky co ve chua mat khau (ky vong 0) ===
+ dong_nghi_chua_mat_khau 
+-------------------------
+                       0
+
+=== Q6: thong tin dang nhap (ky vong: NV-0003 token_version > 1 va password_changed_at hom nay; failed_count 0; locked_until trong) ===
+  code   | token_version |    password_changed_at     | failed_count | locked_until 
+---------+---------------+----------------------------+--------------+--------------
+ NV-0001 |             1 | 2026-10-28 23:31:29.803+07 |            0 | 
+ NV-0002 |             3 | 2026-10-29 13:12:42.821+07 |            0 | 
+ NV-0003 |             7 | 2026-10-29 13:26:01.971+07 |            0 | 
+ NV-0004 |             1 | 2026-10-28 23:31:29.822+07 |            0 | 
+ NV-0005 |             1 | 2026-10-28 23:31:29.826+07 |            0 | 
+
+ROLLBACK
