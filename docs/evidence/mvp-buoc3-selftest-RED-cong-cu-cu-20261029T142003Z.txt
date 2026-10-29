@@ -1,0 +1,25 @@
+Cong cu: <thu-muc-tam>\mvp-kiem-tra-xoa-mem.OLD.ps1
+--- dau ra cong cu ---
+[PASS] Dang nhap: Quan tri CRM (gia) (NV-0002) vai tro DB crm_admin
+Quyen customer.delete: ALL | customer.restore: ALL
+Khach thu: KH-00013 (id 2fee292e-66bc-4078-a761-5c3dd973149e)
+[FAIL] DELETE => HTTP 409  (ky vong 409 DELETE_LINKS_UNVERIFIED)
+[PASS] Sau DELETE: khach van con (deletedAt trong) - khong co du lieu bi xoa
+[FAIL] restore => HTTP 409  (ky vong 409 CUSTOMER_NOT_DELETED)
+[FAIL] DELETE khong CSRF => HTTP 409 
+[PASS] Dang xuat
+
+KET QUA BUOC 3 (NV-0002): FAIL 3 muc.
+[DAT] Da ghi bang chung: <TEMP>\mvp-buoc3-selftest-1eb77c42d990424f8526a7eb5489085f\mvp-buoc3-xoa-mem-NV-0002-20261029T141940Z.txt
+--- het ---
+[FAIL] Ma thoat cong cu = 0 (thuc te 1)
+[FAIL] (1) DELETE: doc duoc ma loi DELETE_LINKS_UNVERIFIED tu body 409
+[FAIL] (2) restore: doc duoc ma loi CUSTOMER_NOT_DELETED tu body 409
+[FAIL] (3) DELETE khong CSRF: 403 CSRF_FAILED
+[PASS] API gia nhan dung 2 DELETE (thuc te 2)
+[FAIL] Dung 1 DELETE toi API gia KHONG mang X-CSRF-Token (thuc te 0) - header khong bi WebSession giu lai
+[FAIL] Dong ket qua: PASS
+[PASS] Ghi dung 1 file bang chung
+[PASS] File bang chung khong chua mat khau/cookie/token
+
+TU KIEM CONG CU: FAIL 6 muc
