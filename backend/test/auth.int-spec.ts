@@ -207,7 +207,7 @@ describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A
   const w = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
   const acct = USERS[4]; // accountant: không dùng ở các describe khác
   const ORIG = acct.password;
-  const NEW = 'Ketoan-Moi#2026-ok';
+  const NEW = 'Taichinh-Moi#2026-ok';
   const body = (currentPassword: string, newPassword = NEW, confirmPassword = newPassword) => ({ currentPassword, newPassword, confirmPassword });
   let empId = '';
   const cred = () => prisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: empId } });
@@ -263,7 +263,7 @@ describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A
     const before = await cred(); const n = await failedLogs();
     const weak = await srv().post(U).set(w(s)).send(body(acct.password, 'ketoan-yeu'));
     expect(weak.status).toBe(400); expect(weak.body.error.code).toBe('VALIDATION_FAILED'); expect(weak.body.details.length).toBeGreaterThan(0);
-    const mismatch = await srv().post(U).set(w(s)).send(body(acct.password, 'Ketoan-Khac#2026-ok', 'Ketoan-Khac#2026-xx'));
+    const mismatch = await srv().post(U).set(w(s)).send(body(acct.password, 'Taichinh-Khac#2026-ok', 'Taichinh-Khac#2026-xx'));
     expect(mismatch.status).toBe(400); expect(mismatch.body.details).toEqual(['Mật khẩu xác nhận không khớp']);
     const same = await srv().post(U).set(w(s)).send(body(acct.password, acct.password));
     expect(same.status).toBe(400); expect(same.body.details).toEqual(['Mật khẩu mới phải khác mật khẩu hiện tại']);
