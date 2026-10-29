@@ -10,6 +10,7 @@ import { ACTIVE_LINKS_CHECKER, ActiveLinksChecker } from './customers.deletion-g
 import { DEFAULT_STATUS_CODE, DEFAULT_TIER_CODE, LOOKUP_TYPES, LookupKey, MAX_OFFSET_WINDOW } from './customers.defaults';
 import { customerErrors } from './customers.errors';
 import { CustomerRow, toDetail, toListItem } from './customers.mapper';
+import { assertOwnerInScope, closeOwnerAssignment, loadOwnerCandidate, openOwnerAssignment, ownerIdForCreate, ownerIdForUpdate } from './customers.ownership';
 import { buildOrderBy, CUSTOMER_DETAIL_INCLUDE, scopeWhere } from './customers.queries';
 import { buildSearchCountQuery, buildSearchPageQuery, chooseSearchPath } from './customers.search';
 import type { CreateCustomerDto } from './dto/create-customer.dto';
@@ -230,8 +231,9 @@ export class CustomersService {
   async create(ctx: RequestCtx, dto: CreateCustomerDto) {
     const { actor } = ctx;
     const scope = this.scopeOf(actor, 'customer.create');
-    // B-1 chưa có CustomerAssignment (B-3): khách tạo ra không có chủ sở hữu => người bị giới hạn OWN/DEPARTMENT sẽ không xem được chính khách mình tạo.
-    if (scope !== 'ALL') throw customerErrors.forbidden('Chưa hỗ trợ tạo khách hàng với phạm vi OWN/DEPARTMENT (cần gán chủ sở hữu, B1.2.3-B3).');
+    // B-3: chủ sở hữu theo phạm vi (OWN/DEPARTMENT không gửi => chính người tạo, D14); ứng viên được kiểm tồn tại/ACTIVE/cùng phạm vi trong transaction.
+    const wantOwner = ownerIdForCreate(actor, scope, blank(dto.ownerId));
+    const ownerReason = blank(dto.ownerReason) ?? null;
     const name = dto.name.trim();
     const phone = dto.phone.trim();
     if (name.length < 2) throw customerErrors.validation(['Tên công ty quá ngắn']);
@@ -243,16 +245,19 @@ export class CustomersService {
     return this.guarded(actor, 'create', box, () => this.inTx(async (tx) => {
       const ids = await this.resolveLookups(tx, { tier: blank(dto.tier) ?? DEFAULT_TIER_CODE, status: blank(dto.status) ?? DEFAULT_STATUS_CODE, industry: blank(dto.industry), source: blank(dto.source), province: blank(dto.province) }, true);
       if (taxId) await this.assertTaxFree(tx, actor, taxId);
+      let ownerId: string | null = null;
+      if (wantOwner) { const cand = await loadOwnerCandidate(tx, wantOwner); assertOwnerInScope(actor, scope, cand); ownerId = cand.id; }
       const shortName = blank(dto.shortName) ?? deriveShortName(name);
       const data = {
         name, shortName, taxId, phone, phoneE164: normalizePhoneE164(phone), email, website,
         address: blank(dto.address) ?? null, note: blank(dto.note) ?? null, tags: dto.tags ?? [],
         tierId: ids.tier as string, statusId: ids.status as string,
         industryId: ids.industry ?? null, sourceId: ids.source ?? null, provinceId: ids.province ?? null,
-        createdById: actor.employeeId, updatedById: actor.employeeId,
+        ownerId, createdById: actor.employeeId, updatedById: actor.employeeId,
       }; // code/id/version/revenue: để PostgreSQL/Prisma tự sinh; không bao giờ nhận từ client
       const created = await tx.customer.create({ data, select: { id: true, code: true } });
-      await this.audit.record(tx, { action: 'customer.create', entityType: 'customer', entityId: created.id, entityCode: created.code, summary: 'Tạo khách hàng ' + created.code, changes: diffFields({}, { name, shortName, taxId, phone, phoneE164: data.phoneE164, email, website, address: data.address, note: data.note, tags: data.tags }), actorEmployeeId: actor.employeeId, requestId: ctx.requestId });
+      if (ownerId) await openOwnerAssignment(tx, { customerId: created.id, employeeId: ownerId, assignedById: actor.employeeId, reason: ownerReason });
+      await this.audit.record(tx, { action: 'customer.create', entityType: 'customer', entityId: created.id, entityCode: created.code, summary: 'Tạo khách hàng ' + created.code, changes: diffFields({}, { name, shortName, taxId, phone, phoneE164: data.phoneE164, email, website, address: data.address, note: data.note, tags: data.tags, ownerId }), actorEmployeeId: actor.employeeId, requestId: ctx.requestId });
       return toDetail(await tx.customer.findUniqueOrThrow({ where: { id: created.id }, include: CUSTOMER_DETAIL_INCLUDE }));
     }));
   }
@@ -271,7 +276,7 @@ export class CustomersService {
 
       const data: Prisma.CustomerUncheckedUpdateManyInput = {};
       const after: Record<string, unknown> = {};
-      const before: Record<string, unknown> = { name: cur.name, shortName: cur.shortName, taxId: cur.taxId, phone: cur.phone, phoneE164: cur.phoneE164, email: cur.email, website: cur.website, address: cur.address, note: cur.note, tags: cur.tags, tier: cur.tier.code, status: cur.status.code, industry: cur.industry?.code ?? null, source: cur.source?.code ?? null, province: cur.province?.code ?? null };
+      const before: Record<string, unknown> = { name: cur.name, shortName: cur.shortName, taxId: cur.taxId, phone: cur.phone, phoneE164: cur.phoneE164, email: cur.email, website: cur.website, address: cur.address, note: cur.note, tags: cur.tags, tier: cur.tier.code, status: cur.status.code, industry: cur.industry?.code ?? null, source: cur.source?.code ?? null, province: cur.province?.code ?? null, ownerId: cur.ownerId };
       const name = dto.name === undefined ? undefined : dto.name.trim();
       if (name !== undefined) { if (name.length < 2) throw customerErrors.validation(['Tên công ty quá ngắn']); data.name = name; after.name = name; }
       const phone = dto.phone === undefined ? undefined : dto.phone.trim();
@@ -305,11 +310,22 @@ export class CustomersService {
       for (const k of Object.keys(wanted) as LookupKey[]) { (data as Record<string, unknown>)[k + 'Id'] = ids[k]; after[k] = wanted[k]; }
       for (const k of clear) { (data as Record<string, unknown>)[k + 'Id'] = null; after[k] = null; }
 
+      // B-3 (§3.7): chủ sở hữu chỉ đổi khi gửi giá trị KHÁC hiện tại; ứng viên phải tồn tại/ACTIVE và cùng phạm vi customer.update.
+      const newOwner = ownerIdForUpdate(actor, upScope, cur.ownerId, blank(dto.ownerId));
+      if (newOwner !== undefined) {
+        if (newOwner) { const cand = await loadOwnerCandidate(tx, newOwner); assertOwnerInScope(actor, upScope, cand); }
+        data.ownerId = newOwner; after.ownerId = newOwner;
+      }
+
       if (Object.keys(data).length === 0) return toDetail(cur); // không có thay đổi: không tăng version, không ghi nhật ký
       if (data.taxId && typeof data.taxId === 'string') await this.assertTaxFree(tx, actor, data.taxId, id);
 
       const r = await tx.customer.updateMany({ where: { id, version: dto.version, deletedAt: null }, data: { ...data, updatedById: actor.employeeId, version: { increment: 1 } } });
       if (r.count !== 1) throw customerErrors.versionConflict(cur.version);
+      if (newOwner !== undefined) {
+        await closeOwnerAssignment(tx, id); // đóng phân công OWNER đang hiệu lực (giờ DB)
+        if (newOwner) await openOwnerAssignment(tx, { customerId: id, employeeId: newOwner, assignedById: actor.employeeId, reason: blank(dto.ownerReason) ?? null });
+      }
       await this.audit.record(tx, { action: 'customer.update', entityType: 'customer', entityId: id, entityCode: cur.code, summary: 'Cập nhật khách hàng ' + cur.code, changes: diffFields(before, after), actorEmployeeId: actor.employeeId, requestId: ctx.requestId });
       return toDetail(await tx.customer.findUniqueOrThrow({ where: { id }, include: CUSTOMER_DETAIL_INCLUDE }));
     }));

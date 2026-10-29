@@ -33,8 +33,14 @@ describe('CreateCustomerDto', () => {
     expect((await check(CreateCustomerDto, { ...ok, email: 'x@' })).length).toBeGreaterThan(0);
     expect((await check(CreateCustomerDto, { ...ok, website: 'a b' })).length).toBeGreaterThan(0);
   });
-  it('trường lạ bị từ chối: id, code, version, isDemo, revenueVnd, ownerId (B-1 chưa có chủ sở hữu)', async () => {
-    for (const k of ['id', 'code', 'version', 'isDemo', 'revenueVnd', 'createdBy', 'ownerId', 'ownerReason']) expect((await check(CreateCustomerDto, { ...ok, [k]: 'x' })).length).toBeGreaterThan(0);
+  it('trường lạ bị từ chối: id, code, version, isDemo, revenueVnd, createdBy', async () => {
+    for (const k of ['id', 'code', 'version', 'isDemo', 'revenueVnd', 'createdBy']) expect((await check(CreateCustomerDto, { ...ok, [k]: 'x' })).length).toBeGreaterThan(0);
+  });
+  it('B-3: ownerId phải là uuid (rỗng/null = không gửi); ownerReason <= 500', async () => {
+    expect(await check(CreateCustomerDto, { ...ok, ownerId: '11111111-1111-4111-8111-111111111111', ownerReason: 'bàn giao' })).toEqual([]);
+    expect(await check(CreateCustomerDto, { ...ok, ownerId: '', ownerReason: null })).toEqual([]);
+    expect((await check(CreateCustomerDto, { ...ok, ownerId: 'x' })).length).toBeGreaterThan(0);
+    expect((await check(CreateCustomerDto, { ...ok, ownerReason: 'a'.repeat(501) })).length).toBeGreaterThan(0);
   });
   it('mã danh mục sai định dạng; tags quá nhiều', async () => {
     expect((await check(CreateCustomerDto, { ...ok, tier: 'vip' })).length).toBeGreaterThan(0);
@@ -57,10 +63,13 @@ describe('UpdateCustomerDto', () => {
   it('trường tuỳ chọn có thể xoá bằng null hoặc rỗng', async () => {
     expect(await check(UpdateCustomerDto, { version: 2, industry: '', source: null, taxId: '', email: null, address: '' })).toEqual([]);
   });
-  it('MST sai bị từ chối; trường lạ (code, ownerId) bị từ chối', async () => {
+  it('MST sai bị từ chối; trường lạ (code) bị từ chối; B-3: ownerId uuid hoặc null, ownerReason <= 500', async () => {
     expect((await check(UpdateCustomerDto, { version: 1, taxId: '123' })).length).toBeGreaterThan(0);
     expect((await check(UpdateCustomerDto, { version: 1, code: 'KH-1' })).length).toBeGreaterThan(0);
-    expect((await check(UpdateCustomerDto, { version: 1, ownerId: '11111111-1111-4111-8111-111111111111' })).length).toBeGreaterThan(0);
+    expect(await check(UpdateCustomerDto, { version: 1, ownerId: '11111111-1111-4111-8111-111111111111', ownerReason: 'bàn giao' })).toEqual([]);
+    expect(await check(UpdateCustomerDto, { version: 1, ownerId: null })).toEqual([]);
+    expect((await check(UpdateCustomerDto, { version: 1, ownerId: 'x' })).length).toBeGreaterThan(0);
+    expect((await check(UpdateCustomerDto, { version: 1, ownerReason: 'a'.repeat(501) })).length).toBeGreaterThan(0);
   });
 });
 

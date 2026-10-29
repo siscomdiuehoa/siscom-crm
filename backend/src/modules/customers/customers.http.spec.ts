@@ -74,7 +74,7 @@ describe('Customer API — có danh tính giả (CHỈ trong test)', () => {
     expect(res.body.details).toEqual(expect.arrayContaining(['Vui lòng nhập tên công ty', 'Vui lòng nhập số điện thoại']));
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
-  it.each(['id', 'code', 'version', 'ownerId', 'isDemo', 'revenueVnd'])('POST kèm trường lạ "%s" -> 400', async (k) => {
+  it.each(['id', 'code', 'version', 'isDemo', 'revenueVnd'])('POST kèm trường lạ "%s" -> 400', async (k) => {
     const res = await call(app, 'post', '/api/v1/customers', { name: 'Công ty A', phone: '0903123456', [k]: 'x' });
     expect(res.status).toBe(400);
     expect(prisma.$transaction).not.toHaveBeenCalled();

@@ -1,13 +1,20 @@
-import { ArrayMaxSize, IsArray, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, Min, MinLength } from 'class-validator';
 import { IsTaxId } from '../validators/vn-tax-id';
 import { CODE_MESSAGE, CODE_RE, SkipIfBlank, SkipIfUndefined, Trim, TrimEach } from './dto-helpers';
 
 // PATCH một phần. Không gửi = giữ nguyên; null hoặc '' ở trường tuỳ chọn = xoá giá trị.
 // Định dạng phone/email/website được kiểm trong service (bỏ qua khi giá trị KHÔNG đổi so với bản đang lưu, như frontend B1.1).
-// Không có ownerId (B-3). `version` bắt buộc (khoá lạc quan).
+// B-3: ownerId (uuid | null = bỏ chủ sở hữu) + ownerReason: chỉ khi khác hiện tại => đóng/mở phân công OWNER cùng transaction (hợp đồng §3.7).
+// `version` bắt buộc (khoá lạc quan).
 export class UpdateCustomerDto {
   @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
   version!: number;
+
+  @SkipIfBlank() @Trim() @IsUUID(undefined, { message: 'ownerId phải là uuid của nhân viên' })
+  ownerId?: string | null;
+
+  @SkipIfBlank() @Trim() @IsString() @MaxLength(500, { message: 'Lý do phân công tối đa 500 ký tự' })
+  ownerReason?: string | null;
 
   @SkipIfUndefined() @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập tên công ty' }) @MinLength(2, { message: 'Tên công ty quá ngắn' }) @MaxLength(300)
   name?: string;
