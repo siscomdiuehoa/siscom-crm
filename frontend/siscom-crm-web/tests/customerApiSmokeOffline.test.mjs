@@ -97,13 +97,15 @@ test('SMOKE cờ BẬT: lookups + list + paging + search + get + create + PATCH 
   assert.equal(f.mutations()[0].url, BASE + '/customers/' + uid(5)); assert.equal(f.mutations()[1].body.industry, 'IND-1');
 }));
 
-test('SMOKE cờ BẬT: owner/ownerId/id/code/liên hệ KHÔNG gửi; không cookie/Authorization', () => guarded(async () => {
+test('SMOKE cờ BẬT: owner(nhãn)/id/code/liên hệ KHÔNG gửi; ownerId (PR 7) chỉ gửi khi tạo; không cookie/Authorization', () => guarded(async () => {
   const f = mockServer(); const c = createCustomerApiUi({ env: ON, fetchImpl: f });
   assert.equal((await c.submit(INPUT)).ok, true);
   await c.loadDetail(uid(5)); assert.equal((await c.update(uid(5), { ...INPUT, id: uid(5), code: 'KH-1' }, 2)).ok, true);
   assert.equal(f.mutations().length, 2);
   for (const m of f.mutations()) {
-    for (const k of ['owner', 'ownerId', 'ownerUserId', 'id', 'code', 'cName', 'cPhone', 'cTitle', 'cEmail']) assert.equal(k in m.body, false, k + ' không được gửi (' + m.method + ')');
+    for (const k of ['owner', 'ownerUserId', 'id', 'code', 'cName', 'cPhone', 'cTitle', 'cEmail']) assert.equal(k in m.body, false, k + ' không được gửi (' + m.method + ')');
+    // PR 7: ownerId (uuid nhân viên) là trường thật — POST gửi khi chọn; PATCH chỉ gửi khi khác ownerIdBefore (INPUT không có => không gửi).
+    if (m.method === 'POST') assert.equal(m.body.ownerId, uid(999), 'ownerId được gửi khi tạo'); else assert.equal('ownerId' in m.body, false, 'ownerId không gửi khi sửa mà không đổi');
     assert.equal(m.body.industry, 'IND-1'); assert.equal(m.body.tier, 'vip');
   }
   for (const call of f.calls) {

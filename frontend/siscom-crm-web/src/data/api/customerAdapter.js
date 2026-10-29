@@ -1,6 +1,9 @@
 // Pure mapping between the UI customer model (data/demoData.js, CustomerForm) and the backend Customers API (B1.2.3 DTOs).
 // No network, no storage, no React. Backend field names: shortName, province; tier/status/industry/source/province are lookup CODES.
-// The UI keeps Vietnamese labels; labels <-> codes come from GET /lookups (see buildLookupMaps). Owner is never sent (backend takes it from the actor).
+// The UI keeps Vietnamese labels; labels <-> codes come from GET /lookups (see buildLookupMaps).
+// Owner (PR 7 / B3): the form holds `ownerId` (employee uuid from GET /customers/owner-candidates). create: sent only when chosen (server applies
+// D14 defaults otherwise); update: sent only when it differs from `ownerIdBefore` (the loaded value), `null` = clear — never resent unchanged,
+// so OWN/DEPARTMENT users are not refused for "changing" an owner they did not touch.
 
 export class AdapterError extends Error {
   constructor(message, field) { super(message); this.name = 'AdapterError'; this.field = field; }
@@ -55,7 +58,20 @@ export function toApiCustomer(ui, maps, opts = {}) {
   if (tier) body.tier = tier;
   if (status) body.status = status;
   if (Array.isArray(ui.tags)) body.tags = ui.tags.map(s).filter(Boolean);
+  const ownerId = s(ui.ownerId);
+  if (mode === 'create') { if (ownerId) body.ownerId = ownerId; }
+  else if (ui.ownerIdBefore !== undefined && ownerId !== s(ui.ownerIdBefore)) body.ownerId = ownerId || null;
   return body;
+}
+
+// `data` of GET /customers/owner-candidates -> { scope: 'ALL'|'DEPARTMENT'|'OWN', items: [{ id, code, fullName, departmentCode, label }] }.
+// Malformed rows are dropped; nothing is invented. `label` = "Tên (NV-xxxx)" for the select.
+export function normalizeOwnerCandidates(d) {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.items)) throw new AdapterError('Phản hồi ứng viên phụ trách không hợp lệ.');
+  const scope = ['ALL', 'DEPARTMENT', 'OWN'].includes(d.scope) ? d.scope : 'OWN'; // unknown scope -> most restrictive (no "none" choice)
+  const items = d.items.filter((r) => r && typeof r.id === 'string' && r.id && typeof r.fullName === 'string' && r.fullName.trim())
+    .map((r) => ({ id: r.id, code: s(r.code), fullName: r.fullName.trim(), departmentCode: typeof r.departmentCode === 'string' ? r.departmentCode : null, label: r.fullName.trim() + (s(r.code) ? ' (' + s(r.code) + ')' : '') }));
+  return { scope, items };
 }
 
 // api = one item of `data` from GET /customers/:id (detail) or GET /customers (list item, fewer fields). Missing optionals become ''.

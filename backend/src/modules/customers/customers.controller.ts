@@ -18,6 +18,13 @@ export class CustomersController {
     return { data: await this.service.list(ctx, q) };
   }
 
+  // PR 7 (D15): ứng viên chủ sở hữu cho ô "Nhân viên phụ trách" — theo phạm vi customer.create/update, KHÔNG cần employee.read.
+  // Khai báo TRƯỚC ':id' để không bị ParseUUIDPipe của route ':id' bắt.
+  @Get('owner-candidates')
+  async ownerCandidates(@CurrentCtx() ctx: RequestCtx) {
+    return { data: await this.service.ownerCandidates(ctx) };
+  }
+
   @Get(':id')
   async get(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string) {
     return { data: await this.service.get(ctx, id) };

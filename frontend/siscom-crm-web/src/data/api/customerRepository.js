@@ -49,6 +49,7 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
     return {
       mode: 'local',
       async lookups() { return null; }, // demo mode: the form keeps its built-in demo choices; GET /lookups is never called
+      async ownerCandidates() { return null; }, // demo mode: owner select keeps the demo list
       async list(params) { return { items: await need().list(params), source: 'local' }; },
       async create(ui, ...rest) { return need().create(ui, ...rest); },
       async get(id) { const l = need(); if (typeof l.get !== 'function') throw new CustomerRepoError('config', 'Nguồn cục bộ không hỗ trợ xem chi tiết.'); return l.get(id); },
@@ -58,7 +59,7 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
 
   if (!config.enabled) {
     const err = () => new CustomerRepoError('config', 'Đã bật VITE_CRM_API_ENABLED nhưng thiếu VITE_CRM_API_BASE. Không dùng dữ liệu cục bộ thay thế.');
-    return { mode: 'misconfigured', async lookups() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); } };
+    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); } };
   }
 
   // Wrap fetch: transport failures become kind 'network', and we know whether a request was sent
@@ -85,6 +86,11 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
     async lookups() {
       sent = false;
       try { return await api.getLookupMaps(); } catch (err) { throw classify(err); }
+    },
+    // PR 7: who the actor may set as owner (GET /customers/owner-candidates): { scope, items: [{ id, code, fullName, departmentCode, label }] }.
+    async ownerCandidates() {
+      sent = false;
+      try { return await api.getOwnerCandidates(); } catch (err) { throw classify(err); }
     },
     async list(params) {
       sent = false;

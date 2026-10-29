@@ -46,10 +46,28 @@ export function describeRepoError(err) {
 // Business code shown to people. The backend UUID (`id`) is never displayed; a record without code shows a dash.
 export const customerDisplayCode = (c) => (c && c.code) || '—';
 
-// CustomerForm state -> input for repository.create. Owner and contact person are not part of the create contract (server derives owner) and are dropped.
-export function formToCustomerInput(f) {
+// CustomerForm state -> input for repository.create/update. Contact person and the demo `owner` label are dropped. PR 7: `ownerId` (employee uuid)
+// is kept; for update, `original` (the loaded customer) supplies `ownerIdBefore` so the adapter sends ownerId only when it really changed.
+export function formToCustomerInput(f, original) {
   const { cName, cTitle, cPhone, cEmail, owner, ...rest } = f || {};
-  return { ...rest, name: String(rest.name || '').trim(), short: String(rest.short || '').trim(), taxId: String(rest.taxId || '').trim() };
+  const out = { ...rest, name: String(rest.name || '').trim(), short: String(rest.short || '').trim(), taxId: String(rest.taxId || '').trim(), ownerId: String(rest.ownerId || '').trim() };
+  if (original) out.ownerIdBefore = String(original.ownerId || '').trim();
+  return out;
+}
+
+// API mode only: what the owner <Select> may show/do, from controller state `owners` ({ status, scope, items }).
+//   -> { options: [{ value, label }], disabled, hint, allowNone }. "— Chưa phân công —" is offered only for scope ALL (OWN/DEPARTMENT cannot clear the owner).
+//   A current value not in the list (e.g. owner from another department) is kept as a read-only option so an edit does not silently drop it.
+export function ownerFieldView(owners, value) {
+  const st = (owners && owners.status) || 'idle';
+  if (st === 'idle' || st === 'loading') return { options: [], disabled: true, hint: 'Đang tải danh sách nhân viên…', allowNone: false };
+  if (st === 'error') return { options: [], disabled: true, hint: 'Chưa tải được danh sách nhân viên.', allowNone: false };
+  const items = (owners.items || []).map((x) => ({ value: x.id, label: x.label || x.fullName }));
+  const allowNone = owners.scope === 'ALL';
+  const v = String(value == null ? '' : value).trim();
+  if (v && !items.some((o) => o.value === v)) items.unshift({ value: v, label: 'Người phụ trách hiện tại' });
+  const options = allowNone ? [{ value: '', label: '— Chưa phân công —' }, ...items] : items;
+  return { options, disabled: false, hint: '', allowNone };
 }
 
 // API mode only: what a lookup <Select> may show/do, from controller state `lookups` ({ status, maps }). Only server choices are ever offered (no demo list, no invented value).
@@ -122,10 +140,11 @@ export function createCustomerApiController(repo) {
   const idle = { status: 'idle', items: [], error: null, paging: null, params: null };
   const noDetail = { status: 'idle', id: null, customer: null, error: null };
   const noLookups = { status: 'idle', maps: null, error: null };
-  let state = { mode: repo.mode, lookups: noLookups, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null, conflict: null } };
+  const noOwners = { status: 'idle', scope: null, items: [], error: null };
+  let state = { mode: repo.mode, lookups: noLookups, owners: noOwners, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null, conflict: null } };
   const subs = new Set();
   const set = (patch) => { state = { ...state, ...patch }; subs.forEach((f) => f()); };
-  let seq = 0; let lseq = 0; let inflight = false; let dseq = 0; let uinflight = false; let uid = null; let cseq = 0;
+  let seq = 0; let lseq = 0; let oseq = 0; let inflight = false; let dseq = 0; let uinflight = false; let uid = null; let cseq = 0;
   return {
     mode: repo.mode,
     getState: () => state,
@@ -141,6 +160,18 @@ export function createCustomerApiController(repo) {
         const maps = await repo.lookups();
         if (my === lseq) set({ lookups: maps ? { status: 'ready', maps, error: null } : noLookups });
       } catch (e) { if (my === lseq) set({ lookups: { status: 'error', maps: null, error: describeRepoError(e) } }); }
+    },
+    // PR 7: owner candidates for the form select (GET /customers/owner-candidates). Same caching/retry rules as loadLookups; 401/403 never retried implicitly.
+    async loadOwners(force) {
+      const st = state.owners.status;
+      if (st === 'loading' || (st === 'ready' && !force)) return;
+      if (st === 'error' && state.owners.error && state.owners.error.denied && !force) return;
+      const my = ++oseq;
+      set({ owners: { status: 'loading', scope: null, items: [], error: null } });
+      try {
+        const r = typeof repo.ownerCandidates === 'function' ? await repo.ownerCandidates() : null;
+        if (my === oseq) set({ owners: r ? { status: 'ready', scope: r.scope, items: r.items, error: null } : noOwners });
+      } catch (e) { if (my === oseq) set({ owners: { status: 'error', scope: null, items: [], error: describeRepoError(e) } }); }
     },
     // params = { page, pageSize, search } normalised by buildListParams. They stay in state (also on error) so retry/next/prev reuse them. Stale responses are dropped.
     async load(params) {

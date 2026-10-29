@@ -47,9 +47,11 @@ describe('kiểm tra tĩnh mã production (src, không tính *.spec.ts)', () => 
   it('UnverifiedLinksChecker không bao giờ trả verified: true', () => {
     expect(text(join(SRC, 'modules', 'customers', 'customers.deletion-guard.ts'))).not.toMatch(/verified:\s*true/);
   });
-  it('controller chỉ có đúng các route của Contract B-1 (không PUT)', () => {
+  it('controller chỉ có đúng các route của Contract B-1 + GET owner-candidates (PR 7, §3.8) (không PUT)', () => {
     const c = text(join(SRC, 'modules', 'customers', 'customers.controller.ts'));
-    expect([...c.matchAll(/@(Get|Post|Patch|Put|Delete)\(/g)].map((m) => m[1]).sort()).toEqual(['Delete', 'Get', 'Get', 'Patch', 'Post', 'Post']);
+    expect([...c.matchAll(/@(Get|Post|Patch|Put|Delete)\(/g)].map((m) => m[1]).sort()).toEqual(['Delete', 'Get', 'Get', 'Get', 'Patch', 'Post', 'Post']);
+    expect(c.indexOf("@Get('owner-candidates')")).toBeGreaterThan(-1);
+    expect(c.indexOf("@Get('owner-candidates')")).toBeLessThan(c.indexOf("@Get(':id')")); // phải đứng trước ':id' (ParseUUIDPipe)
     expect(c).toMatch(/@UseGuards\(ActorGuard\)/);
   });
 });

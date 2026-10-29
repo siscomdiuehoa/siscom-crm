@@ -16,8 +16,9 @@ function makePrisma() {
   const customer = { findFirst: jest.fn(), findUnique: jest.fn(), findUniqueOrThrow: jest.fn(), findMany: jest.fn(), count: jest.fn().mockResolvedValue(0), create: jest.fn(), updateMany: jest.fn() };
   const lookupItem = { findMany: jest.fn().mockResolvedValue([]) };
   const contact = { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn(), create: jest.fn() };
-  const tx = { $executeRaw: jest.fn().mockResolvedValue(0), $queryRaw: jest.fn().mockResolvedValue([]), customer, lookupItem, contact };
-  return { customer, lookupItem, contact, tx, $transaction: jest.fn(async (cb: (t: unknown) => unknown) => cb(tx)) };
+  const employee = { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) };
+  const tx = { $executeRaw: jest.fn().mockResolvedValue(0), $queryRaw: jest.fn().mockResolvedValue([]), customer, lookupItem, contact, employee };
+  return { customer, lookupItem, contact, employee, tx, $transaction: jest.fn(async (cb: (t: unknown) => unknown) => cb(tx)) };
 }
 async function makeApp(prisma: unknown, provider?: ActorProvider): Promise<INestApplication> {
   let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule] }).overrideProvider(PrismaService).useValue(prisma);
@@ -41,6 +42,7 @@ describe('Customer API — cấu hình thật (DenyAll): mặc định 401', () 
     ['get', '/api/v1/customers'], ['get', '/api/v1/customers/' + ID], ['post', '/api/v1/customers'],
     ['patch', '/api/v1/customers/' + ID], ['delete', '/api/v1/customers/' + ID], ['post', '/api/v1/customers/' + ID + '/restore'],
     ['get', '/api/v1/customers/' + ID + '/contacts'], ['post', '/api/v1/customers/' + ID + '/contacts'], ['get', '/api/v1/lookups?type=industry'],
+    ['get', '/api/v1/customers/owner-candidates'],
   ];
   it.each(routes)('%s %s -> 401 UNAUTHENTICATED và không chạm database', async (method, url) => {
     const prisma = makePrisma();

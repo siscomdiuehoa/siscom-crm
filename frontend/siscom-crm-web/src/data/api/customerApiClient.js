@@ -3,7 +3,7 @@
 // OPT-IN (options.auth = an independently verified login session exposing getState/getAuthHeader/handleUnauthorized): the Authorization header
 // is read from that session's memory on every call; nothing is stored here. No verified session => AuthRequiredError BEFORE any network call.
 // ASSUMPTION (server auth contract not final): bearer is only a trial seam, NOT approved for production; cookie/CSRF would change this.
-import { fromApiCustomer, toApiCustomer, buildLookupMaps } from './customerAdapter.js';
+import { fromApiCustomer, toApiCustomer, buildLookupMaps, normalizeOwnerCandidates } from './customerAdapter.js';
 
 export class ApiDisabledError extends Error { constructor() { super('Chế độ API đang TẮT (VITE_CRM_API_ENABLED khác "true" hoặc thiếu VITE_CRM_API_BASE).'); this.name = 'ApiDisabledError'; } }
 export class ApiError extends Error {
@@ -84,6 +84,7 @@ export function createCustomerApi(config, fetchImpl, options) {
   return {
     enabled: cfg.enabled,
     async getLookupMaps() { return buildLookupMaps(await call('GET', '/lookups' + qs({ type: 'customer_tier,customer_status,industry,source,province' }))); },
+    async getOwnerCandidates() { return normalizeOwnerCandidates(await call('GET', '/customers/owner-candidates')); },
     async list(params) { const d = await call('GET', '/customers' + qs(params)); return { ...d, items: d.items.map(fromApiCustomer) }; },
     async get(id) { return fromApiCustomer(await call('GET', '/customers/' + encodeURIComponent(id))); },
     async create(ui, maps) { return fromApiCustomer(await call('POST', '/customers', toApiCustomer(ui, maps, { mode: 'create' }))); },
