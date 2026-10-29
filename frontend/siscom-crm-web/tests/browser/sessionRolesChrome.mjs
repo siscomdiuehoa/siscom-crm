@@ -138,7 +138,7 @@ try {
     if (r.key === 'admin') {
       const cs = await cookies();
       const sid = cs.find((c) => c.name === 'siscom_sid'); const csrf = cs.find((c) => c.name === 'siscom_csrf');
-      check('S2.admin.cookies siscom_sid HttpOnly+SameSite=Lax+Path=/api/v1; siscom_csrf KHÔNG HttpOnly', !!sid && sid.httpOnly && sid.sameSite === 'Lax' && sid.path === '/api/v1' && !!csrf && !csrf.httpOnly && csrf.path === '/api/v1', JSON.stringify(cs));
+      check('S2.admin.cookies siscom_sid HttpOnly+SameSite=Lax+Path=/api/v1; siscom_csrf KHÔNG HttpOnly, Path=/', !!sid && sid.httpOnly && sid.sameSite === 'Lax' && sid.path === '/api/v1' && !!csrf && !csrf.httpOnly && csrf.path === '/', JSON.stringify(cs));
     }
 
     // S3 — danh sách khách hàng từ máy chủ (UI + API).

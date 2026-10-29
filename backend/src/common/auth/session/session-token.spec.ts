@@ -33,12 +33,12 @@ describe('session-token (thuần)', () => {
 
 import { buildCsrfCookie, buildCsrfCookieClear, CSRF_COOKIE_NAME } from './session-token';
 describe('csrf cookie (double-submit, không HttpOnly)', () => {
-  it('cùng Path/SameSite/Max-Age/Secure với cookie phiên nhưng KHÔNG HttpOnly; xoá đúng tên/path', () => {
+  it('cùng SameSite/Max-Age/Secure với cookie phiên nhưng KHÔNG HttpOnly và Path=/ (trang FE đọc được); xoá đúng tên/path', () => {
     const t = newOpaqueToken();
     const c = buildCsrfCookie(t, { secure: true, maxAgeSeconds: 600 });
-    expect(c).toBe(`${CSRF_COOKIE_NAME}=${t}; Path=/api/v1; SameSite=Lax; Max-Age=600; Secure`);
+    expect(c).toBe(`${CSRF_COOKIE_NAME}=${t}; Path=/; SameSite=Lax; Max-Age=600; Secure`);
     expect(c).not.toMatch(/HttpOnly/);
     expect(() => buildCsrfCookie('bad', { secure: true, maxAgeSeconds: 1 })).toThrow('CSRF_TOKEN_FORMAT_INVALID');
-    expect(buildCsrfCookieClear({ secure: false })).toMatch(/^siscom_csrf=; Path=\/api\/v1; SameSite=Lax; Max-Age=0; Expires=/);
+    expect(buildCsrfCookieClear({ secure: false })).toMatch(/^siscom_csrf=; Path=\/; SameSite=Lax; Max-Age=0; Expires=/);
   });
 });
