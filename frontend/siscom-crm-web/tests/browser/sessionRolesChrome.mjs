@@ -170,9 +170,14 @@ try {
       createdCode = c ? c.code : null; createdId = c ? c.id : null; createdVersion = c ? c.version : null;
       check('S4.admin.3 tạo: POST /customers CSRF đúng => 201, mã KH-xxxxx, tier/status mặc định POTENTIAL, source WEBSITE (D3 đã seed)', ok.status === 201 && /^KH-\d{5,}$/.test(createdCode || '') && !!c && c.tier && c.tier.code === 'POTENTIAL' && c.status && c.status.code === 'POTENTIAL' && c.source && c.source.code === 'WEBSITE' && c.version === 1, 'status=' + ok.status + ' code=' + createdCode + (errOf(ok) ? ' error=' + errOf(ok) + ' ' + JSON.stringify(ok.body.error.details || null) : ''));
       if (!createdId) throw new Error('crm_admin không tạo được khách => không kiểm được xem/sửa/phạm vi (status ' + ok.status + ' ' + errOf(ok) + ')');
-      await ev("location.hash = '/'"); await sleep(200); await ev("location.hash = '/customers'");
+      // Danh sách FE tải một lần rồi giữ trong bộ nhớ (CustomerList: chỉ load khi status 'idle'); khách tạo ngoài biểu mẫu UI chỉ hiện sau khi
+      // tải lại trang => tải lại (đồng thời kiểm khôi phục phiên) rồi mở danh sách.
+      await send('Page.reload', { ignoreCache: true }); await sleep(500);
+      await waitFor(LOGGED_IN, 'khôi phục phiên sau tải lại (trước khi xem danh sách)');
+      await ev("location.hash = '/customers'"); await sleep(300);
+      await waitFor("!document.body.textContent.includes('Đang tải danh sách khách hàng')", 'danh sách khách hàng tải xong');
       await waitFor(`document.body.textContent.includes(${JSON.stringify(createdCode)})`, 'khách vừa tạo hiện trên danh sách UI');
-      rec('S4.admin.4 khách vừa tạo hiện trên danh sách UI', 'PASS', createdCode);
+      rec('S4.admin.4 khách vừa tạo hiện trên danh sách UI (sau tải lại trang)', 'PASS', createdCode);
       const g = await pageFetch('/customers/' + createdId);
       check('S4.admin.5 xem: GET /customers/:id => 200, đúng mã, version 1', g.status === 200 && g.body.data.code === createdCode && g.body.data.version === 1, 'status=' + g.status);
       const newName = 'E2E admin ' + STAMP + ' (đã sửa)';
