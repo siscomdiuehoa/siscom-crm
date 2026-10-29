@@ -36,12 +36,13 @@ const server = ({ patch, get }) => {
     const method = init.method || 'GET'; calls.push({ url, method, body: init.body ? JSON.parse(init.body) : null });
     let r;
     if (new URL(url).pathname.endsWith('/lookups')) r = res(200, { data: LOOKUPS });
+    else if (new URL(url).pathname.endsWith('/customers/owner-candidates')) r = res(200, { data: { scope: 'ALL', items: [] } }); // PR 7: biểu mẫu tải ứng viên phụ trách khi mở; không tính vào gets()
     else if (method === 'PATCH') r = patch(++np);
     else r = get ? get(++ng) : res(200, { data: apiCust() });
     if (r instanceof Error) throw r;
     return r;
   };
-  f.calls = calls; f.patches = () => calls.filter((c) => c.method === 'PATCH'); f.gets = () => calls.filter((c) => c.method === 'GET' && !new URL(c.url).pathname.endsWith('/lookups'));
+  f.calls = calls; f.patches = () => calls.filter((c) => c.method === 'PATCH'); f.gets = () => calls.filter((c) => c.method === 'GET' && !new URL(c.url).pathname.endsWith('/lookups') && !new URL(c.url).pathname.endsWith('/customers/owner-candidates'));
   return f;
 };
 const VERSION_409 = () => err(409, 'CUSTOMER_VERSION_CONFLICT', 'Khách hàng đã được người khác cập nhật.', { currentVersion: 5 });

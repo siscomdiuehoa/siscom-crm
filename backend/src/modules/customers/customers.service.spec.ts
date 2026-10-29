@@ -20,10 +20,10 @@ const lookups = [{ id: 't1', type: 'customer_tier', code: 'POTENTIAL', isActive:
 function build(scopes: Scopes = ALL, links: { check: () => Promise<{ verified: boolean; unchecked: string[] }> } = new UnverifiedLinksChecker()) {
   const customer = { findFirst: jest.fn(), findUnique: jest.fn(), findUniqueOrThrow: jest.fn(), findMany: jest.fn(), count: jest.fn(), create: jest.fn(), updateMany: jest.fn() };
   const lookupItem = { findMany: jest.fn() };
-  const employee = { findFirst: jest.fn() };
+  const employee = { findFirst: jest.fn(), findMany: jest.fn() };
   const customerAssignment = { create: jest.fn().mockResolvedValue({ id: 'as1' }) };
   const tx = { $executeRaw: jest.fn().mockResolvedValue(0), $queryRaw: jest.fn(), customer, lookupItem, employee, customerAssignment };
-  const prisma = { customer, lookupItem, $transaction: jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx)) };
+  const prisma = { customer, lookupItem, employee, $transaction: jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx)) };
   const actors = { resolve: jest.fn(), scopeFor: jest.fn((_a: Actor, p: Permission) => scopes[p] ?? null) };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const svc = new CustomersService(prisma as never, actors as never, audit as never, links as never);

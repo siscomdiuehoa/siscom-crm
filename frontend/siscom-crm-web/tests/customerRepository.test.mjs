@@ -82,7 +82,7 @@ test('cờ BẬT list: phản hồi sai cấu trúc → malformed', async () => 
 test('cờ BẬT create: GET /lookups rồi POST /customers; nhãn→mã; không gửi owner/id/code; trả uuid + mã hiển thị', async () => {
   const f = mockFetch((url, init) => (url.includes('/lookups') ? res(200, { data: LOOKUPS }) : res(201, { data: apiCust({ tier: { code: 'VIP', label: 'VIP' }, province: { code: 'HCM', label: 'TP. Hồ Chí Minh' } }) })));
   const repo = createCustomerRepository({ env: ON, fetchImpl: f, local: { create: throwingFetch } });
-  const c = await repo.create({ id: 'KH-9', code: 'KH-9', owner: 'Ai đó', ownerId: 'x', name: ' Công ty A ', phone: '0901234567', tier: 'VIP', city: 'TP. Hồ Chí Minh' });
+  const c = await repo.create({ id: 'KH-9', code: 'KH-9', owner: 'Ai đó', name: ' Công ty A ', phone: '0901234567', tier: 'VIP', city: 'TP. Hồ Chí Minh' });
   assert.equal(c.id, ID); assert.equal(c.code, 'KH-00007'); assert.equal(c.city, 'TP. Hồ Chí Minh');
   assert.equal(f.calls.length, 2);
   assert.match(f.calls[0].url, /\/lookups\?type=/); assert.equal(f.calls[0].init.method, 'GET');

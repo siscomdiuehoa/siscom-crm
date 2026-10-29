@@ -31,10 +31,10 @@ test('toApiCustomer: thiếu name hoặc phone => AdapterError có field', () =>
   assert.throws(() => toApiCustomer({ name: ' ', phone: '0901234567' }, maps), (e) => e instanceof AdapterError && e.field === 'name');
   assert.throws(() => toApiCustomer({ name: 'Công ty A', phone: '' }, maps), (e) => e instanceof AdapterError && e.field === 'phone');
 });
-test('toApiCustomer: nhãn -> mã lookup, short->shortName, city->province; không gửi owner/id/code', () => {
+test('toApiCustomer: nhãn -> mã lookup, short->shortName, city->province; không gửi owner (nhãn)/id/code; ownerId (PR 7) gửi khi chọn', () => {
   const body = toApiCustomer({ id: 'KH-1', code: 'KH-1', name: 'Công ty A', phone: '0901234567', short: 'A', tier: 'VIP', status: 'Đang giao dịch', industry: 'Bất động sản', source: 'Giới thiệu', city: 'TP. Hồ Chí Minh', owner: 'Trần Minh Khoa', ownerId: 'e1', revenue: 5, tags: [' t ', ''] }, maps);
-  assert.deepEqual(body, { name: 'Công ty A', phone: '0901234567', shortName: 'A', industry: 'REAL_ESTATE', source: 'REFERRAL', province: 'HCM', tier: 'VIP', status: 'ACTIVE', tags: ['t'] });
-  for (const k of ['owner', 'ownerId', 'id', 'code', 'revenue', 'city', 'short']) assert.equal(k in body, false);
+  assert.deepEqual(body, { name: 'Công ty A', phone: '0901234567', shortName: 'A', industry: 'REAL_ESTATE', source: 'REFERRAL', province: 'HCM', tier: 'VIP', status: 'ACTIVE', tags: ['t'], ownerId: 'e1' });
+  for (const k of ['owner', 'id', 'code', 'revenue', 'city', 'short']) assert.equal(k in body, false);
 });
 test('toApiCustomer: nhãn lạ không có trong danh mục => AdapterError (không đoán mã)', () => {
   assert.throws(() => toApiCustomer({ name: 'Công ty A', phone: '0901234567', tier: 'Không tồn tại' }, maps), (e) => e instanceof AdapterError && e.field === 'tier');

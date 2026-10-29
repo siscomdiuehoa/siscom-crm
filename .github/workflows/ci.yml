@@ -171,10 +171,10 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
-      - name: Test offline FE (R01 adapter + M02 XSS + S02 cau noi auth + PR4 phien cookie; node --test, khong Chrome, khong DB)
+      - name: Test offline FE (R01 adapter + M02 XSS + S02 cau noi auth + PR4 phien cookie + PR7 nhan vien phu trach; node --test, khong Chrome, khong DB)
         run: |
           set -euo pipefail
-          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs"
+          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs tests/ownerCandidates.test.mjs"
           # node --test coi duong dan khong ton tai nhu glob rong va van thoat 0 -> bat buoc kiem tra ton tai.
           for f in $FILES; do test -f "$f" || { echo "THIEU file test: $f"; exit 1; }; done
           node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=node-tests-junit.xml $FILES

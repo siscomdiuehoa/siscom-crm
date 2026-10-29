@@ -4,12 +4,12 @@ import * as U from '../../data/util.js';
 import { APP_DATA } from '../../data/demoData.js';
 import { validateCustomer, getCustomerDefaults } from '../../data/customerRules.js';
 import { useCustomerApiState } from './useCustomerApi.js';
-import { formToCustomerInput, customerDisplayCode, diffAgainstServer, lookupFieldView, lookupFormErrors } from './customerApiUi.js';
+import { formToCustomerInput, customerDisplayCode, diffAgainstServer, lookupFieldView, lookupFormErrors, ownerFieldView } from './customerApiUi.js';
 import { ApiErrorBox, ApiConflictPanel } from './ApiListStatus.jsx';
 
 const withNone = (a, label) => [{ value: '', label: typeof label === 'string' ? label : '— Chưa chọn —' }, ...a];
 // API mode: tier/status start empty (server defaults apply); demo defaults are labels the server may not have.
-const emptyForm = (apiOn) => { const d = getCustomerDefaults(); return { name: '', short: '', taxId: '', industry: '', tier: apiOn ? '' : d.tier, status: apiOn ? '' : d.status, owner: '', source: '', address: '', city: '', phone: '', email: '', website: '', note: '', cName: '', cTitle: '', cPhone: '', cEmail: '' }; };
+const emptyForm = (apiOn) => { const d = getCustomerDefaults(); return { name: '', short: '', taxId: '', industry: '', tier: apiOn ? '' : d.tier, status: apiOn ? '' : d.status, owner: '', ownerId: '', source: '', address: '', city: '', phone: '', email: '', website: '', note: '', cName: '', cTitle: '', cPhone: '', cEmail: '' }; };
 
 function validate(f, isNew, customers, selfId, original) {
   const e = validateCustomer(f, { customers, selfId, original });
@@ -38,13 +38,15 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   const saving = apiOn && (isNew ? apiS.submit.status : apiS.update.status) === 'saving';
   const srvErr = apiOn ? (isNew ? apiS.submit.error : apiS.update.error) : null;
   const start = React.useMemo(() => (initial ? { ...emptyForm(apiOn), ...initial } : emptyForm(apiOn)), [initial, open]);
-  React.useEffect(() => { if (apiCtl && open) apiCtl.loadLookups(); }, [apiCtl, open]);
+  React.useEffect(() => { if (apiCtl && open) { apiCtl.loadLookups(); if (typeof apiCtl.loadOwners === 'function') apiCtl.loadOwners(); } }, [apiCtl, open]);
   const lk = apiOn ? apiS.lookups : null;
   // Flag ON: selects show ONLY canonical server choices (GET /lookups). Flag OFF: unchanged demo lists.
   const L = (field, demo, none) => { if (!apiOn) return { options: none ? withNone(demo) : demo }; const v = lookupFieldView(lk, field, f[field]); return { options: withNone(v.options, none ? undefined : '— Mặc định máy chủ —'), disabled: v.disabled, hint: v.hint, error: v.error }; };
   const [f, setF] = React.useState(start);
   const [tried, setTried] = React.useState(false);
   const [baseVersion, setBaseVersion] = React.useState(null); // set only by the explicit "keep my changes" choice after a 409; null = use the loaded version
+  // PR 7: owner select = candidates the server allows for this actor (scope ALL/DEPARTMENT/OWN); "— Chưa phân công —" only for ALL.
+  const ow = apiOn ? ownerFieldView(apiS.owners, f.ownerId) : null;
   React.useEffect(() => { setF(start); setTried(false); setBaseVersion(null); if (apiCtl && open) apiCtl.clearSubmitError(); }, [start]);
   const known = apiOn ? apiS.list.items.map((c) => ({ ...c, id: c.code || '' })) : ui.db.customers; // API mode: never show the backend uuid
   const errs = { ...validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial), ...(apiOn ? lookupFormErrors(lk, f) : {}) };
@@ -60,7 +62,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
     if (Object.keys(errs).length) { ui.toast({ tone: 'error', title: 'Vui lòng kiểm tra lại', message: Object.keys(errs).length + ' trường chưa hợp lệ.' }); return; }
     if (apiOn && !isNew) {
       // Update by backend UUID with the optimistic-lock version of the loaded detail; the UI shows the server's response only.
-      const r = await apiCtl.update(initial.id, formToCustomerInput(f), baseVersion || initial.version);
+      const r = await apiCtl.update(initial.id, formToCustomerInput(f, initial), baseVersion || initial.version);
       if (r.ok) { ui.toast({ tone: 'success', title: 'Đã lưu thay đổi', message: r.customer.short || r.customer.name }); onSaved && onSaved(r.customer); }
       else if (!r.duplicate) ui.toast({ tone: 'error', title: r.error.title, message: r.error.staleVersion ? 'Khách hàng đã bị người khác cập nhật. Dữ liệu chưa được lưu.' : r.error.message });
       return;
@@ -110,7 +112,9 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
           <Section title="Phân loại & phụ trách" icon="tag">
             <Select label="Phân hạng" placeholder={apiOn ? 'Mặc định máy chủ' : undefined} value={f.tier} onChange={set('tier')} {...L('tier', D.TIERS, false)} error={err('tier')} />
             <Select label="Trạng thái" placeholder={apiOn ? 'Mặc định máy chủ' : undefined} value={f.status} onChange={set('status')} {...L('status', D.STATUSES, false)} error={err('status')} />
-            {apiOn ? null : <div style={{ gridColumn: '1 / -1' }}><Select label="Nhân viên kinh doanh phụ trách" placeholder="Chưa chọn" icon="user-round" value={f.owner} onChange={set('owner')} options={withNone(D.OWNERS)} error={err('owner')} /></div>}
+            {apiOn
+              ? <div style={{ gridColumn: '1 / -1' }}><Select label="Nhân viên phụ trách" placeholder={ow.allowNone ? 'Chưa phân công' : 'Chọn nhân viên'} icon="user-round" value={f.ownerId} onChange={set('ownerId')} options={ow.options} disabled={ow.disabled} hint={ow.hint} error={err('ownerId')} /></div>
+              : <div style={{ gridColumn: '1 / -1' }}><Select label="Nhân viên kinh doanh phụ trách" placeholder="Chưa chọn" icon="user-round" value={f.owner} onChange={set('owner')} options={withNone(D.OWNERS)} error={err('owner')} /></div>}
             <div style={{ gridColumn: '1 / -1' }}><Input label="Ghi chú nội bộ" multiline rows={3} placeholder="Nhu cầu, lịch sử hợp tác, lưu ý khi làm việc…" value={f.note} onChange={set('note')} hint={f.note.length + '/500 ký tự'} maxLength={500} /></div>
           </Section>
           {isNew && !apiOn ? (

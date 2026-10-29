@@ -35,10 +35,10 @@ const chrome = process.env.BROWSER_EXE || CHROMES.find((p) => fs.existsSync(p));
 //   xem ngoài phạm vi => 404 (không lộ sự tồn tại); sửa không có quyền customer.update => 403; có quyền OWN nhưng ngoài phạm vi => 404.
 const BIZ_KEYS = ['customer.read', 'customer.create', 'customer.update', 'customer.delete', 'customer.restore', 'contact.read', 'contact.create', 'lookup.read'];
 const ROLES = [
-  { key: 'admin', local: 'admin', dbRole: 'crm_admin', label: 'Quản trị CRM', expect: { 'customer.read': 'ALL', 'customer.create': 'ALL', 'customer.update': 'ALL', 'customer.delete': 'ALL', 'customer.restore': 'ALL', 'contact.read': 'ALL', 'contact.create': 'ALL', 'lookup.read': 'ALL' }, seesCreated: true, onCreated: { view: 200, update: 200 } },
-  { key: 'accountant', local: 'ketoan', dbRole: 'accountant', label: 'Kế toán', expect: { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL' }, seesCreated: true, onCreated: { view: 200, update: 403 } },
-  { key: 'technician', local: 'kythuat', dbRole: 'technician', label: 'Kỹ thuật', expect: { 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'lookup.read': 'ALL' }, seesCreated: false, onCreated: { view: 404, update: 403 } },
-  { key: 'sale', local: 'sale', dbRole: 'sales', label: 'Kinh doanh', expect: { 'customer.read': 'OWN', 'customer.create': 'OWN', 'customer.update': 'OWN', 'contact.read': 'OWN', 'contact.create': 'OWN', 'lookup.read': 'ALL' }, seesCreated: false, onCreated: { view: 404, update: 404 } },
+  { key: 'admin', local: 'admin', dbRole: 'crm_admin', label: 'Quản trị CRM', expect: { 'customer.read': 'ALL', 'customer.create': 'ALL', 'customer.update': 'ALL', 'customer.delete': 'ALL', 'customer.restore': 'ALL', 'contact.read': 'ALL', 'contact.create': 'ALL', 'lookup.read': 'ALL' }, seesCreated: true, onCreated: { view: 200, update: 200 }, candidates: { status: 200, scope: 'ALL', min: 5 } },
+  { key: 'accountant', local: 'ketoan', dbRole: 'accountant', label: 'Kế toán', expect: { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL' }, seesCreated: true, onCreated: { view: 200, update: 403 }, candidates: { status: 403 } },
+  { key: 'technician', local: 'kythuat', dbRole: 'technician', label: 'Kỹ thuật', expect: { 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'lookup.read': 'ALL' }, seesCreated: false, onCreated: { view: 404, update: 403 }, candidates: { status: 403 } },
+  { key: 'sale', local: 'sale', dbRole: 'sales', label: 'Kinh doanh', expect: { 'customer.read': 'OWN', 'customer.create': 'OWN', 'customer.update': 'OWN', 'contact.read': 'OWN', 'contact.create': 'OWN', 'lookup.read': 'ALL' }, seesCreated: false, onCreated: { view: 404, update: 404 }, candidates: { status: 200, scope: 'OWN', min: 1, max: 1, self: true } },
 ];
 const pwOf = (r) => process.env['BOOTSTRAP_PASSWORD_' + r.key.toUpperCase()];
 
@@ -156,6 +156,25 @@ try {
     const lkd = (lk.body && lk.body.data) || {};
     const hasLk = (t, c) => Array.isArray(lkd[t]) && lkd[t].some((x) => x.code === c);
     check(`S4.${r.key}.lookups GET /lookups => 200, danh mục D3 có POTENTIAL (tier/status) và WEBSITE (source)`, lk.status === 200 && hasLk('customer_tier', 'POTENTIAL') && hasLk('customer_status', 'POTENTIAL') && hasLk('source', 'WEBSITE'), 'status=' + lk.status + ' tier=' + (lkd.customer_tier || []).length + ' status=' + (lkd.customer_status || []).length + ' source=' + (lkd.source || []).length);
+    // PR 7 (D15): ứng viên chủ sở hữu theo phạm vi customer.create/update — không cần employee.read; không có cả hai quyền => 403.
+    const oc = await pageFetch('/customers/owner-candidates');
+    const ocd = (oc.body && oc.body.data) || {};
+    const ocItems = Array.isArray(ocd.items) ? ocd.items : [];
+    const exp = r.candidates;
+    const ocOk = oc.status === exp.status && (exp.status !== 200 || (ocd.scope === exp.scope && ocItems.length >= exp.min && (exp.max === undefined || ocItems.length <= exp.max) && (!exp.self || (ocItems[0] && ocItems[0].id === (meData && meData.employeeId))) && ocItems.every((x) => x.id && x.code && x.fullName && !('email' in x) && !('phone' in x))));
+    check(`S4.${r.key}.owners GET /customers/owner-candidates => ${exp.status}${exp.status === 200 ? ' scope ' + exp.scope + (exp.self ? ' (chỉ chính mình)' : ' (>= ' + exp.min + ' nhân viên)') : ' FORBIDDEN'}`, ocOk, 'status=' + oc.status + ' scope=' + ocd.scope + ' n=' + ocItems.length + (oc.body && oc.body.error ? ' code=' + oc.body.error.code : ''));
+    if (r.key === 'admin') {
+      // UI: biểu mẫu "Thêm khách hàng" ở chế độ API có ô "Nhân viên phụ trách" với lựa chọn từ máy chủ (không còn ẩn).
+      await ev("location.hash = '/customers'"); await sleep(300);
+      await waitFor("!document.body.textContent.includes('Đang tải danh sách khách hàng')", 'danh sách khách hàng tải xong (trước khi mở biểu mẫu)');
+      if (!(await clickText('Thêm khách hàng'))) throw new Error('không bấm được nút Thêm khách hàng');
+      await waitFor("!!document.querySelector('[role=dialog][aria-label=\"Thêm khách hàng\"]') && document.body.textContent.includes('Nhân viên phụ trách') && !document.body.textContent.includes('Đang tải danh sách nhân viên')", 'biểu mẫu có ô Nhân viên phụ trách đã tải');
+      const btnOk = await ev("(()=>{const d=document.querySelector('[role=dialog][aria-label=\"Thêm khách hàng\"]');const lbl=[...d.querySelectorAll('label, span, div')].find(e=>e.textContent.trim()==='Nhân viên phụ trách');const b=lbl&&lbl.closest('div')&&(lbl.closest('div').querySelector('button.sg-select__trigger')||lbl.parentElement.querySelector('button.sg-select__trigger'));if(!b)return 'no-trigger';if(b.disabled)return 'disabled';b.click();return 'opened'})()");
+      const nOpts = btnOk === 'opened' ? await ev("document.querySelectorAll('[role=dialog][aria-label=\"Thêm khách hàng\"] [role=option], [role=dialog][aria-label=\"Thêm khách hàng\"] [role=listbox] li, [role=dialog][aria-label=\"Thêm khách hàng\"] [role=listbox] button').length") : 0;
+      check('S4.admin.ownersUi biểu mẫu Thêm khách hàng có ô "Nhân viên phụ trách" bật, danh sách >= 5 + mục Chưa phân công', btnOk === 'opened' && nOpts >= 6, 'trigger=' + btnOk + ' options=' + nOpts);
+      await ev("(()=>{const b=[...document.querySelectorAll('[role=dialog] button')].find(x=>x.getAttribute('aria-label')==='Đóng');if(b)b.click();return true})()"); await sleep(200);
+      await ev("(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='Huỷ thay đổi');if(b)b.click();return true})()"); await sleep(200);
+    }
     const JSONH = { 'content-type': 'application/json' };
     const hdr = async () => Object.assign({}, JSONH, { 'x-csrf-token': await csrfCookie() });
     const errOf = (res) => (res.body && res.body.error ? res.body.error.code : null);

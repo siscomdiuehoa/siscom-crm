@@ -11,6 +11,7 @@ import { DEFAULT_STATUS_CODE, DEFAULT_TIER_CODE, LOOKUP_TYPES, LookupKey, MAX_OF
 import { customerErrors } from './customers.errors';
 import { CustomerRow, toDetail, toListItem } from './customers.mapper';
 import { assertOwnerInScope, closeOwnerAssignment, loadOwnerCandidate, openOwnerAssignment, ownerIdForCreate, ownerIdForUpdate } from './customers.ownership';
+import { listOwnerCandidates, widestScope } from './customers.owner-candidates';
 import { buildOrderBy, CUSTOMER_DETAIL_INCLUDE, scopeWhere } from './customers.queries';
 import { buildSearchCountQuery, buildSearchPageQuery, chooseSearchPath } from './customers.search';
 import type { CreateCustomerDto } from './dto/create-customer.dto';
@@ -148,6 +149,14 @@ export class CustomersService {
   }
 
   // ───── đọc ─────
+  // PR 7 (D15): ứng viên chủ sở hữu theo phạm vi RỘNG NHẤT của customer.create / customer.update (không dùng employee.read).
+  // Không có cả hai quyền => 403. Chỉ đọc, không transaction.
+  async ownerCandidates(ctx: RequestCtx) {
+    const { actor } = ctx;
+    const scope = widestScope(this.actors.scopeFor(actor, 'customer.create'), this.actors.scopeFor(actor, 'customer.update'));
+    if (!scope) throw customerErrors.forbidden();
+    return listOwnerCandidates(this.prisma, actor, scope);
+  }
   async get(ctx: RequestCtx, id: string) {
     return toDetail(await this.loadVisible(this.prisma, ctx.actor, id));
   }
