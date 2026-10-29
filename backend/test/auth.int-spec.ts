@@ -216,7 +216,7 @@ describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A
   const U = '/api/v1/auth/change-password';
   const ME = '/api/v1/auth/me';
   const w = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
-  const acct = USERS[4]; // accountant: không dùng ở các describe khác
+  const acct = USERS[4]; // accountant: các describe sau (RBAC, Bước 3, D.0) đăng nhập qua session() nên đọc USERS[4].password đã cập nhật; afterAll đổi lại mật khẩu gốc
   const ORIG = acct.password;
   const NEW = 'Taichinh-Moi#2026-ok';
   const body = (currentPassword: string, newPassword = NEW, confirmPassword = newPassword) => ({ currentPassword, newPassword, confirmPassword });
@@ -313,6 +313,66 @@ describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A
   it('nhật ký auth.* của nhân viên không chứa mật khẩu nào (gốc, mới, sai)', async () => {
     const text = JSON.stringify(await prisma.auditLog.findMany({ where: { entityId: empId, action: { startsWith: 'auth.' } }, select: { action: true, summary: true, changes: true } }));
     expect(text).not.toMatch(new RegExp([ORIG, NEW, 'Sai-mat-khau', 'ketoan-yeu'].map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')));
+  });
+});
+
+// Regression nghiệm thu MVP Bước 3 (2026-10-29): công cụ PowerShell báo FAIL 3 mục trên tài khoản admin. Mô phỏng ĐÚNG chuỗi
+// gọi của công cụ qua phiên cookie thật + guard CSRF toàn cục + Customer API thật, và kiểm cả MÃ LỖI trong body (hợp đồng API §3.4):
+//   DELETE (cookie + Origin + X-CSRF-Token) => 409 DELETE_LINKS_UNVERIFIED (N2: khoá, không xoá gì)
+//   POST restore khách đang hoạt động       => 409 CUSTOMER_NOT_DELETED
+//   DELETE thiếu X-CSRF-Token                => 403 CSRF_FAILED trước khi chạm nghiệp vụ
+describe('Nghiệm thu Bước 3 — xoá mềm/khôi phục qua phiên thật (regression công cụ KIEM-TRA-XOA-MEM)', () => {
+  const C = '/api/v1/customers';
+  const w = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
+  const errBody = (r: request.Response) => r.body as { error?: { code?: string; details?: unknown } };
+  let target = { id: '', code: '' };
+  beforeAll(async () => {
+    const adm = await session('admin');
+    const made = await srv().post(C).set(w(adm)).send({ name: 'KH buoc 3 ' + Date.now(), phone: '0903123459' });
+    expect(made.status).toBe(201);
+    target = { id: made.body.data.id, code: made.body.data.code };
+  });
+
+  it('admin: DELETE => HTTP 409 và body error.code = DELETE_LINKS_UNVERIFIED; khách vẫn còn (deletedAt null)', async () => {
+    const adm = await session('admin');
+    const d = await srv().delete(C + '/' + target.id).set(w(adm));
+    expect(d.status).toBe(409);
+    expect(errBody(d).error?.code).toBe('DELETE_LINKS_UNVERIFIED');
+    expect(errBody(d).error?.details).toEqual({ unchecked: ['contract', 'quote', 'project', 'opportunity'] });
+    const g = await srv().get(C + '/' + target.id).set('Cookie', adm.cookie);
+    expect(g.status).toBe(200); expect(g.body.data.deletedAt).toBeNull();
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: target.id } })).deletedAt).toBeNull();
+  });
+
+  it('admin: restore khách đang hoạt động => HTTP 409 và body error.code = CUSTOMER_NOT_DELETED', async () => {
+    const adm = await session('admin');
+    const r = await srv().post(C + '/' + target.id + '/restore').set(w(adm));
+    expect(r.status).toBe(409);
+    expect(errBody(r).error?.code).toBe('CUSTOMER_NOT_DELETED');
+  });
+
+  it('admin: DELETE có cookie + Origin nhưng THIẾU X-CSRF-Token => 403 CSRF_FAILED (không phải 409); token của phiên khác cũng 403', async () => {
+    const adm = await session('admin'); const other = await session('admin');
+    const noCsrf = await srv().delete(C + '/' + target.id).set({ Cookie: adm.cookie, Origin: ORIGIN });
+    expect(noCsrf.status).toBe(403); expect(errBody(noCsrf).error?.code).toBe('CSRF_FAILED');
+    const wrongCsrf = await srv().delete(C + '/' + target.id).set({ Cookie: adm.cookie, Origin: ORIGIN, 'X-CSRF-Token': other.csrf });
+    expect(wrongCsrf.status).toBe(403); expect(errBody(wrongCsrf).error?.code).toBe('CSRF_FAILED');
+    const noOrigin = await srv().delete(C + '/' + target.id).set({ Cookie: adm.cookie, 'X-CSRF-Token': adm.csrf });
+    expect(noOrigin.status).toBe(403); expect(errBody(noOrigin).error?.code).toBe('CSRF_FAILED');
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: target.id } })).deletedAt).toBeNull();
+  });
+
+  it('kế toán / kỹ thuật / kinh doanh: DELETE và restore => 403 FORBIDDEN (kiểm quyền trước phạm vi, không lộ 404), không đổi dữ liệu', async () => {
+    for (const key of ['accountant', 'technician', 'sale']) {
+      const s = await session(key);
+      const d = await srv().delete(C + '/' + target.id).set(w(s));
+      expect(d.status).toBe(403); expect(errBody(d).error?.code).toBe('FORBIDDEN');
+      const r = await srv().post(C + '/' + target.id + '/restore').set(w(s));
+      expect(r.status).toBe(403); expect(errBody(r).error?.code).toBe('FORBIDDEN');
+      const noCsrf = await srv().delete(C + '/' + target.id).set({ Cookie: s.cookie, Origin: ORIGIN });
+      expect(noCsrf.status).toBe(403); expect(errBody(noCsrf).error?.code).toBe('CSRF_FAILED');
+    }
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: target.id } })).deletedAt).toBeNull();
   });
 });
 
