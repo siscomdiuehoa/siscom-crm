@@ -8,7 +8,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 
 // B1.3.3 PR 8 — AuthService.changePassword (D16, D18 A, D19) với prisma/hasher giả (Argon2 thật quá chậm cho unit).
 // Mật khẩu trong file này là giá trị TỔNG HỢP cho test, không phải mật khẩu demo/thật.
-const S: ResolvedSession = { sessionId: 'sess1', csrfHash: 'h', actor: { employeeId: 'e1', departmentId: 'd1' }, roles: ['sales'], scopes: { 'customer.read': 'OWN' } };
+const S: ResolvedSession = { sessionId: 'sess1', csrfHash: 'h', actor: { employeeId: 'e1', departmentId: 'd1' }, roles: ['sales'], scopes: { 'customer.read': 'OWN' }, mustChangePassword: false };
 const CUR = 'Demo-Cu#301085'; const NEW = 'Demo-Moi#301085';
 const row = () => ({ id: 'e1', code: 'NV-0003', fullName: 'Sale A', email: 'sale@siscom.local', departmentId: 'd1', status: 'ACTIVE',
   credential: { passwordHash: '$argon2id$old', passwordAlgo: 'argon2id', status: 'ACTIVE', mustChangePassword: true, tokenVersion: 3 } });

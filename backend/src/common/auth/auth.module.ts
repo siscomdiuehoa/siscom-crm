@@ -6,6 +6,7 @@ import { ACTOR_PROVIDER } from './actor';
 import { ActorGuard } from './actor.guard';
 import { AUTH_CONFIG, AuthConfig, authConfigFrom } from './auth.config';
 import { CsrfOriginGuard } from './csrf-origin.guard';
+import { PasswordChangeRequiredGuard } from './password-change-required.guard';
 import { SessionActorProvider } from './session/session-actor.provider';
 
 // B1.3 MVP (Issue #8, 28/10/2026): danh tính lấy từ PHIÊN SERVER-SIDE (cookie HttpOnly -> auth_session) thay cho DenyAll.
@@ -32,6 +33,9 @@ const SAFE_DEFAULT: AuthConfig = Object.freeze({
     },
     { provide: ACTOR_PROVIDER, useClass: SessionActorProvider },
     { provide: APP_GUARD, useClass: CsrfOriginGuard },
+    // B1.4 P2: sau CsrfOriginGuard (dùng lại req.authSession): phiên có must_change_password => 403 PASSWORD_CHANGE_REQUIRED
+    // trừ route @AllowPasswordChangeRequired() (/auth/me, /auth/change-password, /auth/logout, /health).
+    { provide: APP_GUARD, useClass: PasswordChangeRequiredGuard },
     ActorGuard,
   ],
   exports: [ACTOR_PROVIDER, AUTH_CONFIG, ActorGuard],

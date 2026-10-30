@@ -14,6 +14,8 @@ export interface ResolvedSession {
   readonly actor: Actor;
   readonly roles: readonly string[];
   readonly scopes: Readonly<Partial<Record<Permission, Scope>>>;
+  // B1.4 P2: credential.must_change_password tại thời điểm tra phiên (đọc DB mỗi request) — PasswordChangeRequiredGuard chặn API khác.
+  readonly mustChangePassword: boolean;
 }
 export type SessionRequest = Request & { authSession?: ResolvedSession | null; requestId?: string };
 
@@ -52,7 +54,7 @@ export class SessionActorProvider implements ActorProvider {
       where: { refreshHash: hash },
       select: {
         id: true, employeeId: true, csrfHash: true, revokedAt: true, idleExpiresAt: true, absExpiresAt: true, lastUsedAt: true,
-        employee: { select: { status: true, deletedAt: true, departmentId: true, credential: { select: { status: true } },
+        employee: { select: { status: true, deletedAt: true, departmentId: true, credential: { select: { status: true, mustChangePassword: true } },
           roles: { select: { role: { select: { code: true, isConfirmed: true, permissions: { select: { scope: true, permission: { select: { code: true } } } } } } } } } },
       },
     });
@@ -85,6 +87,6 @@ export class SessionActorProvider implements ActorProvider {
         this.log.warn('Không gia hạn được phiên: ' + (err instanceof Error ? err.message : 'lỗi'));
       }
     }
-    return { sessionId: s.id, csrfHash: s.csrfHash, actor, roles: Object.freeze(roles.sort()), scopes: this.perms.get(actor)! };
+    return { sessionId: s.id, csrfHash: s.csrfHash, actor, roles: Object.freeze(roles.sort()), scopes: this.perms.get(actor)!, mustChangePassword: e.credential.mustChangePassword === true };
   }
 }
