@@ -103,12 +103,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public GRANT SELECT 
 ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO siscom_app;
 COMMIT;
 
--- Tom tat (khong bi mat). Ky vong: bang_app_INSERT=5 (customer, contact, customer_assignment, auth_session, audit_log), bang_app_UPDATE=4,
+-- Tom tat (khong bi mat). Ky vong: bang_app_INSERT=5 (customer, contact, customer_assignment, auth_session, audit_log), bang_app_UPDATE=5 (4 + employee_credential theo cot),
 -- bang_app_DELETE=0, cot_credential_app_UPDATE=7, ham_api_app_EXECUTE=1, sequence_app_UPDATE=0.
+-- has_any_column_privilege: tinh ca quyen theo cot (I-4) => bang_app_UPDATE gom employee_credential (7 cot) => 5.
 SELECT 'bang_app_INSERT' AS muc, count(*)::text AS gia_tri FROM pg_tables t WHERE t.schemaname = 'public'
-  AND has_table_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'INSERT')
-UNION ALL SELECT 'bang_app_UPDATE', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'
-  AND has_table_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'UPDATE')
+  AND has_any_column_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'INSERT')
+UNION ALL SELECT 'bang_app_UPDATE (phai 5)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'
+  AND has_any_column_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'UPDATE')
 UNION ALL SELECT 'bang_app_DELETE (phai 0)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'
   AND has_table_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'DELETE')
 UNION ALL SELECT 'cot_credential_app_UPDATE (phai 7)', count(*)::text FROM information_schema.column_privileges

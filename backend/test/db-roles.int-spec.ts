@@ -99,7 +99,8 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
       "INSERT INTO public.lookup_item (type, code, label_vi) SELECT 'x', 'x', 'x' WHERE false",
       'DELETE FROM public.customer WHERE false',
       'DELETE FROM public.contact WHERE false',
-      "SELECT setval('public.customer_code_seq', 1, false)",
+      // I-3: setval KHÔNG rollback được => thử bằng giá trị hiện tại (vô hại kể cả khi được phép); thiếu UPDATE trên sequence vẫn 42501.
+      'SELECT setval(\'public.customer_code_seq\', last_value, is_called) FROM public.customer_code_seq',
     ]) expect({ sql, code: await appTry(sql) }).toEqual({ sql, code: '42501' });
     // Gọi thử fn_auth_api_request_create không phân biệt được: dù có EXECUTE, hàm vẫn RAISE insufficient_privilege khi actor sai.
     // Vì vậy kiểm ACL trực tiếp cho 3 hàm nhạy cảm nhất (tạo yêu cầu đặc quyền, cấp vai trò, đặt lại mật khẩu người khác).
@@ -109,6 +110,25 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
         'public.fn_auth_api_role_grant(uuid, uuid)',
         'public.fn_auth_api_reset_password(uuid, text, text, text, jsonb)']) AS f`;
     expect(fn).toEqual(fn.map((x) => ({ f: x.f, ok: false })));
+  });
+
+  it('P3b I-4: không có quyền GHI nào (kể cả theo cột) trên bảng RBAC/nền; một GRANT UPDATE (cột) bị has_table_privilege bỏ sót nhưng has_any_column_privilege bắt được', async () => {
+    const forbidden = ['employee_role', 'role_permission', 'role', 'permission', 'privileged_change_request', 'password_reset_token', 'app_meta',
+      'employee', 'department', 'lookup_item', 'activity', '_prisma_migrations'];
+    const r = await prisma.$queryRaw<{ t: string; w: boolean }[]>`
+      SELECT t, (has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT') OR has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE')) AS w
+      FROM unnest(${forbidden}::text[]) AS t`;
+    expect(r.filter((x) => x.w).map((x) => x.t)).toEqual([]);
+    // Chứng minh lý do đổi VERIFY: GRANT theo cột trong transaction của migrator rồi ROLLBACK (không để lại gì).
+    const c = new Client({ connectionString: admin!.url });
+    await c.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('GRANT UPDATE (full_name) ON public.employee TO siscom_app');
+      const g = (await c.query<{ tbl: boolean; anycol: boolean }>(
+        "SELECT has_table_privilege('siscom_app', 'public.employee', 'UPDATE') AS tbl, has_any_column_privilege('siscom_app', 'public.employee', 'UPDATE') AS anycol")).rows[0];
+      expect(g).toEqual({ tbl: false, anycol: true });
+    } finally { await c.query('ROLLBACK'); await c.end(); }
   });
 
   it('siscom_app không tự nâng quyền: GRANT cho chính mình (PostgreSQL chỉ WARNING, không lỗi) KHÔNG có hiệu lực; đổi chủ sở hữu/role/SET ROLE bị 42501', async () => {

@@ -43,9 +43,38 @@ describe('enforceDbRoleAtStartup', () => {
   });
   it('production + DB chưa kết nối được lúc khởi động => KHÔNG chặn (giữ hành vi backend vẫn chạy khi DB tạm tắt), chỉ cảnh báo; không in chi tiết lỗi driver ra ngoài', async () => {
     const l = log();
-    await expect(enforceDbRoleAtStartup(async () => { throw new Error('ECONNREFUSED postgresql://x:secret@h/db'); }, 'production', l))
+    await expect(enforceDbRoleAtStartup(async () => { throw new Error('ECONNREFUSED postgresql://x:secret@h/db'); }, 'production', l,
+      { retryMs: 15000, schedule: () => undefined, exit: () => undefined }))
       .resolves.toEqual({ checked: false, leastPrivilege: null });
     expect(l.w).toHaveLength(1); expect(l.w[0]).not.toContain('secret');
+  });
+  // I-2 (rà soát độc lập P3b): VPS khởi động lại, backend lên TRƯỚC PostgreSQL => lần kiểm đầu lỗi kết nối. Production KHÔNG được bỏ qua
+  // vĩnh viễn: kiểm lại theo chu kỳ; khi kiểm được mà vi phạm => thoát tiến trình (exit 1); khi đạt => dừng kiểm lại.
+  it('production + lần đầu không kết nối được => lên lịch kiểm lại; lần sau đọc được và VI PHẠM => exit(1)', async () => {
+    const l = log(); const timers: Array<() => void> = []; const exits: number[] = [];
+    let n = 0;
+    const query = async () => { n++; if (n === 1) throw new Error('ECONNREFUSED'); return { ...ok, user: 'siscom_migrator', isDbOwner: true }; };
+    const r = await enforceDbRoleAtStartup(query, 'production', l, { retryMs: 15000, schedule: (fn) => { timers.push(fn); }, exit: (c) => { exits.push(c); } });
+    expect(r).toEqual({ checked: false, leastPrivilege: null });
+    expect(timers).toHaveLength(1);
+    await (timers.shift() as () => Promise<void>)();
+    expect(exits).toEqual([1]);
+    expect(l.e.join(' ')).toContain('chủ sở hữu');
+  });
+  it('production + kiểm lại: còn lỗi thì tiếp tục lên lịch (không bỏ cuộc); đạt thì dừng, không exit', async () => {
+    const l = log(); const timers: Array<() => void> = []; const exits: number[] = [];
+    let n = 0;
+    const query = async () => { n++; if (n <= 2) throw new Error('x'); return ok; };
+    await enforceDbRoleAtStartup(query, 'production', l, { retryMs: 15000, schedule: (fn) => { timers.push(fn); }, exit: (c) => { exits.push(c); } });
+    await (timers.shift() as () => Promise<void>)(); // lần 2: vẫn lỗi => lên lịch tiếp
+    expect(timers).toHaveLength(1);
+    await (timers.shift() as () => Promise<void>)(); // lần 3: đạt
+    expect(timers).toHaveLength(0); expect(exits).toEqual([]);
+  });
+  it('ngoài production: không lên lịch kiểm lại khi DB chưa kết nối được', async () => {
+    const timers: Array<() => void> = [];
+    await enforceDbRoleAtStartup(async () => { throw new Error('x'); }, 'development', log(), { retryMs: 15000, schedule: (fn) => { timers.push(fn); }, exit: () => undefined });
+    expect(timers).toHaveLength(0);
   });
   it('development + chủ sở hữu (Windows chưa tách role) => chỉ cảnh báo một lần, không ném', async () => {
     const l = log();
