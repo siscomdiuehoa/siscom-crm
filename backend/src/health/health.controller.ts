@@ -1,7 +1,10 @@
 import { Controller, Get, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { AllowPasswordChangeRequired } from '../common/auth/password-change-required.guard';
 import { HealthService } from './health.service';
 
+// Health khong can phien; B1.4 P2: khong bi chan khi trinh duyet tinh co gui cookie cua phien phai doi mat khau.
+@AllowPasswordChangeRequired()
 @Controller('health')
 export class HealthController {
   constructor(private readonly health: HealthService) {}

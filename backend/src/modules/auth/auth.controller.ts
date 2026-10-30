@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UseGuards } fr
 import type { Request, Response } from 'express';
 import { ActorGuard } from '../../common/auth/actor.guard';
 import { AUTH_CONFIG, AuthConfig } from '../../common/auth/auth.config';
+import { AllowPasswordChangeRequired } from '../../common/auth/password-change-required.guard';
 import type { SessionRequest } from '../../common/auth/session/session-actor.provider';
 import { buildCsrfCookie, buildCsrfCookieClear, buildSessionCookie, buildSessionCookieClear } from '../../common/auth/session/session-token';
 import { DomainException } from '../../common/errors/domain.exception';
@@ -20,6 +21,9 @@ import { LoginDto } from './dto/login.dto';
 //        | 401 | 403 CSRF_FAILED | 429 PASSWORD_CHANGE_THROTTLED (B1.3.3 PR 8, D16)
 // Không nhận token qua query/header; danh tính chỉ từ cookie phiên (SessionActorProvider).
 // Nguồn hạn mức / IP phiên: clientAddress(req) = req.ip theo TRUST_PROXY (B1.4 P1), không lấy thẳng địa chỉ socket.
+// B1.4 P2: phiên có must_change_password = true chỉ được gọi me, logout, change-password (@AllowPasswordChangeRequired);
+//   mọi route khác của hệ thống => 403 PASSWORD_CHANGE_REQUIRED (PasswordChangeRequiredGuard toàn cục). login KHÔNG được miễn: login bình
+//   thường không mang cookie phiên nên guard cho qua; còn mang cookie của phiên phải đổi mật khẩu (kèm đúng CSRF) thì cũng bị 403.
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig) {}
@@ -40,6 +44,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @AllowPasswordChangeRequired()
   @UseGuards(ActorGuard)
   async me(@Req() req: SessionRequest, @Res({ passthrough: true }) res: Response) {
     res.setHeader('Cache-Control', 'no-store');
@@ -48,6 +53,7 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(200)
+  @AllowPasswordChangeRequired()
   @UseGuards(ActorGuard)
   async logout(@Req() req: SessionRequest, @Res({ passthrough: true }) res: Response) {
     const s = req.authSession;
@@ -60,6 +66,7 @@ export class AuthController {
 
   @Post('change-password')
   @HttpCode(200)
+  @AllowPasswordChangeRequired()
   @UseGuards(ActorGuard)
   async changePassword(@Body() dto: ChangePasswordDto, @Req() req: SessionRequest, @Res({ passthrough: true }) res: Response) {
     const s = req.authSession;
