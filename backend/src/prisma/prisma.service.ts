@@ -11,16 +11,16 @@ import { pgPoolConfig } from './pg-config';
 @Injectable()
 export class PrismaService extends PrismaClient implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly log = new Logger(PrismaService.name);
-  private readonly nodeEnv: string | undefined;
 
+  // Constructor chi dung getOrThrow('DATABASE_URL'): test helper va CLI (seed-lookups, bootstrap-auth) truyen doi tuong toi gian.
   constructor(config: ConfigService) {
     const adapter = new PrismaPg(pgPoolConfig(config.getOrThrow<string>('DATABASE_URL')));
     super({ adapter });
-    this.nodeEnv = config.get<string>('NODE_ENV');
   }
 
+  // NODE_ENV doc tu process.env (nhu health.service.ts); env.validation chi chap nhan development | production | test.
   async onApplicationBootstrap(): Promise<void> {
-    await enforceDbRoleAtStartup(() => fetchDbRoleFacts(this), this.nodeEnv, { warn: (m) => this.log.warn(m), error: (m) => this.log.error(m) });
+    await enforceDbRoleAtStartup(() => fetchDbRoleFacts(this), process.env.NODE_ENV, { warn: (m) => this.log.warn(m), error: (m) => this.log.error(m) });
   }
 
   async onModuleDestroy(): Promise<void> {
