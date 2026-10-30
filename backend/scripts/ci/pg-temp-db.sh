@@ -25,6 +25,21 @@ if [ -z "${GITHUB_ACTIONS:-}" ]; then echo "TU CHOI: script nay chi chay trong G
 
 psql_su() { psql -X -q -v ON_ERROR_STOP=1 -d postgres "$@"; }
 valid_name() { [[ "$1" =~ ^siscom_crm_test_[0-9]{8}_[0-9]{6}$ ]] && [ "$1" != "siscom_crm_dev" ]; }
+valid_canary() { [[ "$1" =~ ^siscom_crm_canary_[0-9]{8}_[0-9]{6}$ ]]; }
+# C1 (ra soat P3): REASSIGN OWNED doi ca doi tuong DUNG CHUNG toan cluster (database/tablespace). Mo phong may Windows cua owner: mot DB KHAC
+# cung cluster do siscom_app so huu (nhu siscom_crm_dev / baseline). Sau split va sau unsplit, DB canary phai GIU NGUYEN chu so huu siscom_app
+# va siscom_app van CONNECT duoc. Sai => thoat 1 (bai tai hien C1).
+assert_canary() { # assert_canary <nhan buoc>
+  local c="${CANARY_DB_NAME:-}"; valid_canary "$c" || { echo "THIEU/sai CANARY_DB_NAME."; exit 2; }
+  local owner conn
+  owner="$(psql_su -tA -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '$c'")"
+  conn="$(psql_su -tA -c "SELECT has_database_privilege('siscom_app', '$c', 'CONNECT')")"
+  echo "canary [$1]: $c owner=$owner app_connect=$conn"
+  if [ "$owner" != "siscom_app" ] || [ "$conn" != "t" ]; then
+    echo "KHONG DAT (C1): DB canary cung cluster bi doi chu so huu / mat CONNECT khi tach role tren DB khac. Script S1 KHONG duoc dung ngoai CI."
+    exit 1
+  fi
+}
 # Role khong superuser, khong tao DB/role. Mat khau truyen qua bien psql (khong vao log).
 # Luu y: psql KHONG thay the :'pw' ben trong khoi $$...$$, nen dung SELECT ... \gexec thay vi DO.
 ensure_role() { # ensure_role <ten role> <mat khau>
@@ -52,6 +67,12 @@ case "$cmd" in
     ensure_role siscom_migrator "$mpw"
     # MO HINH CU (B1.1): DB thuoc siscom_app => extension "trusted" owner tu CREATE duoc khi migrate. Buoc "split" chuyen sang migrator.
     psql_su -c "CREATE DATABASE \"$name\" OWNER siscom_app ENCODING 'UTF8' TEMPLATE template0"
+    # DB canary (C1): mo phong DB khac cung cluster do siscom_app so huu, PUBLIC khong CONNECT (nhu setup-db/create-test-db tren Windows).
+    canary="siscom_crm_canary_$(date -u +%Y%m%d_%H%M%S)"; valid_canary "$canary" || { echo "TU CHOI: ten canary khong hop le."; exit 2; }
+    psql_su -c "CREATE DATABASE \"$canary\" OWNER siscom_app ENCODING 'UTF8' TEMPLATE template0" \
+            -c "REVOKE ALL ON DATABASE \"$canary\" FROM PUBLIC" -c "GRANT CONNECT ON DATABASE \"$canary\" TO siscom_app"
+    echo "CANARY_DB_NAME=$canary" >> "$GITHUB_ENV"; export CANARY_DB_NAME="$canary"
+    assert_canary "sau create"
     # PostgreSQL >= 15: role thuong CHI duoc dung GUC tuy bien (app.*) trong "CREATE FUNCTION ... SET app.x = ..." (M1.2) khi co
     # GRANT SET ON PARAMETER (pg_parameter_acl). Day cung la DIEU KIEN TRIEN KHAI tren DB that (B1.3_S1_ROLE_SPLIT cap cho ca hai role).
     psql_su -c "GRANT SET ON PARAMETER app.actor_employee_id TO siscom_app" -c "GRANT SET ON PARAMETER app.priv_request_id TO siscom_app"
@@ -68,20 +89,25 @@ case "$cmd" in
   split)
     name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }
     [ -n "${TEST_MIGRATE_DATABASE_URL:-}" ] || { echo "THIEU TEST_MIGRATE_DATABASE_URL."; exit 2; }
+    assert_canary "truoc split"
     echo "--- S1 ROLE_SPLIT (superuser container) tren $name ---"
-    psql -X -q -v ON_ERROR_STOP=1 -d "$name" -f "$docs/B1.3_S1_ROLE_SPLIT.sql.txt"
+    psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$name" -f "$docs/B1.3_S1_ROLE_SPLIT.sql.txt"
+    assert_canary "sau ROLE_SPLIT"
     echo "--- S1 APP_GRANTS (siscom_migrator) tren $name ---"
-    psql -X -q -w -v ON_ERROR_STOP=1 -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS.sql.txt"
+    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS.sql.txt"
+    assert_canary "sau APP_GRANTS"
     ;;
   unsplit)
     name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }
     echo "--- S1 ROLLBACK (superuser container) tren $name ---"
-    psql -X -q -v ON_ERROR_STOP=1 -d "$name" -f "$docs/B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt"
+    psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$name" -f "$docs/B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt"
+    assert_canary "sau ROLLBACK"
     ;;
   drop)
     name="${TEST_DB_NAME:-}"
     if ! valid_name "$name"; then echo "Bo qua drop: TEST_DB_NAME khong phai DB tam hop le ('$name')."; exit 0; fi
     psql_su -c "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" || true
+    if valid_canary "${CANARY_DB_NAME:-}"; then psql_su -c "DROP DATABASE IF EXISTS \"$CANARY_DB_NAME\" WITH (FORCE)" || true; fi
     psql_su -c "DROP OWNED BY siscom_migrator" -c "DROP ROLE IF EXISTS siscom_migrator" || true
     psql_su -c "DROP OWNED BY siscom_app" -c "DROP ROLE IF EXISTS siscom_app" || true
     echo "Da don DB tam $name."
