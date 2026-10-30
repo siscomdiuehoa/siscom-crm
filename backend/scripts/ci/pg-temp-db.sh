@@ -7,7 +7,7 @@
 #   create:  tao role ung dung siscom_app (NOSUPERUSER) va role chu so huu siscom_migrator (NOSUPERUSER, B1.4 P3) voi mat khau ngau nhien,
 #            tao DB siscom_crm_test_<YYYYMMDD_HHMMSS> OWNER siscom_app (MO HINH CU B1.1 - de tai hien S1 truoc khi tach), ghi TEST_DB_NAME,
 #            TEST_DATABASE_URL (app) va TEST_MIGRATE_DATABASE_URL (migrator), ca hai da mask, vao $GITHUB_ENV.
-#   split:   TACH ROLE S1 tren DB tam: docs/B1.3_S1_ROLE_SPLIT.sql.txt (superuser cua container) roi docs/B1.3_S1_APP_GRANTS.sql.txt (migrator).
+#   split:   TACH ROLE S1 tren DB tam: docs/B1.3_S1_ROLE_SPLIT.sql.txt (superuser cua container) roi docs/B1.3_S1_APP_GRANTS_V2.sql.txt (migrator, P3b).
 #   unsplit: ROLLBACK S1: docs/B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt (superuser) => siscom_app lai la chu so huu (de dien tap rollback M1.x).
 #   drop:    xoa DB tam va 2 role (ve sinh; container cung bi huy sau job).
 # Bien vao: PGHOST (mac dinh 127.0.0.1), PGPORT (5432), PGUSER (postgres - superuser CUA CONTAINER TAM), PGPASSWORD.
@@ -93,9 +93,13 @@ case "$cmd" in
     echo "--- S1 ROLE_SPLIT (superuser container) tren $name ---"
     psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$name" -f "$docs/B1.3_S1_ROLE_SPLIT.sql.txt"
     assert_canary "sau ROLE_SPLIT"
-    echo "--- S1 APP_GRANTS (siscom_migrator) tren $name ---"
-    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS.sql.txt"
-    assert_canary "sau APP_GRANTS"
+    # B1.4 P3b: cap quyen TOI THIEU theo ma tran (V2). V1 (B1.3_S1_APP_GRANTS.sql.txt) giu lai lam duong rollback P3b, khong con chay o CI.
+    echo "--- S1 APP_GRANTS_V2 (siscom_migrator) tren $name ---"
+    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V2.sql.txt"
+    # I3: file khai bao => chay LAN 2 phai cho cung ket qua (VERIFY sau do van PASS). Lan 2 con thu quyen theo cot cua lan 1 roi cap lai.
+    echo "--- S1 APP_GRANTS_V2 lan 2 (idempotent) ---"
+    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V2.sql.txt"
+    assert_canary "sau APP_GRANTS_V2"
     ;;
   unsplit)
     name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }

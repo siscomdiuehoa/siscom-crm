@@ -118,7 +118,7 @@ jobs:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: B1.4 P3 S1 - BAI TAI HIEN (RED) - verify TRUOC khi tach role (siscom_app con la chu so huu) => mong doi FAIL
         run: bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
-      - name: B1.4 P3 S1 - TACH ROLE (ROLE_SPLIT bang superuser container, APP_GRANTS bang siscom_migrator) roi verify (GREEN)
+      - name: B1.4 P3 S1 - TACH ROLE (ROLE_SPLIT bang superuser container, APP_GRANTS_V2 bang siscom_migrator, chay 2 lan) roi verify (GREEN)
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh split
@@ -132,11 +132,13 @@ jobs:
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
           MIGRATE_DATABASE_URL: ${{ env.TEST_MIGRATE_DATABASE_URL }}
-      - name: Kiem thu rang buoc auth M1/M1.1 (siscom_app, chi DML) + M1.2 (chu so huu siscom_migrator) + cau truc M1.3 (moi file tu ROLLBACK)
+      # B1.4 P3b: M1/M1.1 dung du lieu thu INSERT/UPDATE/DELETE tren employee_credential/employee_role/privileged_change_request/app_meta...
+      # - siscom_app KHONG con quyen (APP_GRANTS_V2) => chay bang chu so huu siscom_migrator (rang buoc/trigger khong phu thuoc role).
+      - name: Kiem thu rang buoc auth M1/M1.1/M1.2 (chu so huu siscom_migrator - P3b) + cau truc M1.3 (chi doc, siscom_app; moi file tu ROLLBACK)
         run: |
           set -euo pipefail
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_CONSTRAINT_TESTS.sql.txt res app
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_CONSTRAINT_TESTS.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_CONSTRAINT_TESTS.sql.txt res migrator
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_CONSTRAINT_TESTS.sql.txt res migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_CONSTRAINT_TESTS.sql.txt res migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_STRUCTURE_TESTS.sql.txt ok app
       - name: Dien tap rollback day du (S1 -> M1.3 -> M1.2 -> M1.1 -> M1), migrate deploy lai (siscom_app), tach role lai, verify

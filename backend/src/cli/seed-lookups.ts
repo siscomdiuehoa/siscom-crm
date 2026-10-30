@@ -1,21 +1,26 @@
 import 'reflect-metadata';
 import { ConfigService } from '@nestjs/config';
 import { validateEnv } from '../config/env.validation';
+import { pickPrismaCliUrl } from '../config/migrate-url';
 import { catalogProblems, LOOKUP_CATALOG, seedLookupCatalog, seedTargetRefusal } from '../modules/lookups/lookups.catalog';
 import { PrismaService } from '../prisma/prisma.service';
 
 // CLI seed danh mục chuẩn D3: node dist/cli/seed-lookups.js (sau npm run build). IDEMPOTENT: INSERT ... ON CONFLICT (type, code) DO NOTHING,
 // chạy nhiều lần không trùng, không sửa/xoá dòng có sẵn. CHỈ chạy trên database thử (siscom_crm_test_*/restore_*; từ chối siscom_crm_dev
 // và baseline đã khoá bất kể biến môi trường). Đích được đối chiếu lại bằng current_database() trước khi ghi. Không in bí mật.
+// B1.4 P3b: lookup_item là dữ liệu nền — siscom_app chỉ còn SELECT (APP_GRANTS_V2) => seed chạy bằng MIGRATE_DATABASE_URL (siscom_migrator)
+// khi đã tách role; chưa tách (Windows) thì DATABASE_URL như trước. Cùng quy ước với bootstrap-auth.ts (pickPrismaCliUrl kiểm cùng DB).
 async function main(): Promise<void> {
   const env = validateEnv(process.env as Record<string, unknown>);
-  const url = new URL(String(env.DATABASE_URL));
+  const picked = pickPrismaCliUrl({ DATABASE_URL: String(env.DATABASE_URL), MIGRATE_DATABASE_URL: process.env.MIGRATE_DATABASE_URL });
+  const url = new URL(picked.url);
   const dbName = decodeURIComponent(url.pathname.replace(/^\//, ''));
   const refusal = seedTargetRefusal(dbName, process.env);
   if (refusal) throw new Error(refusal);
   const problems = catalogProblems();
   if (problems.length) throw new Error('Catalog khong hop le: ' + problems.join('; '));
-  const prisma = new PrismaService({ getOrThrow: () => env.DATABASE_URL } as unknown as ConfigService);
+  console.log('Seed bang ' + picked.source + ' (tai khoan ' + decodeURIComponent(url.username) + ').');
+  const prisma = new PrismaService({ getOrThrow: () => picked.url } as unknown as ConfigService);
   try {
     const [{ db }] = await prisma.$queryRaw<{ db: string }[]>`SELECT current_database() AS db`;
     if (db !== dbName) throw new Error('Dang noi vao "' + db + '" thay vi "' + dbName + '". Dung lai.');
