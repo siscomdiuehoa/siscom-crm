@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createHash, randomBytes } from 'node:crypto';
 import request from 'supertest';
+import { applyTrustProxy, TrustProxySetting } from '../src/app.setup';
 import { AUTH_CONFIG, AuthConfig } from '../src/common/auth/auth.config';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
 import { requestContext } from '../src/common/middleware/request-context.middleware';
@@ -59,6 +60,7 @@ beforeAll(async () => {
   app.useLogger(false); app.setGlobalPrefix('api/v1'); app.use(requestContext);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
+  applyTrustProxy(app, 'loopback'); // B1.4 P1: như sau nginx cùng máy; test không gửi X-Forwarded-For thì hành vi không đổi
   await app.init(); await app.listen(0, '127.0.0.1');
 }, 120000);
 afterAll(async () => {
@@ -449,5 +451,58 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
     const r = await prisma.$queryRaw<{ d: number }[]>`
       SELECT extract(epoch FROM occurred_at - now())::float8 * 1000 AS d FROM audit_log WHERE action = 'auth.login_ok' ORDER BY id DESC LIMIT 1`;
     expect(Math.abs(r[0].d)).toBeLessThan(TOL);
+  });
+});
+
+// B1.4 P1 — TRUST_PROXY áp dụng thật. App dùng chung đã đặt 'loopback' (beforeAll); supertest nối qua 127.0.0.1 nên
+// X-Forwarded-For được tin đúng một hop: địa chỉ CUỐI header là khách thật (nginx nối thêm), phần khách tự khai bị bỏ.
+describe('B1.4 P1 — TRUST_PROXY: hạn mức theo nguồn và tiền tố IP phiên theo X-Forwarded-For', () => {
+  const XFF = 'X-Forwarded-For';
+  const tech = () => USERS.find((x) => x.key === 'technician')!;
+  const lastPrefix = async (): Promise<string | null> => {
+    const emp = await prisma.employee.findFirstOrThrow({ where: { email: tech().email }, select: { id: true } });
+    const s = await prisma.authSession.findFirstOrThrow({ where: { employeeId: emp.id }, orderBy: { issuedAt: 'desc' }, select: { ipPrefix: true } });
+    return s.ipPrefix;
+  };
+  it('đăng nhập có X-Forwarded-For => tiền tố IP phiên là của khách thật (hop gần proxy nhất), phần tự khai bị bỏ', async () => {
+    expect((await login(tech().email, tech().password).set(XFF, '203.0.113.7')).status).toBe(200);
+    expect(await lastPrefix()).toBe('203.0.113.0/24');
+    expect((await login(tech().email, tech().password).set(XFF, '203.0.113.7, 198.51.100.4')).status).toBe(200);
+    expect(await lastPrefix()).toBe('198.51.100.0/24');
+  });
+  it('header không phải IP => vẫn đăng nhập được; tiền tố IP là của socket, như khi không có header', async () => {
+    expect((await login(tech().email, tech().password)).status).toBe(200);
+    const base = await lastPrefix();
+    expect((await login(tech().email, tech().password).set(XFF, 'khong-phai-ip')).status).toBe(200);
+    expect(await lastPrefix()).toBe(base);
+  });
+  it('hạn mức theo nguồn: loopback => hai khách sau cùng proxy KHÔNG chặn nhau; false => header bị bỏ, chung một bucket', async () => {
+    const mkApp = async (trust: TrustProxySetting): Promise<INestApplication> => {
+      const cfgT: AuthConfig = { ...cfg, loginMaxPerSource: 3 };
+      const modT = await Test.createTestingModule({ imports: [AuthApiModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AUTH_CONFIG).useValue(cfgT).compile();
+      const appT = modT.createNestApplication();
+      appT.useLogger(false); appT.setGlobalPrefix('api/v1'); appT.use(requestContext);
+      appT.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+      appT.useGlobalFilters(new AllExceptionsFilter());
+      applyTrustProxy(appT, trust);
+      await appT.init();
+      return appT;
+    };
+    // Tài khoản không tồn tại => 401 LOGIN_INVALID, không khoá tài khoản nào; chỉ bộ đếm theo nguồn tăng.
+    const nobody = 'nobody@' + DOMAIN;
+    const tryLogin = (a: INestApplication, ip: string) => request(a.getHttpServer()).post('/api/v1/auth/login').set('Origin', ORIGIN).set(XFF, ip).send({ login: nobody, password: 'Sai-mat-khau#2026' });
+    const appOn = await mkApp('loopback');
+    try {
+      for (let i = 0; i < 3; i++) expect((await tryLogin(appOn, '203.0.113.10')).status).toBe(401);
+      const fourth = await tryLogin(appOn, '203.0.113.10');
+      expect(fourth.status).toBe(429); expect(fourth.body.error.code).toBe('LOGIN_THROTTLED');
+      expect((await tryLogin(appOn, '203.0.113.11')).status).toBe(401); // khách khác => bucket khác, không bị chặn oan
+    } finally { await appOn.close(); }
+    const appOff = await mkApp(false);
+    try {
+      for (let i = 0; i < 3; i++) expect((await tryLogin(appOff, '203.0.113.' + (20 + i))).status).toBe(401);
+      const fourth = await tryLogin(appOff, '203.0.113.99');
+      expect(fourth.status).toBe(429); // TRUST_PROXY=false: header bị bỏ qua, mọi yêu cầu cùng socket => cùng một bucket
+    } finally { await appOff.close(); }
   });
 });
