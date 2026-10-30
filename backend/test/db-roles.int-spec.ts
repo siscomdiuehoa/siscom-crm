@@ -4,7 +4,7 @@ import { assessDbRole, fetchDbRoleFacts } from '../src/prisma/db-role-check';
 import { adminTestDatabase, assertTestConnection, caught, createAdminTestPrisma, createTestPrisma, testDatabase } from './helpers/test-db';
 
 // B1.4 P3 — S1 TÁCH ROLE: siscom_migrator = chủ sở hữu (DDL, migrate), siscom_app = chỉ DML. Chạy khi TEST_MIGRATE_DATABASE_URL được đặt
-// (CI sau khi áp B1.3_S1_ROLE_SPLIT + B1.3_S1_APP_GRANTS). Máy Windows chưa tách role: bỏ qua có lý do (không FAIL oan), kiểm bằng
+// (CI sau khi áp B1.3_S1_ROLE_SPLIT + B1.3_S1_APP_GRANTS_V2). Máy Windows chưa tách role: bỏ qua có lý do (không FAIL oan), kiểm bằng
 // docs/B1.3_S1_VERIFY.sql.txt khi owner tách trên DB thử. Mọi thử DDL/ghi của app nằm trong transaction và ROLLBACK; không ghi dữ liệu.
 const admin = process.env.TEST_MIGRATE_DATABASE_URL ? adminTestDatabase() : null;
 const d = admin?.split ? describe : describe.skip;
@@ -116,7 +116,7 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
   it('P3b M-5: câu SQL thật của fetchDbRoleFacts — kết nối app => đặc quyền tối thiểu; kết nối migrator => chủ sở hữu, sở hữu đối tượng, thành viên migrator', async () => {
     const appFacts = await fetchDbRoleFacts(prisma);
     expect(appFacts).toEqual({ user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
-      ownsObjectsInPublic: false, hasAdminAttributes: false });
+      ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false });
     expect(assessDbRole(appFacts, 'production').leastPrivilege).toBe(true);
     const m = createAdminTestPrisma();
     try {

@@ -95,6 +95,9 @@ INSERT INTO s1_result SELECT 'B4 app co USAGE/SELECT nhung KHONG UPDATE (setval)
   FROM (SELECT format('%I.%I', schemaname, sequencename) AS q FROM pg_sequences WHERE schemaname = 'public') s;
 INSERT INTO s1_result SELECT 'B5 app co USAGE nhung KHONG co CREATE tren schema public',
   has_schema_privilege('siscom_app', 'public', 'USAGE') AND NOT has_schema_privilege('siscom_app', 'public', 'CREATE');
+-- QA (Minor 4): has_*_privilege voi NOINHERIT khong thay quyen qua nhom => kiem truc tiep: siscom_app khong la thanh vien role nao.
+INSERT INTO s1_result SELECT 'B7 siscom_app KHONG la thanh vien role nao (khong quyen qua nhom: siscom_auth_rt cu, pg_write_all_data...)',
+  NOT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = 'siscom_app');
 INSERT INTO s1_result SELECT 'B6 PUBLIC khong CONNECT; app co CONNECT+TEMP; app khong CREATE tren database',
   NOT has_database_privilege('public', current_database(), 'CONNECT') AND has_database_privilege('siscom_app', current_database(), 'CONNECT')
   AND has_database_privilege('siscom_app', current_database(), 'TEMP') AND NOT has_database_privilege('siscom_app', current_database(), 'CREATE');
@@ -220,6 +223,7 @@ INSERT INTO s1_result SELECT 'F16 app KHONG EXECUTE fn_auth_api_request_create /
 
 -- Tong ket (dinh dang cua scripts/ci/pg-sql-check.sh mode=res)
 SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM s1_result ORDER BY label;
-SELECT 'PASS|' || count(*) FROM s1_result WHERE ok;
-SELECT 'FAIL|' || count(*) FROM s1_result WHERE NOT ok HAVING count(*) > 0;
+-- QA Minor 9: dong ok IS NULL (dieu kien tra NULL) tinh la FAIL, khong bi bo qua am tham.
+SELECT 'PASS|' || count(*) FROM s1_result WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM s1_result WHERE ok IS NOT TRUE HAVING count(*) > 0;
 ROLLBACK;

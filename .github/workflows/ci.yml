@@ -172,6 +172,13 @@ jobs:
           npm run test:e2e:customers
         env:
           CONCURRENCY_ROUNDS: "20"
+      - name: B1.4 P3b - dien tap rollback quyen app (V1 => VERIFY phai FAIL; V2 lai => VERIFY PASS)
+        run: |
+          set -euo pipefail
+          bash scripts/ci/pg-temp-db.sh grants v1
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
+          bash scripts/ci/pg-temp-db.sh grants v2
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
       - name: Don DB tam (container cung bi huy sau job)
         if: ${{ always() }}
         run: bash scripts/ci/pg-temp-db.sh drop

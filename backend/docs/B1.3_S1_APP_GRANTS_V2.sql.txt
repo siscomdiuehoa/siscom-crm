@@ -2,7 +2,8 @@
 -- Thay the B1.3_S1_APP_GRANTS.sql.txt (V1: "DML moi bang + EXECUTE moi fn_auth_api_*"). Chay bang psql -f voi siscom_migrator (chu so huu)
 -- tren DATABASE DICH. KHAI BAO + IDEMPOTENT: thu HET quyen cu cua siscom_app roi cap lai DUNG danh sach duoi day; chay lai cho cung ket qua.
 --
--- MA TRAN (theo duong ghi RUNTIME cua backend/src, khong tinh CLI/bootstrap chay bang migrator) - dong S2/S3/I3:
+-- MA TRAN (theo duong ghi RUNTIME cua backend/src, khong tinh CLI/bootstrap chay bang migrator) - dong S2 (ghi truc tiep)/I3, GIAM THIEU S3
+--   (S3 CHUA dong: app van dat mat khau nguoi khac qua p_actor va tu chen auth_session - xem B1.4_P3C_S3_AUTH_ROLE_DESIGN.md):
 --   SELECT                 : moi bang trong public (ke ca _prisma_migrations: chi doc).
 --   INSERT + UPDATE        : customer, contact, customer_assignment, auth_session.        (KHONG DELETE: xoa khach la xoa mem bang UPDATE)
 --   INSERT                 : audit_log (nhat ky chi them - B1.2 B8).
@@ -69,6 +70,13 @@ DO $$ BEGIN
                AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')) THEN
     RAISE EXCEPTION 'Co ham trong public (ngoai extension) KHONG thuoc siscom_migrator. Chuyen chu so huu truoc khi cap quyen.';
   END IF;
+  -- QA (Minor 4): V2 chi go quyen cap TRUC TIEP. siscom_app la thanh vien role khac (vd nhom cu siscom_auth_rt tu nhanh WIP S1-S3, hay
+  -- pg_write_all_data) => van giu quyen qua nhom. Dung, ghi ro ten nhom; nguoi van hanh REVOKE <nhom> FROM siscom_app roi chay lai.
+  IF EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = 'siscom_app') THEN
+    RAISE EXCEPTION 'siscom_app dang la thanh vien cua role: %. Go thanh vien (REVOKE <role> FROM siscom_app) truoc khi cap quyen.',
+      (SELECT string_agg(g.rolname, ', ') FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member JOIN pg_roles g ON g.oid = m.roleid
+        WHERE r.rolname = 'siscom_app');
+  END IF;
 END $$;
 
 BEGIN;
@@ -85,7 +93,8 @@ BEGIN
     EXECUTE format('REVOKE ALL ON ROUTINE %s FROM siscom_app', f.sig);  -- M-2: ROUTINE = ham ca PROCEDURE
   END LOOP;
 END $$;
--- Quyen theo cot cap rieng cho siscom_app (V1 khong co; chay lai V2 thi co) - REVOKE ALL ON TABLE khong thu quyen cot, nen thu tuong minh.
+-- Quyen theo cot cap rieng cho siscom_app: REVOKE ALL ON TABLE o tren DA thu ca quyen cot (kiem that tren PostgreSQL 18: 7 -> 0).
+-- Vong lap duoi day chi la phong ho (khong con gi de thu), giu lai de file khong phu thuoc ngu nghia do.
 DO $$
 DECLARE r record;
 BEGIN

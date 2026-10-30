@@ -2,7 +2,8 @@
 -- VIET SAN. Chay bang psql -f voi SUPERUSER (postgres) tren DATABASE DICH (-d <ten db>): REASSIGN OWNED can superuser hoac thanh vien ca hai role.
 -- Pham vi: CHI ban sao thu (siscom_crm_test_* / siscom_crm_restore_*) hoac khi chu du an phe duyet RIENG bang van ban cho DB that (sao luu truoc,
 --   restore-test da PASS). Script la "cong them" (khong xoa du lieu, khong sua migration). Rollback viet san: B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt.
--- SAU file nay phai chay B1.3_S1_APP_GRANTS.sql.txt bang siscom_migrator (cap lai DML + EXECUTE cho siscom_app), roi B1.3_S1_VERIFY.sql.txt bang
+-- SAU file nay phai chay B1.3_S1_APP_GRANTS_V2.sql.txt bang siscom_migrator (B1.4 P3b: quyen TOI THIEU cho siscom_app; V1 B1.3_S1_APP_GRANTS.sql.txt
+--   CHI dung de rollback P3b - V1 mo lai S2/S3), roi B1.3_S1_VERIFY.sql.txt bang
 --   siscom_app. Chua chay APP_GRANTS thi ung dung KHONG doc/ghi duoc gi (fail-closed, co chu dich).
 -- Mat khau siscom_migrator: dat qua bien psql -v migrator_pw='...' (>= 32 ky tu ngau nhien, sinh tren may chu, KHONG qua chat/log). Neu role da
 --   ton tai thi KHONG doi mat khau (bo qua bien). Khong in mat khau.
@@ -111,4 +112,4 @@ UNION ALL SELECT 'bang_thuoc_migrator', count(*)::text FROM pg_class c JOIN pg_n
   WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND pg_get_userbyid(c.relowner) = 'siscom_migrator'
 UNION ALL SELECT 'bang_con_thuoc_app', count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND pg_get_userbyid(c.relowner) = 'siscom_app';
--- Ky vong: chu_so_huu_db = siscom_migrator; bang_con_thuoc_app = 0. Tiep theo: B1.3_S1_APP_GRANTS.sql.txt (bang siscom_migrator).
+-- Ky vong: chu_so_huu_db = siscom_migrator; bang_con_thuoc_app = 0. Tiep theo: B1.3_S1_APP_GRANTS_V2.sql.txt (bang siscom_migrator).

@@ -2,7 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@ne
 import { ConfigService } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client';
-import { enforceDbRoleAtStartup, fetchDbRoleFacts } from './db-role-check';
+import { DEFAULT_RETRY, enforceDbRoleAtStartup, fetchDbRoleFacts } from './db-role-check';
 import { pgPoolConfig } from './pg-config';
 
 // Prisma 7 bat buoc dung driver adapter. Khong goi $connect() luc khoi dong: backend van chay khi DB tam thoi tat,
@@ -11,6 +11,7 @@ import { pgPoolConfig } from './pg-config';
 @Injectable()
 export class PrismaService extends PrismaClient implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly log = new Logger(PrismaService.name);
+  private stopped = false; // dang tat => bo lan kiem role da hen (khong mo lai pool)
 
   // Constructor chi dung getOrThrow('DATABASE_URL'): test helper va CLI (seed-lookups, bootstrap-auth) truyen doi tuong toi gian.
   constructor(config: ConfigService) {
@@ -20,10 +21,12 @@ export class PrismaService extends PrismaClient implements OnApplicationBootstra
 
   // NODE_ENV doc tu process.env (nhu health.service.ts); env.validation chi chap nhan development | production | test.
   async onApplicationBootstrap(): Promise<void> {
-    await enforceDbRoleAtStartup(() => fetchDbRoleFacts(this), process.env.NODE_ENV, { warn: (m) => this.log.warn(m), error: (m) => this.log.error(m) });
+    await enforceDbRoleAtStartup(() => fetchDbRoleFacts(this), process.env.NODE_ENV, { warn: (m) => this.log.warn(m), error: (m) => this.log.error(m) },
+      { ...DEFAULT_RETRY, isStopped: () => this.stopped });
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.stopped = true;
     await this.$disconnect();
     this.log.log('Đã đóng kết nối cơ sở dữ liệu');
   }

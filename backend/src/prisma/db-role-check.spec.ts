@@ -3,7 +3,7 @@ import { assessDbRole, DbRoleFacts, dbRoleFactsFromRow, enforceDbRoleAtStartup }
 // B1.4 P3b (M-d): backend KHÔNG được chạy bằng role chủ sở hữu DB / superuser / role có CREATE trên schema public (mất tác dụng tách role S1).
 // NODE_ENV=production: từ chối khởi động khi có bằng chứng sai cấu hình; môi trường khác (Windows chưa tách role): chỉ cảnh báo.
 const ok: DbRoleFacts = { user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
-  ownsObjectsInPublic: false, hasAdminAttributes: false };
+  ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false };
 
 describe('assessDbRole', () => {
   it('siscom_app không superuser, không chủ sở hữu, không CREATE public, không thành viên migrator => đặc quyền tối thiểu, không vấn đề', () => {
@@ -12,7 +12,7 @@ describe('assessDbRole', () => {
   });
   it('liệt kê đủ từng vấn đề: chủ sở hữu DB, superuser, CREATE trên public, thành viên siscom_migrator, tên tài khoản là migrator/postgres', () => {
     const r = assessDbRole({ user: 'siscom_migrator', isSuperuser: true, isDbOwner: true, canCreateInPublic: true, isMigratorMember: true,
-      ownsObjectsInPublic: true, hasAdminAttributes: true }, 'production');
+      ownsObjectsInPublic: true, hasAdminAttributes: true, hasBroadGrants: true, isMemberOfOtherRoles: true }, 'production');
     expect(r.leastPrivilege).toBe(false);
     expect(r.problems).toEqual(expect.arrayContaining([
       expect.stringContaining('chủ sở hữu'), expect.stringContaining('superuser'), expect.stringContaining('CREATE'),
@@ -33,7 +33,21 @@ describe('assessDbRole', () => {
     expect(r.leastPrivilege).toBe(false);
     expect(r.problems.join(' ')).toContain('CREATEROLE');
   });
+  // QA bằng AI I-2: chạy nhầm APP_GRANTS V1 (DML mọi bảng + EXECUTE mọi fn_auth_api_*) => S2/S3 mở lại mà role vẫn "không sở hữu gì".
+  // Phải nhận ra: quyền ghi bảng RBAC / UPDATE password_hash / EXECUTE > 1 hàm SECURITY DEFINER.
+  it('quyền rộng kiểu APP_GRANTS V1 => không tối thiểu (production từ chối)', () => {
+    const r = assessDbRole({ ...ok, hasBroadGrants: true }, 'production');
+    expect(r).toMatchObject({ leastPrivilege: false, enforce: true });
+    expect(r.problems.join(' ')).toContain('APP_GRANTS_V2');
+  });
+  it('siscom_app là thành viên role khác (vd. nhóm cũ siscom_auth_rt) => không tối thiểu', () => {
+    const r = assessDbRole({ ...ok, isMemberOfOtherRoles: true }, 'production');
+    expect(r.leastPrivilege).toBe(false);
+    expect(r.problems.join(' ')).toContain('thành viên');
+  });
   it('dbRoleFactsFromRow đọc đủ cột mới; thiếu cột => false (không làm hỏng khởi động)', () => {
+    expect(dbRoleFactsFromRow({ user: 'x', has_broad_grants: true, is_member_of_other_roles: true })).toMatchObject({ hasBroadGrants: true, isMemberOfOtherRoles: true });
+    expect(dbRoleFactsFromRow({ user: 'x' })).toMatchObject({ hasBroadGrants: false, isMemberOfOtherRoles: false });
     expect(dbRoleFactsFromRow({ user: 'x', owns_objects_in_public: true, has_admin_attributes: true })).toMatchObject({ ownsObjectsInPublic: true, hasAdminAttributes: true });
     expect(dbRoleFactsFromRow({ user: 'x' })).toMatchObject({ ownsObjectsInPublic: false, hasAdminAttributes: false });
   });
@@ -88,6 +102,15 @@ describe('enforceDbRoleAtStartup', () => {
     expect(timers).toHaveLength(1);
     await (timers.shift() as () => Promise<void>)(); // lần 3: đạt
     expect(timers).toHaveLength(0); expect(exits).toEqual([]);
+  });
+  // QA Minor 7: đang tắt máy (onModuleDestroy) thì lần kiểm lại đã hẹn KHÔNG được chạy truy vấn (mở lại pool, giữ tiến trình sống).
+  it('production: sau khi dừng (isStopped=true), lần kiểm lại đã hẹn không truy vấn, không lên lịch tiếp', async () => {
+    const timers: Array<() => Promise<void>> = []; let stopped = false; let n = 0;
+    const query = async () => { n++; throw new Error('x'); };
+    await enforceDbRoleAtStartup(query, 'production', log(), { retryMs: 15000, schedule: (fn) => { timers.push(fn); }, exit: () => undefined, isStopped: () => stopped });
+    stopped = true;
+    await (timers.shift() as () => Promise<void>)();
+    expect(n).toBe(1); expect(timers).toHaveLength(0);
   });
   it('ngoài production: không lên lịch kiểm lại khi DB chưa kết nối được', async () => {
     const timers: Array<() => void> = [];
