@@ -102,7 +102,34 @@ SELECT pg_temp.expect_denied('D8 app khong DELETE audit_log',                   
 SELECT pg_temp.expect_denied('D9 app khong TRUNCATE audit_log',                  'TRUNCATE public.audit_log');
 SELECT pg_temp.expect_denied('D10 app khong goi fn_auth_bootstrap_close',        'SELECT public.fn_auth_bootstrap_close(''s1-probe'')');
 SELECT pg_temp.expect_denied('D11 app khong ghi _prisma_migrations',             'DELETE FROM public._prisma_migrations WHERE false');
-SELECT pg_temp.expect_denied('D12 app khong GRANT lai quyen cho chinh minh',     'GRANT UPDATE ON public.audit_log TO siscom_app');
+-- D12: GRANT boi role KHONG so huu va KHONG co grant option thi PostgreSQL CHI CANH BAO "no privileges were granted" va thoat 0
+-- (khong RAISE 42501). Vi vay khong kiem bang ma loi, ma kiem HIEU QUA: sau khi thu GRANT, app van KHONG co quyen do (CI run
+-- 41005714842 tren 8c773aa phat hien bai cu doi 42501 nen FAIL oan; kiem soat thuc te van dung).
+CREATE FUNCTION pg_temp.expect_no_gain(p_label text, p_sql text, p_check text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_gained boolean;
+BEGIN
+  BEGIN
+    EXECUTE p_sql;                       -- co the "thanh cong" kem WARNING, hoac bi tu choi: ca hai deu chap nhan
+  EXCEPTION WHEN OTHERS THEN NULL;       -- bi tu choi cung tot; dieu quan trong la buoc kiem duoi
+  END;
+  EXECUTE 'SELECT ' || p_check INTO v_gained;   -- true = DA NANG DUOC QUYEN => KHONG DAT
+  INSERT INTO s1_result VALUES (p_label, NOT coalesce(v_gained, true));
+END $$;
+SELECT pg_temp.expect_no_gain('D12 app GRANT UPDATE audit_log cho chinh minh => khong co hieu luc',
+  'GRANT UPDATE ON public.audit_log TO siscom_app', $c$has_table_privilege('siscom_app', 'public.audit_log', 'UPDATE')$c$);
+SELECT pg_temp.expect_no_gain('D13 app GRANT ... WITH GRANT OPTION cho chinh minh => khong co hieu luc',
+  'GRANT DELETE ON public.audit_log TO siscom_app WITH GRANT OPTION', $c$has_table_privilege('siscom_app', 'public.audit_log', 'DELETE')$c$);
+SELECT pg_temp.expect_no_gain('D14 app GRANT CREATE ON SCHEMA public cho chinh minh => khong co hieu luc',
+  'GRANT CREATE ON SCHEMA public TO siscom_app', $c$has_schema_privilege('siscom_app', 'public', 'CREATE')$c$);
+SELECT pg_temp.expect_no_gain('D15 app GRANT EXECUTE fn_auth_bootstrap_close cho chinh minh => khong co hieu luc',
+  'GRANT EXECUTE ON FUNCTION public.fn_auth_bootstrap_close(text) TO siscom_app', $c$has_function_privilege('siscom_app', 'public.fn_auth_bootstrap_close(text)', 'EXECUTE')$c$);
+-- Nang quyen o cap role/chu so huu: cac lenh nay PHAI bi tu choi (42501), khong co dang "canh bao roi bo qua".
+SELECT pg_temp.expect_denied('D16 app khong doi chu so huu bang sang minh',        'ALTER TABLE public.audit_log OWNER TO siscom_app');
+SELECT pg_temp.expect_denied('D17 app khong tu them minh vao role migrator',       'GRANT siscom_migrator TO siscom_app');
+SELECT pg_temp.expect_denied('D18 app khong SET ROLE siscom_migrator',             'SET ROLE siscom_migrator');
+SELECT pg_temp.expect_denied('D19 app khong tu nang SUPERUSER/CREATEROLE',         'ALTER ROLE siscom_app SUPERUSER');
+SELECT pg_temp.expect_denied('D20 app khong tao role moi',                         'CREATE ROLE s1_probe_role');
+SELECT pg_temp.expect_denied('D21 app khong doi chu so huu database',              format('ALTER DATABASE %I OWNER TO siscom_app', current_database()));
 
 -- E. Nhung gi app PHAI lam duoc (trong SAVEPOINT, huy sau)
 DO $$ BEGIN

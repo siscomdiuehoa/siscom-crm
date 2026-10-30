@@ -79,6 +79,39 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
     expect(r[0].close_ok).toBe(false); expect(Number(r[0].pub_api)).toBe(0); expect(r[0].set_app).toBe(true); expect(r[0].set_mig).toBe(true);
   });
 
+  it('siscom_app không tự nâng quyền: GRANT cho chính mình (PostgreSQL chỉ WARNING, không lỗi) KHÔNG có hiệu lực; đổi chủ sở hữu/role/SET ROLE bị 42501', async () => {
+    // GRANT bởi role không sở hữu và không có grant option: PostgreSQL trả "no privileges were granted" (WARNING) và thoát 0 —
+    // nên kiểm HIỆU QUẢ (quyền sau đó vẫn không có), không kiểm mã lỗi. Thử ngoài transaction để chắc không có gì "dính" lại.
+    const c = new Client({ connectionString: testDatabase().url });
+    await c.connect();
+    try {
+      const before = (await c.query<{ u: boolean; d: boolean; s: boolean; f: boolean }>(
+        "SELECT has_table_privilege('siscom_app','public.audit_log','UPDATE') AS u, has_table_privilege('siscom_app','public.audit_log','DELETE') AS d, has_schema_privilege('siscom_app','public','CREATE') AS s, has_function_privilege('siscom_app','public.fn_auth_bootstrap_close(text)','EXECUTE') AS f")).rows[0];
+      expect(before).toEqual({ u: false, d: false, s: false, f: false });
+      for (const sql of [
+        'GRANT UPDATE ON public.audit_log TO siscom_app',
+        'GRANT DELETE ON public.audit_log TO siscom_app WITH GRANT OPTION',
+        'GRANT CREATE ON SCHEMA public TO siscom_app',
+        'GRANT EXECUTE ON FUNCTION public.fn_auth_bootstrap_close(text) TO siscom_app',
+      ]) { try { await c.query(sql); } catch { /* bị từ chối cũng được; điều cần kiểm là quyền sau đó */ } }
+      const after = (await c.query<{ u: boolean; d: boolean; s: boolean; f: boolean }>(
+        "SELECT has_table_privilege('siscom_app','public.audit_log','UPDATE') AS u, has_table_privilege('siscom_app','public.audit_log','DELETE') AS d, has_schema_privilege('siscom_app','public','CREATE') AS s, has_function_privilege('siscom_app','public.fn_auth_bootstrap_close(text)','EXECUTE') AS f")).rows[0];
+      expect(after).toEqual({ u: false, d: false, s: false, f: false });
+      // Và thật sự vẫn không ghi được nhật ký sau khi "GRANT" (không chỉ catalog nói vậy)
+      let code: string | null = null;
+      try { await c.query('UPDATE public.audit_log SET summary = summary WHERE false'); } catch (e) { code = (e as { code?: string }).code ?? 'unknown'; }
+      expect(code).toBe('42501');
+    } finally { await c.end(); }
+    for (const sql of [
+      'ALTER TABLE public.audit_log OWNER TO siscom_app',
+      'GRANT siscom_migrator TO siscom_app',
+      'SET ROLE siscom_migrator',
+      'ALTER ROLE siscom_app SUPERUSER',
+      'CREATE ROLE s1_probe_role',
+      'ALTER DATABASE "' + name + '" OWNER TO siscom_app',
+    ]) expect({ sql, code: await appTry(sql) }).toEqual({ sql, code: '42501' });
+  });
+
   it('qua Prisma (pool của ứng dụng) DDL cũng bị từ chối, lỗi mang mã 42501 và không làm hỏng pool (truy vấn sau vẫn chạy)', async () => {
     const e = await caught(prisma.$executeRaw`ALTER TABLE public.audit_log DISABLE TRIGGER ALL`);
     expect(JSON.stringify(e)).toContain('42501');
