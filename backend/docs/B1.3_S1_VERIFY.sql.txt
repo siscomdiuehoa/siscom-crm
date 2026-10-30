@@ -56,11 +56,12 @@ INSERT INTO s1_result SELECT 'A7 siscom_migrator khong superuser, khong tao role
 -- B. Quyen DML cua app (P3b: THEO MA TRAN DUONG GHI RUNTIME cua backend, khong con "DML moi bang")
 INSERT INTO s1_result SELECT 'B1 app co SELECT tren moi bang nghiep vu va INSERT/UPDATE (KHONG DELETE) tren customer/contact/customer_assignment/auth_session',
   bool_and(has_table_privilege('siscom_app', 'public.' || t, 'SELECT'))
+  -- (viet trong SELECT, KHONG dung HAVING: HAVING sai se chen 0 dong => thieu nhan va tong ket khong dem FAIL)
+  AND (SELECT bool_and(has_table_privilege('siscom_app', 'public.' || w, 'INSERT') AND has_table_privilege('siscom_app', 'public.' || w, 'UPDATE')
+                       AND NOT has_table_privilege('siscom_app', 'public.' || w, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || w, 'TRUNCATE'))
+         FROM unnest(ARRAY['customer', 'contact', 'customer_assignment', 'auth_session']) AS w)
   FROM unnest(ARRAY['customer', 'contact', 'activity', 'customer_assignment', 'employee', 'department', 'lookup_item', 'app_meta', 'role', 'permission',
-                    'employee_credential', 'auth_session', 'employee_role', 'role_permission', 'privileged_change_request', 'password_reset_token']) AS t
-  HAVING bool_and(has_table_privilege('siscom_app', 'public.' || w, 'INSERT') AND has_table_privilege('siscom_app', 'public.' || w, 'UPDATE')
-                  AND NOT has_table_privilege('siscom_app', 'public.' || w, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || w, 'TRUNCATE'))
-         FROM unnest(ARRAY['customer', 'contact', 'customer_assignment', 'auth_session']) AS w;
+                    'employee_credential', 'auth_session', 'employee_role', 'role_permission', 'privileged_change_request', 'password_reset_token']) AS t;
 INSERT INTO s1_result SELECT 'B1b app KHONG INSERT/UPDATE/DELETE tren bang RBAC/yeu cau dac quyen/ma reset/app_meta/employee/department/lookup_item/activity (S2)',
   bool_and(NOT has_table_privilege('siscom_app', 'public.' || t, 'INSERT') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'UPDATE')
        AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'TRUNCATE'))
