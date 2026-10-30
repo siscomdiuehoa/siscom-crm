@@ -1,7 +1,7 @@
 import type { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { DomainException } from '../errors/domain.exception';
 import type { ActorProvider } from './actor';
 import { ALLOW_PASSWORD_CHANGE_REQUIRED, AllowPasswordChangeRequired, PasswordChangeRequiredGuard } from './password-change-required.guard';
@@ -57,9 +57,21 @@ describe('PasswordChangeRequiredGuard (B1.4 P2)', () => {
     await expect(guard(provider).canActivate(ctxOf(req({ authSession: null })))).resolves.toBe(true);
     expect(lookup).not.toHaveBeenCalled();
   });
-  it('provider không phải SessionActorProvider (chỉ trong test) => không có cờ credential => cho qua', async () => {
+  it('provider không phải SessionActorProvider: KHÔNG có cookie phiên => cho qua (test provider); CÓ cookie phiên => từ chối (fail-closed như CsrfOriginGuard)', async () => {
     const other: ActorProvider = { resolve: async () => null, scopeFor: () => null };
+    await expect(guard(other).canActivate(ctxOf(req({ headers: {} })))).resolves.toBe(true);
+    await expect(guard(other).canActivate(ctxOf(req({ headers: { 'x-test-actor': 'all' } as never })))).resolves.toBe(true);
+    // Cookie phiên đúng định dạng token (43 ký tự base64url, như readSessionCookie/CsrfOriginGuard nhận) => từ chối.
+    const realLooking = { cookie: 'siscom_sid=' + 'A'.repeat(43) };
+    await expect(guard(other).canActivate(ctxOf(req({ headers: realLooking })))).rejects.toMatchObject({ code: 'PASSWORD_CHANGE_REQUIRED' });
+    // Cookie sai định dạng không xác thực được (ActorGuard trả 401) — cùng ngữ nghĩa với CsrfOriginGuard: không coi là cookie phiên.
     await expect(guard(other).canActivate(ctxOf(req()))).resolves.toBe(true);
+  });
+  it('cờ không xác định (không phải đúng false) => coi như phải đổi mật khẩu (fail-closed)', async () => {
+    for (const v of [undefined, null, 'false', 0] as unknown[]) {
+      const s = { ...session(false), mustChangePassword: v } as unknown as ResolvedSession;
+      await expect(guard(sessionProvider(s).provider).canActivate(ctxOf(req()))).rejects.toMatchObject({ code: 'PASSWORD_CHANGE_REQUIRED' });
+    }
   });
   it('decorator đặt đúng khoá metadata', () => {
     const h = () => undefined; AllowPasswordChangeRequired()(h);
@@ -68,14 +80,23 @@ describe('PasswordChangeRequiredGuard (B1.4 P2)', () => {
 });
 
 // Kiểm tra tĩnh "không thể vượt qua": chỉ đúng 3 handler của AuthController (me, logout, change-password) và HealthController được
-// miễn; login KHÔNG được miễn (không có phiên nên không cần); guard được gắn toàn cục trong AuthModule, sau CsrfOriginGuard.
+// miễn; login KHÔNG được miễn; guard được gắn toàn cục trong AuthModule, sau CsrfOriginGuard. Quét MỌI *.ts trong src (không chỉ
+// danh sách controller cố định) và MỌI decorator HTTP, để controller/handler thêm sau mà gắn decorator miễn trừ là test đỏ.
 describe('tĩnh: phạm vi miễn trừ PASSWORD_CHANGE_REQUIRED', () => {
   const SRC = join(__dirname, '..', '..');
   const text = (p: string) => readFileSync(join(SRC, p), 'utf8');
-  it('AuthController: đúng 3 route được miễn (me, logout, change-password), login không', () => {
+  const HTTP = '(?:Get|Post|Put|Patch|Delete|Head|Options|All)';
+  const allTs = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
+    d.isDirectory() ? (d.name === 'generated' ? [] : allTs(join(dir, d.name))) : d.name.endsWith('.ts') && !d.name.endsWith('.spec.ts') ? [join(dir, d.name)] : []);
+  it('toàn src: decorator miễn trừ chỉ xuất hiện đúng 4 lần — 3 trong AuthController, 1 trên class HealthController', () => {
+    // Chỉ đếm decorator thật (đầu dòng mã), bỏ qua nhắc tên trong chú thích.
+    const uses = allTs(SRC).flatMap((f) => (readFileSync(f, 'utf8').match(/^[ \t]*@AllowPasswordChangeRequired\(\)/gm) ?? []).map(() => relative(SRC, f).replace(/\\/g, '/')));
+    expect(uses.sort()).toEqual(['health/health.controller.ts', 'modules/auth/auth.controller.ts', 'modules/auth/auth.controller.ts', 'modules/auth/auth.controller.ts']);
+  });
+  it('AuthController: đúng 3 route được miễn (me, logout, change-password) trên mọi phương thức HTTP, login không', () => {
     const c = text('modules/auth/auth.controller.ts');
-    const blocks = c.split(/\n(?=\s*@(?:Get|Post)\()/).slice(1);
-    const allowed = blocks.filter((b) => /@AllowPasswordChangeRequired\(\)/.test(b)).map((b) => /@(?:Get|Post)\('([^']*)'\)/.exec(b)![1]).sort();
+    const blocks = c.split(new RegExp('\\n(?=\\s*@' + HTTP + '\\()')).slice(1);
+    const allowed = blocks.filter((b) => /@AllowPasswordChangeRequired\(\)/.test(b)).map((b) => new RegExp('@' + HTTP + "\\('([^']*)'\\)").exec(b)![1]).sort();
     expect(allowed).toEqual(['change-password', 'logout', 'me']);
     expect(blocks.find((b) => /@Post\('login'\)/.test(b))).not.toMatch(/AllowPasswordChangeRequired/);
     expect(c).not.toMatch(/@AllowPasswordChangeRequired\(\)\s*\n\s*@Controller/);

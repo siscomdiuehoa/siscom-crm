@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { DomainException } from '../errors/domain.exception';
 import { ACTOR_PROVIDER, ActorProvider } from './actor';
 import { SessionActorProvider, SessionRequest } from './session/session-actor.provider';
+import { readSessionCookie } from './session/session-token';
 
 // B1.4 P2 (biên bản MVP Minor 6; thiết kế B1.3.1 §6, B1.3.3 §7): khi credential có must_change_password = true, phiên chỉ được
 // gọi các route được đánh dấu @AllowPasswordChangeRequired() (/auth/me, /auth/change-password, /auth/logout, health); mọi route
@@ -12,6 +13,7 @@ import { SessionActorProvider, SessionRequest } from './session/session-actor.pr
 export const ALLOW_PASSWORD_CHANGE_REQUIRED = 'auth:allowPasswordChangeRequired';
 export const AllowPasswordChangeRequired = (): CustomDecorator<string> => SetMetadata(ALLOW_PASSWORD_CHANGE_REQUIRED, true);
 export const PASSWORD_CHANGE_REQUIRED_CODE = 'PASSWORD_CHANGE_REQUIRED';
+const passwordChangeRequired = (): DomainException => new DomainException(403, PASSWORD_CHANGE_REQUIRED_CODE, 'Bạn phải đổi mật khẩu trước khi tiếp tục.');
 
 @Injectable()
 export class PasswordChangeRequiredGuard implements CanActivate {
@@ -21,13 +23,18 @@ export class PasswordChangeRequiredGuard implements CanActivate {
     const allowed = this.reflector.getAllAndOverride<boolean | undefined>(ALLOW_PASSWORD_CHANGE_REQUIRED, [context.getHandler(), context.getClass()]);
     if (allowed === true) return true;
     const provider = this.provider;
-    // Chỉ provider phiên thật mới có cờ credential; provider khác (chỉ trong test) không có khái niệm này.
-    if (!(provider instanceof SessionActorProvider)) return true;
     const req = context.switchToHttp().getRequest<SessionRequest>();
+    // Chỉ provider phiên thật mới có cờ credential. Provider khác (chỉ dùng trong test, không cookie phiên) => cho qua; nhưng nếu
+    // request MANG cookie phiên mà provider không phải phiên thật thì không xác định được cờ => từ chối (fail-closed, như CsrfOriginGuard).
+    if (!(provider instanceof SessionActorProvider)) {
+      if (readSessionCookie(req.headers.cookie) !== null) throw passwordChangeRequired();
+      return true;
+    }
     if (req.authSession === undefined) req.authSession = await provider.lookup(req.headers.cookie);
     const s = req.authSession;
     if (!s) return true;
-    if (s.mustChangePassword) throw new DomainException(403, PASSWORD_CHANGE_REQUIRED_CODE, 'Bạn phải đổi mật khẩu trước khi tiếp tục.');
+    // Chỉ đúng false mới được qua; giá trị không xác định coi như phải đổi mật khẩu (fail-closed).
+    if (s.mustChangePassword !== false) throw passwordChangeRequired();
     return true;
   }
 }

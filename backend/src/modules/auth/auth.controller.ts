@@ -22,7 +22,8 @@ import { LoginDto } from './dto/login.dto';
 // Không nhận token qua query/header; danh tính chỉ từ cookie phiên (SessionActorProvider).
 // Nguồn hạn mức / IP phiên: clientAddress(req) = req.ip theo TRUST_PROXY (B1.4 P1), không lấy thẳng địa chỉ socket.
 // B1.4 P2: phiên có must_change_password = true chỉ được gọi me, logout, change-password (@AllowPasswordChangeRequired);
-//   mọi route khác của hệ thống => 403 PASSWORD_CHANGE_REQUIRED (PasswordChangeRequiredGuard toàn cục). login không có phiên nên không bị chặn.
+//   mọi route khác của hệ thống => 403 PASSWORD_CHANGE_REQUIRED (PasswordChangeRequiredGuard toàn cục). login KHÔNG được miễn: login bình
+//   thường không mang cookie phiên nên guard cho qua; còn mang cookie của phiên phải đổi mật khẩu (kèm đúng CSRF) thì cũng bị 403.
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig) {}
