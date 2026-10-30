@@ -5,6 +5,7 @@ import { AUTH_CONFIG, AuthConfig } from '../../common/auth/auth.config';
 import type { SessionRequest } from '../../common/auth/session/session-actor.provider';
 import { buildCsrfCookie, buildCsrfCookieClear, buildSessionCookie, buildSessionCookieClear } from '../../common/auth/session/session-token';
 import { DomainException } from '../../common/errors/domain.exception';
+import { clientAddress } from '../../common/middleware/client-address';
 import { AuthService } from './auth.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
@@ -18,6 +19,7 @@ import { LoginDto } from './dto/login.dto';
 //        -> 200 {data:{me, csrfToken}} + Set-Cookie PHIÊN MỚI (mọi phiên cũ bị thu hồi) | 400 VALIDATION_FAILED | 400 PASSWORD_CURRENT_INVALID
 //        | 401 | 403 CSRF_FAILED | 429 PASSWORD_CHANGE_THROTTLED (B1.3.3 PR 8, D16)
 // Không nhận token qua query/header; danh tính chỉ từ cookie phiên (SessionActorProvider).
+// Nguồn hạn mức / IP phiên: clientAddress(req) = req.ip theo TRUST_PROXY (B1.4 P1), không lấy thẳng địa chỉ socket.
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig) {}
@@ -25,9 +27,10 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   async login(@Body() dto: LoginDto, @Req() req: Request & { requestId?: string }, @Res({ passthrough: true }) res: Response) {
+    const addr = clientAddress(req);
     const r = await this.auth.login({
       login: dto.login, password: dto.password,
-      source: req.socket?.remoteAddress ?? 'unknown', ip: req.socket?.remoteAddress ?? null,
+      source: addr.source, ip: addr.ip,
       userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null, requestId: req.requestId,
     });
     const co = { secure: this.cfg.cookieSecure, maxAgeSeconds: r.maxAgeSeconds };
@@ -61,9 +64,10 @@ export class AuthController {
   async changePassword(@Body() dto: ChangePasswordDto, @Req() req: SessionRequest, @Res({ passthrough: true }) res: Response) {
     const s = req.authSession;
     if (!s) throw new DomainException(401, 'UNAUTHENTICATED', 'Chưa xác thực.');
+    const addr = clientAddress(req);
     const r = await this.auth.changePassword(s, {
       currentPassword: dto.currentPassword, newPassword: dto.newPassword, confirmPassword: dto.confirmPassword,
-      source: req.socket?.remoteAddress ?? 'unknown', ip: req.socket?.remoteAddress ?? null,
+      source: addr.source, ip: addr.ip,
       userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null, requestId: req.requestId,
     });
     const co = { secure: this.cfg.cookieSecure, maxAgeSeconds: r.maxAgeSeconds };
