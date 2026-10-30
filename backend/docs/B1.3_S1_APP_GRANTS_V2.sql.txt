@@ -60,7 +60,16 @@ BEGIN;
 -- 0. THU HET quyen hien co cua app tren doi tuong trong public (ke ca quyen theo cot) => trang thai sach, roi cap theo ma tran.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM siscom_app;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM siscom_app;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM siscom_app;
+-- Ham: chi cac ham do migrator so huu (fn_*, f_vn_fold...). Ham cua extension (pg_trgm/unaccent) thuoc superuser => "ON ALL FUNCTIONS"
+-- chi WARNING "no privileges could be revoked" (CI run 41079248775) - bo qua bang cach loc theo chu so huu.
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN SELECT p.oid::regprocedure AS sig FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+           WHERE ns.nspname = 'public' AND p.proowner = (SELECT oid FROM pg_roles WHERE rolname = current_user) LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM siscom_app', f.sig);
+  END LOOP;
+END $$;
 -- Quyen theo cot cap rieng cho siscom_app (V1 khong co; chay lai V2 thi co) - REVOKE ALL ON TABLE khong thu quyen cot, nen thu tuong minh.
 DO $$
 DECLARE r record;
@@ -106,7 +115,9 @@ UNION ALL SELECT 'cot_credential_app_UPDATE (phai 7)', count(*)::text FROM infor
   WHERE grantee = 'siscom_app' AND table_schema = 'public' AND table_name = 'employee_credential' AND privilege_type = 'UPDATE'
 UNION ALL SELECT 'ham_api_app_EXECUTE (phai 1)', count(*)::text FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
   WHERE ns.nspname = 'public' AND p.proname LIKE 'fn\_auth\_api\_%' AND has_function_privilege('siscom_app', p.oid, 'EXECUTE')
-UNION ALL SELECT 'sequence_app_UPDATE (phai 0)', count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname = 'public' AND c.relkind = 'S' AND has_sequence_privilege('siscom_app', c.oid, 'UPDATE')
+-- Dung pg_sequences (da loc relkind trong view): planner co the goi has_sequence_privilege TRUOC dieu kien relkind = 'S' tren pg_class
+-- => ERROR '"_prisma_migrations_pkey" is not a sequence' (CI run 41079248775).
+UNION ALL SELECT 'sequence_app_UPDATE (phai 0)', count(*)::text FROM pg_sequences s
+  WHERE s.schemaname = 'public' AND has_sequence_privilege('siscom_app', format('%I.%I', s.schemaname, s.sequencename), 'UPDATE')
 UNION ALL SELECT 'bootstrap_close_app_EXECUTE (phai f)', has_function_privilege('siscom_app', 'public.fn_auth_bootstrap_close(text)', 'EXECUTE')::text;
 -- Tiep theo: B1.3_S1_VERIFY.sql.txt bang siscom_app (ky vong PASS|n, khong FAIL).

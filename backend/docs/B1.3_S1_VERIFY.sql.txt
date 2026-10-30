@@ -83,9 +83,10 @@ INSERT INTO s1_result SELECT 'B2 app chi SELECT/INSERT tren audit_log (khong UPD
 INSERT INTO s1_result SELECT 'B3 app chi SELECT tren _prisma_migrations',
   has_table_privilege('siscom_app', 'public._prisma_migrations', 'SELECT') AND NOT has_table_privilege('siscom_app', 'public._prisma_migrations', 'INSERT')
   AND NOT has_table_privilege('siscom_app', 'public._prisma_migrations', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public._prisma_migrations', 'DELETE');
+-- pg_sequences (view da loc relkind): tranh planner goi has_sequence_privilege tren index truoc khi loc relkind = 'S' (CI run 41079248775).
 INSERT INTO s1_result SELECT 'B4 app co USAGE/SELECT nhung KHONG UPDATE (setval) tren moi sequence',
-  count(*) > 0 AND bool_and(has_sequence_privilege('siscom_app', c.oid, 'USAGE') AND has_sequence_privilege('siscom_app', c.oid, 'SELECT') AND NOT has_sequence_privilege('siscom_app', c.oid, 'UPDATE'))
-  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'S';
+  count(*) > 0 AND bool_and(has_sequence_privilege('siscom_app', q, 'USAGE') AND has_sequence_privilege('siscom_app', q, 'SELECT') AND NOT has_sequence_privilege('siscom_app', q, 'UPDATE'))
+  FROM (SELECT format('%I.%I', schemaname, sequencename) AS q FROM pg_sequences WHERE schemaname = 'public') s;
 INSERT INTO s1_result SELECT 'B5 app co USAGE nhung KHONG co CREATE tren schema public',
   has_schema_privilege('siscom_app', 'public', 'USAGE') AND NOT has_schema_privilege('siscom_app', 'public', 'CREATE');
 INSERT INTO s1_result SELECT 'B6 PUBLIC khong CONNECT; app co CONNECT+TEMP; app khong CREATE tren database',
