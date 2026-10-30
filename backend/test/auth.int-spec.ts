@@ -11,7 +11,7 @@ import { CustomersModule } from '../src/modules/customers/customers.module';
 import { LookupsModule } from '../src/modules/lookups/lookups.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { leaks } from './helpers/test-app';
-import { assertTestConnection, createTestPrisma, setDatabaseDefaultTimeZone } from './helpers/test-db';
+import { assertTestConnection, createAdminTestPrisma, createTestPrisma, setDatabaseDefaultTimeZone } from './helpers/test-db';
 import { ensureFixtures, Fixtures, makeCustomer } from './helpers/fixtures';
 
 // B1.3 MVP — ĐĂNG NHẬP THẬT trên DATABASE THỬ: bootstrap 4+1 tài khoản (chế độ khởi tạo M1, sau đó đóng vĩnh viễn trên DB thử này),
@@ -43,14 +43,18 @@ beforeAll(async () => {
   // D.0: chạy toàn bộ bộ test xác thực như máy chủ tại VN (DB mặc định +07); kết nối của ứng dụng phải tự chạy UTC.
   const setup = createTestPrisma(); dbName = setup.name;
   await assertTestConnection(setup.prisma, dbName);
-  await setDatabaseDefaultTimeZone(setup.prisma, dbName, 'Asia/Ho_Chi_Minh');
   await setup.prisma.$disconnect();
+  await setDatabaseDefaultTimeZone(dbName, 'Asia/Ho_Chi_Minh');
   const t = createTestPrisma(); prisma = t.prisma;
   await assertTestConnection(prisma, t.name);
   const open = await prisma.$queryRaw<{ open: boolean }[]>`SELECT public.fn_auth_bootstrap_open() AS open`;
   if (!open[0]?.open) throw new Error('DB thử đã đóng khởi tạo: cần DB thử MỚI cho auth.int-spec.');
   fx = await ensureFixtures(prisma);
-  const r = await bootstrapAuth(prisma, USERS);
+  // B1.4 P3 (S1): bootstrap gọi fn_auth_bootstrap_close (chỉ chủ sở hữu) => chạy bằng kết nối chủ sở hữu (siscom_migrator sau khi tách role;
+  // siscom_app khi chưa tách). Ứng dụng (prisma) KHÔNG có quyền này — kiểm ở test "BOOTSTRAP_CLOSED" bên dưới và db-roles.int-spec.
+  const admin = createAdminTestPrisma();
+  let r: Awaited<ReturnType<typeof bootstrapAuth>>;
+  try { await assertTestConnection(admin.prisma, dbName); r = await bootstrapAuth(admin.prisma, USERS); } finally { await admin.prisma.$disconnect(); }
   expect(r.closed).toBe(true);
   codes = Object.fromEntries(r.employees.map((e) => [e.key, e.code]));
   const mod = await Test.createTestingModule({ imports: [AuthApiModule, CustomersModule, LookupsModule] })
@@ -64,9 +68,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   // Trả múi giờ mặc định của DB thử về như cũ kể cả khi beforeAll lỗi giữa chừng; luôn đóng kết nối.
-  const p = prisma ?? (dbName ? createTestPrisma().prisma : undefined);
-  if (!p) return;
-  try { await setDatabaseDefaultTimeZone(p, dbName, null); } finally { await p.$disconnect(); }
+  try { if (dbName) await setDatabaseDefaultTimeZone(dbName, null); } finally { await prisma?.$disconnect(); }
 });
 
 describe('bootstrap (chế độ khởi tạo M1) và ràng buộc', () => {

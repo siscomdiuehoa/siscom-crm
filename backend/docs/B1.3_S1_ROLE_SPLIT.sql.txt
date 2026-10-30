@@ -1,0 +1,68 @@
+-- SISCOM CRM - B1.4 P3 / B1.3 S1: TACH ROLE. siscom_migrator = chu so huu (DDL, prisma migrate deploy); siscom_app = chi DML (ung dung).
+-- VIET SAN. Chay bang psql -f voi SUPERUSER (postgres) tren DATABASE DICH (-d <ten db>): REASSIGN OWNED can superuser hoac thanh vien ca hai role.
+-- Pham vi: CHI ban sao thu (siscom_crm_test_* / siscom_crm_restore_*) hoac khi chu du an phe duyet RIENG bang van ban cho DB that (sao luu truoc,
+--   restore-test da PASS). Script la "cong them" (khong xoa du lieu, khong sua migration). Rollback viet san: B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt.
+-- SAU file nay phai chay B1.3_S1_APP_GRANTS.sql.txt bang siscom_migrator (cap lai DML + EXECUTE cho siscom_app), roi B1.3_S1_VERIFY.sql.txt bang
+--   siscom_app. Chua chay APP_GRANTS thi ung dung KHONG doc/ghi duoc gi (fail-closed, co chu dich).
+-- Mat khau siscom_migrator: dat qua bien psql -v migrator_pw='...' (>= 32 ky tu ngau nhien, sinh tren may chu, KHONG qua chat/log). Neu role da
+--   ton tai thi KHONG doi mat khau (bo qua bien). Khong in mat khau.
+-- Quy tac dat ten: KHONG dung cho siscom_crm_dev tru khi co phe duyet rieng (xem AGENTS.md); kiem tra ten DB ben duoi chi la lop phong ho.
+\set ON_ERROR_STOP on
+\pset pager off
+\if :{?migrator_pw}
+\else
+\set migrator_pw ''
+\endif
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dich, current_user AS chay_bang, version() AS pg;
+
+DO $$ BEGIN
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'Phai chay bang superuser (REASSIGN OWNED). Dang la %.', current_user;
+  END IF;
+  IF current_setting('server_version_num')::int < 150000 THEN
+    RAISE EXCEPTION 'Can PostgreSQL >= 15 (GRANT SET ON PARAMETER). Dang la %.', current_setting('server_version');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app') THEN
+    RAISE EXCEPTION 'Chua co role siscom_app (chay setup-db / pg-temp-db truoc).';
+  END IF;
+  IF current_database() = 'siscom_crm_dev' AND coalesce(current_setting('s1.allow_dev', true), '') <> 'yes' THEN
+    RAISE EXCEPTION 'TU CHOI: siscom_crm_dev. Can phe duyet rieng: psql -c "SET s1.allow_dev = yes" trong cung phien (khong lam trong CI).';
+  END IF;
+END $$;
+
+-- 1. Role chu so huu (NOLOGIN? KHONG: migrator phai LOGIN de chay prisma migrate deploy). Khong superuser, khong tao role.
+--    Mat khau chi dat khi TAO MOI; psql khong thay the :'migrator_pw' trong khoi DO => dung \gexec.
+SELECT CASE
+  WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator') THEN 'SELECT ''role siscom_migrator da ton tai, giu nguyen mat khau'''
+  WHEN :'migrator_pw' = '' OR length(:'migrator_pw') < 32 THEN 'SELECT s1_fail_missing_or_short_migrator_pw()'  -- ham khong ton tai => loi, dung script
+  ELSE format('CREATE ROLE siscom_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L', :'migrator_pw')
+END \gexec
+
+-- 2. Chuyen chu so huu: database + moi doi tuong trong DB nay (bang, sequence, ham, kieu, extension, _prisma_migrations) tu siscom_app sang migrator.
+--    REASSIGN OWNED chi tac dong DB hien tai; cac DB khac ma siscom_app so huu (vd. DB thu khac) KHONG bi anh huong.
+BEGIN;
+SELECT format('ALTER DATABASE %I OWNER TO siscom_migrator', current_database()) \gexec
+REASSIGN OWNED BY siscom_app TO siscom_migrator;
+-- KHONG dung DROP OWNED BY siscom_app: lenh do thu ca quyen tren DOI TUONG DUNG CHUNG (CONNECT cac database khac, SET tham so) => pha DB khac
+-- tren cung cluster (may Windows co siscom_crm_dev + nhieu ban sao thu). Quyen cu cua app tren bang (ACL) duoc APP_GRANTS dat lai co chu dich.
+-- 3. Database: PUBLIC khong CONNECT/TEMP/CREATE; app CONNECT + TEMP (test dung bang/ham pg_temp), KHONG CREATE; migrator (chu so huu) tu co.
+SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database()) \gexec
+SELECT format('REVOKE ALL ON DATABASE %I FROM siscom_app', current_database()) \gexec
+SELECT format('GRANT CONNECT, TEMP ON DATABASE %I TO siscom_app', current_database()) \gexec
+-- 4. Schema public: app USAGE, khong CREATE (PG >= 15 da bo CREATE cua PUBLIC; ghi tuong minh de khong phu thuoc mac dinh).
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO siscom_app;
+-- 5. Tham so GUC danh tinh (M1/M1.2): migrator can SET de ap migration co "CREATE FUNCTION ... SET app.x"; app can SET LOCAL trong giao dich.
+GRANT SET ON PARAMETER app.actor_employee_id TO siscom_migrator;
+GRANT SET ON PARAMETER app.priv_request_id   TO siscom_migrator;
+GRANT SET ON PARAMETER app.actor_employee_id TO siscom_app;
+GRANT SET ON PARAMETER app.priv_request_id   TO siscom_app;
+COMMIT;
+
+SELECT 'chu_so_huu_db' AS muc, pg_get_userbyid(datdba) AS gia_tri FROM pg_database WHERE datname = current_database()
+UNION ALL SELECT 'bang_thuoc_migrator', count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND pg_get_userbyid(c.relowner) = 'siscom_migrator'
+UNION ALL SELECT 'bang_con_thuoc_app', count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND pg_get_userbyid(c.relowner) = 'siscom_app';
+-- Ky vong: chu_so_huu_db = siscom_migrator; bang_con_thuoc_app = 0. Tiep theo: B1.3_S1_APP_GRANTS.sql.txt (bang siscom_migrator).

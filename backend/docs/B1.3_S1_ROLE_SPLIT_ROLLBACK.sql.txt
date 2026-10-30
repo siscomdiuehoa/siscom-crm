@@ -1,0 +1,55 @@
+-- SISCOM CRM - B1.4 P3 / B1.3 S1: ROLLBACK tach role (tra chu so huu ve siscom_app nhu truoc S1). VIET SAN, KHONG TU CHAY.
+-- Chay bang psql -f voi SUPERUSER (postgres) tren DATABASE DICH. CHI ban sao thu, hoac DB that khi co phe duyet rieng + sao luu.
+-- THU TU khi can rollback ca auth: file nay TRUOC, roi B1.3_M1_3_ROLLBACK -> M1_2 -> M1_1 -> M1 (cac file do yeu cau chu so huu = siscom_app).
+-- Khong xoa du lieu. KHONG DROP role siscom_migrator (co the con so huu doi tuong o DB khac); chi thu quyen SET tham so cua migrator trong cluster.
+-- Sau rollback: siscom_app lai la chu so huu => tu co moi quyen (mo hinh B1.1); audit_log van duoc trigger B7 bao ve.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+
+DO $$ BEGIN
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'Phai chay bang superuser (REASSIGN OWNED). Dang la %.', current_user;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator') THEN
+    RAISE EXCEPTION 'Khong co role siscom_migrator: chua tach role, khong co gi de rollback.';
+  END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'Chu so huu database la % (khong phai siscom_migrator): DB nay chua tach role.',
+      (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database());
+  END IF;
+  IF current_database() = 'siscom_crm_dev' AND coalesce(current_setting('s1.allow_dev', true), '') <> 'yes' THEN
+    RAISE EXCEPTION 'TU CHOI: siscom_crm_dev. Can phe duyet rieng (SET s1.allow_dev = yes trong cung phien).';
+  END IF;
+END $$;
+
+BEGIN;
+-- 1. Go quyen mac dinh da dat cho migrator (neu khong, ALTER DEFAULT PRIVILEGES con treo va DROP OWNED sau nay bi vuong)
+ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM siscom_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE USAGE, SELECT, UPDATE ON SEQUENCES FROM siscom_app;
+-- 2. Tra chu so huu
+SELECT format('ALTER DATABASE %I OWNER TO siscom_app', current_database()) \gexec
+REASSIGN OWNED BY siscom_migrator TO siscom_app;
+-- 3. Quyen database nhu B1.1 (setup-db): PUBLIC khong CONNECT, app CONNECT (app la chu so huu nen tu co CREATE/TEMP)
+SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database()) \gexec
+SELECT format('GRANT CONNECT, TEMP ON DATABASE %I TO siscom_app', current_database()) \gexec
+-- 4. Tham so: giu cho app (nhu CI/create-test-db truoc S1), thu cua migrator
+REVOKE SET ON PARAMETER app.actor_employee_id FROM siscom_migrator;
+REVOKE SET ON PARAMETER app.priv_request_id   FROM siscom_migrator;
+GRANT  SET ON PARAMETER app.actor_employee_id TO siscom_app;
+GRANT  SET ON PARAMETER app.priv_request_id   TO siscom_app;
+-- 5. audit_log: chu so huu tu cap lai duoc, nhung giu REVOKE nhu B1.2 B8 (lop bao ve chinh la trigger B7)
+REVOKE UPDATE, DELETE, TRUNCATE ON public.audit_log FROM siscom_app;
+COMMIT;
+
+SELECT 'chu_so_huu_db' AS muc, pg_get_userbyid(datdba) AS gia_tri FROM pg_database WHERE datname = current_database()
+UNION ALL SELECT 'bang_con_thuoc_migrator', count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND pg_get_userbyid(c.relowner) = 'siscom_migrator';
+DO $$ BEGIN
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> 'siscom_app'
+     OR EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND pg_get_userbyid(c.relowner) = 'siscom_migrator') THEN
+    RAISE EXCEPTION 'ROLLBACK S1 KHONG SACH.';
+  END IF;
+END $$;
+-- Ky vong: chu_so_huu_db = siscom_app; bang_con_thuoc_migrator = 0.

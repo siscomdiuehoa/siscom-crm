@@ -95,7 +95,7 @@ jobs:
         run: npm install -g npm@11
       - name: Cai dependency (npm ci)
         run: npm ci
-      - name: Tao DB tam siscom_crm_test_<stamp> + role siscom_app (khong superuser); URL duoc mask
+      - name: Tao DB tam siscom_crm_test_<stamp> + role siscom_app va siscom_migrator (khong superuser); URL duoc mask
         run: bash scripts/ci/pg-temp-db.sh create
       - name: Prisma generate
         run: npx prisma generate
@@ -116,27 +116,54 @@ jobs:
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
-      - name: Kiem thu rang buoc auth M1/M1.1/M1.2 + cau truc M1.3 (psql, moi file tu ROLLBACK; can bang RBAC rong => chay TRUOC integration)
+      - name: B1.4 P3 S1 - BAI TAI HIEN (RED) - verify TRUOC khi tach role (siscom_app con la chu so huu) => mong doi FAIL
+        run: bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
+      - name: B1.4 P3 S1 - TACH ROLE (ROLE_SPLIT bang superuser container, APP_GRANTS bang siscom_migrator) roi verify (GREEN)
         run: |
           set -euo pipefail
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_CONSTRAINT_TESTS.sql.txt res
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_CONSTRAINT_TESTS.sql.txt res
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_CONSTRAINT_TESTS.sql.txt res
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_STRUCTURE_TESTS.sql.txt ok
-      - name: Dien tap rollback auth (M1.3 -> M1.2 -> M1.1 -> M1), roi migrate deploy lai + status + drift
+          bash scripts/ci/pg-temp-db.sh split
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
+      - name: Sau S1 - migrate status + diff bang siscom_migrator (MIGRATE_DATABASE_URL, prisma.config.ts uu tien) va bang siscom_app (chi doc)
         run: |
           set -euo pipefail
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_ROLLBACK.sql.txt run
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_ROLLBACK.sql.txt run
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_ROLLBACK.sql.txt run
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_ROLLBACK.sql.txt run
+          npx prisma migrate status
+          npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+          MIGRATE_DATABASE_URL= npx prisma migrate status
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          MIGRATE_DATABASE_URL: ${{ env.TEST_MIGRATE_DATABASE_URL }}
+      - name: Kiem thu rang buoc auth M1/M1.1 (siscom_app, chi DML) + M1.2 (chu so huu siscom_migrator) + cau truc M1.3 (moi file tu ROLLBACK)
+        run: |
+          set -euo pipefail
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_CONSTRAINT_TESTS.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_CONSTRAINT_TESTS.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_CONSTRAINT_TESTS.sql.txt res migrator
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_STRUCTURE_TESTS.sql.txt ok app
+      - name: Dien tap rollback day du (S1 -> M1.3 -> M1.2 -> M1.1 -> M1), migrate deploy lai (siscom_app), tach role lai, verify
+        run: |
+          set -euo pipefail
+          bash scripts/ci/pg-temp-db.sh unsplit
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_ROLLBACK.sql.txt run app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_ROLLBACK.sql.txt run app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_ROLLBACK.sql.txt run app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_ROLLBACK.sql.txt run app
           npx prisma migrate status || true
           npx prisma migrate deploy
           npx prisma migrate status
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+          bash scripts/ci/pg-temp-db.sh split
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
-      - name: Integration test tren DB tam (npm run test:e2e:customers; test-db.ts tu choi moi DB khong phai siscom_crm_test_*/restore_*)
+      - name: Sau S1 - prisma migrate deploy bang siscom_migrator (MIGRATE_DATABASE_URL; khong con migration cho => thoat 0) + status
+        run: |
+          set -euo pipefail
+          npx prisma migrate deploy
+          npx prisma migrate status
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          MIGRATE_DATABASE_URL: ${{ env.TEST_MIGRATE_DATABASE_URL }}
+      - name: Integration test tren DB tam DA TACH ROLE (ung dung = siscom_app; bootstrap/ALTER DATABASE qua TEST_MIGRATE_DATABASE_URL)
         run: |
           set -euo pipefail
           unset DATABASE_URL
