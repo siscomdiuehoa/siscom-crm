@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import type { Request } from 'express';
 import request from 'supertest';
 import { applyTrustProxy, TrustProxySetting } from '../../app.setup';
-import { clientAddress } from './client-address';
+import { clientAddress, normalizeIp } from './client-address';
 
 // B1.4 P1: chống giả mạo IP qua X-Forwarded-For. Chạy trên Express thật (proxy-addr) để kiểm đúng ngữ nghĩa 'trust proxy':
 //   false     => luôn là địa chỉ socket, header bị bỏ qua hoàn toàn (mặc định an toàn khi không có reverse proxy).
@@ -58,6 +58,16 @@ describe('clientAddress + applyTrustProxy (B1.4 P1, chống giả mạo X-Forwar
     const r = await get(appLoop, SPOOF + ', ' + REAL);
     expect(r.body).toEqual({ source: REAL, ip: REAL });
   });
+  it('loopback: khách giả chuỗi loopback "SPOOF, 127.0.0.1, REAL" => vẫn lấy REAL (chuỗi tin chỉ tính từ socket thật)', async () => {
+    expect((await get(appLoop, SPOOF + ', 127.0.0.1, ' + REAL)).body.ip).toBe(REAL);
+    expect((await get(appLoop, SPOOF + ', ::1, ' + REAL)).body.ip).toBe(REAL);
+  });
+  it('loopback: IPv6 trong header giữ nguyên; IPv4-mapped về IPv4; zone id bị bỏ; tab/khoảng trắng được cắt', async () => {
+    expect((await get(appLoop, '2001:db8::1')).body.ip).toBe('2001:db8::1');
+    expect((await get(appLoop, '::ffff:' + REAL)).body.ip).toBe(REAL);
+    expect((await get(appLoop, 'fe80::1%eth0')).body.ip).toBe('fe80::1');
+    expect((await get(appLoop, SPOOF + ',\t' + REAL)).body.ip).toBe(REAL);
+  });
   it('loopback: header không phải IP hợp lệ => rơi về địa chỉ socket, không nhận chuỗi lạ', async () => {
     for (const bad of ['khong-phai-ip', '203.0.113.5:8080', 'x'.repeat(300), '203.0.113.5, abc']) {
       const r = await get(appLoop, bad);
@@ -65,12 +75,18 @@ describe('clientAddress + applyTrustProxy (B1.4 P1, chống giả mạo X-Forwar
       expect(r.body).toEqual({ source: socketIp, ip: socketIp });
     }
   });
-  it('số hop: 1 => địa chỉ cuối header; 2 => địa chỉ kế cuối (hop ngoài phạm vi tin bị bỏ)', async () => {
+  it('số hop: 1 => địa chỉ cuối header; 2 => địa chỉ kế cuối. CẢNH BÁO: tin theo VỊ TRÍ — số hop lớn hơn số proxy thật = khách tự đặt IP', async () => {
     expect((await get(app1, SPOOF + ', ' + REAL)).body.ip).toBe(REAL);
     expect((await get(app2, SPOOF + ', ' + REAL)).body.ip).toBe(SPOOF);
     expect((await get(app2, '192.0.2.1, ' + SPOOF + ', ' + REAL)).body.ip).toBe(SPOOF);
+    expect((await get(app2, SPOOF)).body.ip).toBe(SPOOF); // một proxy thật nhưng TRUST_PROXY=2 => giả mạo được (chỉ dùng số hop khi mọi tầng bắt buộc)
   });
   it('clientAddress thuần: không có req.ip và socket => "unknown"/null', () => {
     expect(clientAddress({ ip: undefined, socket: {} } as unknown as Request)).toEqual({ source: 'unknown', ip: null });
+  });
+  it('normalizeIp: zone id dài tuỳ ý bị cắt (không vượt VarChar(64) của ip_prefix); IPv4 có số 0 đầu, cổng, rỗng => null', () => {
+    expect(normalizeIp('fe80::1%' + 'x'.repeat(200))).toBe('fe80::1');
+    expect(normalizeIp('::ffff:203.0.113.5')).toBe('203.0.113.5');
+    for (const bad of ['01.2.3.4', '203.0.113.5:80', '', '   ', '%eth0', undefined, 5]) expect(normalizeIp(bad)).toBeNull();
   });
 });
