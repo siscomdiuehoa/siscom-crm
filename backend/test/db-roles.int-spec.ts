@@ -44,7 +44,7 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
       'CREATE TABLE public.s1_probe_should_fail (id int)',
       'ALTER TABLE public.customer ADD COLUMN s1_probe int',
       "CREATE OR REPLACE FUNCTION public.fn_block_mutation() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN RETURN NULL; END $f$",
-      'GRANT UPDATE ON public.audit_log TO siscom_app',
+      // GRANT tự cấp KHÔNG nằm đây: PostgreSQL chỉ WARNING, không 42501 — kiểm hiệu quả ở ca "không tự nâng quyền" bên dưới (CI run 41006211486).
     ]) expect({ sql, code: await appTry(sql) }).toEqual({ sql, code: '42501' });
   });
 
@@ -124,14 +124,20 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
     try {
       const r = await c.query<{ u: string; db: string; su: boolean }>('SELECT current_user AS u, current_database() AS db, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS su');
       expect(r.rows[0]).toEqual({ u: 'siscom_migrator', db: name, su: false });
+      // Chủ sở hữu vẫn bị trigger B7 chặn sửa nhật ký (lớp bảo vệ còn lại trong DB); S1 chỉ bỏ khả năng "tắt trigger" khỏi ứng dụng.
+      // Đếm TRƯỚC khi mở transaction: sau một lệnh bị từ chối, transaction ở trạng thái aborted (25P02) nên không truy vấn thêm được
+      // (CI run 41006211486: "current transaction is aborted"). Có dòng nhật ký (bootstrap đã ghi) => UPDATE phải bị trigger chặn.
+      const any = (await c.query<{ n: string }>('SELECT count(*)::text AS n FROM public.audit_log')).rows[0].n;
+      expect(Number(any)).toBeGreaterThan(0);
       await c.query('BEGIN');
-      try {
-        // Chủ sở hữu vẫn bị trigger B7 chặn sửa nhật ký (lớp bảo vệ còn lại trong DB); S1 chỉ bỏ khả năng "tắt trigger" khỏi ứng dụng.
-        let code: string | null = null;
-        try { await c.query("UPDATE public.audit_log SET summary = 's1' WHERE id = (SELECT id FROM public.audit_log LIMIT 1)"); } catch (e) { code = (e as { code?: string }).code ?? 'unknown'; }
-        const any = (await c.query<{ n: string }>('SELECT count(*)::text AS n FROM public.audit_log')).rows[0].n;
-        if (any !== '0') expect(code).not.toBeNull();
-      } finally { await c.query('ROLLBACK'); }
+      let code: string | null = null;
+      try { await c.query("UPDATE public.audit_log SET summary = 's1' WHERE id = (SELECT id FROM public.audit_log LIMIT 1)"); } catch (e) { code = (e as { code?: string }).code ?? 'unknown'; }
+      finally { await c.query('ROLLBACK'); }
+      expect(code).not.toBeNull();
+      // Chủ sở hữu (migrator) vẫn tắt được trigger — vì vậy migrator chỉ dùng cho migrate/runbook, không bao giờ là DATABASE_URL của
+      // backend; kiểm rằng app không phải thành viên của migrator (không thể SET ROLE sang).
+      const m = await c.query<{ member: boolean }>("SELECT pg_has_role('siscom_app', 'siscom_migrator', 'MEMBER') AS member");
+      expect(m.rows[0].member).toBe(false);
     } finally { await c.end(); }
   });
 });
