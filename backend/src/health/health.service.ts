@@ -16,6 +16,8 @@ const DB_TIMEOUT_MS = 2000;
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
+  // M-6: nhớ trạng thái role đã báo để không ghi cảnh báo lặp mỗi lần probe; chỉ ghi khi trạng thái đổi.
+  private lastRoleWarning: string | null = null;
   constructor(private readonly prisma: PrismaService) {}
 
   liveness() {
@@ -59,11 +61,16 @@ export class HealthService {
   private async role(): Promise<{ leastPrivilege: boolean | null }> {
     try {
       const a = assessDbRole(await this.withTimeout(fetchDbRoleFacts(this.prisma)), process.env.NODE_ENV);
-      if (!a.leastPrivilege) this.logger.warn('Role database không phải đặc quyền tối thiểu: ' + a.problems.join('; '));
+      this.warnOnChange(a.leastPrivilege ? null : 'Role database không phải đặc quyền tối thiểu: ' + a.problems.join('; '));
       return { leastPrivilege: a.leastPrivilege };
     } catch (err) {
-      this.logger.warn('Không đọc được thông tin role database: ' + (err instanceof Error ? err.message : 'không rõ'));
+      this.warnOnChange('Không đọc được thông tin role database: ' + (err instanceof Error ? err.message : 'không rõ'));
       return { leastPrivilege: null };
     }
+  }
+
+  private warnOnChange(msg: string | null): void {
+    if (msg !== null && msg !== this.lastRoleWarning) this.logger.warn(msg);
+    this.lastRoleWarning = msg;
   }
 }

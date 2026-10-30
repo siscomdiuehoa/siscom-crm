@@ -14,8 +14,10 @@
 --   Sequence               : USAGE + SELECT (nextval trong trigger sinh ma); KHONG UPDATE (setval).
 --   Ham                    : EXECUTE DUY NHAT fn_auth_api_change_own_password(uuid, integer, text, text, jsonb). Cac fn_auth_api_* khac
 --                            (tao yeu cau dac quyen, cap vai tro, dat lai mat khau...) chi nguoi van hanh goi qua MIGRATE_DATABASE_URL.
---   Quyen mac dinh (I3)    : bang moi do migrator tao => CHI SELECT; sequence moi => USAGE, SELECT. Bang moi can ghi phai GRANT RO RANG
---                            trong migration cua no (DO-block chay khi co role siscom_app) - khong con "GRANT ... ON ALL TABLES" cap lai.
+--   Quyen mac dinh (I3)    : bang moi do migrator tao => CHI SELECT; sequence moi => USAGE, SELECT. Khong con "GRANT ... ON ALL TABLES" cap DML.
+--   NGUON SU THAT DUY NHAT (M-3): chay lai file nay THU moi quyen khong co trong ma tran (ke ca GRANT nam trong migration). Tinh nang moi can
+--                            ghi bang moi => sua MA TRAN O FILE NAY trong cung PR voi migration, roi chay lai file nay.
+--   KHONG SELECT (M-7)     : privileged_change_request, password_reset_token - runtime khong doc; chi quy trinh hai nguoi / CLI (migrator).
 -- Rollback P3b (ve V1): chay lai B1.3_S1_APP_GRANTS.sql.txt (cung tai khoan migrator) - no cung REVOKE/GRANT khai bao. Khong doi schema.
 \set ON_ERROR_STOP on
 \pset pager off
@@ -54,6 +56,19 @@ DO $$ BEGIN
   IF to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NULL THEN
     RAISE EXCEPTION 'Thieu fn_auth_api_change_own_password (M1.2 chua ap).';
   END IF;
+  -- M-1 (ra soat P3b): moi bang/sequence/view va ham (ngoai extension) trong public phai thuoc siscom_migrator. Doi tuong cua role khac
+  -- (vd hotfix bang postgres) => REVOKE/GRANT cua nguoi khong so huu co the chi WARNING => app giu quyen thua/thieu. Dung truoc, ghi ro ten.
+  IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f') AND pg_get_userbyid(c.relowner) <> 'siscom_migrator') THEN
+    RAISE EXCEPTION 'Co doi tuong trong public KHONG thuoc siscom_migrator: %. Chuyen chu so huu (hoac xoa) truoc khi cap quyen.',
+      (SELECT string_agg(c.relname || '=' || pg_get_userbyid(c.relowner), ', ') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f') AND pg_get_userbyid(c.relowner) <> 'siscom_migrator');
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) <> 'siscom_migrator'
+               AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')) THEN
+    RAISE EXCEPTION 'Co ham trong public (ngoai extension) KHONG thuoc siscom_migrator. Chuyen chu so huu truoc khi cap quyen.';
+  END IF;
 END $$;
 
 BEGIN;
@@ -67,7 +82,7 @@ DECLARE f record;
 BEGIN
   FOR f IN SELECT p.oid::regprocedure AS sig FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
            WHERE ns.nspname = 'public' AND p.proowner = (SELECT oid FROM pg_roles WHERE rolname = current_user) LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM siscom_app', f.sig);
+    EXECUTE format('REVOKE ALL ON ROUTINE %s FROM siscom_app', f.sig);  -- M-2: ROUTINE = ham ca PROCEDURE
   END LOOP;
 END $$;
 -- Quyen theo cot cap rieng cho siscom_app (V1 khong co; chay lai V2 thi co) - REVOKE ALL ON TABLE khong thu quyen cot, nen thu tuong minh.
@@ -85,6 +100,7 @@ END $$;
 -- 1. Schema + doc moi bang
 GRANT USAGE ON SCHEMA public TO siscom_app;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO siscom_app;
+REVOKE SELECT ON public.privileged_change_request, public.password_reset_token FROM siscom_app;  -- M-7: runtime khong doc
 -- 2. Ghi nghiep vu (khong DELETE/TRUNCATE)
 GRANT INSERT, UPDATE ON public.customer, public.contact, public.customer_assignment, public.auth_session TO siscom_app;
 GRANT INSERT ON public.audit_log TO siscom_app;

@@ -1,6 +1,7 @@
 import { Client } from 'pg';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { adminTestDatabase, assertTestConnection, caught, createTestPrisma, testDatabase } from './helpers/test-db';
+import { assessDbRole, fetchDbRoleFacts } from '../src/prisma/db-role-check';
+import { adminTestDatabase, assertTestConnection, caught, createAdminTestPrisma, createTestPrisma, testDatabase } from './helpers/test-db';
 
 // B1.4 P3 — S1 TÁCH ROLE: siscom_migrator = chủ sở hữu (DDL, migrate), siscom_app = chỉ DML. Chạy khi TEST_MIGRATE_DATABASE_URL được đặt
 // (CI sau khi áp B1.3_S1_ROLE_SPLIT + B1.3_S1_APP_GRANTS). Máy Windows chưa tách role: bỏ qua có lý do (không FAIL oan), kiểm bằng
@@ -110,6 +111,20 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
         'public.fn_auth_api_role_grant(uuid, uuid)',
         'public.fn_auth_api_reset_password(uuid, text, text, text, jsonb)']) AS f`;
     expect(fn).toEqual(fn.map((x) => ({ f: x.f, ok: false })));
+  });
+
+  it('P3b M-5: câu SQL thật của fetchDbRoleFacts — kết nối app => đặc quyền tối thiểu; kết nối migrator => chủ sở hữu, sở hữu đối tượng, thành viên migrator', async () => {
+    const appFacts = await fetchDbRoleFacts(prisma);
+    expect(appFacts).toEqual({ user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
+      ownsObjectsInPublic: false, hasAdminAttributes: false });
+    expect(assessDbRole(appFacts, 'production').leastPrivilege).toBe(true);
+    const m = createAdminTestPrisma();
+    try {
+      const migFacts = await fetchDbRoleFacts(m.prisma);
+      expect(migFacts).toMatchObject({ user: 'siscom_migrator', isDbOwner: true, ownsObjectsInPublic: true, isMigratorMember: true, isSuperuser: false });
+      const a = assessDbRole(migFacts, 'production');
+      expect(a).toMatchObject({ leastPrivilege: false, enforce: true });
+    } finally { await m.prisma.$disconnect(); }
   });
 
   it('P3b I-4: không có quyền GHI nào (kể cả theo cột) trên bảng RBAC/nền; một GRANT UPDATE (cột) bị has_table_privilege bỏ sót nhưng has_any_column_privilege bắt được', async () => {

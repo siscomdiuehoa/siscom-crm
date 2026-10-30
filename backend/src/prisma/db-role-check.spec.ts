@@ -1,8 +1,9 @@
-import { assessDbRole, DbRoleFacts, enforceDbRoleAtStartup } from './db-role-check';
+import { assessDbRole, DbRoleFacts, dbRoleFactsFromRow, enforceDbRoleAtStartup } from './db-role-check';
 
 // B1.4 P3b (M-d): backend KHÔNG được chạy bằng role chủ sở hữu DB / superuser / role có CREATE trên schema public (mất tác dụng tách role S1).
 // NODE_ENV=production: từ chối khởi động khi có bằng chứng sai cấu hình; môi trường khác (Windows chưa tách role): chỉ cảnh báo.
-const ok: DbRoleFacts = { user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false };
+const ok: DbRoleFacts = { user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
+  ownsObjectsInPublic: false, hasAdminAttributes: false };
 
 describe('assessDbRole', () => {
   it('siscom_app không superuser, không chủ sở hữu, không CREATE public, không thành viên migrator => đặc quyền tối thiểu, không vấn đề', () => {
@@ -10,7 +11,8 @@ describe('assessDbRole', () => {
     expect(assessDbRole(ok, 'development')).toEqual({ leastPrivilege: true, problems: [], enforce: false });
   });
   it('liệt kê đủ từng vấn đề: chủ sở hữu DB, superuser, CREATE trên public, thành viên siscom_migrator, tên tài khoản là migrator/postgres', () => {
-    const r = assessDbRole({ user: 'siscom_migrator', isSuperuser: true, isDbOwner: true, canCreateInPublic: true, isMigratorMember: true }, 'production');
+    const r = assessDbRole({ user: 'siscom_migrator', isSuperuser: true, isDbOwner: true, canCreateInPublic: true, isMigratorMember: true,
+      ownsObjectsInPublic: true, hasAdminAttributes: true }, 'production');
     expect(r.leastPrivilege).toBe(false);
     expect(r.problems).toEqual(expect.arrayContaining([
       expect.stringContaining('chủ sở hữu'), expect.stringContaining('superuser'), expect.stringContaining('CREATE'),
@@ -18,6 +20,22 @@ describe('assessDbRole', () => {
     ]));
     expect(r.problems.length).toBeGreaterThanOrEqual(4);
     expect(assessDbRole({ ...ok, user: 'postgres' }, 'production').problems.join(' ')).toContain('postgres');
+  });
+  // M-4 (rà soát P3b): điều kiện thật để tắt trigger là SỞ HỮU BẢNG/HÀM (không chỉ sở hữu DB); CREATEROLE/CREATEDB/BYPASSRLS cũng không
+  // được có ở role ứng dụng.
+  it('sở hữu bảng/sequence/hàm trong public (kể cả qua thành viên nhóm) => không tối thiểu', () => {
+    const r = assessDbRole({ ...ok, ownsObjectsInPublic: true }, 'production');
+    expect(r.leastPrivilege).toBe(false);
+    expect(r.problems.join(' ')).toContain('sở hữu bảng');
+  });
+  it('CREATEROLE / CREATEDB / BYPASSRLS => không tối thiểu', () => {
+    const r = assessDbRole({ ...ok, hasAdminAttributes: true }, 'production');
+    expect(r.leastPrivilege).toBe(false);
+    expect(r.problems.join(' ')).toContain('CREATEROLE');
+  });
+  it('dbRoleFactsFromRow đọc đủ cột mới; thiếu cột => false (không làm hỏng khởi động)', () => {
+    expect(dbRoleFactsFromRow({ user: 'x', owns_objects_in_public: true, has_admin_attributes: true })).toMatchObject({ ownsObjectsInPublic: true, hasAdminAttributes: true });
+    expect(dbRoleFactsFromRow({ user: 'x' })).toMatchObject({ ownsObjectsInPublic: false, hasAdminAttributes: false });
   });
   it('chỉ một dấu hiệu (chủ sở hữu DB — mô hình cũ B1.1 trên Windows) cũng là không tối thiểu; enforce chỉ khi production', () => {
     const dev = assessDbRole({ ...ok, isDbOwner: true }, 'development');

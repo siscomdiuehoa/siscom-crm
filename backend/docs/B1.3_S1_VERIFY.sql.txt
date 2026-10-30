@@ -61,7 +61,11 @@ INSERT INTO s1_result SELECT 'B1 app co SELECT tren moi bang nghiep vu va INSERT
                        AND NOT has_table_privilege('siscom_app', 'public.' || w, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || w, 'TRUNCATE'))
          FROM unnest(ARRAY['customer', 'contact', 'customer_assignment', 'auth_session']) AS w)
   FROM unnest(ARRAY['customer', 'contact', 'activity', 'customer_assignment', 'employee', 'department', 'lookup_item', 'app_meta', 'role', 'permission',
-                    'employee_credential', 'auth_session', 'employee_role', 'role_permission', 'privileged_change_request', 'password_reset_token']) AS t;
+                    'employee_credential', 'auth_session', 'employee_role', 'role_permission']) AS t;
+-- M-7 (ra soat P3b): runtime KHONG doc yeu cau dac quyen / ma dat lai mat khau => app khong co ca SELECT (giam lo hash token neu bi SQLi).
+INSERT INTO s1_result SELECT 'B1d app KHONG SELECT (ke ca theo cot) tren privileged_change_request / password_reset_token',
+  bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'SELECT'))
+  FROM unnest(ARRAY['privileged_change_request', 'password_reset_token']) AS t;
 -- I-4 (ra soat P3b): has_any_column_privilege = quyen ca bang HOAC bat ky cot nao (has_table_privilege bo sot "GRANT UPDATE (cot) ...").
 -- DELETE/TRUNCATE chi cap duoc o muc bang nen van dung has_table_privilege.
 INSERT INTO s1_result SELECT 'B1b app KHONG INSERT/UPDATE/DELETE tren bang RBAC/yeu cau dac quyen/ma reset/app_meta/employee/department/lookup_item/activity (S2)',
@@ -102,6 +106,12 @@ INSERT INTO s1_result SELECT 'C2 app KHONG EXECUTE cac fn_auth_api_* khac (' || 
   count(*) >= 12 AND bool_and(NOT has_function_privilege('siscom_app', p.oid, 'EXECUTE'))
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'fn\_auth\_api\_%'
    AND p.proname <> 'fn_auth_api_change_own_password';
+-- M-2 (ra soat P3b): khong chi theo ten fn_auth_api_%: MOI ham SECURITY DEFINER trong public ma app EXECUTE duoc (ke ca qua PUBLIC)
+-- phai nam trong danh sach cho phep. Ham dac quyen moi dat ten khac ma quen REVOKE FROM PUBLIC => FAIL o day.
+INSERT INTO s1_result SELECT 'C6 ham SECURITY DEFINER app EXECUTE duoc chi gom fn_auth_api_change_own_password (' || coalesce(string_agg(p.proname, ','), '') || ')',
+  coalesce(bool_and(p.proname = 'fn_auth_api_change_own_password'), true) AND count(*) = 1
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('siscom_app', p.oid, 'EXECUTE');
 INSERT INTO s1_result SELECT 'C3 app KHONG EXECUTE fn_auth_bootstrap_close (chi nguoi van hanh)',
   NOT has_function_privilege('siscom_app', 'public.fn_auth_bootstrap_close(text)', 'EXECUTE');
 INSERT INTO s1_result SELECT 'C4 PUBLIC khong EXECUTE fn_auth_api_* / fn_auth_bootstrap_close',
@@ -174,11 +184,18 @@ END $$;
 SELECT pg_temp.expect_ok('E3 app UPDATE duoc 7 cot dem/khoa/thoi diem cua employee_credential (dang nhap, khoa, doi mat khau)',
   'UPDATE public.employee_credential SET failed_count = failed_count, window_started_at = window_started_at, locked_until = locked_until, lock_level = lock_level, last_login_at = last_login_at, password_changed_at = password_changed_at, updated_at = updated_at WHERE false');
 SELECT pg_temp.expect_ok('E4 app INSERT/UPDATE auth_session (cap, gia han, thu hoi phien)',
-  'UPDATE public.auth_session SET last_used_at = last_used_at, idle_expires_at = idle_expires_at, revoked_at = revoked_at, revoke_reason = revoke_reason WHERE false');
+  'INSERT INTO public.auth_session (employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at) SELECT employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at FROM public.auth_session WHERE false; '
+  || 'UPDATE public.auth_session SET last_used_at = last_used_at, idle_expires_at = idle_expires_at, revoked_at = revoked_at, revoke_reason = revoke_reason WHERE false');
 SELECT pg_temp.expect_ok('E5 app UPDATE customer (sua, xoa mem, khoi phuc) va customer_assignment.ended_at',
   'UPDATE public.customer SET deleted_at = deleted_at, restored_at = restored_at, version = version WHERE false; UPDATE public.customer_assignment SET ended_at = ended_at WHERE false');
 SELECT pg_temp.expect_ok('E6 app UPDATE contact',
   'UPDATE public.contact SET is_primary = is_primary WHERE false');
+-- M-8 (ra soat P3b): ham runtime can EXECUTE (qua PUBLIC): tim kiem (f_vn_fold), khoi phuc (fn_customer_restore_conflicts), sinh ma trong
+-- DEFAULT khi app INSERT (fn_next_customer_code / fn_next_contact_code). Migration sau nay lo REVOKE FROM PUBLIC => FAIL o day, khong doi 500.
+INSERT INTO s1_result SELECT 'E7 app EXECUTE duoc 4 ham runtime (f_vn_fold, fn_customer_restore_conflicts, fn_next_customer_code, fn_next_contact_code)',
+  count(DISTINCT p.proname) = 4 AND bool_and(has_function_privilege('siscom_app', p.oid, 'EXECUTE'))
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname IN ('f_vn_fold', 'fn_customer_restore_conflicts', 'fn_next_customer_code', 'fn_next_contact_code');
 
 -- F. S2/S3 (P3b): duong ghi truc tiep ma app KHONG duoc co, du trigger van con. Moi cau WHERE false / trong SAVEPOINT, khong doi du lieu.
 SELECT pg_temp.expect_denied('F1 app khong UPDATE password_hash (S3)',             'UPDATE public.employee_credential SET password_hash = password_hash WHERE false');

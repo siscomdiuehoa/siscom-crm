@@ -11,6 +11,10 @@ export interface DbRoleFacts {
   isDbOwner: boolean;
   canCreateInPublic: boolean;
   isMigratorMember: boolean;
+  // M-4: sở hữu bảng/sequence/hàm trong public (kể cả qua thành viên nhóm) — điều kiện thật để tắt trigger/sửa hàm.
+  ownsObjectsInPublic: boolean;
+  // M-4: CREATEROLE / CREATEDB / BYPASSRLS.
+  hasAdminAttributes: boolean;
 }
 
 export interface DbRoleAssessment {
@@ -22,11 +26,16 @@ export interface DbRoleAssessment {
 // Một câu truy vấn, chỉ catalog, không tham số, chạy được bằng chính role ứng dụng ($queryRaw tagged template theo quy ước src —
 // không dùng biến thể "Unsafe"). Cột snake_case khớp dbRoleFactsFromRow.
 export async function fetchDbRoleFacts(client: Pick<PrismaClient, '$queryRaw'>): Promise<DbRoleFacts> {
+  // M-4: chủ sở hữu DB/đối tượng so theo THÀNH VIÊN (pg_has_role MEMBER), không chỉ theo tên.
   const rows = await client.$queryRaw<Record<string, unknown>[]>`SELECT current_user::text AS "user",
     (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS is_superuser,
-    (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) = current_user::text AS is_db_owner,
+    (SELECT pg_has_role(current_user, datdba, 'MEMBER') FROM pg_database WHERE datname = current_database()) AS is_db_owner,
     has_schema_privilege(current_user, 'public', 'CREATE') AS can_create_in_public,
-    (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator') AND pg_has_role(current_user, 'siscom_migrator', 'MEMBER')) AS is_migrator_member`;
+    (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator') AND pg_has_role(current_user, 'siscom_migrator', 'MEMBER')) AS is_migrator_member,
+    (EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND pg_has_role(current_user, c.relowner, 'MEMBER'))
+      OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND pg_has_role(current_user, p.proowner, 'MEMBER')
+                 AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'))) AS owns_objects_in_public,
+    (SELECT rolcreaterole OR rolcreatedb OR rolbypassrls FROM pg_roles WHERE rolname = current_user) AS has_admin_attributes`;
   return dbRoleFactsFromRow(rows[0] ?? {});
 }
 
@@ -37,6 +46,8 @@ export function dbRoleFactsFromRow(row: Record<string, unknown>): DbRoleFacts {
     isDbOwner: row.is_db_owner === true,
     canCreateInPublic: row.can_create_in_public === true,
     isMigratorMember: row.is_migrator_member === true,
+    ownsObjectsInPublic: row.owns_objects_in_public === true,
+    hasAdminAttributes: row.has_admin_attributes === true,
   };
 }
 
@@ -47,6 +58,8 @@ export function assessDbRole(f: DbRoleFacts, nodeEnv: string | undefined): DbRol
   if (f.canCreateInPublic) problems.push('tài khoản "' + f.user + '" có quyền CREATE trên schema public (DDL)');
   if (f.isMigratorMember || f.user === 'siscom_migrator') problems.push('tài khoản "' + f.user + '" là siscom_migrator hoặc thành viên của siscom_migrator (DATABASE_URL đang trỏ tài khoản migrate?)');
   if (f.user.toLowerCase() === 'postgres') problems.push('tài khoản là postgres');
+  if (f.ownsObjectsInPublic) problems.push('tài khoản "' + f.user + '" sở hữu bảng/sequence/hàm trong schema public (có thể tắt trigger, sửa hàm)');
+  if (f.hasAdminAttributes) problems.push('tài khoản "' + f.user + '" có CREATEROLE/CREATEDB/BYPASSRLS');
   return { leastPrivilege: problems.length === 0, problems, enforce: nodeEnv === 'production' };
 }
 

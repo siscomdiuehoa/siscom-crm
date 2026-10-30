@@ -29,6 +29,14 @@ describe('HealthService.database — role', () => {
     expect(r.role).toEqual({ leastPrivilege: false });
     expect(JSON.stringify(r)).not.toContain('siscom_migrator');
   });
+  // M-6 (rà soát P3b): mỗi lần probe /health/database (load balancer gọi liên tục) không được ghi cảnh báo lặp; chỉ ghi khi trạng thái ĐỔI.
+  it('cảnh báo role chỉ ghi khi trạng thái đổi, không ghi lặp mỗi lần probe', async () => {
+    const s = service({ ...least, is_db_owner: true });
+    const warns: string[] = [];
+    (s as unknown as { logger: { warn: (m: string) => void } }).logger.warn = (m: string) => { warns.push(m); };
+    for (let i = 0; i < 5; i++) await s.database();
+    expect(warns).toHaveLength(1);
+  });
   it('không đọc được thông tin role (lỗi truy vấn) => leastPrivilege=null, database vẫn up', async () => {
     const r = await service(new Error('boom')).database();
     expect(r.ok).toBe(true);
