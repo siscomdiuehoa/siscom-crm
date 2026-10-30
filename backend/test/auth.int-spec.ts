@@ -30,6 +30,9 @@ const USERS: BootstrapUser[] = [
   { key: 'accountant', email: 'ketoan@' + DOMAIN, fullName: 'Ke Toan', password: pw(), departmentCode: 'KETOAN' },
 ];
 let prisma: PrismaService; let app: INestApplication; let codes: Record<string, string> = {}; let fx: Fixtures; let dbName = '';
+// B1.4 P3b: test dựng trạng thái "bí mật/quyền" (token_version, must_change_password) phải dùng kết nối CHỦ SỞ HỮU — siscom_app không còn
+// quyền ghi các cột này (S3). Khi chưa tách role (Windows), createAdminTestPrisma rơi về chính app.
+let adminPrisma: PrismaService;
 const srv = () => request(app.getHttpServer());
 const cookieOf = (res: request.Response): string => { const sc = res.headers['set-cookie']; const list = Array.isArray(sc) ? sc : [String(sc ?? '')]; return list.find((c) => c.startsWith('siscom_sid='))!.split(';')[0]; };
 const login = (login: string, password: string) => srv().post('/api/v1/auth/login').set('Origin', ORIGIN).send({ login, password });
@@ -66,11 +69,12 @@ beforeAll(async () => {
   app.useGlobalFilters(new AllExceptionsFilter());
   applyTrustProxy(app, 'loopback'); // B1.4 P1: như sau nginx cùng máy; test không gửi X-Forwarded-For thì hành vi không đổi
   await app.init(); await app.listen(0, '127.0.0.1');
+  adminPrisma = createAdminTestPrisma().prisma;
 }, 120000);
 afterAll(async () => {
   await app?.close();
   // Trả múi giờ mặc định của DB thử về như cũ kể cả khi beforeAll lỗi giữa chừng; luôn đóng kết nối.
-  try { if (dbName) await setDatabaseDefaultTimeZone(dbName, null); } finally { await prisma?.$disconnect(); }
+  try { if (dbName) await setDatabaseDefaultTimeZone(dbName, null); } finally { await prisma?.$disconnect(); await adminPrisma?.$disconnect(); }
 });
 
 describe('bootstrap (chế độ khởi tạo M1) và ràng buộc', () => {
@@ -164,7 +168,7 @@ describe('phiên, /auth/me, logout', () => {
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(401);
     const s2 = await session('technician');
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s2.cookie)).status).toBe(200);
-    await prisma.employeeCredential.update({ where: { employeeId: emp.id }, data: { tokenVersion: { increment: 1 } } });
+    await adminPrisma.employeeCredential.update({ where: { employeeId: emp.id }, data: { tokenVersion: { increment: 1 } } }); // P3b: app không ghi token_version
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s2.cookie)).status).toBe(401);
     expect(await prisma.authSession.count({ where: { employeeId: emp.id, revokeReason: 'TOKEN_VERSION' } })).toBeGreaterThanOrEqual(1);
   });
@@ -522,7 +526,7 @@ describe('B1.4 P2 — PASSWORD_CHANGE_REQUIRED', () => {
   const ME2 = '/api/v1/auth/me'; const CP2 = '/api/v1/auth/change-password'; const C2 = '/api/v1/customers';
   const hdr = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
   let empId = '';
-  const setFlag = (v: boolean) => prisma.employeeCredential.update({ where: { employeeId: empId }, data: { mustChangePassword: v } });
+  const setFlag = (v: boolean) => adminPrisma.employeeCredential.update({ where: { employeeId: empId }, data: { mustChangePassword: v } }); // P3b: app không ghi cờ này
   const expectBlocked = (r: request.Response) => { expect(r.status).toBe(403); expect(r.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED'); };
   beforeAll(async () => { empId = (await prisma.employee.findFirstOrThrow({ where: { email: tech.email } })).id; });
   afterAll(async () => {

@@ -2,7 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { PrismaService } from '../src/prisma/prisma.service';
 import { as, leaks, makeApp, TestApp } from './helpers/test-app';
 import { assertTestConnection, createTestPrisma } from './helpers/test-db';
-import { ensureFixtures, Fixtures, makeCustomer, uniq, uniqueTax } from './helpers/fixtures';
+import { ensureFixtures, Fixtures, makeCustomer, makeEmployee, uniq, uniqueTax } from './helpers/fixtures';
 
 const URL = '/api/v1/customers';
 const NIL = '00000000-0000-4000-8000-000000000000';
@@ -200,7 +200,7 @@ describe('phạm vi truy cập và bảo mật', () => {
     expect((await a('deptA').post(URL, { name: 'X ' + uniq(), phone: '0903123456', ownerId: fx.empC })).status).toBe(403);
     const r1 = await a().post(URL, { name: 'X ' + uniq(), phone: '0903123456', ownerId: NIL });
     expect(r1.status).toBe(400); expect(r1.body.error.code).toBe('OWNER_INVALID');
-    const resigned = await prisma.employee.create({ data: { fullName: 'TEST NV nghỉ ' + uniq(), departmentId: fx.d1, isDemo: true, status: 'RESIGNED', deletedAt: new Date() }, select: { id: true } });
+    const resigned = await makeEmployee({ fullName: 'TEST NV nghỉ ' + uniq(), departmentId: fx.d1, status: 'RESIGNED', deletedAt: new Date() });
     const r2 = await a().post(URL, { name: 'X ' + uniq(), phone: '0903123456', ownerId: resigned.id });
     expect(r2.status).toBe(400); expect(r2.body.error.code).toBe('OWNER_INVALID');
     expect(await prisma.customer.count()).toBe(before);
