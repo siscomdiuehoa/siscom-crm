@@ -125,7 +125,8 @@ export class AuthService {
     try {
       await this.prisma.$transaction(async (tx) => {
         const sessionsRevoked = await tx.authSession.count({ where: { employeeId, revokedAt: null } });
-        // Cột bí mật + token_version: CHỈ qua hàm đặc quyền M1.2 (siscom_app không ghi thẳng password_hash sau S1). Khoá lạc quan: token_version
+        // Cột bí mật + token_version: ứng dụng CHỈ đi qua hàm đặc quyền M1.2 (có audit). Lưu ý: sau S1 (P3) siscom_app VẪN còn UPDATE trực
+        // tiếp employee_credential ở mức bảng (S3 chưa đóng — thu hẹp quyền theo cột là PR riêng chờ duyệt). Khoá lạc quan: token_version
         // phải bằng giá trị vừa đọc; lệch (đổi đồng thời ở nơi khác) => DB ném STALE_TOKEN_VERSION => 409.
         const r = await tx.$queryRaw<{ tv: number }[]>`SELECT public.fn_auth_api_change_own_password(${employeeId}::uuid, ${cred!.tokenVersion}, ${passwordHash}, ${ARGON2_ALGO}, ${JSON.stringify({ ...ARGON2_PARAMS })}::jsonb) AS tv`;
         tokenVersion = Number(r[0]?.tv ?? -1);

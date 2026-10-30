@@ -5,12 +5,26 @@
 -- Sau rollback: siscom_app lai la chu so huu => tu co moi quyen (mo hinh B1.1); audit_log van duoc trigger B7 bao ve.
 \set ON_ERROR_STOP on
 \pset pager off
+-- I4: bat buoc -v target_db=<ten DB dich> trung current_database().
+\if :{?target_db}
+\else
+\set target_db ''
+\endif
 SET client_encoding TO 'UTF8';
 SELECT current_database() AS db_rollback, current_user AS chay_bang;
+SELECT CASE WHEN :'target_db' = '' THEN 'SELECT s1_fail_thieu_target_db_can_psql_v_target_db_bang_ten_db_dich()'
+            WHEN :'target_db' <> current_database() THEN 'SELECT s1_fail_target_db_khac_current_database()'
+            ELSE 'SELECT ''target_db khop: ' || current_database() || '''' END \gexec
 
 DO $$ BEGIN
   IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
     RAISE EXCEPTION 'Phai chay bang superuser (REASSIGN OWNED). Dang la %.', current_user;
+  END IF;
+  IF current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % la baseline da khoa, khong duoc thay doi.', current_database();
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_tablespace WHERE pg_get_userbyid(spcowner) IN ('siscom_app', 'siscom_migrator')) THEN
+    RAISE EXCEPTION 'TU CHOI: co tablespace thuoc siscom_app/siscom_migrator; xu ly thu cong truoc.';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator') THEN
     RAISE EXCEPTION 'Khong co role siscom_migrator: chua tach role, khong co gi de rollback.';
@@ -28,15 +42,34 @@ BEGIN;
 -- 1. Go quyen mac dinh da dat cho migrator (neu khong, ALTER DEFAULT PRIVILEGES con treo va DROP OWNED sau nay bi vuong)
 ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM siscom_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE USAGE, SELECT, UPDATE ON SEQUENCES FROM siscom_app;
--- 2. Tra chu so huu
+-- 2. Tra chu so huu. C1: REASSIGN OWNED cuon theo MOI database khac do siscom_migrator so huu (DB da tach role hop le o cung cluster)
+--    => ghi nhan truoc, tra lai sau, tu kiem (nhu ROLE_SPLIT).
+CREATE TEMP TABLE s1_other_db ON COMMIT DROP AS
+  SELECT datname, pg_get_userbyid(datdba) AS owner_truoc FROM pg_database WHERE datname <> current_database();
 SELECT format('ALTER DATABASE %I OWNER TO siscom_app', current_database()) \gexec
 REASSIGN OWNED BY siscom_migrator TO siscom_app;
+SELECT format('ALTER DATABASE %I OWNER TO %I', datname, owner_truoc) FROM s1_other_db WHERE owner_truoc = 'siscom_migrator' \gexec
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT o.datname, o.owner_truoc, pg_get_userbyid(d.datdba) AS owner_sau FROM s1_other_db o JOIN pg_database d ON d.datname = o.datname
+           WHERE pg_get_userbyid(d.datdba) <> o.owner_truoc LOOP
+    RAISE EXCEPTION 'C1: database % doi chu so huu % -> % ngoai y muon; huy rollback.', r.datname, r.owner_truoc, r.owner_sau;
+  END LOOP;
+END $$;
 -- 3. Quyen database nhu B1.1 (setup-db): PUBLIC khong CONNECT, app CONNECT (app la chu so huu nen tu co CREATE/TEMP)
 SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database()) \gexec
 SELECT format('GRANT CONNECT, TEMP ON DATABASE %I TO siscom_app', current_database()) \gexec
--- 4. Tham so: giu cho app (nhu CI/create-test-db truoc S1), thu cua migrator
-REVOKE SET ON PARAMETER app.actor_employee_id FROM siscom_migrator;
-REVOKE SET ON PARAMETER app.priv_request_id   FROM siscom_migrator;
+-- 4. Tham so: giu cho app (nhu CI/create-test-db truoc S1). Quyen SET cua migrator la TOAN CLUSTER (C1): chi thu khi migrator KHONG con
+--    so huu DB nao khac (DB da tach role hop le o cung cluster van can migrator SET app.* de ap migration moi).
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE pg_get_userbyid(datdba) = 'siscom_migrator') THEN
+    EXECUTE 'REVOKE SET ON PARAMETER app.actor_employee_id FROM siscom_migrator';
+    EXECUTE 'REVOKE SET ON PARAMETER app.priv_request_id FROM siscom_migrator';
+  ELSE
+    RAISE NOTICE 'Giu quyen SET app.* cua siscom_migrator: migrator con so huu DB khac tren cluster.';
+  END IF;
+END $$;
 GRANT  SET ON PARAMETER app.actor_employee_id TO siscom_app;
 GRANT  SET ON PARAMETER app.priv_request_id   TO siscom_app;
 -- 5. audit_log: chu so huu tu cap lai duoc, nhung giu REVOKE nhu B1.2 B8 (lop bao ve chinh la trigger B7)

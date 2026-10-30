@@ -13,8 +13,16 @@
 \else
 \set migrator_pw ''
 \endif
+-- I4 (ra soat P3): BAT BUOC xac nhan ten DB dich bang -v target_db=<ten> va phai TRUNG current_database() (chong chay nham DB vi -d sai).
+\if :{?target_db}
+\else
+\set target_db ''
+\endif
 SET client_encoding TO 'UTF8';
 SELECT current_database() AS db_dich, current_user AS chay_bang, version() AS pg;
+SELECT CASE WHEN :'target_db' = '' THEN 'SELECT s1_fail_thieu_target_db_can_psql_v_target_db_bang_ten_db_dich()'
+            WHEN :'target_db' <> current_database() THEN 'SELECT s1_fail_target_db_khac_current_database()'
+            ELSE 'SELECT ''target_db khop: ' || current_database() || '''' END \gexec
 
 DO $$ BEGIN
   IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
@@ -29,6 +37,14 @@ DO $$ BEGIN
   IF current_database() = 'siscom_crm_dev' AND coalesce(current_setting('s1.allow_dev', true), '') <> 'yes' THEN
     RAISE EXCEPTION 'TU CHOI: siscom_crm_dev. Can phe duyet rieng: psql -c "SET s1.allow_dev = yes" trong cung phien (khong lam trong CI).';
   END IF;
+  -- I4: hai ban sao baseline da khoa (AGENTS.md / PROGRESS) KHONG bao gio duoc tach role, ke ca khi co allow_dev.
+  IF current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % la baseline da khoa, khong duoc thay doi.', current_database();
+  END IF;
+  -- C1: REASSIGN OWNED doi ca TABLESPACE do role so huu (doi tuong dung chung toan cluster). Khong tu dong xu ly => tu choi.
+  IF EXISTS (SELECT 1 FROM pg_tablespace WHERE pg_get_userbyid(spcowner) IN ('siscom_app', 'siscom_migrator')) THEN
+    RAISE EXCEPTION 'TU CHOI: co tablespace thuoc siscom_app/siscom_migrator; doi chu so huu tablespace thu cong truoc.';
+  END IF;
 END $$;
 
 -- 1. Role chu so huu (NOLOGIN? KHONG: migrator phai LOGIN de chay prisma migrate deploy). Khong superuser, khong tao role.
@@ -40,10 +56,31 @@ SELECT CASE
 END \gexec
 
 -- 2. Chuyen chu so huu: database + moi doi tuong trong DB nay (bang, sequence, ham, kieu, extension, _prisma_migrations) tu siscom_app sang migrator.
---    REASSIGN OWNED chi tac dong DB hien tai; cac DB khac ma siscom_app so huu (vd. DB thu khac) KHONG bi anh huong.
+--    CANH BAO (C1, ra soat P3): REASSIGN OWNED doi chu so huu ca DOI TUONG DUNG CHUNG TOAN CLUSTER - tuc la MOI database (va tablespace)
+--    ma siscom_app dang so huu, khong chi DB hien tai (tai lieu PostgreSQL "Dropping Roles"). Tren may Windows cua owner, siscom_crm_dev,
+--    2 baseline va moi DB thu deu do siscom_app so huu => neu khong xu ly, tat ca se doi sang migrator va siscom_app mat CONNECT.
+--    => Ghi nhan chu so huu cac DB khac TRUOC, chay REASSIGN, roi TRA LAI chu so huu cho tung DB khac trong CUNG transaction, va tu kiem.
+--    (ALTER DATABASE ... OWNER viet lai ACL theo chu so huu moi; doi nguoc lai se tra ACL ve nhu cu.)
 BEGIN;
+CREATE TEMP TABLE s1_other_db ON COMMIT DROP AS
+  SELECT datname, pg_get_userbyid(datdba) AS owner_truoc FROM pg_database WHERE datname <> current_database();
+SELECT count(*) AS so_db_khac_thuoc_app FROM s1_other_db WHERE owner_truoc = 'siscom_app';
 SELECT format('ALTER DATABASE %I OWNER TO siscom_migrator', current_database()) \gexec
 REASSIGN OWNED BY siscom_app TO siscom_migrator;
+-- 2b. Tra lai chu so huu cho cac DB KHAC vua bi REASSIGN cuon theo.
+SELECT format('ALTER DATABASE %I OWNER TO %I', datname, owner_truoc) FROM s1_other_db WHERE owner_truoc = 'siscom_app' \gexec
+-- 2c. Tu kiem: moi DB khac phai co dung chu so huu nhu truoc; sai => RAISE => transaction rollback, khong gi bi doi.
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT o.datname, o.owner_truoc, pg_get_userbyid(d.datdba) AS owner_sau FROM s1_other_db o JOIN pg_database d ON d.datname = o.datname
+           WHERE pg_get_userbyid(d.datdba) <> o.owner_truoc LOOP
+    RAISE EXCEPTION 'C1: database % doi chu so huu % -> % ngoai y muon; huy toan bo.', r.datname, r.owner_truoc, r.owner_sau;
+  END LOOP;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'C1: DB dich chua thuoc siscom_migrator.';
+  END IF;
+END $$;
 -- KHONG dung DROP OWNED BY siscom_app: lenh do thu ca quyen tren DOI TUONG DUNG CHUNG (CONNECT cac database khac, SET tham so) => pha DB khac
 -- tren cung cluster (may Windows co siscom_crm_dev + nhieu ban sao thu). Quyen cu cua app tren bang (ACL) duoc APP_GRANTS dat lai co chu dich.
 -- 3. Database: PUBLIC khong CONNECT/TEMP/CREATE; app CONNECT + TEMP (test dung bang/ham pg_temp), KHONG CREATE; migrator (chu so huu) tu co.

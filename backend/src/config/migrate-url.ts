@@ -14,5 +14,13 @@ export function pickPrismaCliUrl(env: Record<string, string | undefined>): { url
   if (!u.username) throw new Error(chosen.source + ' thiếu tên tài khoản.');
   if (decodeURIComponent(u.username).toLowerCase() === 'postgres') throw new Error(chosen.source + ' không được dùng tài khoản postgres (superuser).');
   if (u.pathname.length < 2) throw new Error(chosen.source + ' thiếu tên database.');
+  // I2 (rà soát P3): khi CẢ HAI biến đều đặt, chúng phải trỏ cùng host/cổng/database. Nếu không, MIGRATE_DATABASE_URL (có thể nằm sẵn trong
+  // .env hoặc còn lại trong phiên shell) sẽ âm thầm migrate/bootstrap một DB KHÁC với DB mà người gọi chỉ định qua DATABASE_URL.
+  if (migrate && app) {
+    let a: URL;
+    try { a = new URL(app); } catch { throw new Error('DATABASE_URL sai định dạng (mật khẩu chứa ký tự đặc biệt chưa mã hoá URL?).'); }
+    const same = a.hostname === u.hostname && (a.port || '5432') === (u.port || '5432') && decodeURIComponent(a.pathname) === decodeURIComponent(u.pathname);
+    if (!same) throw new Error('MIGRATE_DATABASE_URL trỏ tới host/cổng/database khác với DATABASE_URL: từ chối để không migrate nhầm DB. Bỏ một trong hai biến hoặc sửa cho cùng DB.');
+  }
   return chosen;
 }

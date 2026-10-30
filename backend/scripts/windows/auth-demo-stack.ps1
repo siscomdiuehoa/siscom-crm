@@ -76,10 +76,16 @@ function Psql([string]$db, [string]$sql) {
 function Run-Node([string[]]$a, [hashtable]$extraEnv) {
   $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
   $set = @()
+  # I2 (ra soat P3): MIGRATE_DATABASE_URL con sot trong phien shell se lam bootstrap-auth/prisma tro DB KHAC voi -DatabaseName => go khoi
+  # moi truong cua tien trinh con (script nay luon kiem tra -DatabaseName roi tu dat DATABASE_URL); khoi phuc sau khi chay.
+  $savedMig = $env:MIGRATE_DATABASE_URL; Remove-Item Env:MIGRATE_DATABASE_URL -ErrorAction SilentlyContinue
   try {
     foreach ($k in $extraEnv.Keys) { Set-Item -Path ('Env:' + $k) -Value $extraEnv[$k]; $set += $k }
     & node @a | Out-Host; $code = $LASTEXITCODE   # Out-Host: stdout cua node KHONG lot vao gia tri tra ve (chi tra ma thoat)
-  } finally { $ErrorActionPreference = $prev; foreach ($k in $set) { Remove-Item -Path ('Env:' + $k) -ErrorAction SilentlyContinue } }
+  } finally {
+    $ErrorActionPreference = $prev; foreach ($k in $set) { Remove-Item -Path ('Env:' + $k) -ErrorAction SilentlyContinue }
+    if ($null -ne $savedMig) { $env:MIGRATE_DATABASE_URL = $savedMig }
+  }
   return $code
 }
 $ownedVars = @()
@@ -127,6 +133,9 @@ try {
   $url ='postgresql://siscom_app:' + [uri]::EscapeDataString($script:pw) + '@127.0.0.1:5432/' + $DatabaseName
   $script:pw = $null
   Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue   # khong de URL siscom_crm_dev (neu co) lot vao tien trinh con
+  # I2: tuong tu voi MIGRATE_DATABASE_URL (prisma.config.ts uu tien bien nay) => buoc migrate/bootstrap chi dung DB da kiem tra qua -DatabaseName.
+  $script:savedMigUrl = $env:MIGRATE_DATABASE_URL; Remove-Item Env:MIGRATE_DATABASE_URL -ErrorAction SilentlyContinue
+  if ($null -ne $script:savedMigUrl) { Say 'Da go MIGRATE_DATABASE_URL khoi moi truong cua script (chi dung -DatabaseName); se khoi phuc khi thoat.' 'Yellow' }
   Push-Location $root
   try {
     switch ($Step) {
