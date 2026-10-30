@@ -451,3 +451,81 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
     expect(Math.abs(r[0].d)).toBeLessThan(TOL);
   });
 });
+
+// B1.4 P2 — chặn API khi must_change_password = true: 403 PASSWORD_CHANGE_REQUIRED cho mọi route trừ /auth/me, /auth/change-password,
+// /auth/logout, /health. Kiểm cả "không thể vượt qua": chặn trước quyền (kể cả route người này vốn được phép), trước validation,
+// mọi phương thức; cookie cũ sau khi đổi mật khẩu bị thu hồi; cờ tắt => hành vi như trước.
+describe('B1.4 P2 — PASSWORD_CHANGE_REQUIRED', () => {
+  const tech = USERS[3]; // technician: có customer.read (DEPARTMENT) => GET /customers vốn 200
+  const ORIG_T = tech.password; const TMP_T = 'Kythuat-Tam#2026-p2';
+  const ME2 = '/api/v1/auth/me'; const CP2 = '/api/v1/auth/change-password'; const C2 = '/api/v1/customers';
+  const hdr = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
+  let empId = '';
+  const setFlag = (v: boolean) => prisma.employeeCredential.update({ where: { employeeId: empId }, data: { mustChangePassword: v } });
+  const expectBlocked = (r: request.Response) => { expect(r.status).toBe(403); expect(r.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED'); };
+  beforeAll(async () => { empId = (await prisma.employee.findFirstOrThrow({ where: { email: tech.email } })).id; });
+  afterAll(async () => {
+    // Trả về trạng thái ban đầu để các bộ test khác không phụ thuộc thứ tự: cờ tắt, mật khẩu gốc.
+    await setFlag(false);
+    if (tech.password !== ORIG_T) {
+      const s = await session('technician');
+      expect((await srv().post(CP2).set(hdr(s)).send({ currentPassword: tech.password, newPassword: ORIG_T, confirmPassword: ORIG_T })).status).toBe(200);
+      tech.password = ORIG_T;
+    }
+  });
+
+  it('cờ tắt (mặc định bootstrap): GET /customers 200 — hành vi đã nghiệm thu không đổi', async () => {
+    const s = await session('technician');
+    expect((await srv().get(C2).set('Cookie', s.cookie)).status).toBe(200);
+    expect((await srv().get(ME2).set('Cookie', s.cookie)).body.data.me.mustChangePassword).toBe(false);
+  });
+  it('cờ bật: đăng nhập vẫn 200 (me.mustChangePassword=true); GET/POST/PATCH/DELETE/HEAD route khác => 403 PASSWORD_CHANGE_REQUIRED, không ghi gì', async () => {
+    await setFlag(true);
+    const res = await login(tech.email, tech.password);
+    expect(res.status).toBe(200); expect(res.body.data.me.mustChangePassword).toBe(true);
+    const s = { cookie: cookieOf(res), csrf: res.body.data.csrfToken };
+    const before = await prisma.customer.count();
+    expectBlocked(await srv().get(C2).set('Cookie', s.cookie));
+    expectBlocked(await srv().get(C2 + '?deleted=only').set('Cookie', s.cookie));
+    expectBlocked(await srv().get(C2 + '/owner-candidates').set('Cookie', s.cookie)); // route vốn 403 FORBIDDEN với technician => vẫn là PASSWORD_CHANGE_REQUIRED (chặn trước quyền)
+    expectBlocked(await srv().get('/api/v1/lookups').set('Cookie', s.cookie));
+    expectBlocked(await srv().post(C2).set(hdr(s)).send({})); // trước validation (không 400)
+    expectBlocked(await srv().post(C2).set(hdr(s)).send({ name: 'KH P2 khong duoc tao', phone: '0900000000' }));
+    expectBlocked(await srv().patch(C2 + '/00000000-0000-0000-0000-000000000000').set(hdr(s)).send({ version: 1 }));
+    expectBlocked(await srv().delete(C2 + '/00000000-0000-0000-0000-000000000000').set(hdr(s)));
+    expect((await srv().head(C2).set('Cookie', s.cookie)).status).toBe(403);
+    expect(await prisma.customer.count()).toBe(before);
+    // Thiếu CSRF với cờ bật: CsrfOriginGuard chạy trước => vẫn 403 CSRF_FAILED (không nới lỏng CSRF).
+    const noCsrf = await srv().post(C2).set('Cookie', s.cookie).set('Origin', ORIGIN).send({});
+    expect(noCsrf.status).toBe(403); expect(noCsrf.body.error.code).toBe('CSRF_FAILED');
+  });
+  it('cờ bật: /auth/me 200, /auth/logout 200; không cookie => 401 như cũ', async () => {
+    const s = await session('technician');
+    expect((await srv().get(ME2).set('Cookie', s.cookie)).status).toBe(200);
+    expect((await srv().get(C2)).status).toBe(401);
+    const out = await srv().post('/api/v1/auth/logout').set(hdr(s));
+    expect(out.status).toBe(200);
+    expect((await srv().get(ME2).set('Cookie', s.cookie)).status).toBe(401);
+  });
+  it('cờ bật: đổi mật khẩu 200 => cờ tắt (DB), phiên mới gọi được API, cookie cũ 401; sai mật khẩu hiện tại vẫn 400 (không vượt qua)', async () => {
+    const s = await session('technician');
+    const bad = await srv().post(CP2).set(hdr(s)).send({ currentPassword: 'Sai-mat-khau#2026', newPassword: TMP_T, confirmPassword: TMP_T });
+    expect(bad.status).toBe(400); expect(bad.body.error.code).toBe('PASSWORD_CURRENT_INVALID');
+    expectBlocked(await srv().get(C2).set('Cookie', s.cookie)); // vẫn bị chặn
+    const ok = await srv().post(CP2).set(hdr(s)).send({ currentPassword: tech.password, newPassword: TMP_T, confirmPassword: TMP_T });
+    expect(ok.status).toBe(200); expect(ok.body.data.me.mustChangePassword).toBe(false);
+    tech.password = TMP_T;
+    expect((await prisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: empId } })).mustChangePassword).toBe(false);
+    const fresh = { cookie: cookieOf(ok), csrf: ok.body.data.csrfToken };
+    expect((await srv().get(C2).set('Cookie', fresh.cookie)).status).toBe(200);
+    expect((await srv().get(C2).set('Cookie', s.cookie)).status).toBe(401); // phiên cũ đã bị thu hồi
+  });
+  it('cờ bật lại giữa chừng (admin đặt lại): phiên đang dùng bị chặn ngay ở request kế tiếp (không cache ngoài request)', async () => {
+    const s = await session('technician');
+    expect((await srv().get(C2).set('Cookie', s.cookie)).status).toBe(200);
+    await setFlag(true);
+    expectBlocked(await srv().get(C2).set('Cookie', s.cookie));
+    await setFlag(false);
+    expect((await srv().get(C2).set('Cookie', s.cookie)).status).toBe(200);
+  });
+});
