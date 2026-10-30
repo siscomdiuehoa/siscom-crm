@@ -1,0 +1,71 @@
+-- SISCOM CRM - B1.4 P3 / B1.3 S1: CAP QUYEN cho role ung dung siscom_app SAU khi tach role (B1.3_S1_ROLE_SPLIT.sql.txt).
+-- Chay bang psql -f voi tai khoan siscom_migrator (chu so huu) tren DATABASE DICH. IDEMPOTENT: chay lai khong gay hai.
+-- Nguyen tac: app chi DML (SELECT/INSERT/UPDATE/DELETE) + sequence; audit_log chi SELECT/INSERT (B1.2 B8); _prisma_migrations chi SELECT;
+--   EXECUTE cac ham dac quyen fn_auth_api_* (SECURITY DEFINER, M1.2) de doi mat khau/quy trinh hai nguoi; KHONG EXECUTE fn_auth_bootstrap_close
+--   (chi nguoi van hanh, chay qua MIGRATE_DATABASE_URL). Khong DDL, khong GRANT.
+-- Quyen mac dinh cho doi tuong migrator tao SAU nay (migration moi): bang => DML, sequence => USAGE/SELECT/UPDATE. Bang chi-them moi phai tu
+--   REVOKE trong migration cua no (mau: B1.2 B8 - khoi DO chay khi current_user <> siscom_app, tuc la dung khi migrate bang migrator).
+-- Ham moi dang fn_auth_api_* trong migration tuong lai: migration tu REVOKE FROM PUBLIC roi file nay (chay lai) cap EXECUTE cho app.
+\set ON_ERROR_STOP on
+\pset pager off
+-- I4: bat buoc -v target_db=<ten DB dich> trung current_database(); tu choi siscom_crm_dev (tru s1.allow_dev) va 2 baseline da khoa.
+\if :{?target_db}
+\else
+\set target_db ''
+\endif
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dich, current_user AS chay_bang;
+SELECT CASE WHEN :'target_db' = '' THEN 'SELECT s1_fail_thieu_target_db_can_psql_v_target_db_bang_ten_db_dich()'
+            WHEN :'target_db' <> current_database() THEN 'SELECT s1_fail_target_db_khac_current_database()'
+            ELSE 'SELECT ''target_db khop: ' || current_database() || '''' END \gexec
+
+DO $$ BEGIN
+  IF current_user <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'Phai chay bang siscom_migrator (chu so huu sau S1). Dang la %.', current_user;
+  END IF;
+  IF current_database() = 'siscom_crm_dev' AND coalesce(current_setting('s1.allow_dev', true), '') <> 'yes' THEN
+    RAISE EXCEPTION 'TU CHOI: siscom_crm_dev. Can phe duyet rieng (SET s1.allow_dev = yes trong cung phien).';
+  END IF;
+  IF current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % la baseline da khoa, khong duoc thay doi.', current_database();
+  END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'Database chua tach role (chu so huu khong phai siscom_migrator). Chay B1.3_S1_ROLE_SPLIT.sql.txt truoc.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app') THEN
+    RAISE EXCEPTION 'Chua co role siscom_app.';
+  END IF;
+END $$;
+
+BEGIN;
+-- 1. Schema va bang/sequence hien co
+GRANT USAGE ON SCHEMA public TO siscom_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO siscom_app;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO siscom_app;
+-- 2. Thu hep: nhat ky chi them (B1.2 B8), lich su migration chi doc
+REVOKE UPDATE, DELETE, TRUNCATE ON public.audit_log FROM siscom_app;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public._prisma_migrations FROM siscom_app;
+-- 3. Ham dac quyen M1.2 (SECURITY DEFINER): cap EXECUTE cho app; bootstrap_close KHONG cap (migration da REVOKE FROM PUBLIC).
+DO $$
+DECLARE f record; n int := 0;
+BEGIN
+  FOR f IN SELECT p.oid::regprocedure AS sig FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+           WHERE ns.nspname = 'public' AND p.proname LIKE 'fn\_auth\_api\_%' LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO siscom_app', f.sig); n := n + 1;
+  END LOOP;
+  IF n = 0 THEN RAISE EXCEPTION 'Khong thay ham fn_auth_api_* (M1.2 chua ap?).'; END IF;
+  RAISE NOTICE 'Da cap EXECUTE % ham fn_auth_api_* cho siscom_app.', n;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_auth_bootstrap_close(text) FROM siscom_app;
+-- 4. Quyen mac dinh cho doi tuong migrator tao sau nay trong public (chi ap cho chinh migrator, trong DB nay)
+ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO siscom_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO siscom_app;
+COMMIT;
+
+SELECT 'bang_app_co_DML' AS muc, count(*)::text AS gia_tri FROM pg_tables t WHERE t.schemaname = 'public'
+  AND has_table_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'INSERT')
+UNION ALL SELECT 'audit_log_app_UPDATE (phai f)', has_table_privilege('siscom_app', 'public.audit_log', 'UPDATE')::text
+UNION ALL SELECT 'ham_api_app_EXECUTE', count(*)::text FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+  WHERE ns.nspname = 'public' AND p.proname LIKE 'fn\_auth\_api\_%' AND has_function_privilege('siscom_app', p.oid, 'EXECUTE')
+UNION ALL SELECT 'bootstrap_close_app_EXECUTE (phai f)', has_function_privilege('siscom_app', 'public.fn_auth_bootstrap_close(text)', 'EXECUTE')::text;
+-- Tiep theo: B1.3_S1_VERIFY.sql.txt bang siscom_app (ky vong PASS|n, khong FAIL).

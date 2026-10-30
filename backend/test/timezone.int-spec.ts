@@ -13,17 +13,15 @@ let prisma: PrismaService; let name = ''; let fx: Fixtures;
 beforeAll(async () => {
   const setup = createTestPrisma(); name = setup.name;
   await assertTestConnection(setup.prisma, name);
-  await setDatabaseDefaultTimeZone(setup.prisma, name, VN);
   await setup.prisma.$disconnect();
+  await setDatabaseDefaultTimeZone(name, VN); // B1.4 P3: ALTER DATABASE qua kết nối chủ sở hữu (siscom_migrator sau S1)
   prisma = createTestPrisma().prisma; // pool mới => phiên mới nhận mặc định +07 của DB (trừ khi ứng dụng tự đặt UTC)
   await assertTestConnection(prisma, name);
   fx = await ensureFixtures(prisma);
 }, 60000);
 afterAll(async () => {
   // Trả múi giờ mặc định của DB thử về như cũ kể cả khi beforeAll lỗi giữa chừng; luôn đóng kết nối.
-  const p = prisma ?? (name ? createTestPrisma().prisma : undefined);
-  if (!p) return;
-  try { await setDatabaseDefaultTimeZone(p, name, null); } finally { await p.$disconnect(); }
+  try { if (name) await setDatabaseDefaultTimeZone(name, null); } finally { await prisma?.$disconnect(); }
 });
 
 describe('D.0 — phiên DB và mốc thời gian (DB mặc định +07)', () => {

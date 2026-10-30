@@ -1,0 +1,149 @@
+-- SISCOM CRM - B1.4 P3 / B1.3 S1: KIEM CHUNG tach role (CHI DOC catalog + thu DDL trong transaction ROLLBACK). Chay bang psql -f
+--   voi tai khoan UNG DUNG siscom_app tren BAN SAO THU. Ky vong SAU khi tach: dong cuoi "PASS|n" va KHONG co "FAIL|n".
+-- Day cung la BAI TAI HIEN (RED): chay TRUOC khi tach (siscom_app con la chu so huu) => nhieu dong FAIL (app DISABLE TRIGGER duoc,
+--   co CREATE tren schema, la chu so huu bang/ham...). CI chay file nay 2 lan: truoc tach (mong doi FAIL) va sau tach (mong doi PASS).
+-- Khong ghi du lieu: moi thu nghiem DDL/DML cua app deu nam trong SAVEPOINT va ROLLBACK; ket thuc bang ROLLBACK toan bo.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF current_user <> 'siscom_app' THEN
+    RAISE EXCEPTION 'Phai chay bang tai khoan ung dung siscom_app (dang la %).', current_user;
+  END IF;
+END $$;
+
+BEGIN;
+CREATE TEMP TABLE s1_result (label text, ok boolean) ON COMMIT DROP;
+
+-- Thu mot cau lenh: ok = true khi cau lenh BI TU CHOI voi ma loi mong doi (42501 insufficient_privilege / 42P01...), trong SAVEPOINT.
+CREATE FUNCTION pg_temp.expect_denied(p_label text, p_sql text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+    RAISE EXCEPTION 's1_undo' USING ERRCODE = 'P0001';       -- chay duoc: huy moi hieu ung cua cau lenh vua chay, ghi KHONG DAT o handler
+  EXCEPTION
+    WHEN insufficient_privilege THEN INSERT INTO s1_result VALUES (p_label, true);
+    WHEN raise_exception THEN INSERT INTO s1_result VALUES (p_label || CASE WHEN SQLERRM = 's1_undo' THEN ' [app CHAY DUOC]' ELSE ' [' || SQLERRM || ']' END, false);
+    WHEN OTHERS THEN INSERT INTO s1_result VALUES (p_label || ' [loi khac: ' || SQLSTATE || ']', false);
+  END;
+END $$;
+
+-- A. Chu so huu
+INSERT INTO s1_result SELECT 'A1 chu so huu database = siscom_migrator',
+  (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) = 'siscom_migrator';
+INSERT INTO s1_result SELECT 'A2 moi bang public thuoc siscom_migrator (' || count(*) || ' bang)',
+  count(*) > 0 AND bool_and(pg_get_userbyid(c.relowner) = 'siscom_migrator')
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p');
+INSERT INTO s1_result SELECT 'A3 moi sequence public thuoc siscom_migrator',
+  count(*) > 0 AND bool_and(pg_get_userbyid(c.relowner) = 'siscom_migrator')
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'S';
+INSERT INTO s1_result SELECT 'A4 moi ham public (ngoai extension) thuoc siscom_migrator',
+  count(*) > 0 AND bool_and(pg_get_userbyid(p.proowner) = 'siscom_migrator')
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+   AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e');
+INSERT INTO s1_result SELECT 'A5 extension pg_trgm/unaccent thuoc siscom_migrator',
+  count(*) = 2 AND bool_and(pg_get_userbyid(e.extowner) = 'siscom_migrator') FROM pg_extension e WHERE e.extname IN ('pg_trgm', 'unaccent');
+INSERT INTO s1_result SELECT 'A6 siscom_app khong superuser, khong tao DB/role, khong bypass RLS',
+  NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolbypassrls FROM pg_roles r WHERE r.rolname = 'siscom_app';
+INSERT INTO s1_result SELECT 'A7 siscom_migrator khong superuser, khong tao role',
+  NOT r.rolsuper AND NOT r.rolcreaterole FROM pg_roles r WHERE r.rolname = 'siscom_migrator';
+
+-- B. Quyen DML cua app
+INSERT INTO s1_result SELECT 'B1 app co SELECT/INSERT/UPDATE/DELETE tren bang nghiep vu (customer, employee, auth_session...)',
+  bool_and(has_table_privilege('siscom_app', 'public.' || t, 'SELECT') AND has_table_privilege('siscom_app', 'public.' || t, 'INSERT')
+       AND has_table_privilege('siscom_app', 'public.' || t, 'UPDATE') AND has_table_privilege('siscom_app', 'public.' || t, 'DELETE'))
+  FROM unnest(ARRAY['customer', 'contact', 'activity', 'customer_assignment', 'employee', 'department', 'lookup_item',
+                    'employee_credential', 'auth_session', 'employee_role', 'role_permission', 'privileged_change_request', 'password_reset_token']) AS t;
+INSERT INTO s1_result SELECT 'B2 app chi SELECT/INSERT tren audit_log (khong UPDATE/DELETE/TRUNCATE)',
+  has_table_privilege('siscom_app', 'public.audit_log', 'SELECT') AND has_table_privilege('siscom_app', 'public.audit_log', 'INSERT')
+  AND NOT has_table_privilege('siscom_app', 'public.audit_log', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.audit_log', 'DELETE')
+  AND NOT has_table_privilege('siscom_app', 'public.audit_log', 'TRUNCATE');
+INSERT INTO s1_result SELECT 'B3 app chi SELECT tren _prisma_migrations',
+  has_table_privilege('siscom_app', 'public._prisma_migrations', 'SELECT') AND NOT has_table_privilege('siscom_app', 'public._prisma_migrations', 'INSERT')
+  AND NOT has_table_privilege('siscom_app', 'public._prisma_migrations', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public._prisma_migrations', 'DELETE');
+INSERT INTO s1_result SELECT 'B4 app co USAGE/SELECT/UPDATE tren moi sequence',
+  count(*) > 0 AND bool_and(has_sequence_privilege('siscom_app', c.oid, 'USAGE') AND has_sequence_privilege('siscom_app', c.oid, 'SELECT') AND has_sequence_privilege('siscom_app', c.oid, 'UPDATE'))
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'S';
+INSERT INTO s1_result SELECT 'B5 app co USAGE nhung KHONG co CREATE tren schema public',
+  has_schema_privilege('siscom_app', 'public', 'USAGE') AND NOT has_schema_privilege('siscom_app', 'public', 'CREATE');
+INSERT INTO s1_result SELECT 'B6 PUBLIC khong CONNECT; app co CONNECT+TEMP; app khong CREATE tren database',
+  NOT has_database_privilege('public', current_database(), 'CONNECT') AND has_database_privilege('siscom_app', current_database(), 'CONNECT')
+  AND has_database_privilege('siscom_app', current_database(), 'TEMP') AND NOT has_database_privilege('siscom_app', current_database(), 'CREATE');
+
+-- C. Ham dac quyen va tham so
+INSERT INTO s1_result SELECT 'C1 app EXECUTE duoc fn_auth_api_change_own_password (doi mat khau)',
+  has_function_privilege('siscom_app', 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE');
+INSERT INTO s1_result SELECT 'C2 app EXECUTE duoc cac fn_auth_api_* nghiep vu (' || count(*) || ' ham)',
+  count(*) >= 13 AND bool_and(has_function_privilege('siscom_app', p.oid, 'EXECUTE'))
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'fn\_auth\_api\_%';
+INSERT INTO s1_result SELECT 'C3 app KHONG EXECUTE fn_auth_bootstrap_close (chi nguoi van hanh)',
+  NOT has_function_privilege('siscom_app', 'public.fn_auth_bootstrap_close(text)', 'EXECUTE');
+INSERT INTO s1_result SELECT 'C4 PUBLIC khong EXECUTE fn_auth_api_* / fn_auth_bootstrap_close',
+  bool_and(NOT has_function_privilege('public', p.oid, 'EXECUTE'))
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND (p.proname LIKE 'fn\_auth\_api\_%' OR p.proname = 'fn_auth_bootstrap_close');
+INSERT INTO s1_result SELECT 'C5 app va migrator co SET tren app.actor_employee_id / app.priv_request_id',
+  has_parameter_privilege('siscom_app', 'app.actor_employee_id', 'SET') AND has_parameter_privilege('siscom_app', 'app.priv_request_id', 'SET')
+  AND has_parameter_privilege('siscom_migrator', 'app.actor_employee_id', 'SET') AND has_parameter_privilege('siscom_migrator', 'app.priv_request_id', 'SET');
+
+-- D. Thu DDL thuc te bang chinh phien siscom_app (moi cau trong SAVEPOINT; chay duoc = FAIL)
+SELECT pg_temp.expect_denied('D1 app khong DISABLE TRIGGER (audit_log)',        'ALTER TABLE public.audit_log DISABLE TRIGGER ALL');
+SELECT pg_temp.expect_denied('D2 app khong DISABLE TRIGGER (employee_credential)', 'ALTER TABLE public.employee_credential DISABLE TRIGGER ALL');
+SELECT pg_temp.expect_denied('D3 app khong DROP TRIGGER',                        'DROP TRIGGER trg_audit_append_only ON public.audit_log');
+SELECT pg_temp.expect_denied('D4 app khong CREATE TABLE trong public',           'CREATE TABLE public.s1_probe_should_fail (id int)');
+SELECT pg_temp.expect_denied('D5 app khong ALTER TABLE them cot',                'ALTER TABLE public.customer ADD COLUMN s1_probe int');
+SELECT pg_temp.expect_denied('D6 app khong CREATE OR REPLACE ham trigger',       'CREATE OR REPLACE FUNCTION public.fn_block_mutation() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN RETURN NULL; END $f$');
+SELECT pg_temp.expect_denied('D7 app khong UPDATE audit_log',                    'UPDATE public.audit_log SET summary = summary WHERE false');
+SELECT pg_temp.expect_denied('D8 app khong DELETE audit_log',                    'DELETE FROM public.audit_log WHERE false');
+SELECT pg_temp.expect_denied('D9 app khong TRUNCATE audit_log',                  'TRUNCATE public.audit_log');
+SELECT pg_temp.expect_denied('D10 app khong goi fn_auth_bootstrap_close',        'SELECT public.fn_auth_bootstrap_close(''s1-probe'')');
+SELECT pg_temp.expect_denied('D11 app khong ghi _prisma_migrations',             'DELETE FROM public._prisma_migrations WHERE false');
+-- D12: GRANT boi role KHONG so huu va KHONG co grant option thi PostgreSQL CHI CANH BAO "no privileges were granted" va thoat 0
+-- (khong RAISE 42501). Vi vay khong kiem bang ma loi, ma kiem HIEU QUA: sau khi thu GRANT, app van KHONG co quyen do (CI run
+-- 41005714842 tren 8c773aa phat hien bai cu doi 42501 nen FAIL oan; kiem soat thuc te van dung).
+CREATE FUNCTION pg_temp.expect_no_gain(p_label text, p_sql text, p_check text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_gained boolean;
+BEGIN
+  BEGIN
+    EXECUTE p_sql;                       -- co the "thanh cong" kem WARNING, hoac bi tu choi: ca hai deu chap nhan
+  EXCEPTION WHEN OTHERS THEN NULL;       -- bi tu choi cung tot; dieu quan trong la buoc kiem duoi
+  END;
+  EXECUTE 'SELECT ' || p_check INTO v_gained;   -- true = DA NANG DUOC QUYEN => KHONG DAT
+  INSERT INTO s1_result VALUES (p_label, NOT coalesce(v_gained, true));
+END $$;
+SELECT pg_temp.expect_no_gain('D12 app GRANT UPDATE audit_log cho chinh minh => khong co hieu luc',
+  'GRANT UPDATE ON public.audit_log TO siscom_app', $c$has_table_privilege('siscom_app', 'public.audit_log', 'UPDATE')$c$);
+SELECT pg_temp.expect_no_gain('D13 app GRANT ... WITH GRANT OPTION cho chinh minh => khong co hieu luc',
+  'GRANT DELETE ON public.audit_log TO siscom_app WITH GRANT OPTION', $c$has_table_privilege('siscom_app', 'public.audit_log', 'DELETE')$c$);
+SELECT pg_temp.expect_no_gain('D14 app GRANT CREATE ON SCHEMA public cho chinh minh => khong co hieu luc',
+  'GRANT CREATE ON SCHEMA public TO siscom_app', $c$has_schema_privilege('siscom_app', 'public', 'CREATE')$c$);
+SELECT pg_temp.expect_no_gain('D15 app GRANT EXECUTE fn_auth_bootstrap_close cho chinh minh => khong co hieu luc',
+  'GRANT EXECUTE ON FUNCTION public.fn_auth_bootstrap_close(text) TO siscom_app', $c$has_function_privilege('siscom_app', 'public.fn_auth_bootstrap_close(text)', 'EXECUTE')$c$);
+-- Nang quyen o cap role/chu so huu: cac lenh nay PHAI bi tu choi (42501), khong co dang "canh bao roi bo qua".
+SELECT pg_temp.expect_denied('D16 app khong doi chu so huu bang sang minh',        'ALTER TABLE public.audit_log OWNER TO siscom_app');
+SELECT pg_temp.expect_denied('D17 app khong tu them minh vao role migrator',       'GRANT siscom_migrator TO siscom_app');
+SELECT pg_temp.expect_denied('D18 app khong SET ROLE siscom_migrator',             'SET ROLE siscom_migrator');
+SELECT pg_temp.expect_denied('D19 app khong tu nang SUPERUSER/CREATEROLE',         'ALTER ROLE siscom_app SUPERUSER');
+SELECT pg_temp.expect_denied('D20 app khong tao role moi',                         'CREATE ROLE s1_probe_role');
+SELECT pg_temp.expect_denied('D21 app khong doi chu so huu database',              format('ALTER DATABASE %I OWNER TO siscom_app', current_database()));
+
+-- E. Nhung gi app PHAI lam duoc (trong SAVEPOINT, huy sau)
+DO $$ BEGIN
+  BEGIN
+    PERFORM count(*) FROM public.customer; PERFORM count(*) FROM public.auth_session; PERFORM nextval('public.customer_code_seq');
+    RAISE EXCEPTION 's1_undo';                                -- huy nextval (khong tieu ma khach), ghi ket qua o handler
+  EXCEPTION WHEN raise_exception THEN INSERT INTO s1_result VALUES ('E1 app doc bang nghiep vu va nextval sequence ma khach', SQLERRM = 's1_undo');
+            WHEN OTHERS THEN INSERT INTO s1_result VALUES ('E1 app doc bang/nextval [' || SQLSTATE || ']', false); END;
+END $$;
+INSERT INTO s1_result SELECT 'E2 app dung duoc extension (f_vn_fold/unaccent/similarity)',
+  f_vn_fold('Nguyễn Văn') IS NOT NULL AND similarity('abc', 'abd') IS NOT NULL;
+
+-- Tong ket (dinh dang cua scripts/ci/pg-sql-check.sh mode=res)
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM s1_result ORDER BY label;
+SELECT 'PASS|' || count(*) FROM s1_result WHERE ok;
+SELECT 'FAIL|' || count(*) FROM s1_result WHERE NOT ok HAVING count(*) > 0;
+ROLLBACK;

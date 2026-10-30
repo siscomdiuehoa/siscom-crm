@@ -9,4 +9,4 @@
 - **Header bảo mật:** `helmet`.
 - **Lưu ý:** nếu bật `log_statement = all` trong PostgreSQL, câu lệnh đặt mật khẩu lúc `setup-db` sẽ nằm trong log của PostgreSQL — mặc định là `none`, đừng bật khi chạy setup.
 - **Chưa có (B1.2+):** đăng nhập, phân quyền, giới hạn tốc độ, audit người dùng. Vì vậy **không** mở backend ra Internet ở giai đoạn này.
-- **Production (VPS):** tách role migrate (DDL) và role ứng dụng (chỉ DML); xem `VPS_LINUX_NOTES.md`.
+- **Tách role S1 (B1.4 P3 — bắt buộc trước production, tuỳ chọn trên Windows):** `siscom_migrator` là chủ sở hữu database/bảng/hàm (chạy `prisma migrate deploy`, `auth:bootstrap` qua `MIGRATE_DATABASE_URL`); `siscom_app` chỉ SELECT/INSERT/UPDATE/DELETE + sequence, `audit_log` chỉ thêm, `_prisma_migrations` chỉ đọc, EXECUTE `fn_auth_api_*`, **không** DDL/`DISABLE TRIGGER`/GRANT. Script: `docs/B1.3_S1_ROLE_SPLIT.sql.txt` (superuser) → `B1.3_S1_APP_GRANTS.sql.txt` (migrator) → kiểm `B1.3_S1_VERIFY.sql.txt` (app); rollback `B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt`. Chi tiết: `B1.4_P3_S1_ROLE_SPLIT.md`. CI diễn tập đủ tách/rollback trên DB tạm mỗi PR.
