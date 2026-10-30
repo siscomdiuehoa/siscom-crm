@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createHash, randomBytes } from 'node:crypto';
 import request from 'supertest';
+import { applyTrustProxy, TrustProxySetting } from '../src/app.setup';
 import { AUTH_CONFIG, AuthConfig } from '../src/common/auth/auth.config';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
 import { requestContext } from '../src/common/middleware/request-context.middleware';
@@ -59,6 +60,7 @@ beforeAll(async () => {
   app.useLogger(false); app.setGlobalPrefix('api/v1'); app.use(requestContext);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
+  applyTrustProxy(app, 'loopback'); // B1.4 P1: như sau nginx cùng máy; test không gửi X-Forwarded-For thì hành vi không đổi
   await app.init(); await app.listen(0, '127.0.0.1');
 }, 120000);
 afterAll(async () => {
@@ -449,6 +451,63 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
     const r = await prisma.$queryRaw<{ d: number }[]>`
       SELECT extract(epoch FROM occurred_at - now())::float8 * 1000 AS d FROM audit_log WHERE action = 'auth.login_ok' ORDER BY id DESC LIMIT 1`;
     expect(Math.abs(r[0].d)).toBeLessThan(TOL);
+  });
+});
+
+// B1.4 P1 — TRUST_PROXY áp dụng thật. App dùng chung đã đặt 'loopback' (beforeAll); supertest nối qua 127.0.0.1 nên
+// X-Forwarded-For được tin đúng một hop: địa chỉ CUỐI header là khách thật (nginx nối thêm), phần khách tự khai bị bỏ.
+describe('B1.4 P1 — TRUST_PROXY: hạn mức theo nguồn và tiền tố IP phiên theo X-Forwarded-For', () => {
+  const XFF = 'X-Forwarded-For';
+  const tech = () => USERS.find((x) => x.key === 'technician')!;
+  // Tiền tố IP của ĐÚNG phiên vừa cấp (tra theo băm cookie), không dựa vào thứ tự issued_at (hai login có thể trùng mili-giây).
+  const prefixOf = async (res: request.Response): Promise<string | null> => {
+    const h = createHash('sha256').update(cookieOf(res).split('=')[1], 'utf8').digest('hex');
+    return (await prisma.authSession.findUniqueOrThrow({ where: { refreshHash: h }, select: { ipPrefix: true } })).ipPrefix;
+  };
+  const loginXff = (xff?: string) => { const r = login(tech().email, tech().password); return xff === undefined ? r : r.set(XFF, xff); };
+  it('đăng nhập có X-Forwarded-For => tiền tố IP phiên là của khách thật (hop gần proxy nhất), phần tự khai bị bỏ', async () => {
+    const r1 = await loginXff('203.0.113.7');
+    expect(r1.status).toBe(200); expect(await prefixOf(r1)).toBe('203.0.113.0/24');
+    const r2 = await loginXff('203.0.113.7, 198.51.100.4');
+    expect(r2.status).toBe(200); expect(await prefixOf(r2)).toBe('198.51.100.0/24');
+    const r3 = await loginXff('::ffff:198.51.100.4'); // IPv4-mapped => tiền tố IPv4
+    expect(r3.status).toBe(200); expect(await prefixOf(r3)).toBe('198.51.100.0/24');
+  });
+  it('header không phải IP / IPv6 có zone id dài => vẫn đăng nhập được (không 500); tiền tố IP hợp lệ, ≤ 64 ký tự', async () => {
+    const base = await loginXff(); expect(base.status).toBe(200);
+    const r1 = await loginXff('khong-phai-ip');
+    expect(r1.status).toBe(200); expect(await prefixOf(r1)).toBe(await prefixOf(base));
+    const r2 = await loginXff('fe80::1%' + 'x'.repeat(100));
+    expect(r2.status).toBe(200); const p = await prefixOf(r2); expect(p).toBe('fe80::1::/48'); expect(p!.length).toBeLessThanOrEqual(64);
+  });
+  it('hạn mức theo nguồn: loopback => hai khách sau cùng proxy KHÔNG chặn nhau; false => header bị bỏ, chung một bucket', async () => {
+    const mkApp = async (trust: TrustProxySetting): Promise<INestApplication> => {
+      const cfgT: AuthConfig = { ...cfg, loginMaxPerSource: 3 };
+      const modT = await Test.createTestingModule({ imports: [AuthApiModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AUTH_CONFIG).useValue(cfgT).compile();
+      const appT = modT.createNestApplication();
+      appT.useLogger(false); appT.setGlobalPrefix('api/v1'); appT.use(requestContext);
+      appT.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+      appT.useGlobalFilters(new AllExceptionsFilter());
+      applyTrustProxy(appT, trust);
+      await appT.init();
+      return appT;
+    };
+    // Tài khoản không tồn tại => 401 LOGIN_INVALID, không khoá tài khoản nào; chỉ bộ đếm theo nguồn tăng.
+    const nobody = 'nobody@' + DOMAIN;
+    const tryLogin = (a: INestApplication, ip: string) => request(a.getHttpServer()).post('/api/v1/auth/login').set('Origin', ORIGIN).set(XFF, ip).send({ login: nobody, password: 'Sai-mat-khau#2026' });
+    const appOn = await mkApp('loopback');
+    try {
+      for (let i = 0; i < 3; i++) expect((await tryLogin(appOn, '203.0.113.10')).status).toBe(401);
+      const fourth = await tryLogin(appOn, '203.0.113.10');
+      expect(fourth.status).toBe(429); expect(fourth.body.error.code).toBe('LOGIN_THROTTLED');
+      expect((await tryLogin(appOn, '203.0.113.11')).status).toBe(401); // khách khác => bucket khác, không bị chặn oan
+    } finally { await appOn.close(); }
+    const appOff = await mkApp(false);
+    try {
+      for (let i = 0; i < 3; i++) expect((await tryLogin(appOff, '203.0.113.' + (20 + i))).status).toBe(401);
+      const fourth = await tryLogin(appOff, '203.0.113.99');
+      expect(fourth.status).toBe(429); // TRUST_PROXY=false: header bị bỏ qua, mọi yêu cầu cùng socket => cùng một bucket
+    } finally { await appOff.close(); }
   });
 });
 
