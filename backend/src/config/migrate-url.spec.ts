@@ -20,7 +20,8 @@ describe('pickPrismaCliUrl (B1.4 P3 S1)', () => {
     const otherHost = 'postgresql://siscom_migrator:z@10.0.0.9:5432/siscom_crm_test_20261030_000000';
     const otherPort = 'postgresql://siscom_migrator:z@127.0.0.1:5433/siscom_crm_test_20261030_000000';
     const otherSocketHost = MIG + '?host=/var/run/postgresql';
-    for (const mig of [otherDb, otherHost, otherPort, otherSocketHost]) {
+    const otherPortParam = MIG + '?port=5433'; // pg-connection-string ưu tiên ?port= hơn phần :5432
+    for (const mig of [otherDb, otherHost, otherPort, otherSocketHost, otherPortParam]) {
       expect(() => pickPrismaCliUrl({ DATABASE_URL: APP, MIGRATE_DATABASE_URL: mig })).toThrow(/MIGRATE_DATABASE_URL.*khác.*DATABASE_URL/);
     }
     // thông điệp không lộ URL/mật khẩu

@@ -20,8 +20,10 @@ export function pickPrismaCliUrl(env: Record<string, string | undefined>): { url
     let a: URL;
     try { a = new URL(app); } catch { throw new Error('DATABASE_URL sai định dạng (mật khẩu chứa ký tự đặc biệt chưa mã hoá URL?).'); }
     // Prisma còn nhận tham số ?host= (socket/host ghi đè) => so cả tham số này; schema/sslmode khác nhau vẫn là cùng DB.
+    // pg-connection-string còn nhận ?port= và ?hostaddr= ghi đè phần authority => so luôn các tham số này.
+    const qp = (x: URL, k: string): string => x.searchParams.get(k) ?? '';
     const same = a.hostname === u.hostname && (a.port || '5432') === (u.port || '5432') && decodeURIComponent(a.pathname) === decodeURIComponent(u.pathname)
-      && (a.searchParams.get('host') ?? '') === (u.searchParams.get('host') ?? '');
+      && qp(a, 'host') === qp(u, 'host') && qp(a, 'port') === qp(u, 'port') && qp(a, 'hostaddr') === qp(u, 'hostaddr');
     if (!same) throw new Error('MIGRATE_DATABASE_URL trỏ tới host/cổng/database khác với DATABASE_URL: từ chối để không migrate nhầm DB. Bỏ một trong hai biến hoặc sửa cho cùng DB.');
   }
   return chosen;
