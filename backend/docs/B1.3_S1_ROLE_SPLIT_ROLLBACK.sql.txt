@@ -26,6 +26,9 @@ DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_tablespace WHERE pg_get_userbyid(spcowner) IN ('siscom_app', 'siscom_migrator')) THEN
     RAISE EXCEPTION 'TU CHOI: co tablespace thuoc siscom_app/siscom_migrator; xu ly thu cong truoc.';
   END IF;
+  IF EXISTS (SELECT 1 FROM pg_subscription WHERE pg_get_userbyid(subowner) IN ('siscom_app', 'siscom_migrator')) THEN
+    RAISE EXCEPTION 'TU CHOI: co subscription thuoc siscom_app/siscom_migrator; xu ly thu cong truoc.';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator') THEN
     RAISE EXCEPTION 'Khong co role siscom_migrator: chua tach role, khong co gi de rollback.';
   END IF;
@@ -45,17 +48,21 @@ ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE USAGE,
 -- 2. Tra chu so huu. C1: REASSIGN OWNED cuon theo MOI database khac do siscom_migrator so huu (DB da tach role hop le o cung cluster)
 --    => ghi nhan truoc, tra lai sau, tu kiem (nhu ROLE_SPLIT).
 CREATE TEMP TABLE s1_other_db ON COMMIT DROP AS
-  SELECT datname, pg_get_userbyid(datdba) AS owner_truoc FROM pg_database WHERE datname <> current_database();
+  SELECT datname, pg_get_userbyid(datdba) AS owner_truoc, coalesce(datacl::text, '') AS acl_truoc FROM pg_database WHERE datname <> current_database();
 SELECT format('ALTER DATABASE %I OWNER TO siscom_app', current_database()) \gexec
 REASSIGN OWNED BY siscom_migrator TO siscom_app;
 SELECT format('ALTER DATABASE %I OWNER TO %I', datname, owner_truoc) FROM s1_other_db WHERE owner_truoc = 'siscom_migrator' \gexec
 DO $$
 DECLARE r record;
 BEGIN
-  FOR r IN SELECT o.datname, o.owner_truoc, pg_get_userbyid(d.datdba) AS owner_sau FROM s1_other_db o JOIN pg_database d ON d.datname = o.datname
-           WHERE pg_get_userbyid(d.datdba) <> o.owner_truoc LOOP
-    RAISE EXCEPTION 'C1: database % doi chu so huu % -> % ngoai y muon; huy rollback.', r.datname, r.owner_truoc, r.owner_sau;
+  FOR r IN SELECT o.datname, o.owner_truoc, pg_get_userbyid(d.datdba) AS owner_sau, o.acl_truoc, coalesce(d.datacl::text, '') AS acl_sau
+           FROM s1_other_db o JOIN pg_database d ON d.datname = o.datname
+           WHERE pg_get_userbyid(d.datdba) <> o.owner_truoc OR coalesce(d.datacl::text, '') <> o.acl_truoc LOOP
+    RAISE EXCEPTION 'C1: database % doi chu so huu/ACL ngoai y muon (% -> %; ACL % -> %); huy rollback.', r.datname, r.owner_truoc, r.owner_sau, r.acl_truoc, r.acl_sau;
   END LOOP;
+  IF EXISTS (SELECT 1 FROM pg_database d WHERE d.datname <> current_database() AND NOT EXISTS (SELECT 1 FROM s1_other_db o WHERE o.datname = d.datname)) THEN
+    RAISE EXCEPTION 'C1: co database moi xuat hien trong luc chay; huy rollback, chay lai khi khong co lenh tao DB song song.';
+  END IF;
 END $$;
 -- 3. Quyen database nhu B1.1 (setup-db): PUBLIC khong CONNECT, app CONNECT (app la chu so huu nen tu co CREATE/TEMP)
 SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database()) \gexec

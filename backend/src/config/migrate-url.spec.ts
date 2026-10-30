@@ -13,12 +13,14 @@ describe('pickPrismaCliUrl (B1.4 P3 S1)', () => {
     expect(pickPrismaCliUrl({ DATABASE_URL: APP, MIGRATE_DATABASE_URL: MIG })).toEqual({ url: MIG, source: 'MIGRATE_DATABASE_URL' });
     expect(pickPrismaCliUrl({ MIGRATE_DATABASE_URL: ' ' + MIG + ' ' }).url).toBe(MIG);
     expect(pickPrismaCliUrl({ DATABASE_URL: APP + '?schema=public', MIGRATE_DATABASE_URL: MIG }).url).toBe(MIG); // khác query string vẫn cùng DB
+    expect(pickPrismaCliUrl({ DATABASE_URL: APP.replace(':5432/', '/'), MIGRATE_DATABASE_URL: MIG }).url).toBe(MIG); // bỏ trống cổng = 5432
   });
   it('I2: cả hai biến đều đặt nhưng trỏ DB/host/cổng KHÁC nhau => từ chối (không để MIGRATE_DATABASE_URL âm thầm migrate nhầm DB)', () => {
     const otherDb = 'postgresql://siscom_migrator:z@127.0.0.1:5432/siscom_crm_test_20261030_999999';
     const otherHost = 'postgresql://siscom_migrator:z@10.0.0.9:5432/siscom_crm_test_20261030_000000';
     const otherPort = 'postgresql://siscom_migrator:z@127.0.0.1:5433/siscom_crm_test_20261030_000000';
-    for (const mig of [otherDb, otherHost, otherPort]) {
+    const otherSocketHost = MIG + '?host=/var/run/postgresql';
+    for (const mig of [otherDb, otherHost, otherPort, otherSocketHost]) {
       expect(() => pickPrismaCliUrl({ DATABASE_URL: APP, MIGRATE_DATABASE_URL: mig })).toThrow(/MIGRATE_DATABASE_URL.*khác.*DATABASE_URL/);
     }
     // thông điệp không lộ URL/mật khẩu

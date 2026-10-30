@@ -99,9 +99,21 @@ case "$cmd" in
     ;;
   unsplit)
     name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }
+    # Canary 2 (C1 nhanh ROLLBACK): mot DB KHAC da tach role hop le (owner siscom_migrator) tren cung cluster => sau rollback DB dich,
+    # canary2 phai van thuoc migrator va migrator van giu quyen SET app.* (nhanh "giu quyen" cua ROLLBACK). Don ngay sau khi kiem.
+    canary2="siscom_crm_canary2_$(date -u +%Y%m%d_%H%M%S)"; [[ "$canary2" =~ ^siscom_crm_canary2_[0-9]{8}_[0-9]{6}$ ]] || { echo "TU CHOI: ten canary2."; exit 2; }
+    psql_su -c "CREATE DATABASE \"$canary2\" OWNER siscom_migrator ENCODING 'UTF8' TEMPLATE template0"
     echo "--- S1 ROLLBACK (superuser container) tren $name ---"
     psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$name" -f "$docs/B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt"
     assert_canary "sau ROLLBACK"
+    c2owner="$(psql_su -tA -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '$canary2'")"
+    c2set="$(psql_su -tA -c "SELECT has_parameter_privilege('siscom_migrator', 'app.actor_employee_id', 'SET')")"
+    echo "canary2 [sau ROLLBACK]: $canary2 owner=$c2owner migrator_set_param=$c2set"
+    psql_su -c "DROP DATABASE IF EXISTS \"$canary2\" WITH (FORCE)" || true
+    if [ "$c2owner" != "siscom_migrator" ] || [ "$c2set" != "t" ]; then
+      echo "KHONG DAT (C1 rollback): DB khac thuoc migrator bi doi chu so huu hoac migrator mat quyen SET app.*."
+      exit 1
+    fi
     ;;
   drop)
     name="${TEST_DB_NAME:-}"

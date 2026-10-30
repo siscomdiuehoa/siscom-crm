@@ -187,4 +187,6 @@ try {
   $script:pw = $null; $url = $null
   Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
   foreach ($k in $ownedVars) { Remove-Item -Path ('Env:' + $k) -ErrorAction SilentlyContinue }
+  # I2: khoi phuc MIGRATE_DATABASE_URL da go o dau (chi co y nghia khi chay truc tiep .ps1 trong cung phien PowerShell).
+  if ($null -ne $script:savedMigUrl) { $env:MIGRATE_DATABASE_URL = $script:savedMigUrl; $script:savedMigUrl = $null }
 }
