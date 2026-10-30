@@ -457,7 +457,7 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
 // mọi phương thức; cookie cũ sau khi đổi mật khẩu bị thu hồi; cờ tắt => hành vi như trước.
 describe('B1.4 P2 — PASSWORD_CHANGE_REQUIRED', () => {
   const tech = USERS[3]; // technician: có customer.read (DEPARTMENT) => GET /customers vốn 200
-  const ORIG_T = tech.password; const TMP_T = 'Kythuat-Tam#2026-p2';
+  const ORIG_T = tech.password; const TMP_T = 'C0ngTrinh#P2-2026-ok'; // Không chứa định danh email 'kythuat' theo chính sách D17
   const ME2 = '/api/v1/auth/me'; const CP2 = '/api/v1/auth/change-password'; const C2 = '/api/v1/customers';
   const hdr = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
   let empId = '';
@@ -521,6 +521,8 @@ describe('B1.4 P2 — PASSWORD_CHANGE_REQUIRED', () => {
     expect((await srv().get(C2).set('Cookie', s.cookie)).status).toBe(401); // phiên cũ đã bị thu hồi
   });
   it('cờ bật lại giữa chừng (admin đặt lại): phiên đang dùng bị chặn ngay ở request kế tiếp (không cache ngoài request)', async () => {
+    // Test độc lập: bài trước thất bại cũng không để cờ must_change_password ảnh hưởng kết quả.
+    await setFlag(false);
     const s = await session('technician');
     expect((await srv().get(C2).set('Cookie', s.cookie)).status).toBe(200);
     await setFlag(true);
