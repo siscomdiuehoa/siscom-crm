@@ -109,8 +109,8 @@ INSERT INTO s1_result SELECT 'C2 app KHONG EXECUTE cac fn_auth_api_* khac (' || 
    AND p.proname <> 'fn_auth_api_change_own_password';
 -- M-2 (ra soat P3b): khong chi theo ten fn_auth_api_%: MOI ham SECURITY DEFINER trong public ma app EXECUTE duoc (ke ca qua PUBLIC)
 -- phai nam trong danh sach cho phep. Ham dac quyen moi dat ten khac ma quen REVOKE FROM PUBLIC => FAIL o day.
-INSERT INTO s1_result SELECT 'C6 ham SECURITY DEFINER app EXECUTE duoc chi gom fn_auth_api_change_own_password (' || coalesce(string_agg(p.proname, ','), '') || ')',
-  coalesce(bool_and(p.proname = 'fn_auth_api_change_own_password'), true) AND count(*) = 1
+INSERT INTO s1_result SELECT 'C6 app KHONG EXECUTE ham SECURITY DEFINER nao (P3c; dang co: ' || coalesce(string_agg(p.proname, ','), '') || ')',
+  count(*) = 0
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('siscom_app', p.oid, 'EXECUTE');
 INSERT INTO s1_result SELECT 'C3 app KHONG EXECUTE fn_auth_bootstrap_close (chi nguoi van hanh)',
@@ -166,7 +166,7 @@ SELECT pg_temp.expect_denied('D21 app khong doi chu so huu database',           
 -- E. Nhung gi app PHAI lam duoc (trong SAVEPOINT, huy sau)
 DO $$ BEGIN
   BEGIN
-    PERFORM count(*) FROM public.customer; PERFORM count(*) FROM public.auth_session; PERFORM nextval('public.customer_code_seq');
+    PERFORM count(*) FROM public.customer; PERFORM count(*) FROM public.employee; PERFORM nextval('public.customer_code_seq');  -- P3c: auth_session thuoc pool auth
     RAISE EXCEPTION 's1_undo';                                -- ghi ket qua o handler (nextval KHONG rollback duoc: tieu 1 ma, khong lam hong day ma)
   EXCEPTION WHEN raise_exception THEN INSERT INTO s1_result VALUES ('E1 app doc bang nghiep vu va nextval sequence ma khach', SQLERRM = 's1_undo');
             WHEN OTHERS THEN INSERT INTO s1_result VALUES ('E1 app doc bang/nextval [' || SQLSTATE || ']', false); END;

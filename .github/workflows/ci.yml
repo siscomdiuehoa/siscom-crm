@@ -123,7 +123,7 @@ jobs:
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res auth
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
       - name: Sau S1 - migrate status + diff bang siscom_migrator (MIGRATE_DATABASE_URL, prisma.config.ts uu tien) va bang siscom_app (chi doc)
         run: |
           set -euo pipefail
@@ -156,7 +156,7 @@ jobs:
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res auth
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Sau S1 - prisma migrate deploy bang siscom_migrator (MIGRATE_DATABASE_URL; khong con migration cho => thoat 0) + status
@@ -183,7 +183,7 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
           bash scripts/ci/pg-temp-db.sh grants v3
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
-          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res auth
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
       - name: Don DB tam (container cung bi huy sau job)
         if: ${{ always() }}
         run: bash scripts/ci/pg-temp-db.sh drop
