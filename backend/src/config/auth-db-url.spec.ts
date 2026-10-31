@@ -47,3 +47,10 @@ describe('pickAuthDbUrl — mật khẩu mẫu và tham số query ghi đè', ()
     expect(pickAuthDbUrl({ DATABASE_URL: APP, AUTH_DATABASE_URL: AUTH + '?schema=public&sslmode=require' }, 'test').separate).toBe(true);
   });
 });
+
+// QA P3c N-6: khoá query ghi đè cũng bị từ chối ở DATABASE_URL (khi có AUTH_DATABASE_URL).
+describe('pickAuthDbUrl — DATABASE_URL có ?user=', () => {
+  it('DATABASE_URL?user=siscom_auth => từ chối, nêu tên biến DATABASE_URL', () => {
+    expect(() => pickAuthDbUrl({ DATABASE_URL: APP + '?user=siscom_auth', AUTH_DATABASE_URL: AUTH }, 'test')).toThrow(/^DATABASE_URL không được chứa tham số/);
+  });
+});

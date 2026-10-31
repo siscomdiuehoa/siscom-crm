@@ -20,7 +20,8 @@ export function pickAuthDbUrl(env: Record<string, string | undefined>, nodeEnv: 
   if (decodeURIComponent(a.password).includes('CHANGE_ME')) throw new Error('AUTH_DATABASE_URL vẫn là mật khẩu mẫu; sinh mật khẩu ngẫu nhiên trên máy chủ.');
   // QA M-1: pg-connection-string cho ?user= / ?password= / ?dbname= ghi đè phần userinfo/path => kiểm "cùng tài khoản"/"cùng DB" bị lách;
   // ?options= ghi đè TimeZone=UTC (D.0). Từ chối các khoá này (so không phân biệt hoa thường).
-  for (const k of a.searchParams.keys()) if (['user', 'password', 'dbname', 'options'].includes(k.toLowerCase())) throw new Error('AUTH_DATABASE_URL không được chứa tham số "' + k + '" (ghi đè tài khoản/database/options qua query).');
+  for (const [u, name] of [[a, 'AUTH_DATABASE_URL'], [b, 'DATABASE_URL']] as const)
+    for (const k of u.searchParams.keys()) if (['user', 'password', 'dbname', 'options'].includes(k.toLowerCase())) throw new Error(name + ' không được chứa tham số "' + k + '" (ghi đè tài khoản/database/options qua query).');
   const qp = (x: URL, k: string): string => x.searchParams.get(k) ?? '';
   const same = a.hostname === b.hostname && (a.port || '5432') === (b.port || '5432') && decodeURIComponent(a.pathname) === decodeURIComponent(b.pathname)
     && qp(a, 'host') === qp(b, 'host') && qp(a, 'port') === qp(b, 'port') && qp(a, 'hostaddr') === qp(b, 'hostaddr');

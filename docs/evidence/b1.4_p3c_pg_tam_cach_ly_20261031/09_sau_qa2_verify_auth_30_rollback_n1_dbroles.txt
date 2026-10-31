@@ -1,0 +1,164 @@
+# B1.4 P3c - sau QA lan 2: VERIFY_AUTH (H8 du 4 sequence, K19), ROLLBACK N-1 (aclexplode), AUTH_ROLE+V3 lai, db-roles.int-spec. Cluster tam 127.0.0.1:55432, DB gia.
+## (1) VERIFY_AUTH DB5 (superuser SET ROLE siscom_auth)
+db thu: siscom_crm_test_20261031_234446 / postgres -> SET ROLE siscom_auth
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+H0 dang chay bang siscom_auth (SET ROLE), khong superuser => ok
+H1 auth SELECT employee, employee_role, role, role_permission, permission, employee_credential, auth_session, audit_log => ok
+H2 auth INSERT/UPDATE auth_session => ok
+H3 auth UPDATE 7 cot dem/khoa/thoi diem employee_credential => ok
+H4 auth INSERT audit_log => ok
+H5 auth doc password_hash / token_version (xac minh mat khau o ung dung) => ok
+H6 auth EXECUTE fn_auth_api_change_own_password => ok
+H7 auth co SET app.actor_employee_id / app.priv_request_id (ham M1.2 can) => ok
+H8 auth USAGE/SELECT CHI audit_log_id_seq; KHONG USAGE sequence ma khach/nhan vien, KHONG UPDATE sequence nao (M-5) => ok
+H9 auth khong superuser/createrole/createdb/replication/bypassrls/inherit, khong chu so huu DB, khong CREATE public, khong TEMP, khong thanh vien role nao => ok
+K1 auth khong SELECT customer => ok
+K10 auth khong SELECT password_reset_token => ok
+K11 auth khong DDL => ok
+K12 auth khong fn_auth_bootstrap_close => ok
+K13 auth khong setval => ok
+K14 auth KHONG EXECUTE ham SECURITY DEFINER nao khac (11 ham) => ok
+K15 auth khong SELECT bang nghiep vu nao (customer, contact, customer_assignment, activity, lookup_item, app_meta, _prisma_migrations) => ok
+K16 auth khong CREATE TEMP TABLE (M-c) => ok
+K17 auth khong SELECT privileged_change_request => ok
+K18 auth khong nextval sequence ma khach (dot ma) - M-5 => ok
+K19 auth khong SELECT department (khong can cho xac thuc) - M-5 => ok
+K2 auth khong INSERT customer => ok
+K3 auth khong SELECT contact => ok
+K4 auth khong INSERT employee_role (cap vai tro) => ok
+K5 auth khong UPDATE password_hash truc tiep => ok
+K6 auth khong UPDATE token_version / must_change_password / status truc tiep => ok
+K7a auth khong INSERT employee_credential => ok
+K7b auth khong DELETE employee_credential => ok
+K8 auth khong DELETE auth_session (chi thu hoi bang UPDATE) => ok
+K9 auth khong UPDATE/DELETE audit_log => ok
+PASS|30
+## (2) AUTH_ROLE_ROLLBACK tren DB5 - cac DB thu khac tren cluster con muc ACL cho siscom_auth => phai GIU role
+             db_dich             | chay_bang 
+---------------------------------+-----------
+ siscom_crm_test_20261031_234446 | postgres
+(1 row)
+
+                    ?column?                     
+-------------------------------------------------
+ target_db khop: siscom_crm_test_20261031_234446
+(1 row)
+
+               ?column?               
+--------------------------------------
+ trong DB nay: quyen bang con lai = 0
+ CONNECT DB nay = false
+(2 rows)
+
+                                                                                  ?column?                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ DB khac con cap CONNECT cho siscom_auth: siscom_crm_test_20261031_231322, siscom_crm_test_20261031_231559, siscom_crm_test_20261031_231748, siscom_crm_test_20261031_232120
+(1 row)
+
+                             ?column?                              
+-------------------------------------------------------------------
+ GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)
+(1 row)
+
+ ?column? 
+----------
+        1
+(1 row)
+
+           ?column?            
+-------------------------------
+ siscom_auth con ton tai: true
+(1 row)
+
+## (3) AUTH_ROLE (da ton tai) + V3 (migrator) + VERIFY (app) + VERIFY_AUTH
+             db_dich             | chay_bang 
+---------------------------------+-----------
+ siscom_crm_test_20261031_234446 | postgres
+(1 row)
+
+                    ?column?                     
+-------------------------------------------------
+ target_db khop: siscom_crm_test_20261031_234446
+(1 row)
+
+                     ?column?                     
+--------------------------------------------------
+ role siscom_auth da ton tai, giu nguyen mat khau
+(1 row)
+
+    role     | super | createrole | createdb | inherit | connect_db | temp_db | set_actor 
+-------------+-------+------------+----------+---------+------------+---------+-----------
+ siscom_auth | f     | f          | f        | f       | t          | f       | t
+(1 row)
+
+             db_dich             |    chay_bang    
+---------------------------------+-----------------
+ siscom_crm_test_20261031_234446 | siscom_migrator
+(1 row)
+
+                    ?column?                     
+-------------------------------------------------
+ target_db khop: siscom_crm_test_20261031_234446
+(1 row)
+
+                 muc                  | gia_tri 
+--------------------------------------+---------
+ bang_app_INSERT                      | 4
+ bang_app_UPDATE (phai 3)             | 3
+ bang_app_DELETE (phai 0)             | 0
+ cot_credential_app_UPDATE (phai 0)   | 0
+ ham_api_app_EXECUTE (phai 0)         | 0
+ auth_session_app_SELECT (phai f)     | false
+ bang_auth_INSERT (phai 2)            | 2
+ bang_auth_UPDATE (phai 2)            | 2
+ cot_credential_auth_UPDATE (phai 7)  | 7
+ ham_api_auth_EXECUTE (phai 1)        | 1
+ customer_auth_SELECT (phai f)        | false
+ sequence_app_UPDATE (phai 0)         | 0
+ bootstrap_close_app_EXECUTE (phai f) | false
+(13 rows)
+
+PASS|72
+PASS|30
+## (4) has_auth_grants (bieu thuc N-5) tren 2 pool
+siscom_app has_auth_grants=false
+siscom_auth has_auth_grants=true
+## (5) db-roles.int-spec tren DB4 (3 pool app/migrator/auth)
+    √ chủ sở hữu database và mọi bảng/sequence/hàm trong public là siscom_migrator; siscom_app không superuser (27 ms)
+    √ siscom_app bị từ chối DDL (42501): DISABLE TRIGGER, DROP TRIGGER, CREATE TABLE, ADD COLUMN, CREATE OR REPLACE hàm trigger, GRANT (179 ms)
+    √ siscom_app không ghi được audit_log (UPDATE/DELETE/TRUNCATE) và _prisma_migrations; không gọi được fn_auth_bootstrap_close (171 ms)
+    √ siscom_app vẫn làm được việc nghiệp vụ: INSERT/UPDATE customer/contact/assignment, nextval mã khách, extension, SET app.*; KHÔNG còn quyền xác thực (P3c) (230 ms)
+    √ P3b (S2/S3): siscom_app bị từ chối 42501 khi ghi thẳng bí mật/quyền — password_hash, token_version, must_change_password, employee_role, privileged_change_request, reset token, app_meta, DELETE, setval (574 ms)
+    √ P3b M-5: câu SQL thật của fetchDbRoleFacts — kết nối app => đặc quyền tối thiểu; kết nối migrator => chủ sở hữu, sở hữu đối tượng, thành viên migrator (150 ms)
+    √ P3b I-4: không có quyền GHI nào (kể cả theo cột) trên bảng RBAC/nền; một GRANT UPDATE (cột) bị has_table_privilege bỏ sót nhưng has_any_column_privilege bắt được (140 ms)
+    √ siscom_app không tự nâng quyền: GRANT cho chính mình (PostgreSQL chỉ WARNING, không lỗi) KHÔNG có hiệu lực; đổi chủ sở hữu/role/SET ROLE bị 42501 (268 ms)
+    √ qua Prisma (pool của ứng dụng) DDL cũng bị từ chối, lỗi mang mã 42501 và không làm hỏng pool (truy vấn sau vẫn chạy) (68 ms)
+    √ kết nối chủ sở hữu (TEST_MIGRATE_DATABASE_URL) là siscom_migrator, không superuser, cùng database; migrator không bypass được trigger audit_log (31 ms)
+    √ siscom_app (pool nghiệp vụ) bị 42501: đọc password_hash/token_version, đọc/chèn/sửa auth_session, sửa 7 cột đếm, gọi fn_auth_api_change_own_password (157 ms)
+    √ siscom_auth làm được việc xác thực: SELECT employee/credential (kể cả password_hash), INSERT/UPDATE auth_session, UPDATE 7 cột, INSERT audit_log; EXECUTE đổi mật khẩu (170 ms)
+    √ siscom_auth bị 42501 ngoài phạm vi xác thực: SELECT/INSERT customer, INSERT employee_role, UPDATE password_hash/token_version trực tiếp, DELETE auth_session, UPDATE audit_log, DDL, fn_auth_bootstrap_close (331 ms)
+    √ fetchDbRoleFacts thật: app => hasAuthGrants=false, canWriteBusiness=true; auth => hasAuthGrants=true, canWriteBusiness=false; assess đúng theo pool (13 ms)
+Test Suites: 1 passed, 1 total
+Tests:       14 passed, 14 total
+## (5b) DB5 cung suite: 13/14 - ca 'migrator khong bypass trigger audit_log' FAIL do DB5 khong co dong audit_log (chua bootstrap), khong lien quan sua doi

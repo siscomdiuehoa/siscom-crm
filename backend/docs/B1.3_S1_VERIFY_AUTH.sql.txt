@@ -58,7 +58,7 @@ INSERT INTO s1_result SELECT 'H7 auth co SET app.actor_employee_id / app.priv_re
   has_parameter_privilege('siscom_auth', 'app.actor_employee_id', 'SET') AND has_parameter_privilege('siscom_auth', 'app.priv_request_id', 'SET');
 INSERT INTO s1_result SELECT 'H8 auth USAGE/SELECT CHI audit_log_id_seq; KHONG USAGE sequence ma khach/nhan vien, KHONG UPDATE sequence nao (M-5)',
   has_sequence_privilege('siscom_auth', 'public.audit_log_id_seq', 'USAGE') AND has_sequence_privilege('siscom_auth', 'public.audit_log_id_seq', 'SELECT')
-  AND NOT has_sequence_privilege('siscom_auth', 'public.customer_code_seq', 'USAGE') AND NOT has_sequence_privilege('siscom_auth', 'public.employee_code_seq', 'USAGE')
+  AND (SELECT bool_and(NOT has_sequence_privilege('siscom_auth', 'public.' || q, 'USAGE')) FROM unnest(ARRAY['customer_code_seq', 'employee_code_seq', 'contact_code_seq', 'activity_code_seq']) AS q)
   AND (SELECT bool_and(NOT has_sequence_privilege('siscom_auth', q, 'UPDATE')) FROM (SELECT format('%I.%I', schemaname, sequencename) AS q FROM pg_sequences WHERE schemaname = 'public') s);
 INSERT INTO s1_result SELECT 'H9 auth khong superuser/createrole/createdb/replication/bypassrls/inherit, khong chu so huu DB, khong CREATE public, khong TEMP, khong thanh vien role nao',
   (SELECT NOT (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls OR rolinherit) FROM pg_roles WHERE rolname = 'siscom_auth')
@@ -81,6 +81,7 @@ SELECT pg_temp.expect_denied('K9 auth khong UPDATE/DELETE audit_log', 'UPDATE pu
 SELECT pg_temp.expect_denied('K10 auth khong SELECT password_reset_token', 'SELECT count(*) FROM public.password_reset_token');
 SELECT pg_temp.expect_denied('K17 auth khong SELECT privileged_change_request', 'SELECT count(*) FROM public.privileged_change_request');
 SELECT pg_temp.expect_denied('K18 auth khong nextval sequence ma khach (dot ma) - M-5', 'SELECT nextval(''public.customer_code_seq'')');
+SELECT pg_temp.expect_denied('K19 auth khong SELECT department (khong can cho xac thuc) - M-5', 'SELECT count(*) FROM public.department');
 SELECT pg_temp.expect_denied('K11 auth khong DDL', 'ALTER TABLE public.auth_session DISABLE TRIGGER ALL');
 SELECT pg_temp.expect_denied('K12 auth khong fn_auth_bootstrap_close', 'SELECT public.fn_auth_bootstrap_close(''s1-probe'')');
 SELECT pg_temp.expect_denied('K13 auth khong setval', 'SELECT setval(''public.customer_code_seq'', last_value, is_called) FROM public.customer_code_seq');

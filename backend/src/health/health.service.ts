@@ -20,6 +20,7 @@ export class HealthService {
   private readonly logger = new Logger(HealthService.name);
   // M-6: nhớ trạng thái role đã báo để không ghi cảnh báo lặp mỗi lần probe; chỉ ghi khi trạng thái đổi.
   private lastRoleWarning: string | null = null;
+  private authPoolLostGrants = false;
   constructor(private readonly prisma: PrismaService, private readonly authPrisma: AuthPrismaService) {}
 
   liveness() {
@@ -52,11 +53,13 @@ export class HealthService {
     // QA P3c I-3: pool auth tách riêng mà không kết nối được => mọi đăng nhập/request có cookie lỗi => báo down để load balancer rút instance.
     if (this.authPrisma?.separate === true) {
       try { await this.withTimeout(this.authPrisma.$queryRaw`SELECT 1`); } catch (err) {
-        this.logger.error('Kiểm tra pool xác thực (AUTH_DATABASE_URL) thất bại: ' + (err instanceof Error ? err.message : 'không rõ'));
+        this.warnOnChange('Kiểm tra pool xác thực (AUTH_DATABASE_URL) thất bại: ' + (err instanceof Error ? err.message : 'không rõ'));
         return { ok: false };
       }
     }
     const role = await this.role();
+    // QA N-4: pool auth kết nối được nhưng MẤT quyền xác thực (rollback/REVOKE chạy khi backend còn sống) => đăng nhập/phiên đều lỗi => down.
+    if (role.authPool === 'separate' && this.authPoolLostGrants) return { ok: false, role };
     try {
       const row = await this.withTimeout(this.prisma.appMeta.findUnique({ where: { key: 'schema_baseline' } }));
       return { ok: true, latencyMs, migrated: !!row, baseline: row ? row.value : null, role };
@@ -83,10 +86,13 @@ export class HealthService {
     let authLeastPrivilege: boolean | null = null;
     if (separate) {
       try {
-        const b = assessDbRole(await this.withTimeout(fetchDbRoleFacts(this.authPrisma)), process.env.NODE_ENV, { pool: 'auth', authSeparate: true });
+        const fb = await this.withTimeout(fetchDbRoleFacts(this.authPrisma));
+        this.authPoolLostGrants = !fb.hasAuthGrants;
+        const b = assessDbRole(fb, process.env.NODE_ENV, { pool: 'auth', authSeparate: true });
         authLeastPrivilege = b.leastPrivilege;
         if (!b.leastPrivilege) notes.push('Role pool xác thực không đúng: ' + b.problems.join('; '));
       } catch (err) {
+        this.authPoolLostGrants = false;
         notes.push('Không đọc được thông tin role pool xác thực: ' + (err instanceof Error ? err.message : 'không rõ'));
       }
     }

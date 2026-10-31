@@ -21,8 +21,9 @@ export interface DbRoleFacts {
   hasBroadGrants: boolean;
   // QA Minor 4: là thành viên của role khác (nhóm cũ siscom_auth_rt, pg_write_all_data…) — V2 chỉ gỡ quyền cấp trực tiếp.
   isMemberOfOtherRoles: boolean;
-  // B1.4 P3c: "quyền xác thực" = SELECT auth_session, hoặc SELECT employee_credential.password_hash, hoặc EXECUTE
-  // fn_auth_api_change_own_password. Pool nghiệp vụ (siscom_app) sau APP_GRANTS_V3 KHÔNG được có; pool auth (siscom_auth) PHẢI có.
+  // B1.4 P3c: "quyền xác thực" = bất kỳ quyền nào trên auth_session (SELECT/INSERT/UPDATE/DELETE), SELECT password_hash hoặc
+  // INSERT/UPDATE/DELETE employee_credential, hoặc EXECUTE fn_auth_api_change_own_password (QA M-8/N-5). Pool nghiệp vụ (siscom_app)
+  // sau APP_GRANTS_V3 KHÔNG được có; pool auth (siscom_auth) PHẢI có (SELECT auth_session là đủ để "có").
   hasAuthGrants: boolean;
   // B1.4 P3c: INSERT customer — pool auth không được ghi nghiệp vụ (phát hiện hai URL đổi chỗ).
   canWriteBusiness: boolean;
@@ -61,8 +62,10 @@ export async function fetchDbRoleFacts(client: Pick<PrismaClient, '$queryRaw'>):
     (CASE WHEN to_regclass('public.auth_session') IS NULL OR to_regclass('public.employee_credential') IS NULL THEN false
           ELSE has_any_column_privilege(current_user, 'public.auth_session', 'SELECT')
                OR has_any_column_privilege(current_user, 'public.auth_session', 'INSERT') OR has_any_column_privilege(current_user, 'public.auth_session', 'UPDATE')
+               OR has_table_privilege(current_user, 'public.auth_session', 'DELETE')
                OR has_column_privilege(current_user, 'public.employee_credential', 'password_hash', 'SELECT')
-               OR has_any_column_privilege(current_user, 'public.employee_credential', 'UPDATE')
+               OR has_any_column_privilege(current_user, 'public.employee_credential', 'INSERT') OR has_any_column_privilege(current_user, 'public.employee_credential', 'UPDATE')
+               OR has_table_privilege(current_user, 'public.employee_credential', 'DELETE')
                OR (CASE WHEN to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NULL THEN false
                         ELSE has_function_privilege(current_user, 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE') END) END) AS has_auth_grants,
     (CASE WHEN to_regclass('public.customer') IS NULL THEN false ELSE has_any_column_privilege(current_user, 'public.customer', 'INSERT') END) AS can_write_business`;

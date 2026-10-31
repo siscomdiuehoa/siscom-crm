@@ -84,3 +84,15 @@ describe('HealthService.database — pool auth không kết nối được (P3c 
     expect(r.ok).toBe(true);
   });
 });
+
+// QA P3c N-4: pool auth kết nối được nhưng mất quyền xác thực (REVOKE/rollback chạy khi backend còn sống) => down (503).
+describe('HealthService.database — pool auth mất quyền (P3c N-4)', () => {
+  it('separate + hasAuthGrants=false trên pool auth => ok=false, role vẫn báo authLeastPrivilege=false', async () => {
+    const fake = { $queryRaw: async () => [{ ok: 1 }], appMeta: { findUnique: async () => null } };
+    const authFacts = { user: 'siscom_auth', is_superuser: false, is_db_owner: false, can_create_in_public: false, is_migrator_member: false, has_auth_grants: false, can_write_business: false };
+    const fakeAuth = { separate: true, $queryRaw: async (q: TemplateStringsArray) => (q.join('').includes('rolsuper') ? [authFacts] : [{ ok: 1 }]) };
+    const r = await new HealthService(fake as never, fakeAuth as never).database();
+    expect(r.ok).toBe(false);
+    expect(r.role).toMatchObject({ authPool: 'separate', authLeastPrivilege: false });
+  });
+});

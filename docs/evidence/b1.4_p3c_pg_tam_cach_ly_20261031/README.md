@@ -2,7 +2,7 @@
 
 | Mục | Giá trị |
 |---|---|
-| PR | #183 `db/b1.4-p3c-auth-role` (Draft, chưa merge). Mã kiểm: working tree tương đương HEAD sau commit `84255d5` (01–07 chạy trước khi commit tài liệu/bằng chứng; không có thay đổi mã sau đó ngoài tài liệu) |
+| PR | #183 `db/b1.4-p3c-auth-role` (Draft, chưa merge). Mã kiểm: 01–07 trên working tree tương đương `84255d5`; 08 trên working tree tương đương `85d53ef` (sau QA lần 1) |
 | Môi trường | Cluster PostgreSQL **riêng** (`initdb` thư mục tạm, PostgreSQL 18.6, chỉ `127.0.0.1:55432`). **Không** dùng server của owner (5432); không chạm `siscom_crm_dev`/baseline. Cluster huỷ sau khi kiểm |
 | Dữ liệu | Giả: DB `siscom_crm_test_<stamp>`, tài khoản bootstrap `*@siscom.local`, mật khẩu ngẫu nhiên (đã xoá). Ba role: `siscom_app`, `siscom_migrator`, `siscom_auth` |
 | Đã loại bỏ | Chuỗi kết nối (`<url-da-che>`), mật khẩu, đường dẫn cục bộ (`<scratchpad>`), mã ANSI. JSON harness chỉ có tên/thuộc tính cookie, không giá trị |
@@ -16,9 +16,9 @@
 | `05_harness_chrome_4_vai_tro_auth_pool.txt` + `_evidence.json` | `sessionRolesChrome.mjs`, backend `dist/main.js` với `DATABASE_URL`=siscom_app + `AUTH_DATABASE_URL`=siscom_auth, FE build + preview; `/health/database` `authPool=separate` | **91 PASS / 0 FAIL / 0 KNOWN**; 0 lỗi quyền/500 trong log backend |
 | `06_cau_hinh_sai_production.txt` | Tiến trình thật `NODE_ENV=production`, cổng 3100: (a) đúng; (b) thiếu AUTH; (c) cùng tài khoản; (d) hai URL đổi chỗ; (e) khác DB; (g) AUTH = migrator; (f) DB còn V2 + AUTH; (f') V3 lại | (a) chạy, cả hai pool `leastPrivilege=true`; (b)(c)(d)(e)(g)(f) **thoát 1** với thông điệp nêu lý do; (f') chạy |
 | `07_r1_r2_r3_duoi_quyen_app_42501_va_auth.txt` | Lặp lại R1 (đọc `token_version`, gọi hàm đổi mật khẩu), R2 (chèn `auth_session`), R3 (khoá admin) dưới quyền `siscom_app`; đối chứng dưới `siscom_auth` | app: **42501 cả ba**, nghiệp vụ vẫn chạy; auth: R1/R2 làm được (giới hạn còn lại §7.5), không đọc được `customer` |
-
 | `08_db5_v3_cuoi_va_dien_tap_rollback_role.txt` | DB5 với script sau QA lần 1 (V3 chỉ `audit_log_id_seq`, VERIFY_AUTH 29 ca) + diễn tập `AUTH_ROLE_ROLLBACK` với DB canary cùng cluster (giữ CONNECT/SET/role), rồi AUTH_ROLE + V3 lại | VERIFY `PASS|72`, VERIFY_AUTH `PASS|29`; canary `t t t`; lần 2 role **không** bị DROP vì các DB thử khác trên cluster tạm còn cấp CONNECT (đúng, bảo thủ) — nhánh DROP ROLE kiểm trên CI (`pg-temp-db.sh unauth`) |
+| `09_sau_qa2_verify_auth_30_rollback_n1_dbroles.txt` | Sau QA lần 2 (working tree sau `85d53ef`): VERIFY_AUTH với H8 đủ 4 sequence mã + K19 `department`; ROLLBACK với điều kiện N-1 (`aclexplode`) khi các DB thử khác còn ACL; AUTH_ROLE + V3 lại; biểu thức `has_auth_grants` mở rộng (N-5) trên 2 pool; `db-roles.int-spec` 3 pool trên DB4 | VERIFY_AUTH `PASS|30`; rollback **giữ** role (đúng); VERIFY `PASS|72`; app `false` / auth `true`; **14/14** (DB5 13/14 do chưa có dòng `audit_log` — tiền đề, không liên quan) |
 
-Toàn bộ integration (13 suite) trên DB đã áp V3: CI run 41219434454 (140/140); cục bộ chỉ chạy lại các suite bị ảnh hưởng.
+Toàn bộ integration (13 suite) trên DB đã áp V3: CI (run 41221324949 trên `85d53ef`, 140/140; lượt sau QA lần 2 xem PR); cục bộ chỉ chạy lại các suite bị ảnh hưởng. Nhãn trong file `08`: bước "(3) ROLLBACK lần 2 (không còn DB khác)" thực tế **vẫn còn** 4 DB thử khác trên cluster tạm nên role được giữ (đúng); bước "(4) AUTH_ROLE (tạo lại)" đi nhánh "đã tồn tại" — nhánh DROP/CREATE được kiểm trên CI.
 
 Sự cố khi kiểm (đã xử lý): lượt chạy ma trận cấu hình sai đầu tiên báo (f) "khởi động được" vì script chạy với `MSYS_NO_PATHCONV=1` khiến `psql -f /d/…` không mở được V2 (V2 không được áp). Chạy lại không có biến đó ⇒ (f) thoát 1. File `06` là lượt chạy lại.

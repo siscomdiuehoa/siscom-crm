@@ -26,6 +26,7 @@ DO $$ BEGIN
   IF current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
     RAISE EXCEPTION 'TU CHOI: % la baseline da khoa.', current_database();
   END IF;
+  -- Chay lai sau khi role da bi DROP => dung voi loi (fail-loud, co chu dich; QA N-3).
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') THEN RAISE EXCEPTION 'Khong co role siscom_auth - khong co gi de go.'; END IF;
 END $$;
 
@@ -49,10 +50,14 @@ COMMIT;
 SELECT 'trong DB nay: quyen bang con lai = ' || count(*) FROM information_schema.table_privileges WHERE grantee = 'siscom_auth'
 UNION ALL SELECT 'CONNECT DB nay = ' || has_database_privilege('siscom_auth', current_database(), 'CONNECT')::text;
 
--- 2. Cap cluster: CHI khi khong con DB nao khac cap CONNECT rieng cho siscom_auth (DB ma PUBLIC khong CONNECT duoc).
+-- 2. Cap cluster: CHI khi khong con DB nao khac cap quyen cho siscom_auth. Thu SET ON PARAMETER truoc DROP ROLE (DROP ROLE that bai neu con
+--    pg_parameter_acl); neu DROP ROLE van that bai (phu thuoc o DB khac chua thay) thi script DUNG voi loi - role con, SET da mat: cap lai bang
+--    GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO siscom_auth roi xem pg_shdepend.
+-- QA N-1: tinh ca DB con MUC ACL RIENG cho siscom_auth (aclexplode) - khong phu thuoc viec DB do da REVOKE PUBLIC hay chua.
 CREATE TEMP TABLE s1_auth_other AS
   SELECT d.datname FROM pg_database d WHERE d.datname <> current_database() AND NOT d.datistemplate
-    AND has_database_privilege('siscom_auth', d.datname, 'CONNECT') AND NOT has_database_privilege('public', d.datname, 'CONNECT');
+    AND ((has_database_privilege('siscom_auth', d.datname, 'CONNECT') AND NOT has_database_privilege('public', d.datname, 'CONNECT'))
+         OR EXISTS (SELECT 1 FROM aclexplode(d.datacl) a WHERE a.grantee = (SELECT oid FROM pg_roles WHERE rolname = 'siscom_auth')));
 SELECT 'DB khac con cap CONNECT cho siscom_auth: ' || coalesce(string_agg(datname, ', '), '(khong)') FROM s1_auth_other;
 SELECT CASE WHEN EXISTS (SELECT 1 FROM s1_auth_other)
             THEN 'SELECT ''GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)'''
