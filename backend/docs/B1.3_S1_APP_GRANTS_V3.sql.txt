@@ -5,17 +5,18 @@
 --
 -- MA TRAN (B1.4_P3C_S3_AUTH_ROLE_DESIGN.md §7.1) - dong S3: pool nghiep vu KHONG con doc hash, tao phien, doi mat khau:
 --   siscom_auth (pool xac thuc: dang nhap / phien / doi mat khau / me):
---     SELECT   : employee, department, employee_role, role, role_permission, permission, employee_credential, auth_session, audit_log
+--     SELECT   : employee, employee_role, role, role_permission, permission, employee_credential, auth_session, audit_log (audit_log: RETURNING)
 --     INSERT+UPDATE: auth_session (cap, gia han, thu hoi).  INSERT: audit_log.
 --     UPDATE theo COT: employee_credential (failed_count, window_started_at, locked_until, lock_level, last_login_at, password_changed_at,
 --                      updated_at). KHONG password_hash/token_version/must_change_password/status: chi qua fn_auth_api_change_own_password.
---     Sequence : USAGE + SELECT. Ham: EXECUTE DUY NHAT fn_auth_api_change_own_password. KHONG gi tren bang nghiep vu (customer...).
+--     Sequence : CHI audit_log_id_seq (USAGE, SELECT). Ham: EXECUTE DUY NHAT fn_auth_api_change_own_password. KHONG gi tren bang nghiep vu.
 --   siscom_app (pool nghiep vu) = V2 TRU quyen xac thuc:
 --     SELECT   : moi bang public TRU auth_session, employee_credential, privileged_change_request, password_reset_token.
 --     INSERT+UPDATE: customer, contact, customer_assignment. INSERT: audit_log. Sequence: USAGE + SELECT. KHONG ham dac quyen nao.
 --   Quyen mac dinh: siscom_app nhu V2 (bang moi SELECT; sequence USAGE/SELECT); siscom_auth KHONG co quyen mac dinh.
--- Rollback P3c (ve P3b): chay lai B1.3_S1_APP_GRANTS_V2.sql.txt (tra quyen xac thuc cho siscom_app; KHONG dung toi siscom_auth) + bo
---   AUTH_DATABASE_URL o backend; go role: B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt. Khong doi schema.
+-- Rollback P3c (ve P3b): (1) trien khai lai backend BAN TRUOC P3c (ma P3c o production bat buoc AUTH_DATABASE_URL - chi bo bien thi khong
+--   khoi dong duoc), (2) chay lai B1.3_S1_APP_GRANTS_V2.sql.txt (tra quyen xac thuc cho siscom_app; V2 KHONG dung toi siscom_auth),
+--   (3) B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt (superuser; khong DROP OWNED). Khong doi schema.
 \set ON_ERROR_STOP on
 \pset pager off
 -- I4: bat buoc -v target_db=<ten DB dich> trung current_database(); tu choi siscom_crm_dev (tru s1.allow_dev) va 2 baseline da khoa.
@@ -122,13 +123,13 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO siscom_app;
 REVOKE ALL ON FUNCTION public.fn_auth_bootstrap_close(text) FROM siscom_app, siscom_auth;
 -- 4. siscom_auth (pool xac thuc)
 GRANT USAGE ON SCHEMA public TO siscom_auth;
-GRANT SELECT ON public.employee, public.department, public.employee_role, public.role, public.role_permission, public.permission,
+GRANT SELECT ON public.employee, public.employee_role, public.role, public.role_permission, public.permission,
                 public.employee_credential, public.auth_session, public.audit_log TO siscom_auth;
 GRANT INSERT, UPDATE ON public.auth_session TO siscom_auth;
 GRANT INSERT ON public.audit_log TO siscom_auth;
 GRANT UPDATE (failed_count, window_started_at, locked_until, lock_level, last_login_at, password_changed_at, updated_at)
   ON public.employee_credential TO siscom_auth;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO siscom_auth;
+GRANT USAGE, SELECT ON SEQUENCE public.audit_log_id_seq TO siscom_auth;  -- QA M-5: KHONG cap sequence ma khach/nhan vien (khong dot ma)
 -- 5. Ham dac quyen: DUY NHAT doi mat khau cua chinh minh, CHI pool auth. Cac fn_auth_api_* khac da REVOKE FROM PUBLIC trong M1.2 va buoc 0.
 GRANT EXECUTE ON FUNCTION public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb) TO siscom_auth;
 -- 6. I3: quyen mac dinh cho doi tuong migrator tao SAU nay (thu mac dinh V1 roi dat lai CHI DOC)

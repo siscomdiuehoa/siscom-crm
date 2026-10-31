@@ -20,7 +20,7 @@ export class AuthPrismaService extends PrismaClient implements OnApplicationBoot
   constructor(config: ConfigService) {
     const env = { DATABASE_URL: config.getOrThrow<string>('DATABASE_URL'), AUTH_DATABASE_URL: config.get<string>('AUTH_DATABASE_URL') };
     const picked = pickAuthDbUrl(env, config.get<string>('NODE_ENV') ?? process.env.NODE_ENV);
-    super({ adapter: new PrismaPg(pgPoolConfig(picked.url)) });
+    super({ adapter: new PrismaPg(pgPoolConfig(picked.url, picked.source)) });
     this.separate = picked.separate;
   }
 

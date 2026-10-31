@@ -171,6 +171,7 @@ jobs:
         run: |
           set -euo pipefail
           unset DATABASE_URL
+          test -n "${TEST_AUTH_DATABASE_URL:-}" || { echo "THIEU TEST_AUTH_DATABASE_URL (P3c): db-roles P3c se bi skip"; exit 1; }
           npm run test:e2e:customers
         env:
           CONCURRENCY_ROUNDS: "20"
@@ -182,6 +183,14 @@ jobs:
           bash scripts/ci/pg-temp-db.sh grants v2
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
           bash scripts/ci/pg-temp-db.sh grants v3
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+      - name: B1.4 P3c - dien tap rollback role auth (V2 => AUTH_ROLE_ROLLBACK voi canary3 cung cluster) roi tach lai (AUTH_ROLE + V3) => PASS app + auth
+        run: |
+          set -euo pipefail
+          bash scripts/ci/pg-temp-db.sh grants v2
+          bash scripts/ci/pg-temp-db.sh unauth
+          bash scripts/ci/pg-temp-db.sh auth
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
       - name: Don DB tam (container cung bi huy sau job)

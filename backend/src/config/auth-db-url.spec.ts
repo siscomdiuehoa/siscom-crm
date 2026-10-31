@@ -34,3 +34,16 @@ describe('pickAuthDbUrl (B1.4 P3c)', () => {
     expect(() => pickAuthDbUrl({ AUTH_DATABASE_URL: AUTH }, 'test')).toThrow(/DATABASE_URL/);
   });
 });
+
+// QA P3c I-3 / M-1: mật khẩu mẫu và tham số query ghi đè tài khoản/DB (pg-connection-string nhận ?user=, ?password=, ?dbname=) phải bị từ chối.
+describe('pickAuthDbUrl — mật khẩu mẫu và tham số query ghi đè', () => {
+  it('AUTH_DATABASE_URL còn CHANGE_ME => từ chối (không nêu giá trị)', () => {
+    expect(() => pickAuthDbUrl({ DATABASE_URL: APP, AUTH_DATABASE_URL: AUTH.replace(':z@', ':CHANGE_ME_X@') }, 'test')).toThrow(/mật khẩu mẫu/);
+  });
+  it('?user= / ?password= / ?dbname= / ?options= trong AUTH_DATABASE_URL => từ chối (ghi đè tài khoản/DB qua query)', () => {
+    for (const q of ['user=siscom_app', 'password=x', 'dbname=other', 'options=-c%20TimeZone%3DUTC', 'USER=postgres']) {
+      expect(() => pickAuthDbUrl({ DATABASE_URL: APP, AUTH_DATABASE_URL: AUTH + '?' + q }, 'test')).toThrow(/tham số/);
+    }
+    expect(pickAuthDbUrl({ DATABASE_URL: APP, AUTH_DATABASE_URL: AUTH + '?schema=public&sslmode=require' }, 'test').separate).toBe(true);
+  });
+});

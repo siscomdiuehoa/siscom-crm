@@ -1,8 +1,12 @@
--- SISCOM CRM - B1.4 P3c ROLLBACK: go role siscom_auth khoi DATABASE DICH. VIET SAN, chay bang SUPERUSER voi -v target_db=<ten>.
--- THU TU ROLLBACK P3c: (1) chay lai B1.3_S1_APP_GRANTS_V2.sql.txt bang siscom_migrator (tra quyen xac thuc cho siscom_app; V2 cung THU
---   het quyen cua siscom_auth tren bang/ham vi V2 chi cap cho siscom_app? KHONG - V2 khong dung toi siscom_auth, nen file nay thu),
---   (2) bo AUTH_DATABASE_URL khoi moi truong backend (backend dung lai DATABASE_URL), (3) file nay.
--- Khong xoa du lieu. Khong doi schema. DROP ROLE chi khi role khong con so huu / duoc cap quyen o DB khac (neu con => chi REVOKE, giu role).
+-- SISCOM CRM - B1.4 P3c ROLLBACK ROLE XAC THUC: go quyen cua siscom_auth khoi DATABASE DICH, va chi go quyen CAP CLUSTER / DROP ROLE khi
+-- role khong con duoc dung o DB nao khac. VIET SAN, chay bang SUPERUSER voi -v target_db=<ten>. Khong xoa du lieu, khong doi schema.
+-- THU TU ROLLBACK P3c (xem B1.4_P3C_S3_AUTH_ROLE_DESIGN.md §7.2):
+--   (1) trien khai lai backend BAN TRUOC P3c (ma P3c o production BAT BUOC AUTH_DATABASE_URL - khong the chi bo bien);
+--   (2) chay B1.3_S1_APP_GRANTS_V2.sql.txt bang siscom_migrator (tra quyen xac thuc cho siscom_app; V2 KHONG dung toi siscom_auth);
+--   (3) file nay (superuser) tren DB dich.
+-- QA P3c I-1: KHONG dung DROP OWNED BY - no thu ca CONNECT cua MOI database va SET ON PARAMETER tren TOAN CLUSTER (nhu REASSIGN OWNED,
+--   canh bao C1 cua ROLE_SPLIT) => DB that cung cluster mat pool auth. Thay bang REVOKE tuong minh trong DB dich; quyen cluster chi go khi
+--   siscom_auth khong con CONNECT o DB nao khac. CI dien tap voi DB canary cung cluster (pg-temp-db.sh unauth).
 \set ON_ERROR_STOP on
 \pset pager off
 \if :{?target_db}
@@ -22,19 +26,36 @@ DO $$ BEGIN
   IF current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
     RAISE EXCEPTION 'TU CHOI: % la baseline da khoa.', current_database();
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') THEN RAISE NOTICE 'Khong co role siscom_auth - khong co gi de go.'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') THEN RAISE EXCEPTION 'Khong co role siscom_auth - khong co gi de go.'; END IF;
 END $$;
 
+-- 1. Trong DB dich: thu moi quyen tren doi tuong trong public (REVOKE ALL ON TABLE thu ca quyen theo cot), ham, schema, quyen mac dinh, CONNECT/TEMP.
 BEGIN;
--- Thu moi quyen cua siscom_auth trong DB nay (bang/sequence/ham/schema) va quyen mac dinh (neu co), roi CONNECT.
-SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') THEN 'DROP OWNED BY siscom_auth' ELSE 'SELECT 1' END \gexec
-SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth')
-            THEN format('REVOKE CONNECT, TEMP ON DATABASE %I FROM siscom_auth', current_database()) ELSE 'SELECT 1' END \gexec
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM siscom_auth;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM siscom_auth;
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN SELECT p.oid::regprocedure AS sig FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+           WHERE ns.nspname = 'public' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e') LOOP
+    EXECUTE format('REVOKE ALL ON ROUTINE %s FROM siscom_auth', f.sig);
+  END LOOP;
+END $$;
+REVOKE USAGE ON SCHEMA public FROM siscom_auth;
+ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE ALL ON TABLES FROM siscom_auth;
+ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE ALL ON SEQUENCES FROM siscom_auth;
+SELECT format('REVOKE CONNECT, TEMP ON DATABASE %I FROM siscom_auth', current_database()) \gexec
 COMMIT;
--- DROP ROLE la thao tac cap cluster: chi khi role khong con CONNECT o DB nao khac va khong so huu gi (DROP ROLE tu tu choi neu con phu thuoc).
-SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth')
-             AND NOT EXISTS (SELECT 1 FROM pg_database d WHERE d.datname <> current_database() AND has_database_privilege('siscom_auth', d.datname, 'CONNECT')
-                                                           AND NOT has_database_privilege('public', d.datname, 'CONNECT'))
-            THEN 'DROP ROLE siscom_auth'
-            ELSE 'SELECT ''giu role siscom_auth (con CONNECT o DB khac hoac khong ton tai)''' END \gexec
+SELECT 'trong DB nay: quyen bang con lai = ' || count(*) FROM information_schema.table_privileges WHERE grantee = 'siscom_auth'
+UNION ALL SELECT 'CONNECT DB nay = ' || has_database_privilege('siscom_auth', current_database(), 'CONNECT')::text;
+
+-- 2. Cap cluster: CHI khi khong con DB nao khac cap CONNECT rieng cho siscom_auth (DB ma PUBLIC khong CONNECT duoc).
+CREATE TEMP TABLE s1_auth_other AS
+  SELECT d.datname FROM pg_database d WHERE d.datname <> current_database() AND NOT d.datistemplate
+    AND has_database_privilege('siscom_auth', d.datname, 'CONNECT') AND NOT has_database_privilege('public', d.datname, 'CONNECT');
+SELECT 'DB khac con cap CONNECT cho siscom_auth: ' || coalesce(string_agg(datname, ', '), '(khong)') FROM s1_auth_other;
+SELECT CASE WHEN EXISTS (SELECT 1 FROM s1_auth_other)
+            THEN 'SELECT ''GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)'''
+            ELSE 'REVOKE SET ON PARAMETER app.actor_employee_id, app.priv_request_id FROM siscom_auth' END \gexec
+SELECT CASE WHEN EXISTS (SELECT 1 FROM s1_auth_other) THEN 'SELECT 1' ELSE 'DROP ROLE siscom_auth' END \gexec
 SELECT 'siscom_auth con ton tai: ' || EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth')::text;

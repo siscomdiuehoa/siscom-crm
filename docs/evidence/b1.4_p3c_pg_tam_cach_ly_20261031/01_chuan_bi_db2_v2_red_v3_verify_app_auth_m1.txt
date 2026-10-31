@@ -24,7 +24,7 @@ DAT (RED mong doi voi V2)
  siscom_crm_test_20261031_231559 | siscom_migrator; muc | gia_tri ; bang_app_INSERT | 4; bang_app_UPDATE (phai 3) | 3; bang_app_DELETE (phai 0) | 0; cot_credential_app_UPDATE (phai 0) | 0; ham_api_app_EXECUTE (phai 0) | 0; auth_session_app_SELECT (phai f) | false; bang_auth_INSERT (phai 2) | 2; bang_auth_UPDATE (phai 2) | 2; cot_credential_auth_UPDATE (phai 7) | 7; ham_api_auth_EXECUTE (phai 1) | 1; customer_auth_SELECT (phai f) | false; sequence_app_UPDATE (phai 0) | 0; bootstrap_close_app_EXECUTE (phai f) | false;
 PASS|72
 DAT: VERIFY (app) PASS|72
-psql:D:/SISCOM-CRM-p3c/backend/docs/B1.3_S1_VERIFY_AUTH.sql.txt:13: ERROR:  function s1_fail_phai_chay_bang_superuser() does not exist
+<repo>/backend/docs/B1.3_S1_VERIFY_AUTH.sql.txt:13: ERROR:  function s1_fail_phai_chay_bang_superuser() does not exist
 LINE 1: SELECT s1_fail_phai_chay_bang_superuser()
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.

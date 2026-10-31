@@ -4,7 +4,8 @@
 --   B1.3_S1_APP_GRANTS_V3.sql.txt (chay bang siscom_migrator) - chua chay V3 thi siscom_auth KHONG doc/ghi duoc gi (fail-closed).
 -- Pham vi: CHI ban sao thu (siscom_crm_test_* / siscom_crm_restore_*) hoac khi chu du an phe duyet RIENG bang van ban cho DB that.
 -- Mat khau: -v auth_pw='...' (>= 32 ky tu ngau nhien, sinh tren may chu, KHONG qua chat/log). Role da ton tai => KHONG doi mat khau.
--- Rollback: B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt (sau khi chay lai B1.3_S1_APP_GRANTS_V2.sql.txt de tra quyen xac thuc cho siscom_app).
+-- Rollback P3c: (1) trien khai lai backend ban TRUOC P3c, (2) B1.3_S1_APP_GRANTS_V2.sql.txt (migrator), (3) B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt.
+-- Luu y: CREATE ROLE ... PASSWORD dang ro co the vao log server neu log_statement = ddl/all (nhu ROLE_SPLIT) - giu log_statement = none khi chay.
 \set ON_ERROR_STOP on
 \pset pager off
 \if :{?auth_pw}
@@ -49,7 +50,11 @@ SELECT CASE
   ELSE format('CREATE ROLE siscom_auth LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L', :'auth_pw')
 END \gexec
 
--- 2. Quyen cap database/cluster. KHONG cap TEMP (M-c): pool auth khong can bang tam.
+-- 1b. Role da ton tai (chay lai): EP LAI thuoc tinh an toan (khong doi mat khau) - QA M-7.
+ALTER ROLE siscom_auth NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+
+-- 2. Quyen cap database/cluster. KHONG cap TEMP (M-c): pool auth khong can bang tam (thu tuong minh phong khi PUBLIC/role tung duoc cap).
+SELECT format('REVOKE TEMP ON DATABASE %I FROM siscom_auth', current_database()) \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO siscom_auth', current_database()) \gexec
 -- Ham M1.2 (SECURITY DEFINER, "SET app.actor_employee_id = ''") doi nguoi goi co SET tren tham so tuy bien (PostgreSQL >= 15).
 GRANT SET ON PARAMETER app.actor_employee_id TO siscom_auth;

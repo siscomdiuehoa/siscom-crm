@@ -67,3 +67,20 @@ describe('HealthService.database — hai pool (B1.4 P3c)', () => {
     expect(r.role).toMatchObject({ authPool: 'separate', authLeastPrivilege: null });
   });
 });
+
+// QA P3c I-3: pool auth tách riêng mà KHÔNG kết nối được => mọi đăng nhập/request có cookie đều lỗi => /health/database phải báo down (503),
+// không được trả ok chỉ vì pool nghiệp vụ còn sống.
+describe('HealthService.database — pool auth không kết nối được (P3c I-3)', () => {
+  it('separate + SELECT 1 trên pool auth lỗi => ok=false', async () => {
+    const fake = { $queryRaw: async () => [{ ok: 1 }], appMeta: { findUnique: async () => ({ key: 'schema_baseline', value: 'B1.2' }) } };
+    const fakeAuth = { separate: true, $queryRaw: async () => { throw new Error('ECONNREFUSED'); } };
+    const r = await new HealthService(fake as never, fakeAuth as never).database();
+    expect(r.ok).toBe(false);
+  });
+  it('shared (chưa tách) => không gọi pool auth, ok=true như cũ', async () => {
+    const fake = { $queryRaw: async () => [{ ok: 1 }], appMeta: { findUnique: async () => null } };
+    const fakeAuth = { separate: false, $queryRaw: async () => { throw new Error('khong duoc goi'); } };
+    const r = await new HealthService(fake as never, fakeAuth as never).database();
+    expect(r.ok).toBe(true);
+  });
+});

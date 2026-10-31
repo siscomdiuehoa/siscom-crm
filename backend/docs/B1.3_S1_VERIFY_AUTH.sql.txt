@@ -40,9 +40,9 @@ INSERT INTO s1_result SELECT 'H0 dang chay bang siscom_auth (SET ROLE), khong su
   current_user = 'siscom_auth' AND NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user);
 
 -- H. PHAI CHAY DUOC (dang nhap / phien / doi mat khau / me)
-INSERT INTO s1_result SELECT 'H1 auth SELECT employee, department, employee_role, role, role_permission, permission, employee_credential, auth_session, audit_log',
+INSERT INTO s1_result SELECT 'H1 auth SELECT employee, employee_role, role, role_permission, permission, employee_credential, auth_session, audit_log',
   bool_and(has_table_privilege('siscom_auth', 'public.' || t, 'SELECT'))
-  FROM unnest(ARRAY['employee', 'department', 'employee_role', 'role', 'role_permission', 'permission', 'employee_credential', 'auth_session', 'audit_log']) AS t;
+  FROM unnest(ARRAY['employee', 'employee_role', 'role', 'role_permission', 'permission', 'employee_credential', 'auth_session', 'audit_log']) AS t;
 SELECT pg_temp.expect_ok('H2 auth INSERT/UPDATE auth_session',
   'INSERT INTO public.auth_session (employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at) SELECT employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at FROM public.auth_session WHERE false; '
   || 'UPDATE public.auth_session SET last_used_at = last_used_at, idle_expires_at = idle_expires_at, revoked_at = revoked_at, revoke_reason = revoke_reason WHERE false');
@@ -56,11 +56,12 @@ INSERT INTO s1_result SELECT 'H6 auth EXECUTE fn_auth_api_change_own_password',
   has_function_privilege('siscom_auth', 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE');
 INSERT INTO s1_result SELECT 'H7 auth co SET app.actor_employee_id / app.priv_request_id (ham M1.2 can)',
   has_parameter_privilege('siscom_auth', 'app.actor_employee_id', 'SET') AND has_parameter_privilege('siscom_auth', 'app.priv_request_id', 'SET');
-INSERT INTO s1_result SELECT 'H8 auth USAGE/SELECT sequence (audit_log id), KHONG UPDATE',
-  count(*) > 0 AND bool_and(has_sequence_privilege('siscom_auth', q, 'USAGE') AND NOT has_sequence_privilege('siscom_auth', q, 'UPDATE'))
-  FROM (SELECT format('%I.%I', schemaname, sequencename) AS q FROM pg_sequences WHERE schemaname = 'public') s;
-INSERT INTO s1_result SELECT 'H9 auth khong superuser, khong chu so huu DB, khong CREATE public, khong TEMP, khong thanh vien role nao',
-  NOT (SELECT rolsuper FROM pg_roles WHERE rolname = 'siscom_auth')
+INSERT INTO s1_result SELECT 'H8 auth USAGE/SELECT CHI audit_log_id_seq; KHONG USAGE sequence ma khach/nhan vien, KHONG UPDATE sequence nao (M-5)',
+  has_sequence_privilege('siscom_auth', 'public.audit_log_id_seq', 'USAGE') AND has_sequence_privilege('siscom_auth', 'public.audit_log_id_seq', 'SELECT')
+  AND NOT has_sequence_privilege('siscom_auth', 'public.customer_code_seq', 'USAGE') AND NOT has_sequence_privilege('siscom_auth', 'public.employee_code_seq', 'USAGE')
+  AND (SELECT bool_and(NOT has_sequence_privilege('siscom_auth', q, 'UPDATE')) FROM (SELECT format('%I.%I', schemaname, sequencename) AS q FROM pg_sequences WHERE schemaname = 'public') s);
+INSERT INTO s1_result SELECT 'H9 auth khong superuser/createrole/createdb/replication/bypassrls/inherit, khong chu so huu DB, khong CREATE public, khong TEMP, khong thanh vien role nao',
+  (SELECT NOT (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls OR rolinherit) FROM pg_roles WHERE rolname = 'siscom_auth')
   AND (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> 'siscom_auth'
   AND NOT has_schema_privilege('siscom_auth', 'public', 'CREATE')
   AND NOT has_database_privilege('siscom_auth', current_database(), 'TEMP')
@@ -73,10 +74,13 @@ SELECT pg_temp.expect_denied('K3 auth khong SELECT contact',             'SELECT
 SELECT pg_temp.expect_denied('K4 auth khong INSERT employee_role (cap vai tro)', 'INSERT INTO public.employee_role (employee_id, role_id) SELECT gen_random_uuid(), gen_random_uuid() WHERE false');
 SELECT pg_temp.expect_denied('K5 auth khong UPDATE password_hash truc tiep', 'UPDATE public.employee_credential SET password_hash = password_hash WHERE false');
 SELECT pg_temp.expect_denied('K6 auth khong UPDATE token_version / must_change_password / status truc tiep', 'UPDATE public.employee_credential SET token_version = token_version, must_change_password = must_change_password, status = status WHERE false');
-SELECT pg_temp.expect_denied('K7 auth khong INSERT/DELETE employee_credential', 'DELETE FROM public.employee_credential WHERE false');
+SELECT pg_temp.expect_denied('K7a auth khong INSERT employee_credential', 'INSERT INTO public.employee_credential (employee_id) SELECT gen_random_uuid() WHERE false');
+SELECT pg_temp.expect_denied('K7b auth khong DELETE employee_credential', 'DELETE FROM public.employee_credential WHERE false');
 SELECT pg_temp.expect_denied('K8 auth khong DELETE auth_session (chi thu hoi bang UPDATE)', 'DELETE FROM public.auth_session WHERE false');
 SELECT pg_temp.expect_denied('K9 auth khong UPDATE/DELETE audit_log', 'UPDATE public.audit_log SET summary = summary WHERE false');
 SELECT pg_temp.expect_denied('K10 auth khong SELECT password_reset_token', 'SELECT count(*) FROM public.password_reset_token');
+SELECT pg_temp.expect_denied('K17 auth khong SELECT privileged_change_request', 'SELECT count(*) FROM public.privileged_change_request');
+SELECT pg_temp.expect_denied('K18 auth khong nextval sequence ma khach (dot ma) - M-5', 'SELECT nextval(''public.customer_code_seq'')');
 SELECT pg_temp.expect_denied('K11 auth khong DDL', 'ALTER TABLE public.auth_session DISABLE TRIGGER ALL');
 SELECT pg_temp.expect_denied('K12 auth khong fn_auth_bootstrap_close', 'SELECT public.fn_auth_bootstrap_close(''s1-probe'')');
 SELECT pg_temp.expect_denied('K13 auth khong setval', 'SELECT setval(''public.customer_code_seq'', last_value, is_called) FROM public.customer_code_seq');

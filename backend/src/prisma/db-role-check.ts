@@ -60,7 +60,9 @@ export async function fetchDbRoleFacts(client: Pick<PrismaClient, '$queryRaw'>):
     EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = current_user) AS is_member_of_other_roles,
     (CASE WHEN to_regclass('public.auth_session') IS NULL OR to_regclass('public.employee_credential') IS NULL THEN false
           ELSE has_any_column_privilege(current_user, 'public.auth_session', 'SELECT')
+               OR has_any_column_privilege(current_user, 'public.auth_session', 'INSERT') OR has_any_column_privilege(current_user, 'public.auth_session', 'UPDATE')
                OR has_column_privilege(current_user, 'public.employee_credential', 'password_hash', 'SELECT')
+               OR has_any_column_privilege(current_user, 'public.employee_credential', 'UPDATE')
                OR (CASE WHEN to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NULL THEN false
                         ELSE has_function_privilege(current_user, 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE') END) END) AS has_auth_grants,
     (CASE WHEN to_regclass('public.customer') IS NULL THEN false ELSE has_any_column_privilege(current_user, 'public.customer', 'INSERT') END) AS can_write_business`;

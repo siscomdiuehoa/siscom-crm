@@ -49,6 +49,13 @@ export class HealthService {
       return { ok: false };
     }
     const latencyMs = Date.now() - start;
+    // QA P3c I-3: pool auth tách riêng mà không kết nối được => mọi đăng nhập/request có cookie lỗi => báo down để load balancer rút instance.
+    if (this.authPrisma?.separate === true) {
+      try { await this.withTimeout(this.authPrisma.$queryRaw`SELECT 1`); } catch (err) {
+        this.logger.error('Kiểm tra pool xác thực (AUTH_DATABASE_URL) thất bại: ' + (err instanceof Error ? err.message : 'không rõ'));
+        return { ok: false };
+      }
+    }
     const role = await this.role();
     try {
       const row = await this.withTimeout(this.prisma.appMeta.findUnique({ where: { key: 'schema_baseline' } }));
