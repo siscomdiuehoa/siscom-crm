@@ -1,0 +1,32 @@
+--- migrate deploy (siscom_app, mo hinh cu) ---
+The following migration(s) have been applied:
+All migrations have been successfully applied.
+--- ROLE_SPLIT + AUTH_ROLE (superuser) ---
+ siscom_auth | f     | f          | f        | f       | t          | f       | t
+(1 row)
+
+--- V2 (= trang thai P3b) roi VERIFY phai FAIL o muc G (RED cho P3c) ---
+PASS|63
+FAIL|9
+B1c employee_credential: app KHONG UPDATE cot nao (P3c: 7 cot dem/khoa thuoc pool auth) =>
+B1e app KHONG co quyen nao (ke ca SELECT theo cot) tren auth_session va employee_credentia
+C1 app KHONG EXECUTE fn_auth_api_change_own_password (P3c: chi pool auth) => KHONG DAT
+C6 app KHONG EXECUTE ham SECURITY DEFINER nao (P3c; dang co: fn_auth_api_change_own_passwo
+G1 app khong SELECT password_hash / token_version (doc hash de dung p_actor) [app CHAY DUO
+G2 app khong SELECT auth_session (doc bam phien) [app CHAY DUOC] => KHONG DAT
+G3 app khong INSERT auth_session (tu chen phien - R2) [app CHAY DUOC] => KHONG DAT
+G4 app khong UPDATE auth_session [app CHAY DUOC] => KHONG DAT
+G5 app khong UPDATE 7 cot dem/khoa (khoa nguoi khac / xoa bo dem do mat khau) [app CHAY DU
+DAT (RED mong doi voi V2)
+--- V3 lan 1 ---
+ siscom_crm_test_20261031_232120 | siscom_migrator; muc | gia_tri ; bang_app_INSERT | 4; bang_app_UPDATE (phai 3) | 3; bang_app_DELETE (phai 0) | 0; cot_credential_app_UPDATE (phai 0) | 0; ham_api_app_EXECUTE (phai 0) | 0; auth_session_app_SELECT (phai f) | false; bang_auth_INSERT (phai 2) | 2; bang_auth_UPDATE (phai 2) | 2; cot_credential_auth_UPDATE (phai 7) | 7; ham_api_auth_EXECUTE (phai 1) | 1; customer_auth_SELECT (phai f) | false; sequence_app_UPDATE (phai 0) | 0; bootstrap_close_app_EXECUTE (phai f) | false;
+--- V3 lan 2 ---
+ siscom_crm_test_20261031_232120 | siscom_migrator; muc | gia_tri ; bang_app_INSERT | 4; bang_app_UPDATE (phai 3) | 3; bang_app_DELETE (phai 0) | 0; cot_credential_app_UPDATE (phai 0) | 0; ham_api_app_EXECUTE (phai 0) | 0; auth_session_app_SELECT (phai f) | false; bang_auth_INSERT (phai 2) | 2; bang_auth_UPDATE (phai 2) | 2; cot_credential_auth_UPDATE (phai 7) | 7; ham_api_auth_EXECUTE (phai 1) | 1; customer_auth_SELECT (phai f) | false; sequence_app_UPDATE (phai 0) | 0; bootstrap_close_app_EXECUTE (phai f) | false;
+PASS|72
+DAT: VERIFY (app) PASS|72
+PASS|26
+DAT: VERIFY_AUTH (superuser -> SET ROLE siscom_auth) PASS|26
+DAT: B1.3_M1_CONSTRAINT_TESTS PASS|131
+DAT: B1.3_M1_1_CONSTRAINT_TESTS PASS|43
+DAT: B1.3_M1_2_CONSTRAINT_TESTS PASS|115
+HOAN TAT siscom_crm_test_20261031_232120

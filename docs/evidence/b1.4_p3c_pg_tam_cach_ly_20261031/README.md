@@ -1,0 +1,22 @@
+# Bằng chứng kiểm thử B1.4 P3c trên PostgreSQL tạm cách ly (2026-10-31)
+
+| Mục | Giá trị |
+|---|---|
+| PR | #183 `db/b1.4-p3c-auth-role` (Draft, chưa merge). Mã kiểm: working tree tương đương HEAD sau commit `84255d5` (01–07 chạy trước khi commit tài liệu/bằng chứng; không có thay đổi mã sau đó ngoài tài liệu) |
+| Môi trường | Cluster PostgreSQL **riêng** (`initdb` thư mục tạm, PostgreSQL 18.6, chỉ `127.0.0.1:55432`). **Không** dùng server của owner (5432); không chạm `siscom_crm_dev`/baseline. Cluster huỷ sau khi kiểm |
+| Dữ liệu | Giả: DB `siscom_crm_test_<stamp>`, tài khoản bootstrap `*@siscom.local`, mật khẩu ngẫu nhiên (đã xoá). Ba role: `siscom_app`, `siscom_migrator`, `siscom_auth` |
+| Đã loại bỏ | Chuỗi kết nối (`<url-da-che>`), mật khẩu, đường dẫn cục bộ (`<scratchpad>`), mã ANSI. JSON harness chỉ có tên/thuộc tính cookie, không giá trị |
+
+| File | Nội dung | Kết quả |
+|---|---|---|
+| `01_chuan_bi_db2_v2_red_v3_verify_app_auth_m1.txt` | migrate (app) → ROLE_SPLIT → AUTH_ROLE → **V2 rồi VERIFY phải FAIL mức G (RED cho P3c)** → V3 ×2 → VERIFY (app) → VERIFY_AUTH (superuser `SET ROLE siscom_auth`) → M1/M1.1/M1.2 | RED: `FAIL|8` (C1, G2–G5…); V3 ×2 cùng tóm tắt (app INSERT 4/UPDATE 3/DELETE 0/credential 0/hàm 0; auth INSERT 2/UPDATE 2/credential 7/hàm 1); VERIFY `PASS|72`; VERIFY_AUTH `PASS|26`; M1.x `131/43/115` |
+| `02_chuan_bi_db4.txt` | Như trên, DB mới cho `auth.int-spec` | cùng kết quả |
+| `03_integration_db3_auth_audit_dbroles_tom_tat.txt` | `auth`/`audit`/`db-roles` int-spec trên DB3 (trước sửa 2 app phụ + 3 truy vấn D.0) | auth FAIL 12 (do test đọc raw qua pool app), audit + db-roles PASS |
+| `04_integration_db4_auth_tom_tat.txt` | `auth.int-spec` trên DB4 sau sửa test (truy vấn kiểm chứng qua kết nối chủ sở hữu) | **36/36** |
+| `05_harness_chrome_4_vai_tro_auth_pool.txt` + `_evidence.json` | `sessionRolesChrome.mjs`, backend `dist/main.js` với `DATABASE_URL`=siscom_app + `AUTH_DATABASE_URL`=siscom_auth, FE build + preview; `/health/database` `authPool=separate` | **91 PASS / 0 FAIL / 0 KNOWN**; 0 lỗi quyền/500 trong log backend |
+| `06_cau_hinh_sai_production.txt` | Tiến trình thật `NODE_ENV=production`, cổng 3100: (a) đúng; (b) thiếu AUTH; (c) cùng tài khoản; (d) hai URL đổi chỗ; (e) khác DB; (g) AUTH = migrator; (f) DB còn V2 + AUTH; (f') V3 lại | (a) chạy, cả hai pool `leastPrivilege=true`; (b)(c)(d)(e)(g)(f) **thoát 1** với thông điệp nêu lý do; (f') chạy |
+| `07_r1_r2_r3_duoi_quyen_app_42501_va_auth.txt` | Lặp lại R1 (đọc `token_version`, gọi hàm đổi mật khẩu), R2 (chèn `auth_session`), R3 (khoá admin) dưới quyền `siscom_app`; đối chứng dưới `siscom_auth` | app: **42501 cả ba**, nghiệp vụ vẫn chạy; auth: R1/R2 làm được (giới hạn còn lại §7.5), không đọc được `customer` |
+
+Toàn bộ integration (13 suite) trên DB đã áp V3: CI run 41219434454 (140/140); cục bộ chỉ chạy lại các suite bị ảnh hưởng.
+
+Sự cố khi kiểm (đã xử lý): lượt chạy ma trận cấu hình sai đầu tiên báo (f) "khởi động được" vì script chạy với `MSYS_NO_PATHCONV=1` khiến `psql -f /d/…` không mở được V2 (V2 không được áp). Chạy lại không có biến đó ⇒ (f) thoát 1. File `06` là lượt chạy lại.

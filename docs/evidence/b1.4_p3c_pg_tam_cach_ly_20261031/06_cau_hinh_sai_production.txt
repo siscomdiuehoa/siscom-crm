@@ -1,0 +1,22 @@
+== (a) dung ==
+(a) health: "database":"up" "role":{"leastPrivilege":true,"authPool":"separate","authLeastPrivilege":true} 
+(b) => thoat 1
+[Nest] 10480  - 31/10/2026, 23:29:15   ERROR [ExceptionHandler] Error: Môi trường production bắt buộc đặt AUTH_DATABASE_URL (tài khoản siscom_auth, cùng database với DATABASE_URL; xem B1.4_P3C_S3_AUTH_ROLE_DESIGN.
+(c) => thoat 1
+[Nest] 26100  - 31/10/2026, 23:29:15   ERROR [ExceptionHandler] Error: AUTH_DATABASE_URL dùng cùng tài khoản với DATABASE_URL: không có cách ly, từ chối. Dùng siscom_auth (B1.3_S1_AUTH_ROLE.sql.txt).
+(d) => thoat 1
+[Nest] 26584  - 31/10/2026, 23:29:16   ERROR [AuthPrismaService] Role database không phải đặc quyền tối thiểu: tài khoản "siscom_app" (pool auth) KHÔNG có quyền xác thực — AUTH_DATABASE_URL trỏ nhầm tà
+[Nest] 26584  - 31/10/2026, 23:29:16   ERROR [Bootstrap] Không khởi động được backend: Role database không phải đặc quyền tối thiểu: tài khoản "siscom_app" (pool auth) KHÔNG có quyền xác thực — AU
+(e) => thoat 1
+[Nest] 16716  - 31/10/2026, 23:29:17   ERROR [ExceptionHandler] Error: AUTH_DATABASE_URL trỏ tới host/cổng/database khác với DATABASE_URL: từ chối (pool xác thực phải cùng database).
+(g) => thoat 1
+[Nest] 2532  - 31/10/2026, 23:29:18   ERROR [AuthPrismaService] Role database không phải đặc quyền tối thiểu: tài khoản "siscom_migrator" (pool auth) ghi được bảng nghiệp vụ (customer) — AUTH_DATABASE_UR
+[Nest] 2532  - 31/10/2026, 23:29:18   ERROR [Bootstrap] Không khởi động được backend: Role database không phải đặc quyền tối thiểu: tài khoản "siscom_migrator" (pool auth) ghi được bảng nghiệp vụ
+== (f) DB1: ap lai V2 (app con quyen xac thuc) roi khoi dong voi AUTH_DATABASE_URL ==
+da ap V2 tren DB1
+(f) => thoat 1
+[Nest] 10384  - 31/10/2026, 23:29:19   ERROR [PrismaService] Role database không phải đặc quyền tối thiểu: tài khoản "siscom_app" (pool nghiệp vụ) còn quyền xác thực (auth_session / password_hash / fn_auth
+[Nest] 10384  - 31/10/2026, 23:29:19   ERROR [Bootstrap] Không khởi động được backend: Role database không phải đặc quyền tối thiểu: tài khoản "siscom_app" (pool nghiệp vụ) còn quyền xác thực (au
+== (f') DB1: ap lai V3 => khoi dong duoc ==
+da ap V3 tren DB1
+(f2) => KHOI DONG (chay toi timeout)

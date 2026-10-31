@@ -1,0 +1,11 @@
+== Duoi quyen siscom_app (pool nghiep vu) — ky vong: permission denied (42501) ==
+  [R1a doc token_version] ERROR:  permission denied for table employee_credential
+  [R1b goi fn_auth_api_change_own_password] ERROR:  permission denied for function fn_auth_api_change_own_password
+  [R2 chen auth_session cho admin] ERROR:  permission denied for table auth_session
+  [R3 khoa admin (locked_until)] ERROR:  permission denied for table employee_credential
+  [nghiep vu: UPDATE customer (phai chay duoc)] CHAY DUOC
+== Doi chung duoi quyen siscom_auth (pool xac thuc) — gioi han con lai, co audit o R1 ==
+  [R1 doi mat khau admin qua ham (ROLLBACK)] CHAY DUOC
+  [R2 chen auth_session (ROLLBACK)] CHAY DUOC
+  [nghiep vu: SELECT customer (phai bi chan)] ERROR:  permission denied for table customer
+token_version admin hien tai (khong doi): 1
