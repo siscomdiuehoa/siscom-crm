@@ -1,7 +1,7 @@
 import type { PrismaService } from '../src/prisma/prisma.service';
 import { as, makeApp, TestApp } from './helpers/test-app';
 import { assertTestConnection, createTestPrisma } from './helpers/test-db';
-import { ensureFixtures, Fixtures } from './helpers/fixtures';
+import { ensureFixtures, Fixtures, makeEmployee } from './helpers/fixtures';
 
 // PR 7 (D15): GET /customers/owner-candidates — theo phạm vi customer.create/update, không cần employee.read.
 const U = '/api/v1/customers/owner-candidates';
@@ -19,7 +19,7 @@ const ids = (r: { body: { data: { items: { id: string }[] } } }) => r.body.data.
 
 describe('Ứng viên chủ sở hữu', () => {
   it('ALL: thấy mọi nhân viên ACTIVE chưa xoá (A, B, C), không thấy nhân viên nghỉ việc; chỉ trả id/code/fullName/departmentCode', async () => {
-    const resigned = await prisma.employee.create({ data: { fullName: 'TEST NV nghỉ OC', departmentId: fx.d1, isDemo: true, status: 'RESIGNED', deletedAt: new Date() }, select: { id: true } });
+    const resigned = await makeEmployee({ fullName: 'TEST NV nghỉ OC', departmentId: fx.d1, status: 'RESIGNED', deletedAt: new Date() });
     const r = await as(t.app, 'all').get(U);
     expect(r.status).toBe(200);
     expect(r.body.data.scope).toBe('ALL');

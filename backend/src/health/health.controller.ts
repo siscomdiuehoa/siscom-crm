@@ -23,6 +23,6 @@ export class HealthController {
       res.status(503);
       return { status: 'error', database: 'down', message: 'Không kết nối được cơ sở dữ liệu.', time: new Date().toISOString() };
     }
-    return { status: 'ok', database: 'up', latencyMs: r.latencyMs, schema: { migrated: r.migrated, baseline: r.baseline }, time: new Date().toISOString() };
+    return { status: 'ok', database: 'up', latencyMs: r.latencyMs, schema: { migrated: r.migrated, baseline: r.baseline }, role: r.role, time: new Date().toISOString() };
   }
 }

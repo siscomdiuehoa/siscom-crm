@@ -1,0 +1,42 @@
+DB thu da tao: siscom_crm_test_20261030_233246
+canary [sau create]: owner=siscom_app app_connect=t
+--- migrate deploy (siscom_app, mo hinh cu) ---
+6 migrations found in prisma/migrations
+The following migration(s) have been applied:
+All migrations have been successfully applied.
+--- RED: VERIFY truoc tach role (mong doi co FAIL) ---
+PASS|20
+FAIL|47
+DAT (RED mong doi)
+--- ROLE_SPLIT (superuser cluster tam) ---
+canary [sau ROLE_SPLIT]: owner=siscom_app app_connect=t
+--- APP_GRANTS_V2 lan 1 (siscom_migrator) ---
+    siscom_crm_test_20261030_233246 | siscom_migrator
+                    muc                  | gia_tri 
+    bang_app_INSERT                      | 5
+    bang_app_UPDATE (phai 5)             | 5
+    bang_app_DELETE (phai 0)             | 0
+    cot_credential_app_UPDATE (phai 7)   | 7
+    ham_api_app_EXECUTE (phai 1)         | 1
+    sequence_app_UPDATE (phai 0)         | 0
+    bootstrap_close_app_EXECUTE (phai f) | false
+--- APP_GRANTS_V2 lan 2 (siscom_migrator) ---
+    siscom_crm_test_20261030_233246 | siscom_migrator
+                    muc                  | gia_tri 
+    bang_app_INSERT                      | 5
+    bang_app_UPDATE (phai 5)             | 5
+    bang_app_DELETE (phai 0)             | 0
+    cot_credential_app_UPDATE (phai 7)   | 7
+    ham_api_app_EXECUTE (phai 1)         | 1
+    sequence_app_UPDATE (phai 0)         | 0
+    bootstrap_close_app_EXECUTE (phai f) | false
+canary [sau APP_GRANTS_V2]: owner=siscom_app app_connect=t
+--- VERIFY sau tach role + V2 (siscom_app) ---
+PASS|67
+DAT: B1.3_S1_VERIFY.sql.txt PASS|67
+--- M1/M1.1/M1.2 (migrator), M1.3 cau truc (app) ---
+DAT: B1.3_M1_CONSTRAINT_TESTS.sql.txt PASS|131
+DAT: B1.3_M1_1_CONSTRAINT_TESTS.sql.txt PASS|43
+DAT: B1.3_M1_2_CONSTRAINT_TESTS.sql.txt PASS|115
+DAT: M1.3 6 dong ok=t
+HOAN TAT chuan bi siscom_crm_test_20261030_233246

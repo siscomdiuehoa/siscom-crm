@@ -1,0 +1,9 @@
+== chay nham V1 ==
+da chay B1.3_S1_APP_GRANTS.sql.txt
+ma thoat: 1 (124 = con chay toi khi timeout, tuc da khoi dong)
+[Nest] 19168  - 30/10/2026, 23:35:11   ERROR [PrismaService] Role database không phải đặc quyền tối thiểu: tài khoản "siscom_app" có quyền rộng kiểu APP_GRANTS V1 (ghi bảng RBAC / UPDATE password_hash / nhiều hàm đặc quyền) — 
+[Nest] 19168  - 30/10/2026, 23:35:11   ERROR [Bootstrap] Không khởi động được backend: Role database không phải đặc quyền tối thiểu: tài khoản "siscom_app" có quyền rộng kiểu APP_GRANTS V1 (ghi bảng RBAC / UPDATE password_hash
+== V2 lai ==
+da chay B1.3_S1_APP_GRANTS_V2.sql.txt
+ma thoat: 124 (124 = con chay toi khi timeout, tuc da khoi dong)
+[Nest] 25948  - 30/10/2026, 23:35:12     LOG [Bootstrap] SISCOM CRM backend đang chạy tại http://127.0.0.1:3100/api/v1 (môi trường: production)

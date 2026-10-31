@@ -16,6 +16,9 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((err: unknown) => {
+  // bufferLogs: lỗi trong lúc khởi tạo (vd. B1.4 P3b từ chối role DB ở production) xảy ra TRƯỚC khi Nest xả bộ đệm log => phải xả tay,
+  // nếu không process.exit(1) nuốt mất mọi dòng log và người vận hành không biết lý do (kiểm chứng trên tiến trình thật, cluster tạm).
+  Logger.flush();
   // Chỉ in thông điệp cấu hình/khởi động, không in biến môi trường.
   const msg = err instanceof Error ? err.message : 'Lỗi khởi động không xác định';
   new Logger('Bootstrap').error('Không khởi động được backend: ' + msg);

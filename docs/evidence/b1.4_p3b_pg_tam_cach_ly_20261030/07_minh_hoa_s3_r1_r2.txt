@@ -1,0 +1,13 @@
+chay bang: siscom_app
+== A) doi mat khau admin bang tai khoan ung dung (BEGIN ... ROLLBACK) ==
+truoc: token_version=1 hash_dau=$argon2id$v=
+audit_truoc=24
+ham tra ve token_version moi=2
+sau: token_version=2 hash_dau=$argon2id$v=
+audit_sau=25
+audit moi: action=PASSWORD_CHANGE actor_type=USER actor_la_admin=true entity_la_admin=true summary=
+phien admin con hieu luc=0
+(da ROLLBACK: mat khau admin khong doi) token_version hien tai=1
+== B) tu chen phien cho admin bang tai khoan ung dung (INSERT auth_session) ==
+INSERT auth_session: DUOC (id=12510646-df5c-4b3d-8a59-303c30704077)
+GET /auth/me bang cookie tu tao: "roles":["crm_admin"] HTTP=200 

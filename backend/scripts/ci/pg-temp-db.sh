@@ -3,11 +3,13 @@
 # CHI dung trong CI: server la container tam, song trong job, huy khi job ket thuc. KHONG bao gio tro toi siscom_crm_dev
 # hay bat ky may chu nao ngoai 127.0.0.1. Khong in mat khau. Khong doc .env.
 #
-# Dung: pg-temp-db.sh create | split | unsplit | drop
+# Dung: pg-temp-db.sh create | split | grants v1|v2 | unsplit | drop
 #   create:  tao role ung dung siscom_app (NOSUPERUSER) va role chu so huu siscom_migrator (NOSUPERUSER, B1.4 P3) voi mat khau ngau nhien,
 #            tao DB siscom_crm_test_<YYYYMMDD_HHMMSS> OWNER siscom_app (MO HINH CU B1.1 - de tai hien S1 truoc khi tach), ghi TEST_DB_NAME,
 #            TEST_DATABASE_URL (app) va TEST_MIGRATE_DATABASE_URL (migrator), ca hai da mask, vao $GITHUB_ENV.
-#   split:   TACH ROLE S1 tren DB tam: docs/B1.3_S1_ROLE_SPLIT.sql.txt (superuser cua container) roi docs/B1.3_S1_APP_GRANTS.sql.txt (migrator).
+#   split:   TACH ROLE S1 tren DB tam: docs/B1.3_S1_ROLE_SPLIT.sql.txt (superuser cua container) roi docs/B1.3_S1_APP_GRANTS_V2.sql.txt (migrator, P3b).
+#   grants v1|v2: dien tap rollback quyen P3b (V1 = B1.3_S1_APP_GRANTS.sql.txt, chi de rollback; V2 = toi thieu) + tu kiem bieu thuc
+#            "quyen rong kieu V1" cua src/prisma/db-role-check.ts bang chinh role app (v1 => true, v2 => false; sai => thoat 1).
 #   unsplit: ROLLBACK S1: docs/B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt (superuser) => siscom_app lai la chu so huu (de dien tap rollback M1.x).
 #   drop:    xoa DB tam va 2 role (ve sinh; container cung bi huy sau job).
 # Bien vao: PGHOST (mac dinh 127.0.0.1), PGPORT (5432), PGUSER (postgres - superuser CUA CONTAINER TAM), PGPASSWORD.
@@ -93,9 +95,30 @@ case "$cmd" in
     echo "--- S1 ROLE_SPLIT (superuser container) tren $name ---"
     psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$name" -f "$docs/B1.3_S1_ROLE_SPLIT.sql.txt"
     assert_canary "sau ROLE_SPLIT"
-    echo "--- S1 APP_GRANTS (siscom_migrator) tren $name ---"
-    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS.sql.txt"
-    assert_canary "sau APP_GRANTS"
+    # B1.4 P3b: cap quyen TOI THIEU theo ma tran (V2). V1 (B1.3_S1_APP_GRANTS.sql.txt) chi la duong rollback P3b (CI dien tap o "grants v1").
+    echo "--- S1 APP_GRANTS_V2 (siscom_migrator) tren $name ---"
+    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V2.sql.txt"
+    # I3: file khai bao => chay LAN 2 phai cho cung ket qua (VERIFY sau do van PASS). Lan 2 con thu quyen theo cot cua lan 1 roi cap lai.
+    echo "--- S1 APP_GRANTS_V2 lan 2 (idempotent) ---"
+    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V2.sql.txt"
+    assert_canary "sau APP_GRANTS_V2"
+    ;;
+  grants)
+    # B1.4 P3b (QA Minor 11): dien tap rollback quyen app: "grants v1" (B1.3_S1_APP_GRANTS.sql.txt - duong rollback P3b) | "grants v2".
+    name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }
+    [ -n "${TEST_MIGRATE_DATABASE_URL:-}" ] || { echo "THIEU TEST_MIGRATE_DATABASE_URL."; exit 2; }
+    case "${2:-}" in v1) f="B1.3_S1_APP_GRANTS.sql.txt" ;; v2) f="B1.3_S1_APP_GRANTS_V2.sql.txt" ;; *) echo "Dung: $0 grants v1|v2"; exit 2 ;; esac
+    echo "--- $f (siscom_migrator) tren $name ---"
+    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/$f"
+    assert_canary "sau $f"
+    # QA N4: nhanh TRUE cua bieu thuc "quyen rong kieu V1" (db-role-check.ts) phai duoc chay tren DB that: V1 => t, V2 => f.
+    want=f; [ "$2" = v1 ] && want=t
+    got="$(psql -X -q -w -v ON_ERROR_STOP=1 -tA -d "$TEST_DATABASE_URL" -c "SELECT has_any_column_privilege(current_user, 'public.employee_role', 'INSERT')
+      OR has_column_privilege(current_user, 'public.employee_credential', 'password_hash', 'UPDATE')
+      OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.prosecdef
+                 AND p.proname <> 'fn_auth_api_change_own_password' AND has_function_privilege(current_user, p.oid, 'EXECUTE'))")"
+    echo "quyen rong kieu V1 (bang siscom_app) sau $2: $got (mong doi $want)"
+    [ "$got" = "$want" ] || { echo "KHONG DAT: bieu thuc db-role-check khong khop trang thai quyen $2."; exit 1; }
     ;;
   unsplit)
     name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }
@@ -125,5 +148,5 @@ case "$cmd" in
     echo "Da don DB tam $name."
     ;;
   *)
-    echo "Dung: $0 create | split | unsplit | drop"; exit 2 ;;
+    echo "Dung: $0 create | split | grants v1|v2 | unsplit | drop"; exit 2 ;;
 esac

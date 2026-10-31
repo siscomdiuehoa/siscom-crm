@@ -1,0 +1,5 @@
+== (a) production + siscom_app ==
+health/database: "database":"up" "role":{"leastPrivilege":true} 
+== (b) production + siscom_migrator (chu so huu DB) ==
+ma thoat: 1 (mong doi 1)
+cong 3100 sau khi tu choi: HTTP=200

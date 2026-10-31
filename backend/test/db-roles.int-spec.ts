@@ -1,9 +1,10 @@
 import { Client } from 'pg';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { adminTestDatabase, assertTestConnection, caught, createTestPrisma, testDatabase } from './helpers/test-db';
+import { assessDbRole, fetchDbRoleFacts } from '../src/prisma/db-role-check';
+import { adminTestDatabase, assertTestConnection, caught, createAdminTestPrisma, createTestPrisma, testDatabase } from './helpers/test-db';
 
 // B1.4 P3 — S1 TÁCH ROLE: siscom_migrator = chủ sở hữu (DDL, migrate), siscom_app = chỉ DML. Chạy khi TEST_MIGRATE_DATABASE_URL được đặt
-// (CI sau khi áp B1.3_S1_ROLE_SPLIT + B1.3_S1_APP_GRANTS). Máy Windows chưa tách role: bỏ qua có lý do (không FAIL oan), kiểm bằng
+// (CI sau khi áp B1.3_S1_ROLE_SPLIT + B1.3_S1_APP_GRANTS_V2). Máy Windows chưa tách role: bỏ qua có lý do (không FAIL oan), kiểm bằng
 // docs/B1.3_S1_VERIFY.sql.txt khi owner tách trên DB thử. Mọi thử DDL/ghi của app nằm trong transaction và ROLLBACK; không ghi dữ liệu.
 const admin = process.env.TEST_MIGRATE_DATABASE_URL ? adminTestDatabase() : null;
 const d = admin?.split ? describe : describe.skip;
@@ -59,10 +60,13 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
     ]) expect({ sql, code: await appTry(sql) }).toEqual({ sql, code: '42501' });
   });
 
-  it('siscom_app vẫn làm được việc của ứng dụng: DML bảng nghiệp vụ, nextval mã khách, extension, EXECUTE fn_auth_api_* (đổi mật khẩu), SET app.*', async () => {
+  it('siscom_app vẫn làm được việc của ứng dụng: INSERT/UPDATE bảng nghiệp vụ, 7 cột credential, nextval mã khách, extension, EXECUTE đổi mật khẩu, SET app.*', async () => {
     expect(await appTry('SELECT count(*) FROM public.customer')).toBeNull();
     expect(await appTry('UPDATE public.customer SET updated_at = updated_at WHERE false')).toBeNull();
-    expect(await appTry('DELETE FROM public.contact WHERE false')).toBeNull();
+    expect(await appTry('UPDATE public.contact SET is_primary = is_primary WHERE false')).toBeNull();
+    expect(await appTry('UPDATE public.customer_assignment SET ended_at = ended_at WHERE false')).toBeNull();
+    expect(await appTry('UPDATE public.auth_session SET last_used_at = last_used_at, revoked_at = revoked_at WHERE false')).toBeNull();
+    expect(await appTry('UPDATE public.employee_credential SET failed_count = failed_count, window_started_at = window_started_at, locked_until = locked_until, lock_level = lock_level, last_login_at = last_login_at, password_changed_at = password_changed_at, updated_at = updated_at WHERE false')).toBeNull();
     expect(await appTry("INSERT INTO public.audit_log (actor_type, action, entity_type, summary) SELECT 'SYSTEM', 's1', 's1', 's1' WHERE false")).toBeNull();
     expect(await appTry("SELECT nextval('public.customer_code_seq')")).toBeNull(); // trong transaction ROLLBACK: không tiêu mã thật về mặt dữ liệu ứng dụng
     expect(await appTry("SELECT f_vn_fold('Nguyễn'), similarity('a', 'b')")).toBeNull();
@@ -75,8 +79,71 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
              (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'fn\\_auth\\_api\\_%' AND has_function_privilege('public', p.oid, 'EXECUTE')) AS pub_api,
              has_parameter_privilege('siscom_app', 'app.actor_employee_id', 'SET') AS set_app,
              has_parameter_privilege('siscom_migrator', 'app.actor_employee_id', 'SET') AS set_mig`;
-    expect(r[0].chpw).toBe(true); expect(Number(r[0].api_total)).toBeGreaterThanOrEqual(13); expect(Number(r[0].api_ok)).toBe(Number(r[0].api_total));
+    // P3b: app chỉ EXECUTE đúng 1 hàm (đổi mật khẩu của chính mình); các fn_auth_api_* còn lại chỉ người vận hành gọi qua migrator.
+    expect(r[0].chpw).toBe(true); expect(Number(r[0].api_total)).toBeGreaterThanOrEqual(13); expect(Number(r[0].api_ok)).toBe(1);
     expect(r[0].close_ok).toBe(false); expect(Number(r[0].pub_api)).toBe(0); expect(r[0].set_app).toBe(true); expect(r[0].set_mig).toBe(true);
+  });
+
+  it('P3b (S2/S3): siscom_app bị từ chối 42501 khi ghi thẳng bí mật/quyền — password_hash, token_version, must_change_password, employee_role, privileged_change_request, reset token, app_meta, DELETE, setval', async () => {
+    for (const sql of [
+      'UPDATE public.employee_credential SET password_hash = password_hash WHERE false',
+      'UPDATE public.employee_credential SET token_version = token_version WHERE false',
+      'UPDATE public.employee_credential SET must_change_password = must_change_password WHERE false',
+      'INSERT INTO public.employee_credential (employee_id) SELECT gen_random_uuid() WHERE false',
+      'INSERT INTO public.employee_role (employee_id, role_id) SELECT gen_random_uuid(), gen_random_uuid() WHERE false',
+      'DELETE FROM public.employee_role WHERE false',
+      'INSERT INTO public.privileged_change_request (id) SELECT gen_random_uuid() WHERE false',
+      'UPDATE public.privileged_change_request SET status = status WHERE false',
+      'INSERT INTO public.password_reset_token (id) SELECT gen_random_uuid() WHERE false',
+      "INSERT INTO public.app_meta (key, value) SELECT 's1', 's1' WHERE false",
+      'UPDATE public.employee SET full_name = full_name WHERE false',
+      "INSERT INTO public.lookup_item (type, code, label_vi) SELECT 'x', 'x', 'x' WHERE false",
+      'DELETE FROM public.customer WHERE false',
+      'DELETE FROM public.contact WHERE false',
+      // I-3: setval KHÔNG rollback được => thử bằng giá trị hiện tại (vô hại kể cả khi được phép); thiếu UPDATE trên sequence vẫn 42501.
+      'SELECT setval(\'public.customer_code_seq\', last_value, is_called) FROM public.customer_code_seq',
+    ]) expect({ sql, code: await appTry(sql) }).toEqual({ sql, code: '42501' });
+    // Gọi thử fn_auth_api_request_create không phân biệt được: dù có EXECUTE, hàm vẫn RAISE insufficient_privilege khi actor sai.
+    // Vì vậy kiểm ACL trực tiếp cho 3 hàm nhạy cảm nhất (tạo yêu cầu đặc quyền, cấp vai trò, đặt lại mật khẩu người khác).
+    const fn = await prisma.$queryRaw<{ f: string; ok: boolean }[]>`
+      SELECT f, has_function_privilege('siscom_app', f, 'EXECUTE') AS ok FROM unnest(ARRAY[
+        'public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer)',
+        'public.fn_auth_api_role_grant(uuid, uuid)',
+        'public.fn_auth_api_reset_password(uuid, text, text, text, jsonb)']) AS f`;
+    expect(fn).toEqual(fn.map((x) => ({ f: x.f, ok: false })));
+  });
+
+  it('P3b M-5: câu SQL thật của fetchDbRoleFacts — kết nối app => đặc quyền tối thiểu; kết nối migrator => chủ sở hữu, sở hữu đối tượng, thành viên migrator', async () => {
+    const appFacts = await fetchDbRoleFacts(prisma);
+    expect(appFacts).toEqual({ user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
+      ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false });
+    expect(assessDbRole(appFacts, 'production').leastPrivilege).toBe(true);
+    const m = createAdminTestPrisma();
+    try {
+      const migFacts = await fetchDbRoleFacts(m.prisma);
+      expect(migFacts).toMatchObject({ user: 'siscom_migrator', isDbOwner: true, ownsObjectsInPublic: true, isMigratorMember: true, isSuperuser: false });
+      const a = assessDbRole(migFacts, 'production');
+      expect(a).toMatchObject({ leastPrivilege: false, enforce: true });
+    } finally { await m.prisma.$disconnect(); }
+  });
+
+  it('P3b I-4: không có quyền GHI nào (kể cả theo cột) trên bảng RBAC/nền; một GRANT UPDATE (cột) bị has_table_privilege bỏ sót nhưng has_any_column_privilege bắt được', async () => {
+    const forbidden = ['employee_role', 'role_permission', 'role', 'permission', 'privileged_change_request', 'password_reset_token', 'app_meta',
+      'employee', 'department', 'lookup_item', 'activity', '_prisma_migrations'];
+    const r = await prisma.$queryRaw<{ t: string; w: boolean }[]>`
+      SELECT t, (has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT') OR has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE')) AS w
+      FROM unnest(${forbidden}::text[]) AS t`;
+    expect(r.filter((x) => x.w).map((x) => x.t)).toEqual([]);
+    // Chứng minh lý do đổi VERIFY: GRANT theo cột trong transaction của migrator rồi ROLLBACK (không để lại gì).
+    const c = new Client({ connectionString: admin!.url });
+    await c.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('GRANT UPDATE (full_name) ON public.employee TO siscom_app');
+      const g = (await c.query<{ tbl: boolean; anycol: boolean }>(
+        "SELECT has_table_privilege('siscom_app', 'public.employee', 'UPDATE') AS tbl, has_any_column_privilege('siscom_app', 'public.employee', 'UPDATE') AS anycol")).rows[0];
+      expect(g).toEqual({ tbl: false, anycol: true });
+    } finally { await c.query('ROLLBACK'); await c.end(); }
   });
 
   it('siscom_app không tự nâng quyền: GRANT cho chính mình (PostgreSQL chỉ WARNING, không lỗi) KHÔNG có hiệu lực; đổi chủ sở hữu/role/SET ROLE bị 42501', async () => {

@@ -1,0 +1,15 @@
+PASS test/auth.int-spec.ts (21.657 s)
+PASS test/customers.search-equivalence.int-spec.ts
+PASS test/concurrency.int-spec.ts
+PASS test/db-errors.int-spec.ts
+PASS test/db-roles.int-spec.ts
+PASS test/search.int-spec.ts
+PASS test/audit.int-spec.ts
+PASS test/customers.int-spec.ts
+PASS test/customers.list-pagination.int-spec.ts
+PASS test/contacts.int-spec.ts
+PASS test/owner-candidates.int-spec.ts
+PASS test/lookups.int-spec.ts
+PASS test/timezone.int-spec.ts
+Test Suites: 13 passed, 13 total
+Tests:       136 passed, 136 total
