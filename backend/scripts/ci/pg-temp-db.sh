@@ -159,6 +159,16 @@ case "$cmd" in
     echo "canary3 [sau rollback]: connect=$c3 set_param=$st role_ton_tai=$ex (mong doi t t t)"
     psql_su -c "DROP DATABASE IF EXISTS \"$canary3\" WITH (FORCE)" || true
     if [ "$c3" != t ] || [ "$st" != t ] || [ "$ex" != t ]; then echo "KHONG DAT (I-1): rollback role auth cham DB khac cung cluster."; exit 1; fi
+    # QA lan 4 (C): phu thuoc ma phep kiem pg_shdepend bo qua (SET tren tham so KHAC app.actor/app.priv) => DROP ROLE that bai TRONG transaction
+    # => psql thoat khac 0, role van con, SET ON PARAMETER app.actor_employee_id van con (khong nua chung).
+    psql_su -c "GRANT SET ON PARAMETER app.qa4_extra TO siscom_auth"
+    echo "--- (C) AUTH_ROLE_ROLLBACK voi phu thuoc bi bo qua => phai that bai ma KHONG nua chung ---"
+    rc=0; psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$name" -f "$docs/B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt" > /tmp/qa4c.out 2>&1 || rc=$?
+    tail -3 /tmp/qa4c.out
+    stc="$(psql_su -tA -c "SELECT has_parameter_privilege('siscom_auth', 'app.actor_employee_id', 'SET')")"; exc="$(psql_su -tA -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='siscom_auth')")"
+    echo "(C) [sau rollback that bai]: exit=$rc set_param=$stc role_ton_tai=$exc (mong doi khac 0, t, t)"
+    if [ "$rc" = 0 ] || ! grep -q 'cannot be dropped' /tmp/qa4c.out || [ "$stc" != t ] || [ "$exc" != t ]; then echo "KHONG DAT (C): rollback that bai nhung de trang thai nua chung hoac khong that bai."; exit 1; fi
+    psql_su -c "REVOKE SET ON PARAMETER app.qa4_extra FROM siscom_auth"
     echo "--- AUTH_ROLE_ROLLBACK lan 2 (khong con DB khac) => role bi DROP ---"
     psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$name" -f "$docs/B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt" | tail -2
     ex2="$(psql_su -tA -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='siscom_auth')")"; [ "$ex2" = f ] || { echo "KHONG DAT: role siscom_auth van con sau rollback lan 2."; exit 1; }

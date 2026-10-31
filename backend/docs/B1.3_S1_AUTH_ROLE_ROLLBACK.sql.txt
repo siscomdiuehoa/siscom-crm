@@ -6,8 +6,11 @@
 --   (3) file nay (superuser) tren DB dich.
 -- QA P3c I-1: KHONG dung DROP OWNED BY - no thu ca CONNECT cua MOI database va SET ON PARAMETER tren TOAN CLUSTER (nhu REASSIGN OWNED,
 --   canh bao C1 cua ROLE_SPLIT) => DB that cung cluster mat pool auth. Thay bang REVOKE tuong minh trong DB dich; quyen cluster chi go khi
---   siscom_auth khong con CONNECT o DB nao khac. CI dien tap voi DB canary cung cluster (pg-temp-db.sh unauth).
+--   pg_shdepend khong con phu thuoc nao cua siscom_auth (buoc 2). CI dien tap voi DB canary cung cluster (pg-temp-db.sh unauth).
+-- CACH CHAY: `psql -X -v ON_ERROR_STOP=1 -v target_db=<ten> -d <ten> -f <file nay>` (khong -X co the nap psqlrc). KHONG dung \i trong phien
+--   tuong tac: voi ON_ERROR_ROLLBACK=on, loi DROP ROLE chi lui ve savepoint, transaction van mo voi REVOKE SET da chay (QA lan 4).
 \set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
 \pset pager off
 \if :{?target_db}
 \else
@@ -56,7 +59,9 @@ UNION ALL SELECT 'CONNECT DB nay = ' || has_database_privilege('siscom_auth', cu
 --    (a) kiem pg_shdepend (tru pg_parameter_acl - thu ngay duoi), (b) REVOKE SET + DROP ROLE trong MOT transaction: that bai thi khong mat gi.
 --    Neu "con dung" ma muon go het: chay file nay (buoc 1) tren tung DB duoc liet ke, lan cuoi se DROP ROLE.
 CREATE TEMP TABLE s1_auth_other AS
-  SELECT DISTINCT coalesce(d.datname, d2.datname || ' (CONNECT/TEMP)', '(cluster: ' || s.classid::regclass::text || ')') AS datname
+  SELECT DISTINCT CASE WHEN s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                       THEN current_database() || ' (DB DICH: con sot ngoai buoc 1 - schema khac public / default privileges / so huu; go tay)'
+                       ELSE coalesce(d.datname, d2.datname || ' (CONNECT/TEMP)', '(cluster: ' || s.classid::regclass::text || ')') END AS datname
   FROM pg_shdepend s LEFT JOIN pg_database d ON d.oid = s.dbid
        LEFT JOIN pg_database d2 ON s.classid = 'pg_database'::regclass AND d2.oid = s.objid
   WHERE s.refclassid = 'pg_authid'::regclass AND s.refobjid = (SELECT oid FROM pg_roles WHERE rolname = 'siscom_auth')
