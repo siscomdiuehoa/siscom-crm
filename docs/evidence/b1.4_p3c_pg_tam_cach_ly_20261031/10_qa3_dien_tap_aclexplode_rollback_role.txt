@@ -1,0 +1,38 @@
+# B1.4 P3c - QA lan 3 (Q3-4): dien tap nhanh aclexplode cua AUTH_ROLE_ROLLBACK. Cluster tam 127.0.0.1:55432, DB gia.
+## (0) Thu hoi tam quyen siscom_auth o 4 DB thu khac (de chi con canary quyet dinh), tao canary GIU PUBLIC CONNECT + GRANT CONNECT TO siscom_auth
+revoke tam: siscom_crm_test_20261031_231322
+revoke tam: siscom_crm_test_20261031_231559
+revoke tam: siscom_crm_test_20261031_231748
+revoke tam: siscom_crm_test_20261031_232120
+canary4=siscom_crm_test_20261101_001028_c4 (PUBLIC con CONNECT)
+## (1) So sanh dieu kien: cu (CONNECT va PUBLIC khong CONNECT) vs moi (them aclexplode)
+postgres|PUBLIC_connect=true|cu=false|moi=false
+siscom_crm_test_20261031_231322|PUBLIC_connect=false|cu=false|moi=false
+siscom_crm_test_20261031_231559|PUBLIC_connect=false|cu=false|moi=false
+siscom_crm_test_20261031_231748|PUBLIC_connect=false|cu=false|moi=false
+siscom_crm_test_20261031_232120|PUBLIC_connect=false|cu=false|moi=false
+siscom_crm_test_20261101_001028_c4|PUBLIC_connect=true|cu=false|moi=true
+## (2) ROLLBACK tren DB5: chi canary4 con dung siscom_auth => phai GIU role
+ trong DB nay: quyen bang con lai = 0
+ CONNECT DB nay = false
+ DB khac con dung siscom_auth (CONNECT rieng hoac muc ACL rieng): siscom_crm_test_20261101_001028_c4
+ GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)
+ siscom_auth con ton tai: true
+## (3) Bo canary4 => khong con DB khac => ROLLBACK lan 2 phai DROP ROLE (datacl NULL o canary cu khong loi)
+canary4 datacl={=Tc/postgres,postgres=CTc/postgres}
+ DB khac con dung siscom_auth (CONNECT rieng hoac muc ACL rieng): (khong)
+psql:docs/B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt:65: ERROR:  role "siscom_auth" cannot be dropped because some objects depend on it
+## (4) Chay lai ROLLBACK khi role da bi DROP => phai dung voi loi (N-3 fail-loud)
+psql:docs/B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt:65: ERROR:  role "siscom_auth" cannot be dropped because some objects depend on it
+exit=3
+## (5) Khoi phuc: AUTH_ROLE (tao lai) + V3 tren DB5, VERIFY app + VERIFY_AUTH; cap lai CONNECT cho 4 DB thu; xoa canary4
+ role siscom_auth da ton tai, giu nguyen mat khau
+ bang_auth_INSERT (phai 2)            | 2
+ bang_auth_UPDATE (phai 2)            | 2
+PASS|72
+PASS|30
+grant lai: siscom_crm_test_20261031_231322
+grant lai: siscom_crm_test_20261031_231559
+grant lai: siscom_crm_test_20261031_231748
+grant lai: siscom_crm_test_20261031_232120
+xoa canary4

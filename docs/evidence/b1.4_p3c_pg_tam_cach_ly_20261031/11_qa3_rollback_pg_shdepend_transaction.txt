@@ -1,0 +1,52 @@
+# B1.4 P3c - QA lan 3 (Q3-4) sau sua: AUTH_ROLE_ROLLBACK kiem pg_shdepend + transaction. Cluster tam 127.0.0.1:55432, DB gia (5 DB thu da ap V3).
+## (1) ROLLBACK tren DB5: 4 DB thu khac con quyen muc doi tuong (V3) => phai GIU role, khong REVOKE SET
+ DB/doi tuong khac con dung siscom_auth (pg_shdepend): siscom_crm_test_20261031_232120, siscom_crm_test_20261031_231559, siscom_crm_test_20261031_231748, siscom_crm_test_20261031_231322, (cluster: pg_database)
+ GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)
+ siscom_auth con ton tai: true
+exit=0
+SET param con: true
+## (2) Thu CONNECT o 4 DB khac nhung GIU quyen doi tuong (tinh huong lam DROP ROLE that bai o bang chung 10) => van phai GIU, khong nua chung
+ DB/doi tuong khac con dung siscom_auth (pg_shdepend): siscom_crm_test_20261031_232120, siscom_crm_test_20261031_231559, siscom_crm_test_20261031_231748, siscom_crm_test_20261031_231322
+ GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)
+ siscom_auth con ton tai: true
+exit=0
+SET param con: true; role con: true
+## (3) Chay ROLLBACK lan luot tren DB1..DB4 (go het phu thuoc) => lan cuoi DROP ROLE
+-- siscom_crm_test_20261031_231322
+ DB/doi tuong khac con dung siscom_auth (pg_shdepend): siscom_crm_test_20261031_232120, siscom_crm_test_20261031_231559, siscom_crm_test_20261031_231748
+ GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)
+ siscom_auth con ton tai: true
+exit=0
+-- siscom_crm_test_20261031_231559
+ DB/doi tuong khac con dung siscom_auth (pg_shdepend): siscom_crm_test_20261031_232120, siscom_crm_test_20261031_231748
+ GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)
+ siscom_auth con ton tai: true
+exit=0
+-- siscom_crm_test_20261031_231748
+ DB/doi tuong khac con dung siscom_auth (pg_shdepend): siscom_crm_test_20261031_232120
+ GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)
+ siscom_auth con ton tai: true
+exit=0
+-- siscom_crm_test_20261031_232120
+ DB/doi tuong khac con dung siscom_auth (pg_shdepend): (khong)
+ siscom_auth con ton tai: false
+exit=0
+## (4) Chay lai khi role da bi DROP => dung voi loi (N-3)
+psql:docs/B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt:31: ERROR:  Khong co role siscom_auth - khong co gi de go.
+exit=3
+## (5) Khoi phuc 5 DB: AUTH_ROLE (tao lai) + V3; VERIFY app + VERIFY_AUTH tren DB5
+khoi phuc: siscom_crm_test_20261031_231322
+ role siscom_auth da ton tai, giu nguyen mat khau
+khoi phuc: siscom_crm_test_20261031_231559
+ role siscom_auth da ton tai, giu nguyen mat khau
+khoi phuc: siscom_crm_test_20261031_231748
+ role siscom_auth da ton tai, giu nguyen mat khau
+khoi phuc: siscom_crm_test_20261031_232120
+ role siscom_auth da ton tai, giu nguyen mat khau
+khoi phuc: siscom_crm_test_20261031_234446
+PASS|72
+PASS|30
+## (1b) Nhan sau chinh (muc CONNECT muc DB hien ten DB): ROLLBACK tren DB5 lan nua => GIU
+ DB/doi tuong khac con dung siscom_auth (pg_shdepend): siscom_crm_test_20261031_231322, siscom_crm_test_20261031_231748 (CONNECT/TEMP), siscom_crm_test_20261031_232120, siscom_crm_test_20261031_231322 (CONNECT/TEMP), siscom_crm_test_20261031_231748, siscom_crm_test_20261031_231559 (CONNECT/TEMP), siscom_crm_test_20261031_231559, siscom_crm_test_20261031_232120 (CONNECT/TEMP)
+ GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)
+ siscom_auth con ton tai: true

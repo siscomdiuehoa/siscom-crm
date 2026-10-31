@@ -96,3 +96,32 @@ describe('HealthService.database — pool auth mất quyền (P3c N-4)', () => {
     expect(r.role).toMatchObject({ authPool: 'separate', authLeastPrivilege: false });
   });
 });
+
+// QA P3c lần 3 (Minor 1): cờ mất quyền là trạng thái instance — phải trở về khi quyền có lại hoặc khi đọc quyền lỗi (mở khi lỗi).
+describe('HealthService.database — cờ mất quyền pool auth trở về (P3c QA3)', () => {
+  function build(state: { grants: boolean; throwFacts: boolean }) {
+    const fake = { $queryRaw: async () => [{ ok: 1 }], appMeta: { findUnique: async () => null } };
+    const fakeAuth = { separate: true, $queryRaw: async (q: TemplateStringsArray) => {
+      if (!q.join('').includes('rolsuper')) return [{ ok: 1 }];
+      if (state.throwFacts) throw new Error('timeout');
+      return [{ user: 'siscom_auth', is_superuser: false, is_db_owner: false, can_create_in_public: false, is_migrator_member: false, has_auth_grants: state.grants, can_write_business: false }];
+    } };
+    return new HealthService(fake as never, fakeAuth as never);
+  }
+  it('mất quyền => ok=false; quyền có lại => ok=true trên cùng instance', async () => {
+    const state = { grants: false, throwFacts: false };
+    const h = build(state);
+    expect((await h.database()).ok).toBe(false);
+    state.grants = true;
+    expect((await h.database()).ok).toBe(true);
+  });
+  it('mất quyền => ok=false; lần sau đọc quyền lỗi => cờ về false, ok=true (mở khi lỗi, authLeastPrivilege=null)', async () => {
+    const state = { grants: false, throwFacts: false };
+    const h = build(state);
+    expect((await h.database()).ok).toBe(false);
+    state.throwFacts = true;
+    const r = await h.database();
+    expect(r.ok).toBe(true);
+    expect(r.role).toMatchObject({ authPool: 'separate', authLeastPrivilege: null });
+  });
+});

@@ -69,7 +69,8 @@ export class HealthService {
     }
   }
 
-  // Chỉ catalog; không ảnh hưởng ok/503. Chi tiết (tên tài khoản, lý do) ghi ở máy chủ, client chỉ thấy true/false/null.
+  // Catalog cho client (true/false/null; chi tiết ghi ở máy chủ). Pool app: không ảnh hưởng ok/503. Pool auth (P3c N-4): mất quyền xác thực
+  // => database() trả ok:false; đọc quyền lỗi/quá hạn => cờ về false (mở khi lỗi, vì SELECT 1 trên pool auth đã qua).
   // B1.4 P3c: kiểm cả hai pool. Pool app khi đã tách pool auth KHÔNG được còn quyền xác thực; pool auth PHẢI có và không ghi nghiệp vụ.
   private async role(): Promise<{ leastPrivilege: boolean | null; authPool: 'separate' | 'shared'; authLeastPrivilege: boolean | null }> {
     const separate = this.authPrisma?.separate === true;

@@ -50,17 +50,22 @@ COMMIT;
 SELECT 'trong DB nay: quyen bang con lai = ' || count(*) FROM information_schema.table_privileges WHERE grantee = 'siscom_auth'
 UNION ALL SELECT 'CONNECT DB nay = ' || has_database_privilege('siscom_auth', current_database(), 'CONNECT')::text;
 
--- 2. Cap cluster: CHI khi khong con DB nao khac cap quyen cho siscom_auth. Thu SET ON PARAMETER truoc DROP ROLE (DROP ROLE that bai neu con
---    pg_parameter_acl); neu DROP ROLE van that bai (phu thuoc o DB khac chua thay) thi script DUNG voi loi - role con, SET da mat: cap lai bang
---    GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO siscom_auth roi xem pg_shdepend.
--- QA N-1: tinh ca DB con MUC ACL RIENG cho siscom_auth (aclexplode) - khong phu thuoc viec DB do da REVOKE PUBLIC hay chua.
+-- 2. Cap cluster: CHI khi role khong con duoc dung o bat ky dau khac. Kiem bang pg_shdepend = MOI phu thuoc cua role tren toan cluster
+--    (ACL muc database/bang/sequence/ham o DB khac, quyen so huu, ...). QA N-1 + QA lan 3 Q3-4 (dien tap PG tam, bang chung 10): chi xem
+--    pg_database.datacl bo sot quyen MUC DOI TUONG o DB khac => DROP ROLE that bai SAU khi da REVOKE SET ON PARAMETER (nua chung). Vi vay:
+--    (a) kiem pg_shdepend (tru pg_parameter_acl - thu ngay duoi), (b) REVOKE SET + DROP ROLE trong MOT transaction: that bai thi khong mat gi.
+--    Neu "con dung" ma muon go het: chay file nay (buoc 1) tren tung DB duoc liet ke, lan cuoi se DROP ROLE.
 CREATE TEMP TABLE s1_auth_other AS
-  SELECT d.datname FROM pg_database d WHERE d.datname <> current_database() AND NOT d.datistemplate
-    AND ((has_database_privilege('siscom_auth', d.datname, 'CONNECT') AND NOT has_database_privilege('public', d.datname, 'CONNECT'))
-         OR EXISTS (SELECT 1 FROM aclexplode(d.datacl) a WHERE a.grantee = (SELECT oid FROM pg_roles WHERE rolname = 'siscom_auth')));
-SELECT 'DB khac con cap CONNECT cho siscom_auth: ' || coalesce(string_agg(datname, ', '), '(khong)') FROM s1_auth_other;
+  SELECT DISTINCT coalesce(d.datname, d2.datname || ' (CONNECT/TEMP)', '(cluster: ' || s.classid::regclass::text || ')') AS datname
+  FROM pg_shdepend s LEFT JOIN pg_database d ON d.oid = s.dbid
+       LEFT JOIN pg_database d2 ON s.classid = 'pg_database'::regclass AND d2.oid = s.objid
+  WHERE s.refclassid = 'pg_authid'::regclass AND s.refobjid = (SELECT oid FROM pg_roles WHERE rolname = 'siscom_auth')
+    AND s.classid <> 'pg_parameter_acl'::regclass;
+SELECT 'DB/doi tuong khac con dung siscom_auth (pg_shdepend): ' || coalesce(string_agg(datname, ', '), '(khong)') FROM s1_auth_other;
+BEGIN;
 SELECT CASE WHEN EXISTS (SELECT 1 FROM s1_auth_other)
             THEN 'SELECT ''GIU role siscom_auth va quyen SET ON PARAMETER (con DB khac dung)'''
             ELSE 'REVOKE SET ON PARAMETER app.actor_employee_id, app.priv_request_id FROM siscom_auth' END \gexec
 SELECT CASE WHEN EXISTS (SELECT 1 FROM s1_auth_other) THEN 'SELECT 1' ELSE 'DROP ROLE siscom_auth' END \gexec
+COMMIT;
 SELECT 'siscom_auth con ton tai: ' || EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth')::text;
