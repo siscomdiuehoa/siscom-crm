@@ -16,7 +16,8 @@ export interface DbRoleFacts {
   // M-4: CREATEROLE / CREATEDB / BYPASSRLS.
   hasAdminAttributes: boolean;
   // QA I-2: dấu hiệu quyền rộng kiểu APP_GRANTS V1 (chạy nhầm V1 => S2/S3 mở lại): ghi bảng RBAC, UPDATE password_hash,
-  // hoặc EXECUTE > 1 hàm SECURITY DEFINER trong public.
+  // hoặc EXECUTE bất kỳ hàm SECURITY DEFINER nào trong public ngoài fn_auth_api_change_own_password (QA N6: so theo tập, không đếm).
+  // CI chạy nhánh TRUE thật sau khi cấp V1 (pg-temp-db.sh grants v1, QA N4).
   hasBroadGrants: boolean;
   // QA Minor 4: là thành viên của role khác (nhóm cũ siscom_auth_rt, pg_write_all_data…) — V2 chỉ gỡ quyền cấp trực tiếp.
   isMemberOfOtherRoles: boolean;
@@ -36,7 +37,7 @@ export async function fetchDbRoleFacts(client: Pick<PrismaClient, '$queryRaw'>):
     (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS is_superuser,
     (SELECT pg_has_role(current_user, datdba, 'MEMBER') FROM pg_database WHERE datname = current_database()) AS is_db_owner,
     has_schema_privilege(current_user, 'public', 'CREATE') AS can_create_in_public,
-    (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator') AND pg_has_role(current_user, 'siscom_migrator', 'MEMBER')) AS is_migrator_member,
+    (CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator') THEN pg_has_role(current_user, 'siscom_migrator', 'MEMBER') ELSE false END) AS is_migrator_member,
     (EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND pg_has_role(current_user, c.relowner, 'MEMBER'))
       OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND pg_has_role(current_user, p.proowner, 'MEMBER')
                  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'))) AS owns_objects_in_public,
@@ -44,8 +45,9 @@ export async function fetchDbRoleFacts(client: Pick<PrismaClient, '$queryRaw'>):
     (CASE WHEN to_regclass('public.employee_role') IS NULL OR to_regclass('public.employee_credential') IS NULL THEN false
           ELSE has_any_column_privilege(current_user, 'public.employee_role', 'INSERT')
                OR has_column_privilege(current_user, 'public.employee_credential', 'password_hash', 'UPDATE')
-               OR (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-                   WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege(current_user, p.oid, 'EXECUTE')) > 1 END) AS has_broad_grants,
+               OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                   WHERE n.nspname = 'public' AND p.prosecdef AND p.proname <> 'fn_auth_api_change_own_password'
+                     AND has_function_privilege(current_user, p.oid, 'EXECUTE')) END) AS has_broad_grants,
     EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = current_user) AS is_member_of_other_roles`;
   return dbRoleFactsFromRow(rows[0] ?? {});
 }
