@@ -118,11 +118,12 @@ jobs:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: B1.4 P3 S1 - BAI TAI HIEN (RED) - verify TRUOC khi tach role (siscom_app con la chu so huu) => mong doi FAIL
         run: bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
-      - name: B1.4 P3 S1 - TACH ROLE (ROLE_SPLIT bang superuser container, APP_GRANTS_V2 bang siscom_migrator, chay 2 lan) roi verify (GREEN)
+      - name: B1.4 P3/P3c S1 - TACH ROLE (ROLE_SPLIT + AUTH_ROLE bang superuser container, APP_GRANTS_V3 bang siscom_migrator, chay 2 lan) roi verify app + auth (GREEN)
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res auth
       - name: Sau S1 - migrate status + diff bang siscom_migrator (MIGRATE_DATABASE_URL, prisma.config.ts uu tien) va bang siscom_app (chi doc)
         run: |
           set -euo pipefail
@@ -155,6 +156,7 @@ jobs:
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res auth
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Sau S1 - prisma migrate deploy bang siscom_migrator (MIGRATE_DATABASE_URL; khong con migration cho => thoat 0) + status
@@ -172,13 +174,16 @@ jobs:
           npm run test:e2e:customers
         env:
           CONCURRENCY_ROUNDS: "20"
-      - name: B1.4 P3b - dien tap rollback quyen app (V1 => VERIFY phai FAIL; V2 lai => VERIFY PASS)
+      - name: B1.4 P3b/P3c - dien tap rollback quyen (V1 => VERIFY FAIL; V2 = rollback P3c => VERIFY FAIL muc G vi app con quyen xac thuc; V3 lai => PASS app + auth)
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh grants v1
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
           bash scripts/ci/pg-temp-db.sh grants v2
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
+          bash scripts/ci/pg-temp-db.sh grants v3
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res auth
       - name: Don DB tam (container cung bi huy sau job)
         if: ${{ always() }}
         run: bash scripts/ci/pg-temp-db.sh drop

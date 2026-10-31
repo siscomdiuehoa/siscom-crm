@@ -1,0 +1,65 @@
+-- SISCOM CRM - B1.4 P3c: TAO ROLE XAC THUC siscom_auth (pool rieng cho dang nhap / phien / doi mat khau) - dong S3.
+-- VIET SAN. Chay bang psql -f voi SUPERUSER (postgres) tren DATABASE DICH (-d <ten db>), SAU B1.3_S1_ROLE_SPLIT.sql.txt (DB da thuoc
+--   siscom_migrator). Chi tao role + quyen CAP CLUSTER/DATABASE (CONNECT, SET ON PARAMETER). Quyen tren bang/ham cap o
+--   B1.3_S1_APP_GRANTS_V3.sql.txt (chay bang siscom_migrator) - chua chay V3 thi siscom_auth KHONG doc/ghi duoc gi (fail-closed).
+-- Pham vi: CHI ban sao thu (siscom_crm_test_* / siscom_crm_restore_*) hoac khi chu du an phe duyet RIENG bang van ban cho DB that.
+-- Mat khau: -v auth_pw='...' (>= 32 ky tu ngau nhien, sinh tren may chu, KHONG qua chat/log). Role da ton tai => KHONG doi mat khau.
+-- Rollback: B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt (sau khi chay lai B1.3_S1_APP_GRANTS_V2.sql.txt de tra quyen xac thuc cho siscom_app).
+\set ON_ERROR_STOP on
+\pset pager off
+\if :{?auth_pw}
+\else
+\set auth_pw ''
+\endif
+\if :{?target_db}
+\else
+\set target_db ''
+\endif
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dich, current_user AS chay_bang;
+SELECT CASE WHEN :'target_db' = '' THEN 'SELECT s1_fail_thieu_target_db_can_psql_v_target_db_bang_ten_db_dich()'
+            WHEN :'target_db' <> current_database() THEN 'SELECT s1_fail_target_db_khac_current_database()'
+            ELSE 'SELECT ''target_db khop: ' || current_database() || '''' END \gexec
+
+DO $$ BEGIN
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'Phai chay bang superuser (CREATE ROLE). Dang la %.', current_user;
+  END IF;
+  IF current_setting('server_version_num')::int < 150000 THEN
+    RAISE EXCEPTION 'Can PostgreSQL >= 15 (GRANT SET ON PARAMETER).';
+  END IF;
+  IF current_database() = 'siscom_crm_dev' AND coalesce(current_setting('s1.allow_dev', true), '') <> 'yes' THEN
+    RAISE EXCEPTION 'TU CHOI: siscom_crm_dev. Can phe duyet rieng (SET s1.allow_dev = yes trong cung phien).';
+  END IF;
+  IF current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % la baseline da khoa, khong duoc thay doi.', current_database();
+  END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'Database chua tach role (chu so huu khong phai siscom_migrator). Chay B1.3_S1_ROLE_SPLIT.sql.txt truoc.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app') THEN
+    RAISE EXCEPTION 'Chua co role siscom_app.';
+  END IF;
+END $$;
+
+-- 1. Role xac thuc: LOGIN, khong superuser, khong tao DB/role, khong ke thua nhom. Mat khau chi dat khi TAO MOI (\gexec vi DO khong thay :'auth_pw').
+SELECT CASE
+  WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') THEN 'SELECT ''role siscom_auth da ton tai, giu nguyen mat khau'''
+  WHEN :'auth_pw' = '' OR length(:'auth_pw') < 32 THEN 'SELECT s1_fail_missing_or_short_auth_pw()'
+  ELSE format('CREATE ROLE siscom_auth LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L', :'auth_pw')
+END \gexec
+
+-- 2. Quyen cap database/cluster. KHONG cap TEMP (M-c): pool auth khong can bang tam.
+SELECT format('GRANT CONNECT ON DATABASE %I TO siscom_auth', current_database()) \gexec
+-- Ham M1.2 (SECURITY DEFINER, "SET app.actor_employee_id = ''") doi nguoi goi co SET tren tham so tuy bien (PostgreSQL >= 15).
+GRANT SET ON PARAMETER app.actor_employee_id TO siscom_auth;
+GRANT SET ON PARAMETER app.priv_request_id TO siscom_auth;
+
+-- 3. Tu kiem (khong bi mat)
+SELECT 'siscom_auth' AS role, rolsuper AS super, rolcreaterole AS createrole, rolcreatedb AS createdb, rolinherit AS inherit,
+       has_database_privilege('siscom_auth', current_database(), 'CONNECT') AS connect_db,
+       has_database_privilege('siscom_auth', current_database(), 'TEMP') AS temp_db,
+       has_parameter_privilege('siscom_auth', 'app.actor_employee_id', 'SET') AS set_actor
+  FROM pg_roles WHERE rolname = 'siscom_auth';
+-- Ky vong: super=f createrole=f createdb=f inherit=f connect_db=t temp_db=f set_actor=t.
+-- Tiep theo: B1.3_S1_APP_GRANTS_V3.sql.txt (bang siscom_migrator), roi B1.3_S1_VERIFY.sql.txt (app) + B1.3_S1_VERIFY_AUTH.sql.txt (auth).

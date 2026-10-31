@@ -21,6 +21,11 @@ export interface DbRoleFacts {
   hasBroadGrants: boolean;
   // QA Minor 4: là thành viên của role khác (nhóm cũ siscom_auth_rt, pg_write_all_data…) — V2 chỉ gỡ quyền cấp trực tiếp.
   isMemberOfOtherRoles: boolean;
+  // B1.4 P3c: "quyền xác thực" = SELECT auth_session, hoặc SELECT employee_credential.password_hash, hoặc EXECUTE
+  // fn_auth_api_change_own_password. Pool nghiệp vụ (siscom_app) sau APP_GRANTS_V3 KHÔNG được có; pool auth (siscom_auth) PHẢI có.
+  hasAuthGrants: boolean;
+  // B1.4 P3c: INSERT customer — pool auth không được ghi nghiệp vụ (phát hiện hai URL đổi chỗ).
+  canWriteBusiness: boolean;
 }
 
 export interface DbRoleAssessment {
@@ -28,6 +33,10 @@ export interface DbRoleAssessment {
   problems: string[];
   enforce: boolean;
 }
+
+// B1.4 P3c: pool đang kiểm. authSeparate = AUTH_DATABASE_URL đã đặt (pool auth tách riêng). Mặc định = pool app chưa tách (P3b).
+export interface DbRolePool { pool: 'app' | 'auth'; authSeparate: boolean }
+const APP_SHARED: DbRolePool = { pool: 'app', authSeparate: false };
 
 // Một câu truy vấn, chỉ catalog, không tham số, chạy được bằng chính role ứng dụng ($queryRaw tagged template theo quy ước src —
 // không dùng biến thể "Unsafe"). Cột snake_case khớp dbRoleFactsFromRow.
@@ -48,7 +57,13 @@ export async function fetchDbRoleFacts(client: Pick<PrismaClient, '$queryRaw'>):
                OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                    WHERE n.nspname = 'public' AND p.prosecdef AND p.proname <> 'fn_auth_api_change_own_password'
                      AND has_function_privilege(current_user, p.oid, 'EXECUTE')) END) AS has_broad_grants,
-    EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = current_user) AS is_member_of_other_roles`;
+    EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = current_user) AS is_member_of_other_roles,
+    (CASE WHEN to_regclass('public.auth_session') IS NULL OR to_regclass('public.employee_credential') IS NULL THEN false
+          ELSE has_any_column_privilege(current_user, 'public.auth_session', 'SELECT')
+               OR has_column_privilege(current_user, 'public.employee_credential', 'password_hash', 'SELECT')
+               OR (CASE WHEN to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NULL THEN false
+                        ELSE has_function_privilege(current_user, 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE') END) END) AS has_auth_grants,
+    (CASE WHEN to_regclass('public.customer') IS NULL THEN false ELSE has_any_column_privilege(current_user, 'public.customer', 'INSERT') END) AS can_write_business`;
   return dbRoleFactsFromRow(rows[0] ?? {});
 }
 
@@ -63,11 +78,16 @@ export function dbRoleFactsFromRow(row: Record<string, unknown>): DbRoleFacts {
     hasAdminAttributes: row.has_admin_attributes === true,
     hasBroadGrants: row.has_broad_grants === true,
     isMemberOfOtherRoles: row.is_member_of_other_roles === true,
+    hasAuthGrants: row.has_auth_grants === true,
+    canWriteBusiness: row.can_write_business === true,
   };
 }
 
-export function assessDbRole(f: DbRoleFacts, nodeEnv: string | undefined): DbRoleAssessment {
+export function assessDbRole(f: DbRoleFacts, nodeEnv: string | undefined, pool: DbRolePool = APP_SHARED): DbRoleAssessment {
   const problems: string[] = [];
+  if (pool.pool === 'app' && pool.authSeparate && f.hasAuthGrants) problems.push('tài khoản "' + f.user + '" (pool nghiệp vụ) còn quyền xác thực (auth_session / password_hash / fn_auth_api_change_own_password) dù đã tách pool auth — chạy B1.3_S1_APP_GRANTS_V3.sql.txt');
+  if (pool.pool === 'auth' && !f.hasAuthGrants) problems.push('tài khoản "' + f.user + '" (pool auth) KHÔNG có quyền xác thực — AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc B1.3_S1_APP_GRANTS_V3.sql.txt chưa áp');
+  if (pool.pool === 'auth' && f.canWriteBusiness) problems.push('tài khoản "' + f.user + '" (pool auth) ghi được bảng nghiệp vụ (customer) — AUTH_DATABASE_URL và DATABASE_URL đổi chỗ?');
   if (f.isDbOwner) problems.push('tài khoản "' + f.user + '" là chủ sở hữu database (có thể tắt trigger, sửa nhật ký) — mô hình cũ B1.1, chưa tách role S1');
   if (f.isSuperuser) problems.push('tài khoản "' + f.user + '" là superuser');
   if (f.canCreateInPublic) problems.push('tài khoản "' + f.user + '" có quyền CREATE trên schema public (DDL)');
@@ -100,17 +120,17 @@ export const DEFAULT_RETRY: DbRoleRetry = {
 // Gọi lúc khởi động ứng dụng (PrismaService.onApplicationBootstrap). Vi phạm lúc khởi động => ném lỗi (main.ts thoát 1).
 // Không in URL/mật khẩu/lỗi driver.
 export async function enforceDbRoleAtStartup(
-  query: () => Promise<DbRoleFacts>, nodeEnv: string | undefined, log: DbRoleLogger, retry: DbRoleRetry = DEFAULT_RETRY,
+  query: () => Promise<DbRoleFacts>, nodeEnv: string | undefined, log: DbRoleLogger, retry: DbRoleRetry = DEFAULT_RETRY, pool: DbRolePool = APP_SHARED,
 ): Promise<{ checked: boolean; leastPrivilege: boolean | null }> {
   let facts: DbRoleFacts;
   try { facts = await query(); } catch {
     const again = nodeEnv === 'production';
     log.warn('Chưa kiểm được role database lúc khởi động (database chưa kết nối được hoặc câu kiểm lỗi)'
       + (again ? '; production: kiểm lại mỗi ' + Math.round(retry.retryMs / 1000) + ' giây.' : '; sẽ báo qua /health/database.'));
-    if (again) scheduleRecheck(query, nodeEnv, log, retry, 2);
+    if (again) scheduleRecheck(query, nodeEnv, log, retry, 2, pool);
     return { checked: false, leastPrivilege: null };
   }
-  const a = assessDbRole(facts, nodeEnv);
+  const a = assessDbRole(facts, nodeEnv, pool);
   if (a.leastPrivilege) return { checked: true, leastPrivilege: true };
   const text = 'Role database không phải đặc quyền tối thiểu: ' + a.problems.join('; ') + '.';
   if (a.enforce) {
@@ -121,17 +141,17 @@ export async function enforceDbRoleAtStartup(
   return { checked: true, leastPrivilege: false };
 }
 
-function scheduleRecheck(query: () => Promise<DbRoleFacts>, nodeEnv: string | undefined, log: DbRoleLogger, retry: DbRoleRetry, attempt: number): void {
+function scheduleRecheck(query: () => Promise<DbRoleFacts>, nodeEnv: string | undefined, log: DbRoleLogger, retry: DbRoleRetry, attempt: number, pool: DbRolePool): void {
   retry.schedule(async () => {
     if (retry.isStopped?.()) return;
     let facts: DbRoleFacts;
     try { facts = await query(); } catch {
       // Cảnh báo lần đầu và mỗi 20 lần (tránh ngập log khi DB tắt lâu); luôn lên lịch tiếp — không bỏ cuộc.
       if (attempt === 2 || attempt % 20 === 0) log.warn('Vẫn chưa kiểm được role database (lần ' + attempt + '); tiếp tục kiểm lại.');
-      scheduleRecheck(query, nodeEnv, log, retry, attempt + 1);
+      scheduleRecheck(query, nodeEnv, log, retry, attempt + 1, pool);
       return;
     }
-    const a = assessDbRole(facts, nodeEnv);
+    const a = assessDbRole(facts, nodeEnv, pool);
     if (a.leastPrivilege) return;
     log.error('Role database không phải đặc quyền tối thiểu: ' + a.problems.join('; ') + '. NODE_ENV=production => dừng tiến trình.');
     retry.exit(1);

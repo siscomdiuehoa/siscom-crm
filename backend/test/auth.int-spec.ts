@@ -12,7 +12,8 @@ import { CustomersModule } from '../src/modules/customers/customers.module';
 import { LookupsModule } from '../src/modules/lookups/lookups.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { leaks } from './helpers/test-app';
-import { assertTestConnection, createAdminTestPrisma, createTestPrisma, setDatabaseDefaultTimeZone } from './helpers/test-db';
+import { assertTestConnection, createAdminTestPrisma, createAuthTestPrisma, createTestPrisma, setDatabaseDefaultTimeZone } from './helpers/test-db';
+import { AuthPrismaService } from '../src/prisma/auth-prisma.service';
 import { ensureFixtures, Fixtures, makeCustomer } from './helpers/fixtures';
 
 // B1.3 MVP — ĐĂNG NHẬP THẬT trên DATABASE THỬ: bootstrap 4+1 tài khoản (chế độ khởi tạo M1, sau đó đóng vĩnh viễn trên DB thử này),
@@ -33,6 +34,8 @@ let prisma: PrismaService; let app: INestApplication; let codes: Record<string, 
 // B1.4 P3b: test dựng trạng thái "bí mật/quyền" (token_version, must_change_password) phải dùng kết nối CHỦ SỞ HỮU — siscom_app không còn
 // quyền ghi các cột này (S3). Khi chưa tách role (Windows), createAdminTestPrisma rơi về chính app.
 let adminPrisma: PrismaService;
+// B1.4 P3c: pool xác thực (siscom_auth qua TEST_AUTH_DATABASE_URL; rơi về app khi chưa tách) — AuthService/SessionActorProvider dùng pool này.
+let authPrisma: AuthPrismaService;
 const srv = () => request(app.getHttpServer());
 const cookieOf = (res: request.Response): string => { const sc = res.headers['set-cookie']; const list = Array.isArray(sc) ? sc : [String(sc ?? '')]; return list.find((c) => c.startsWith('siscom_sid='))!.split(';')[0]; };
 const login = (login: string, password: string) => srv().post('/api/v1/auth/login').set('Origin', ORIGIN).send({ login, password });
@@ -62,7 +65,7 @@ beforeAll(async () => {
   expect(r.closed).toBe(true);
   codes = Object.fromEntries(r.employees.map((e) => [e.key, e.code]));
   const mod = await Test.createTestingModule({ imports: [AuthApiModule, CustomersModule, LookupsModule] })
-    .overrideProvider(PrismaService).useValue(prisma).overrideProvider(AUTH_CONFIG).useValue(cfg).compile();
+    .overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue((authPrisma = createAuthTestPrisma().prisma)).overrideProvider(AUTH_CONFIG).useValue(cfg).compile();
   app = mod.createNestApplication();
   app.useLogger(false); app.setGlobalPrefix('api/v1'); app.use(requestContext);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
@@ -74,7 +77,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   // Trả múi giờ mặc định của DB thử về như cũ kể cả khi beforeAll lỗi giữa chừng; luôn đóng kết nối.
-  try { if (dbName) await setDatabaseDefaultTimeZone(dbName, null); } finally { await prisma?.$disconnect(); await adminPrisma?.$disconnect(); }
+  try { if (dbName) await setDatabaseDefaultTimeZone(dbName, null); } finally { await prisma?.$disconnect(); await adminPrisma?.$disconnect(); await authPrisma?.$disconnect(); }
 });
 
 describe('bootstrap (chế độ khởi tạo M1) và ràng buộc', () => {

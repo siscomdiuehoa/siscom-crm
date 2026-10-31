@@ -8,6 +8,7 @@ import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.fil
 import { ACTIVE_LINKS_CHECKER, ActiveLinksChecker } from '../../src/modules/customers/customers.deletion-guard';
 import { CustomersModule } from '../../src/modules/customers/customers.module';
 import { LookupsModule } from '../../src/modules/lookups/lookups.module';
+import { AuthPrismaService } from '../../src/prisma/auth-prisma.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import type { Fixtures } from './fixtures';
 
@@ -55,7 +56,7 @@ export class TestLinksChecker implements ActiveLinksChecker {
 export interface TestApp { app: INestApplication; audit: RecordingAuditPort }
 export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verifiedLinks?: boolean; denyAll?: boolean } = {}): Promise<TestApp> {
   const audit = new RecordingAuditPort();
-  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AUDIT_PORT).useValue(audit);
+  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(AUDIT_PORT).useValue(audit);
   if (!opts.denyAll) b = b.overrideProvider(ACTOR_PROVIDER).useValue(new TestActorProvider(fx));
   if (opts.verifiedLinks) b = b.overrideProvider(ACTIVE_LINKS_CHECKER).useValue(new TestLinksChecker());
   const mod = await b.compile();
