@@ -3,7 +3,7 @@ import { assessDbRole, DbRoleFacts, dbRoleFactsFromRow, enforceDbRoleAtStartup }
 // B1.4 P3b (M-d): backend KHÔNG được chạy bằng role chủ sở hữu DB / superuser / role có CREATE trên schema public (mất tác dụng tách role S1).
 // NODE_ENV=production: từ chối khởi động khi có bằng chứng sai cấu hình; môi trường khác (Windows chưa tách role): chỉ cảnh báo.
 const ok: DbRoleFacts = { user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
-  ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false };
+  ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true };
 
 describe('assessDbRole', () => {
   it('siscom_app không superuser, không chủ sở hữu, không CREATE public, không thành viên migrator => đặc quyền tối thiểu, không vấn đề', () => {
@@ -12,7 +12,7 @@ describe('assessDbRole', () => {
   });
   it('liệt kê đủ từng vấn đề: chủ sở hữu DB, superuser, CREATE trên public, thành viên siscom_migrator, tên tài khoản là migrator/postgres', () => {
     const r = assessDbRole({ user: 'siscom_migrator', isSuperuser: true, isDbOwner: true, canCreateInPublic: true, isMigratorMember: true,
-      ownsObjectsInPublic: true, hasAdminAttributes: true, hasBroadGrants: true, isMemberOfOtherRoles: true }, 'production');
+      ownsObjectsInPublic: true, hasAdminAttributes: true, hasBroadGrants: true, isMemberOfOtherRoles: true, hasAuthGrants: true, canWriteBusiness: true }, 'production');
     expect(r.leastPrivilege).toBe(false);
     expect(r.problems).toEqual(expect.arrayContaining([
       expect.stringContaining('chủ sở hữu'), expect.stringContaining('superuser'), expect.stringContaining('CREATE'),
@@ -121,5 +121,40 @@ describe('enforceDbRoleAtStartup', () => {
     const l = log();
     await expect(enforceDbRoleAtStartup(async () => ({ ...ok, isDbOwner: true }), 'development', l)).resolves.toEqual({ checked: true, leastPrivilege: false });
     expect(l.e).toEqual([]); expect(l.w).toHaveLength(1); expect(l.w[0]).toContain('chủ sở hữu');
+  });
+});
+
+// B1.4 P3c: hai pool. Pool nghiệp vụ (siscom_app) KHÔNG được còn quyền xác thực khi đã tách pool auth; pool auth (siscom_auth) PHẢI có
+// quyền xác thực và KHÔNG được ghi bảng nghiệp vụ. Khi chưa tách (authSeparate=false, máy dev) thì pool app vẫn được giữ quyền xác thực.
+describe('assessDbRole — hai pool (P3c)', () => {
+  const base: DbRoleFacts = { user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
+    ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true };
+  it('pool app, đã tách pool auth: còn quyền xác thực (auth_session / password_hash / chpw) => vi phạm (V3 chưa áp)', () => {
+    const r = assessDbRole({ ...base, hasAuthGrants: true }, 'production', { pool: 'app', authSeparate: true });
+    expect(r.leastPrivilege).toBe(false);
+    expect(r.problems.join(' ')).toContain('APP_GRANTS_V3');
+  });
+  it('pool app, CHƯA tách pool auth (dev): quyền xác thực là bình thường, không vi phạm', () => {
+    expect(assessDbRole({ ...base, hasAuthGrants: true }, 'development', { pool: 'app', authSeparate: false }).leastPrivilege).toBe(true);
+  });
+  it('pool app sau V3: không quyền xác thực, có ghi nghiệp vụ => tối thiểu', () => {
+    expect(assessDbRole(base, 'production', { pool: 'app', authSeparate: true }).leastPrivilege).toBe(true);
+  });
+  it('pool auth: thiếu quyền xác thực => vi phạm (AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc V3 chưa áp)', () => {
+    const r = assessDbRole({ ...base, user: 'siscom_auth', hasAuthGrants: false, canWriteBusiness: false }, 'production', { pool: 'auth', authSeparate: true });
+    expect(r.leastPrivilege).toBe(false);
+    expect(r.problems.join(' ')).toContain('xác thực');
+  });
+  it('pool auth: ghi được bảng nghiệp vụ (customer) => vi phạm (đổi chỗ hai URL)', () => {
+    const r = assessDbRole({ ...base, user: 'siscom_auth', hasAuthGrants: true, canWriteBusiness: true }, 'production', { pool: 'auth', authSeparate: true });
+    expect(r.leastPrivilege).toBe(false);
+    expect(r.problems.join(' ')).toContain('nghiệp vụ');
+  });
+  it('pool auth đúng: có quyền xác thực, không ghi nghiệp vụ => tối thiểu', () => {
+    expect(assessDbRole({ ...base, user: 'siscom_auth', hasAuthGrants: true, canWriteBusiness: false }, 'production', { pool: 'auth', authSeparate: true }).leastPrivilege).toBe(true);
+  });
+  it('dbRoleFactsFromRow đọc has_auth_grants / can_write_business; thiếu => false', () => {
+    expect(dbRoleFactsFromRow({ user: 'x', has_auth_grants: true, can_write_business: true })).toMatchObject({ hasAuthGrants: true, canWriteBusiness: true });
+    expect(dbRoleFactsFromRow({ user: 'x' })).toMatchObject({ hasAuthGrants: false, canWriteBusiness: false });
   });
 });

@@ -6,7 +6,7 @@ import { parseLoginIdentifier } from '../../common/auth/login/login-identifier';
 import { ResolvedSession, SessionActorProvider } from '../../common/auth/session/session-actor.provider';
 import { newOpaqueToken, SESSION_COOKIE_NAME, sha256Hex } from '../../common/auth/session/session-token';
 import { DomainException } from '../../common/errors/domain.exception';
-import { PrismaService } from '../../prisma/prisma.service';
+import { AuthPrismaService } from '../../prisma/auth-prisma.service';
 import { LoginLimiter } from './login-limiter';
 import { checkPasswordPolicy } from '../../common/auth/login/password-policy';
 
@@ -34,7 +34,8 @@ export class AuthService {
   private readonly cpLimiter: LoginLimiter; // D18 A: hạn mức đổi mật khẩu theo (nguồn + nhân viên), cùng cấu hình với đăng nhập, không khoá tài khoản
   private readonly cpEmployeeLimiter: LoginLimiter; // D18 A (F4): trần theo nhân viên bất kể nguồn
 
-  constructor(private readonly prisma: PrismaService, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig, private readonly sessions: SessionActorProvider) {
+  // B1.4 P3c: moi truy van xac thuc di qua POOL AUTH (siscom_auth); pool nghiep vu khong con quyen.
+  constructor(private readonly prisma: AuthPrismaService, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig, private readonly sessions: SessionActorProvider) {
     this.limiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: cfg.loginMaxPerSource, maxPerIdentifier: cfg.loginMaxPerIdentifier });
     this.cpLimiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: cfg.loginMaxPerSource, maxPerIdentifier: cfg.loginMaxPerIdentifier });
     this.cpEmployeeLimiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: 1_000_000_000, maxPerIdentifier: cfg.loginMaxPerIdentifier * CP_EMPLOYEE_FACTOR });

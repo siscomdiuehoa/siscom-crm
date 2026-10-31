@@ -1,4 +1,5 @@
 import { Client } from 'pg';
+import { AuthPrismaService } from '../../src/prisma/auth-prisma.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
 export const TEST_DB_RE = /^siscom_crm_(restore|test)_\d{8}_\d{6}$/;
@@ -76,4 +77,27 @@ export const sleep = (ms: number): Promise<void> => new Promise((res) => setTime
 export async function caught(p: Promise<unknown>): Promise<unknown> {
   try { await p; } catch (e) { return e; }
   throw new Error('Mong đợi lỗi nhưng không có lỗi');
+}
+
+// B1.4 P3c: POOL XÁC THỰC (siscom_auth) qua TEST_AUTH_DATABASE_URL — CI sau khi áp APP_GRANTS_V3; không có => rơi về URL ứng dụng
+// (máy Windows chưa tách; AuthPrismaService cũng rơi về DATABASE_URL khi không có AUTH_DATABASE_URL). Cùng host 127.0.0.1, cùng DB thử.
+export function authTestDatabase(): { url: string; name: string; separate: boolean } {
+  const app = testDatabase();
+  const url = process.env.TEST_AUTH_DATABASE_URL;
+  if (!url) return { ...app, separate: false };
+  let u: URL;
+  try { u = new URL(url); } catch { throw new Error('TEST_AUTH_DATABASE_URL không hợp lệ.'); }
+  const name = decodeURIComponent(u.pathname.replace(/^\//, ''));
+  if (name !== app.name) throw new Error('Từ chối: TEST_AUTH_DATABASE_URL trỏ "' + name + '" khác database thử "' + app.name + '".');
+  if (u.hostname !== '127.0.0.1') throw new Error('Từ chối: host của TEST_AUTH_DATABASE_URL phải là 127.0.0.1.');
+  if (decodeURIComponent(u.username) !== 'siscom_auth') throw new Error('Từ chối: tài khoản của TEST_AUTH_DATABASE_URL phải là siscom_auth.');
+  return { url, name, separate: true };
+}
+
+// AuthPrismaService thử: constructor chỉ cần getOrThrow('DATABASE_URL') + get('AUTH_DATABASE_URL'/'NODE_ENV').
+export function createAuthTestPrisma(): { prisma: AuthPrismaService; name: string; separate: boolean } {
+  const app = testDatabase();
+  const a = authTestDatabase();
+  const cfg = { getOrThrow: () => app.url, get: (k: string) => (k === 'AUTH_DATABASE_URL' ? (a.separate ? a.url : undefined) : k === 'NODE_ENV' ? 'test' : undefined) };
+  return { prisma: new AuthPrismaService(cfg as never), name: a.name, separate: a.separate };
 }

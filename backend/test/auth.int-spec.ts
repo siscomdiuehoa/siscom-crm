@@ -12,7 +12,8 @@ import { CustomersModule } from '../src/modules/customers/customers.module';
 import { LookupsModule } from '../src/modules/lookups/lookups.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { leaks } from './helpers/test-app';
-import { assertTestConnection, createAdminTestPrisma, createTestPrisma, setDatabaseDefaultTimeZone } from './helpers/test-db';
+import { assertTestConnection, createAdminTestPrisma, createAuthTestPrisma, createTestPrisma, setDatabaseDefaultTimeZone } from './helpers/test-db';
+import { AuthPrismaService } from '../src/prisma/auth-prisma.service';
 import { ensureFixtures, Fixtures, makeCustomer } from './helpers/fixtures';
 
 // B1.3 MVP — ĐĂNG NHẬP THẬT trên DATABASE THỬ: bootstrap 4+1 tài khoản (chế độ khởi tạo M1, sau đó đóng vĩnh viễn trên DB thử này),
@@ -33,6 +34,9 @@ let prisma: PrismaService; let app: INestApplication; let codes: Record<string, 
 // B1.4 P3b: test dựng trạng thái "bí mật/quyền" (token_version, must_change_password) phải dùng kết nối CHỦ SỞ HỮU — siscom_app không còn
 // quyền ghi các cột này (S3). Khi chưa tách role (Windows), createAdminTestPrisma rơi về chính app.
 let adminPrisma: PrismaService;
+// B1.4 P3c: pool xác thực (siscom_auth qua TEST_AUTH_DATABASE_URL; rơi về app khi chưa tách) — AuthService/SessionActorProvider dùng pool này.
+let authPrisma: AuthPrismaService;
+// P3c: các truy vấn KIỂM CHỨNG trên auth_session / employee_credential dùng adminPrisma (chủ sở hữu) — pool app (prisma) không còn quyền đọc.
 const srv = () => request(app.getHttpServer());
 const cookieOf = (res: request.Response): string => { const sc = res.headers['set-cookie']; const list = Array.isArray(sc) ? sc : [String(sc ?? '')]; return list.find((c) => c.startsWith('siscom_sid='))!.split(';')[0]; };
 const login = (login: string, password: string) => srv().post('/api/v1/auth/login').set('Origin', ORIGIN).send({ login, password });
@@ -62,7 +66,7 @@ beforeAll(async () => {
   expect(r.closed).toBe(true);
   codes = Object.fromEntries(r.employees.map((e) => [e.key, e.code]));
   const mod = await Test.createTestingModule({ imports: [AuthApiModule, CustomersModule, LookupsModule] })
-    .overrideProvider(PrismaService).useValue(prisma).overrideProvider(AUTH_CONFIG).useValue(cfg).compile();
+    .overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue((authPrisma = createAuthTestPrisma().prisma)).overrideProvider(AUTH_CONFIG).useValue(cfg).compile();
   app = mod.createNestApplication();
   app.useLogger(false); app.setGlobalPrefix('api/v1'); app.use(requestContext);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
@@ -74,7 +78,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   // Trả múi giờ mặc định của DB thử về như cũ kể cả khi beforeAll lỗi giữa chừng; luôn đóng kết nối.
-  try { if (dbName) await setDatabaseDefaultTimeZone(dbName, null); } finally { await prisma?.$disconnect(); await adminPrisma?.$disconnect(); }
+  try { if (dbName) await setDatabaseDefaultTimeZone(dbName, null); } finally { await prisma?.$disconnect(); await adminPrisma?.$disconnect(); await authPrisma?.$disconnect(); }
 });
 
 describe('bootstrap (chế độ khởi tạo M1) và ràng buộc', () => {
@@ -89,7 +93,7 @@ describe('bootstrap (chế độ khởi tạo M1) và ràng buộc', () => {
     const rows = await prisma.auditLog.findMany({ where: { action: { startsWith: 'auth.' } }, select: { action: true, summary: true, changes: true, entityCode: true, actorRole: true } });
     const text = JSON.stringify(rows);
     for (const u of USERS) expect(text).not.toContain(u.password);
-    const cred = await prisma.employeeCredential.findMany({ select: { passwordAlgo: true, passwordHash: true } });
+    const cred = await adminPrisma.employeeCredential.findMany({ select: { passwordAlgo: true, passwordHash: true } });
     expect(cred.every((c) => c.passwordAlgo === 'argon2id' && c.passwordHash.startsWith('$argon2id$'))).toBe(true);
   });
 });
@@ -130,13 +134,13 @@ describe('đăng nhập', () => {
     const u = USERS[3];
     for (let i = 0; i < cfg.lockAfterFailures; i++) expect((await login(u.email, 'sai-' + i)).status).toBe(401);
     expect((await login(u.email, u.password)).status).toBe(401);
-    const cred = await prisma.employeeCredential.findFirstOrThrow({ where: { employee: { email: u.email } } });
+    const cred = await adminPrisma.employeeCredential.findFirstOrThrow({ where: { employee: { email: u.email } } });
     expect(cred.lockedUntil).not.toBeNull(); expect(cred.lockLevel).toBe(1);
     const locked = await prisma.auditLog.count({ where: { action: 'auth.login_locked', entityId: cred.employeeId } });
     expect(locked).toBe(1);
-    await prisma.employeeCredential.update({ where: { employeeId: cred.employeeId }, data: { lockedUntil: new Date(Date.now() - 1000) } }); // hết hạn khoá
+    await adminPrisma.employeeCredential.update({ where: { employeeId: cred.employeeId }, data: { lockedUntil: new Date(Date.now() - 1000) } }); // hết hạn khoá
     expect((await login(u.email, u.password)).status).toBe(200);
-    const after = await prisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: cred.employeeId } });
+    const after = await adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: cred.employeeId } });
     expect(after.failedCount).toBe(0); expect(after.lockedUntil).toBeNull(); expect(after.lastLoginAt).not.toBeNull();
   });
 });
@@ -158,19 +162,19 @@ describe('phiên, /auth/me, logout', () => {
     const out = await srv().post('/api/v1/auth/logout').set('Cookie', s.cookie).set('Origin', ORIGIN).set('X-CSRF-Token', s.csrf);
     expect(out.status).toBe(200); expect(String(out.headers['set-cookie'])).toMatch(/siscom_sid=; .*Max-Age=0/); expect(String(out.headers['set-cookie'])).toMatch(/siscom_csrf=; .*Max-Age=0/);
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(401);
-    const row = await prisma.authSession.findFirst({ where: { employeeId: (await prisma.employee.findFirstOrThrow({ where: { email: USERS[2].email } })).id, revokeReason: 'LOGOUT' } });
+    const row = await adminPrisma.authSession.findFirst({ where: { employeeId: (await prisma.employee.findFirstOrThrow({ where: { email: USERS[2].email } })).id, revokeReason: 'LOGOUT' } });
     expect(row).not.toBeNull();
   });
   it('phiên hết hạn (idle) => 401; thu hồi toàn bộ phiên khi token_version tăng (đổi mật khẩu/khoá) — trigger M1.2', async () => {
     const s = await session('technician');
     const emp = await prisma.employee.findFirstOrThrow({ where: { email: USERS[3].email } });
-    await prisma.authSession.updateMany({ where: { employeeId: emp.id, revokedAt: null }, data: { idleExpiresAt: new Date(Date.now() - 1000) } });
+    await adminPrisma.authSession.updateMany({ where: { employeeId: emp.id, revokedAt: null }, data: { idleExpiresAt: new Date(Date.now() - 1000) } });
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(401);
     const s2 = await session('technician');
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s2.cookie)).status).toBe(200);
     await adminPrisma.employeeCredential.update({ where: { employeeId: emp.id }, data: { tokenVersion: { increment: 1 } } }); // P3b: app không ghi token_version
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s2.cookie)).status).toBe(401);
-    expect(await prisma.authSession.count({ where: { employeeId: emp.id, revokeReason: 'TOKEN_VERSION' } })).toBeGreaterThanOrEqual(1);
+    expect(await adminPrisma.authSession.count({ where: { employeeId: emp.id, revokeReason: 'TOKEN_VERSION' } })).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -229,7 +233,7 @@ describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A
   const NEW = 'Taichinh-Moi#2026-ok';
   const body = (currentPassword: string, newPassword = NEW, confirmPassword = newPassword) => ({ currentPassword, newPassword, confirmPassword });
   let empId = '';
-  const cred = () => prisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: empId } });
+  const cred = () => adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: empId } });
   const failedLogs = () => prisma.auditLog.count({ where: { action: 'auth.password_change_failed', entityId: empId } });
   beforeAll(async () => { empId = (await prisma.employee.findFirstOrThrow({ where: { email: acct.email } })).id; });
   afterAll(async () => {
@@ -257,7 +261,7 @@ describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A
     expect(after.passwordHash).toMatch(/^\$argon2id\$/); expect(after.passwordHash).not.toBe(before.passwordHash);
     expect(after.passwordAlgo).toBe('argon2id'); expect(after.tokenVersion).toBe(before.tokenVersion + 1); expect(after.mustChangePassword).toBe(false);
     expect(after.passwordChangedAt.getTime()).toBeGreaterThan(before.passwordChangedAt.getTime());
-    expect(await prisma.authSession.count({ where: { employeeId: empId, revokeReason: 'TOKEN_VERSION' } })).toBeGreaterThanOrEqual(2);
+    expect(await adminPrisma.authSession.count({ where: { employeeId: empId, revokeReason: 'TOKEN_VERSION' } })).toBeGreaterThanOrEqual(2);
     const log = await prisma.auditLog.findFirst({ where: { action: 'auth.password_changed', entityId: empId }, orderBy: { id: 'desc' } });
     expect(log).toMatchObject({ actorType: 'USER', actorId: empId, entityType: 'employee' });
     expect((log!.changes as { sessionsRevoked: number; tokenVersion: number }).sessionsRevoked).toBeGreaterThanOrEqual(2);
@@ -303,7 +307,7 @@ describe('Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A
   });
   it('D18 A: 6 lần sai liên tiếp (hạn mức 5/15 phút theo cặp nguồn + nhân viên) => lần thứ 6 là 429 PASSWORD_CHANGE_THROTTLED; tài khoản KHÔNG bị khoá đăng nhập', async () => {
     const cfgT: AuthConfig = { ...cfg, loginMaxPerIdentifier: 5 };
-    const modT = await Test.createTestingModule({ imports: [AuthApiModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AUTH_CONFIG).useValue(cfgT).compile();
+    const modT = await Test.createTestingModule({ imports: [AuthApiModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(authPrisma).overrideProvider(AUTH_CONFIG).useValue(cfgT).compile();
     const appT = modT.createNestApplication();
     appT.useLogger(false); appT.setGlobalPrefix('api/v1'); appT.use(requestContext);
     appT.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
@@ -395,7 +399,7 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
 
   it('đăng nhập: issued_at, last_login_at ≈ now() của DB; hạn idle 30 phút và hạn tuyệt đối 2 giờ tính từ now() của DB', async () => {
     const s = await session('admin');
-    const r = await prisma.$queryRaw<{ issued: number; idle: number; abs: number; lastLogin: number }[]>`
+    const r = await adminPrisma.$queryRaw<{ issued: number; idle: number; abs: number; lastLogin: number }[]>`
       SELECT extract(epoch FROM s.issued_at - now())::float8 * 1000 AS issued,
              extract(epoch FROM s.idle_expires_at - now())::float8 * 1000 AS idle,
              extract(epoch FROM s.abs_expires_at - now())::float8 * 1000 AS abs,
@@ -410,22 +414,22 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
 
   it('hết hạn phiên theo thời điểm thật: idle_expires_at = now() + 5 phút => 200; = now() - 1 phút => 401', async () => {
     const s = await session('admin'); const h = hashOf(s.cookie);
-    await prisma.$executeRaw`UPDATE auth_session SET idle_expires_at = now() + interval '5 minutes' WHERE refresh_hash = ${h}`;
+    await adminPrisma.$executeRaw`UPDATE auth_session SET idle_expires_at = now() + interval '5 minutes' WHERE refresh_hash = ${h}`;
     expect((await srv().get(ME).set('Cookie', s.cookie)).status).toBe(200);
-    await prisma.$executeRaw`UPDATE auth_session SET idle_expires_at = now() - interval '1 minute' WHERE refresh_hash = ${h}`;
+    await adminPrisma.$executeRaw`UPDATE auth_session SET idle_expires_at = now() - interval '1 minute' WHERE refresh_hash = ${h}`;
     expect((await srv().get(ME).set('Cookie', s.cookie)).status).toBe(401);
   });
 
   it('khoá đăng nhập: locked_until = now() của DB + 15 phút; còn hạn => 401 kể cả đúng mật khẩu; quá hạn theo now() của DB => 200', async () => {
     const u = USERS[3];
     for (let i = 0; i < cfg.lockAfterFailures; i++) expect((await login(u.email, 'sai-utc-' + i)).status).toBe(401);
-    const r = await prisma.$queryRaw<{ left: number }[]>`
+    const r = await adminPrisma.$queryRaw<{ left: number }[]>`
       SELECT extract(epoch FROM c.locked_until - now())::float8 * 1000 AS "left"
       FROM employee_credential c JOIN employee e ON e.id = c.employee_id WHERE e.email = ${u.email}`;
     expect(Math.abs(r[0].left - cfg.lockMinutes * MIN)).toBeLessThan(TOL);
-    await prisma.$executeRaw`UPDATE employee_credential c SET locked_until = now() + interval '2 minutes' FROM employee e WHERE e.id = c.employee_id AND e.email = ${u.email}`;
+    await adminPrisma.$executeRaw`UPDATE employee_credential c SET locked_until = now() + interval '2 minutes' FROM employee e WHERE e.id = c.employee_id AND e.email = ${u.email}`;
     expect((await login(u.email, u.password)).status).toBe(401);
-    await prisma.$executeRaw`UPDATE employee_credential c SET locked_until = now() - interval '1 minute' FROM employee e WHERE e.id = c.employee_id AND e.email = ${u.email}`;
+    await adminPrisma.$executeRaw`UPDATE employee_credential c SET locked_until = now() - interval '1 minute' FROM employee e WHERE e.id = c.employee_id AND e.email = ${u.email}`;
     expect((await login(u.email, u.password)).status).toBe(200);
   });
 
@@ -437,11 +441,11 @@ describe('D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định 
     expect(res.status).toBe(200);
     acct.password = TMP;
     try {
-      const r = await prisma.$queryRaw<{ changed: number }[]>`
+      const r = await adminPrisma.$queryRaw<{ changed: number }[]>`
         SELECT extract(epoch FROM c.password_changed_at - now())::float8 * 1000 AS changed
         FROM employee_credential c JOIN employee e ON e.id = c.employee_id WHERE e.email = ${acct.email}`;
       expect(Math.abs(r[0].changed)).toBeLessThan(TOL);
-      const old = await prisma.authSession.findUniqueOrThrow({ where: { refreshHash: hashOf(other.cookie) }, select: { revokedAt: true, revokeReason: true } });
+      const old = await adminPrisma.authSession.findUniqueOrThrow({ where: { refreshHash: hashOf(other.cookie) }, select: { revokedAt: true, revokeReason: true } });
       expect(old.revokeReason).toBe('TOKEN_VERSION');
       expect(Math.abs(old.revokedAt!.getTime() - t)).toBeLessThan(TOL);
     } finally {
@@ -468,7 +472,7 @@ describe('B1.4 P1 — TRUST_PROXY: hạn mức theo nguồn và tiền tố IP p
   // Tiền tố IP của ĐÚNG phiên vừa cấp (tra theo băm cookie), không dựa vào thứ tự issued_at (hai login có thể trùng mili-giây).
   const prefixOf = async (res: request.Response): Promise<string | null> => {
     const h = createHash('sha256').update(cookieOf(res).split('=')[1], 'utf8').digest('hex');
-    return (await prisma.authSession.findUniqueOrThrow({ where: { refreshHash: h }, select: { ipPrefix: true } })).ipPrefix;
+    return (await adminPrisma.authSession.findUniqueOrThrow({ where: { refreshHash: h }, select: { ipPrefix: true } })).ipPrefix;
   };
   const loginXff = (xff?: string) => { const r = login(tech().email, tech().password); return xff === undefined ? r : r.set(XFF, xff); };
   it('đăng nhập có X-Forwarded-For => tiền tố IP phiên là của khách thật (hop gần proxy nhất), phần tự khai bị bỏ', async () => {
@@ -489,7 +493,7 @@ describe('B1.4 P1 — TRUST_PROXY: hạn mức theo nguồn và tiền tố IP p
   it('hạn mức theo nguồn: loopback => hai khách sau cùng proxy KHÔNG chặn nhau; false => header bị bỏ, chung một bucket', async () => {
     const mkApp = async (trust: TrustProxySetting): Promise<INestApplication> => {
       const cfgT: AuthConfig = { ...cfg, loginMaxPerSource: 3 };
-      const modT = await Test.createTestingModule({ imports: [AuthApiModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AUTH_CONFIG).useValue(cfgT).compile();
+      const modT = await Test.createTestingModule({ imports: [AuthApiModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(authPrisma).overrideProvider(AUTH_CONFIG).useValue(cfgT).compile();
       const appT = modT.createNestApplication();
       appT.useLogger(false); appT.setGlobalPrefix('api/v1'); appT.use(requestContext);
       appT.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
@@ -580,7 +584,7 @@ describe('B1.4 P2 — PASSWORD_CHANGE_REQUIRED', () => {
     const ok = await srv().post(CP2).set(hdr(s)).send({ currentPassword: tech.password, newPassword: TMP_T, confirmPassword: TMP_T });
     expect(ok.status).toBe(200); expect(ok.body.data.me.mustChangePassword).toBe(false);
     tech.password = TMP_T;
-    expect((await prisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: empId } })).mustChangePassword).toBe(false);
+    expect((await adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: empId } })).mustChangePassword).toBe(false);
     const fresh = { cookie: cookieOf(ok), csrf: ok.body.data.csrfToken };
     expect((await srv().get(C2).set('Cookie', fresh.cookie)).status).toBe(200);
     expect((await srv().get(C2).set('Cookie', s.cookie)).status).toBe(401); // phiên cũ đã bị thu hồi

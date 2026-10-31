@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { assessDbRole, fetchDbRoleFacts } from '../prisma/db-role-check';
+import { AuthPrismaService } from '../prisma/auth-prisma.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface DatabaseHealth {
@@ -8,7 +9,8 @@ export interface DatabaseHealth {
   migrated?: boolean;
   baseline?: string | null;
   // B1.4 P3b (M-d): ứng dụng có đang chạy bằng role đặc quyền tối thiểu không; null = chưa đọc được. Không trả tên tài khoản.
-  role?: { leastPrivilege: boolean | null };
+  // B1.4 P3c: authPool 'separate' (AUTH_DATABASE_URL, siscom_auth) | 'shared' (chua tach, chi ngoai production); authLeastPrivilege nhu tren.
+  role?: { leastPrivilege: boolean | null; authPool: 'separate' | 'shared'; authLeastPrivilege: boolean | null };
 }
 
 const DB_TIMEOUT_MS = 2000;
@@ -18,7 +20,8 @@ export class HealthService {
   private readonly logger = new Logger(HealthService.name);
   // M-6: nhớ trạng thái role đã báo để không ghi cảnh báo lặp mỗi lần probe; chỉ ghi khi trạng thái đổi.
   private lastRoleWarning: string | null = null;
-  constructor(private readonly prisma: PrismaService) {}
+  private authPoolLostGrants = false;
+  constructor(private readonly prisma: PrismaService, private readonly authPrisma: AuthPrismaService) {}
 
   liveness() {
     return {
@@ -47,7 +50,16 @@ export class HealthService {
       return { ok: false };
     }
     const latencyMs = Date.now() - start;
+    // QA P3c I-3: pool auth tách riêng mà không kết nối được => mọi đăng nhập/request có cookie lỗi => báo down để load balancer rút instance.
+    if (this.authPrisma?.separate === true) {
+      try { await this.withTimeout(this.authPrisma.$queryRaw`SELECT 1`); } catch (err) {
+        this.warnOnChange('Kiểm tra pool xác thực (AUTH_DATABASE_URL) thất bại: ' + (err instanceof Error ? err.message : 'không rõ'));
+        return { ok: false };
+      }
+    }
     const role = await this.role();
+    // QA N-4: pool auth kết nối được nhưng MẤT quyền xác thực (rollback/REVOKE chạy khi backend còn sống) => đăng nhập/phiên đều lỗi => down.
+    if (role.authPool === 'separate' && this.authPoolLostGrants) return { ok: false, role };
     try {
       const row = await this.withTimeout(this.prisma.appMeta.findUnique({ where: { key: 'schema_baseline' } }));
       return { ok: true, latencyMs, migrated: !!row, baseline: row ? row.value : null, role };
@@ -57,16 +69,36 @@ export class HealthService {
     }
   }
 
-  // Chỉ catalog; không ảnh hưởng ok/503. Chi tiết (tên tài khoản, lý do) ghi ở máy chủ, client chỉ thấy true/false/null.
-  private async role(): Promise<{ leastPrivilege: boolean | null }> {
+  // Catalog cho client (true/false/null; chi tiết ghi ở máy chủ). Pool app: không ảnh hưởng ok/503. Pool auth (P3c N-4): mất quyền xác thực
+  // => database() trả ok:false; đọc quyền lỗi/quá hạn => cờ về false (mở khi lỗi, vì SELECT 1 trên pool auth đã qua).
+  // B1.4 P3c: kiểm cả hai pool. Pool app khi đã tách pool auth KHÔNG được còn quyền xác thực; pool auth PHẢI có và không ghi nghiệp vụ.
+  private async role(): Promise<{ leastPrivilege: boolean | null; authPool: 'separate' | 'shared'; authLeastPrivilege: boolean | null }> {
+    const separate = this.authPrisma?.separate === true;
+    const notes: string[] = [];
+    let leastPrivilege: boolean | null;
     try {
-      const a = assessDbRole(await this.withTimeout(fetchDbRoleFacts(this.prisma)), process.env.NODE_ENV);
-      this.warnOnChange(a.leastPrivilege ? null : 'Role database không phải đặc quyền tối thiểu: ' + a.problems.join('; '));
-      return { leastPrivilege: a.leastPrivilege };
+      const a = assessDbRole(await this.withTimeout(fetchDbRoleFacts(this.prisma)), process.env.NODE_ENV, { pool: 'app', authSeparate: separate });
+      leastPrivilege = a.leastPrivilege;
+      if (!a.leastPrivilege) notes.push('Role database (pool nghiệp vụ) không phải đặc quyền tối thiểu: ' + a.problems.join('; '));
     } catch (err) {
-      this.warnOnChange('Không đọc được thông tin role database: ' + (err instanceof Error ? err.message : 'không rõ'));
-      return { leastPrivilege: null };
+      leastPrivilege = null;
+      notes.push('Không đọc được thông tin role database: ' + (err instanceof Error ? err.message : 'không rõ'));
     }
+    let authLeastPrivilege: boolean | null = null;
+    if (separate) {
+      try {
+        const fb = await this.withTimeout(fetchDbRoleFacts(this.authPrisma));
+        this.authPoolLostGrants = !fb.hasAuthGrants;
+        const b = assessDbRole(fb, process.env.NODE_ENV, { pool: 'auth', authSeparate: true });
+        authLeastPrivilege = b.leastPrivilege;
+        if (!b.leastPrivilege) notes.push('Role pool xác thực không đúng: ' + b.problems.join('; '));
+      } catch (err) {
+        this.authPoolLostGrants = false;
+        notes.push('Không đọc được thông tin role pool xác thực: ' + (err instanceof Error ? err.message : 'không rõ'));
+      }
+    }
+    this.warnOnChange(notes.length ? notes.join(' | ') : null);
+    return { leastPrivilege, authPool: separate ? 'separate' : 'shared', authLeastPrivilege };
   }
 
   private warnOnChange(msg: string | null): void {

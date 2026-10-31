@@ -1,0 +1,5 @@
+FAIL test/auth.int-spec.ts (17.098 s)
+PASS test/audit.int-spec.ts
+PASS test/db-roles.int-spec.ts
+Test Suites: 1 failed, 2 passed, 3 total
+Tests:       12 failed, 48 passed, 60 total

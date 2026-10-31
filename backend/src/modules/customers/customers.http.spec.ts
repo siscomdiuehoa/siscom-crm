@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { ACTOR_PROVIDER, Actor, ActorProvider } from '../../common/auth/actor';
 import { AllExceptionsFilter } from '../../common/filters/all-exceptions.filter';
+import { AuthPrismaService } from '../../prisma/auth-prisma.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LookupsModule } from '../lookups/lookups.module';
 import { CustomersModule } from './customers.module';
@@ -21,7 +22,7 @@ function makePrisma() {
   return { customer, lookupItem, contact, employee, tx, $transaction: jest.fn(async (cb: (t: unknown) => unknown) => cb(tx)) };
 }
 async function makeApp(prisma: unknown, provider?: ActorProvider): Promise<INestApplication> {
-  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule] }).overrideProvider(PrismaService).useValue(prisma);
+  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma); // B1.4 P3c: pool auth giả như pool app
   if (provider) b = b.overrideProvider(ACTOR_PROVIDER).useValue(provider);
   const mod = await b.compile();
   const app = mod.createNestApplication();

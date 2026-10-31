@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Request } from 'express';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { AuthPrismaService } from '../../../prisma/auth-prisma.service';
 import { AUTH_CONFIG, AuthConfig } from '../auth.config';
 import type { Actor, ActorProvider, Permission, Scope } from '../actor';
 import { readSessionCookie, sha256Hex } from './session-token';
@@ -30,7 +30,8 @@ export class SessionActorProvider implements ActorProvider {
   // Quyền gắn với đúng object Actor đã cấp (WeakMap: không rò rỉ, không tra cứu theo id => không thể giả Actor).
   private readonly perms = new WeakMap<Actor, Readonly<Partial<Record<Permission, Scope>>>>();
 
-  constructor(private readonly prisma: PrismaService, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig) {}
+  // B1.4 P3c: tra phien bang POOL AUTH (siscom_auth) - pool nghiep vu khong doc duoc auth_session.
+  constructor(private readonly prisma: AuthPrismaService, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig) {}
 
   async resolve(req: Request): Promise<Actor | null> {
     const r = req as SessionRequest;

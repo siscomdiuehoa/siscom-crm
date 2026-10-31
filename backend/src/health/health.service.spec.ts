@@ -3,7 +3,8 @@ import { HealthService } from './health.service';
 // B1.4 P3b (M-d): /health/database báo thêm role.leastPrivilege — ứng dụng có đang chạy bằng role đặc quyền tối thiểu (siscom_app sau
 // S1 + APP_GRANTS_V2) hay không. Không trả tên tài khoản/chi tiết (endpoint không cần phiên). Prisma giả: không chạm DB.
 type Row = Record<string, unknown>;
-function service(facts: Row | Error, meta: Row | null = { key: 'schema_baseline', value: 'B1.2' }): HealthService {
+// B1.4 P3c: tham số thứ ba = pool auth giả (separate + facts riêng); mặc định = pool chung (chưa tách).
+function service(facts: Row | Error, meta: Row | null = { key: 'schema_baseline', value: 'B1.2' }, auth: { separate: boolean; facts: Row | Error } = { separate: false, facts }): HealthService {
   const fake = {
     // $queryRaw tagged template: câu đọc role nhận diện qua chữ 'rolsuper'; các câu khác (SELECT 1) trả ok.
     $queryRaw: async (q: TemplateStringsArray) => {
@@ -13,20 +14,21 @@ function service(facts: Row | Error, meta: Row | null = { key: 'schema_baseline'
     },
     appMeta: { findUnique: async () => meta },
   };
-  return new HealthService(fake as never);
+  const fakeAuth = { separate: auth.separate, $queryRaw: async (q: TemplateStringsArray) => { if (!q.join('').includes('rolsuper')) return [{ ok: 1 }]; if (auth.facts instanceof Error) throw auth.facts; return [auth.facts]; } };
+  return new HealthService(fake as never, fakeAuth as never);
 }
 const least = { user: 'siscom_app', is_superuser: false, is_db_owner: false, can_create_in_public: false, is_migrator_member: false };
 
 describe('HealthService.database — role', () => {
   it('role tối thiểu => role.leastPrivilege=true, vẫn có migrated/baseline', async () => {
     const r = await service(least).database();
-    expect(r).toMatchObject({ ok: true, migrated: true, baseline: 'B1.2', role: { leastPrivilege: true } });
+    expect(r).toMatchObject({ ok: true, migrated: true, baseline: 'B1.2', role: { leastPrivilege: true, authPool: 'shared', authLeastPrivilege: null } });
     expect(typeof r.latencyMs).toBe('number');
   });
   it('chạy bằng chủ sở hữu DB (mô hình cũ) => role.leastPrivilege=false; không lộ tên tài khoản trong kết quả', async () => {
     const r = await service({ ...least, user: 'siscom_migrator', is_db_owner: true }).database();
     expect(r.ok).toBe(true);
-    expect(r.role).toEqual({ leastPrivilege: false });
+    expect(r.role).toMatchObject({ leastPrivilege: false, authPool: 'shared' });
     expect(JSON.stringify(r)).not.toContain('siscom_migrator');
   });
   // M-6 (rà soát P3b): mỗi lần probe /health/database (load balancer gọi liên tục) không được ghi cảnh báo lặp; chỉ ghi khi trạng thái ĐỔI.
@@ -40,6 +42,86 @@ describe('HealthService.database — role', () => {
   it('không đọc được thông tin role (lỗi truy vấn) => leastPrivilege=null, database vẫn up', async () => {
     const r = await service(new Error('boom')).database();
     expect(r.ok).toBe(true);
-    expect(r.role).toEqual({ leastPrivilege: null });
+    expect(r.role).toMatchObject({ leastPrivilege: null, authPool: 'shared' });
+  });
+});
+
+describe('HealthService.database — hai pool (B1.4 P3c)', () => {
+  const app = { ...least, has_auth_grants: false, can_write_business: true };
+  const auth = { user: 'siscom_auth', is_superuser: false, is_db_owner: false, can_create_in_public: false, is_migrator_member: false, has_auth_grants: true, can_write_business: false };
+  it('pool auth tách riêng, đúng quyền => authPool=separate, authLeastPrivilege=true; pool app không còn quyền xác thực => leastPrivilege=true', async () => {
+    const r = await service(app, undefined, { separate: true, facts: auth }).database();
+    expect(r.role).toEqual({ leastPrivilege: true, authPool: 'separate', authLeastPrivilege: true });
+  });
+  it('pool auth tách riêng nhưng pool app VẪN còn quyền xác thực (V3 chưa áp) => leastPrivilege=false', async () => {
+    const r = await service({ ...app, has_auth_grants: true }, undefined, { separate: true, facts: auth }).database();
+    expect(r.role).toMatchObject({ leastPrivilege: false, authPool: 'separate' });
+  });
+  it('pool auth trỏ nhầm (không có quyền xác thực / ghi được customer) => authLeastPrivilege=false; không lộ tên tài khoản', async () => {
+    const r = await service(app, undefined, { separate: true, facts: { ...auth, has_auth_grants: false, can_write_business: true } }).database();
+    expect(r.role).toMatchObject({ authPool: 'separate', authLeastPrivilege: false });
+    expect(JSON.stringify(r)).not.toContain('siscom_auth');
+  });
+  it('pool auth tách riêng nhưng không đọc được => authLeastPrivilege=null', async () => {
+    const r = await service(app, undefined, { separate: true, facts: new Error('boom') }).database();
+    expect(r.role).toMatchObject({ authPool: 'separate', authLeastPrivilege: null });
+  });
+});
+
+// QA P3c I-3: pool auth tách riêng mà KHÔNG kết nối được => mọi đăng nhập/request có cookie đều lỗi => /health/database phải báo down (503),
+// không được trả ok chỉ vì pool nghiệp vụ còn sống.
+describe('HealthService.database — pool auth không kết nối được (P3c I-3)', () => {
+  it('separate + SELECT 1 trên pool auth lỗi => ok=false', async () => {
+    const fake = { $queryRaw: async () => [{ ok: 1 }], appMeta: { findUnique: async () => ({ key: 'schema_baseline', value: 'B1.2' }) } };
+    const fakeAuth = { separate: true, $queryRaw: async () => { throw new Error('ECONNREFUSED'); } };
+    const r = await new HealthService(fake as never, fakeAuth as never).database();
+    expect(r.ok).toBe(false);
+  });
+  it('shared (chưa tách) => không gọi pool auth, ok=true như cũ', async () => {
+    const fake = { $queryRaw: async () => [{ ok: 1 }], appMeta: { findUnique: async () => null } };
+    const fakeAuth = { separate: false, $queryRaw: async () => { throw new Error('khong duoc goi'); } };
+    const r = await new HealthService(fake as never, fakeAuth as never).database();
+    expect(r.ok).toBe(true);
+  });
+});
+
+// QA P3c N-4: pool auth kết nối được nhưng mất quyền xác thực (REVOKE/rollback chạy khi backend còn sống) => down (503).
+describe('HealthService.database — pool auth mất quyền (P3c N-4)', () => {
+  it('separate + hasAuthGrants=false trên pool auth => ok=false, role vẫn báo authLeastPrivilege=false', async () => {
+    const fake = { $queryRaw: async () => [{ ok: 1 }], appMeta: { findUnique: async () => null } };
+    const authFacts = { user: 'siscom_auth', is_superuser: false, is_db_owner: false, can_create_in_public: false, is_migrator_member: false, has_auth_grants: false, can_write_business: false };
+    const fakeAuth = { separate: true, $queryRaw: async (q: TemplateStringsArray) => (q.join('').includes('rolsuper') ? [authFacts] : [{ ok: 1 }]) };
+    const r = await new HealthService(fake as never, fakeAuth as never).database();
+    expect(r.ok).toBe(false);
+    expect(r.role).toMatchObject({ authPool: 'separate', authLeastPrivilege: false });
+  });
+});
+
+// QA P3c lần 3 (Minor 1): cờ mất quyền là trạng thái instance — phải trở về khi quyền có lại hoặc khi đọc quyền lỗi (mở khi lỗi).
+describe('HealthService.database — cờ mất quyền pool auth trở về (P3c QA3)', () => {
+  function build(state: { grants: boolean; throwFacts: boolean }) {
+    const fake = { $queryRaw: async () => [{ ok: 1 }], appMeta: { findUnique: async () => null } };
+    const fakeAuth = { separate: true, $queryRaw: async (q: TemplateStringsArray) => {
+      if (!q.join('').includes('rolsuper')) return [{ ok: 1 }];
+      if (state.throwFacts) throw new Error('timeout');
+      return [{ user: 'siscom_auth', is_superuser: false, is_db_owner: false, can_create_in_public: false, is_migrator_member: false, has_auth_grants: state.grants, can_write_business: false }];
+    } };
+    return new HealthService(fake as never, fakeAuth as never);
+  }
+  it('mất quyền => ok=false; quyền có lại => ok=true trên cùng instance', async () => {
+    const state = { grants: false, throwFacts: false };
+    const h = build(state);
+    expect((await h.database()).ok).toBe(false);
+    state.grants = true;
+    expect((await h.database()).ok).toBe(true);
+  });
+  it('mất quyền => ok=false; lần sau đọc quyền lỗi => cờ về false, ok=true (mở khi lỗi, authLeastPrivilege=null)', async () => {
+    const state = { grants: false, throwFacts: false };
+    const h = build(state);
+    expect((await h.database()).ok).toBe(false);
+    state.throwFacts = true;
+    const r = await h.database();
+    expect(r.ok).toBe(true);
+    expect(r.role).toMatchObject({ authPool: 'separate', authLeastPrivilege: null });
   });
 });

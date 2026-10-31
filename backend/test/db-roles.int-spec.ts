@@ -1,7 +1,7 @@
 import { Client } from 'pg';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { assessDbRole, fetchDbRoleFacts } from '../src/prisma/db-role-check';
-import { adminTestDatabase, assertTestConnection, caught, createAdminTestPrisma, createTestPrisma, testDatabase } from './helpers/test-db';
+import { adminTestDatabase, assertTestConnection, authTestDatabase, caught, createAdminTestPrisma, createAuthTestPrisma, createTestPrisma, testDatabase } from './helpers/test-db';
 
 // B1.4 P3 — S1 TÁCH ROLE: siscom_migrator = chủ sở hữu (DDL, migrate), siscom_app = chỉ DML. Chạy khi TEST_MIGRATE_DATABASE_URL được đặt
 // (CI sau khi áp B1.3_S1_ROLE_SPLIT + B1.3_S1_APP_GRANTS_V2). Máy Windows chưa tách role: bỏ qua có lý do (không FAIL oan), kiểm bằng
@@ -60,13 +60,11 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
     ]) expect({ sql, code: await appTry(sql) }).toEqual({ sql, code: '42501' });
   });
 
-  it('siscom_app vẫn làm được việc của ứng dụng: INSERT/UPDATE bảng nghiệp vụ, 7 cột credential, nextval mã khách, extension, EXECUTE đổi mật khẩu, SET app.*', async () => {
+  it('siscom_app vẫn làm được việc nghiệp vụ: INSERT/UPDATE customer/contact/assignment, nextval mã khách, extension, SET app.*; KHÔNG còn quyền xác thực (P3c)', async () => {
     expect(await appTry('SELECT count(*) FROM public.customer')).toBeNull();
     expect(await appTry('UPDATE public.customer SET updated_at = updated_at WHERE false')).toBeNull();
     expect(await appTry('UPDATE public.contact SET is_primary = is_primary WHERE false')).toBeNull();
     expect(await appTry('UPDATE public.customer_assignment SET ended_at = ended_at WHERE false')).toBeNull();
-    expect(await appTry('UPDATE public.auth_session SET last_used_at = last_used_at, revoked_at = revoked_at WHERE false')).toBeNull();
-    expect(await appTry('UPDATE public.employee_credential SET failed_count = failed_count, window_started_at = window_started_at, locked_until = locked_until, lock_level = lock_level, last_login_at = last_login_at, password_changed_at = password_changed_at, updated_at = updated_at WHERE false')).toBeNull();
     expect(await appTry("INSERT INTO public.audit_log (actor_type, action, entity_type, summary) SELECT 'SYSTEM', 's1', 's1', 's1' WHERE false")).toBeNull();
     expect(await appTry("SELECT nextval('public.customer_code_seq')")).toBeNull(); // trong transaction ROLLBACK: không tiêu mã thật về mặt dữ liệu ứng dụng
     expect(await appTry("SELECT f_vn_fold('Nguyễn'), similarity('a', 'b')")).toBeNull();
@@ -79,8 +77,8 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
              (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'fn\\_auth\\_api\\_%' AND has_function_privilege('public', p.oid, 'EXECUTE')) AS pub_api,
              has_parameter_privilege('siscom_app', 'app.actor_employee_id', 'SET') AS set_app,
              has_parameter_privilege('siscom_migrator', 'app.actor_employee_id', 'SET') AS set_mig`;
-    // P3b: app chỉ EXECUTE đúng 1 hàm (đổi mật khẩu của chính mình); các fn_auth_api_* còn lại chỉ người vận hành gọi qua migrator.
-    expect(r[0].chpw).toBe(true); expect(Number(r[0].api_total)).toBeGreaterThanOrEqual(13); expect(Number(r[0].api_ok)).toBe(1);
+    // P3c: app KHÔNG EXECUTE hàm fn_auth_api_* nào (đổi mật khẩu thuộc pool auth); các hàm còn lại chỉ người vận hành gọi qua migrator.
+    expect(r[0].chpw).toBe(false); expect(Number(r[0].api_total)).toBeGreaterThanOrEqual(13); expect(Number(r[0].api_ok)).toBe(0);
     expect(r[0].close_ok).toBe(false); expect(Number(r[0].pub_api)).toBe(0); expect(r[0].set_app).toBe(true); expect(r[0].set_mig).toBe(true);
   });
 
@@ -116,7 +114,7 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
   it('P3b M-5: câu SQL thật của fetchDbRoleFacts — kết nối app => đặc quyền tối thiểu; kết nối migrator => chủ sở hữu, sở hữu đối tượng, thành viên migrator', async () => {
     const appFacts = await fetchDbRoleFacts(prisma);
     expect(appFacts).toEqual({ user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
-      ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false });
+      ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true });
     expect(assessDbRole(appFacts, 'production').leastPrivilege).toBe(true);
     const m = createAdminTestPrisma();
     try {
@@ -206,5 +204,69 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
       const m = await c.query<{ member: boolean }>("SELECT pg_has_role('siscom_app', 'siscom_migrator', 'MEMBER') AS member");
       expect(m.rows[0].member).toBe(false);
     } finally { await c.end(); }
+  });
+});
+
+// B1.4 P3c — pool xác thực siscom_auth (TEST_AUTH_DATABASE_URL, CI sau APP_GRANTS_V3). Chứng minh S3 đóng ở tầng DB:
+//   pool nghiệp vụ không tự tạo phiên, không đọc hash, không gọi hàm đổi mật khẩu; pool auth làm được đúng các việc đó và không gì khác.
+const authDb = process.env.TEST_AUTH_DATABASE_URL ? authTestDatabase() : null;
+const dAuth = authDb?.separate && admin?.split ? describe : describe.skip;
+dAuth('B1.4 P3c — pool xác thực siscom_auth tách khỏi siscom_app', () => {
+  let app: PrismaService; let auth: ReturnType<typeof createAuthTestPrisma>['prisma'];
+  beforeAll(async () => { app = createTestPrisma().prisma; auth = createAuthTestPrisma().prisma; await assertTestConnection(app, testDatabase().name); });
+  afterAll(async () => { await app?.$disconnect(); await auth?.$disconnect(); });
+  async function tryAs(url: string, sql: string): Promise<string | null> {
+    const c = new Client({ connectionString: url });
+    await c.connect();
+    try { await c.query('BEGIN'); try { await c.query(sql); return null; } catch (e) { return (e as { code?: string }).code ?? 'unknown'; } finally { await c.query('ROLLBACK'); } }
+    finally { await c.end(); }
+  }
+  const appTry = (sql: string) => tryAs(testDatabase().url, sql);
+  const authTry = (sql: string) => tryAs(authDb!.url, sql);
+
+  it('siscom_app (pool nghiệp vụ) bị 42501: đọc password_hash/token_version, đọc/chèn/sửa auth_session, sửa 7 cột đếm, gọi fn_auth_api_change_own_password', async () => {
+    for (const sql of [
+      'SELECT password_hash, token_version FROM public.employee_credential WHERE false',
+      'SELECT refresh_hash FROM public.auth_session WHERE false',
+      "INSERT INTO public.auth_session (employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at) SELECT gen_random_uuid(), gen_random_uuid(), 'x', 'x', now(), now() WHERE false",
+      'UPDATE public.auth_session SET revoked_at = revoked_at WHERE false',
+      'UPDATE public.employee_credential SET failed_count = failed_count, locked_until = locked_until WHERE false',
+      "SELECT public.fn_auth_api_change_own_password(gen_random_uuid(), 1, 'x', 'argon2id', '{}'::jsonb)",
+    ]) expect({ sql, code: await appTry(sql) }).toEqual({ sql, code: '42501' });
+  });
+  it('siscom_auth làm được việc xác thực: SELECT employee/credential (kể cả password_hash), INSERT/UPDATE auth_session, UPDATE 7 cột, INSERT audit_log; EXECUTE đổi mật khẩu', async () => {
+    for (const sql of [
+      'SELECT e.id, c.password_hash, c.token_version, c.must_change_password FROM public.employee e JOIN public.employee_credential c ON c.employee_id = e.id WHERE false',
+      "INSERT INTO public.auth_session (employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at) SELECT employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at FROM public.auth_session WHERE false",
+      'UPDATE public.auth_session SET last_used_at = last_used_at, idle_expires_at = idle_expires_at, revoked_at = revoked_at, revoke_reason = revoke_reason WHERE false',
+      'UPDATE public.employee_credential SET failed_count = failed_count, window_started_at = window_started_at, locked_until = locked_until, lock_level = lock_level, last_login_at = last_login_at, password_changed_at = password_changed_at, updated_at = updated_at WHERE false',
+      "INSERT INTO public.audit_log (actor_type, action, entity_type, summary) SELECT 'SYSTEM', 's1', 's1', 's1' WHERE false",
+      'SELECT r.code, p.code FROM public.employee_role er JOIN public.role r ON r.id = er.role_id JOIN public.role_permission rp ON rp.role_id = r.id JOIN public.permission p ON p.id = rp.permission_id WHERE false',
+    ]) expect({ sql, code: await authTry(sql) }).toEqual({ sql, code: null });
+    const r = await auth.$queryRaw<{ chpw: boolean }[]>`SELECT has_function_privilege(current_user, 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE') AS chpw`;
+    expect(r[0].chpw).toBe(true);
+  });
+  it('siscom_auth bị 42501 ngoài phạm vi xác thực: SELECT/INSERT customer, INSERT employee_role, UPDATE password_hash/token_version trực tiếp, DELETE auth_session, UPDATE audit_log, DDL, fn_auth_bootstrap_close', async () => {
+    for (const sql of [
+      'SELECT count(*) FROM public.customer',
+      "INSERT INTO public.customer (name) SELECT 'x' WHERE false",
+      'INSERT INTO public.employee_role (employee_id, role_id) SELECT gen_random_uuid(), gen_random_uuid() WHERE false',
+      'UPDATE public.employee_credential SET password_hash = password_hash WHERE false',
+      'UPDATE public.employee_credential SET token_version = token_version WHERE false',
+      'DELETE FROM public.auth_session WHERE false',
+      'UPDATE public.audit_log SET summary = summary WHERE false',
+      'ALTER TABLE public.auth_session DISABLE TRIGGER ALL',
+      "SELECT public.fn_auth_bootstrap_close('s1-probe')",
+    ]) expect({ sql, code: await authTry(sql) }).toEqual({ sql, code: '42501' });
+  });
+  it('fetchDbRoleFacts thật: app => hasAuthGrants=false, canWriteBusiness=true; auth => hasAuthGrants=true, canWriteBusiness=false; assess đúng theo pool', async () => {
+    const fa = await fetchDbRoleFacts(app); const fb = await fetchDbRoleFacts(auth);
+    expect(fa).toMatchObject({ user: 'siscom_app', hasAuthGrants: false, canWriteBusiness: true });
+    expect(fb).toMatchObject({ user: 'siscom_auth', hasAuthGrants: true, canWriteBusiness: false, isDbOwner: false, isSuperuser: false, ownsObjectsInPublic: false, isMemberOfOtherRoles: false });
+    expect(assessDbRole(fa, 'production', { pool: 'app', authSeparate: true }).leastPrivilege).toBe(true);
+    expect(assessDbRole(fb, 'production', { pool: 'auth', authSeparate: true }).leastPrivilege).toBe(true);
+    // Cấu hình đổi chỗ hai URL: app facts đánh giá như pool auth => vi phạm; auth facts đánh giá như pool app (đã tách) => vi phạm.
+    expect(assessDbRole(fa, 'production', { pool: 'auth', authSeparate: true }).leastPrivilege).toBe(false);
+    expect(assessDbRole(fb, 'production', { pool: 'app', authSeparate: true }).leastPrivilege).toBe(false);
   });
 });

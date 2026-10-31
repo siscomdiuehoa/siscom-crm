@@ -25,9 +25,9 @@ function hasOptionsParam(connectionString: string): boolean {
 }
 function decodeURIComponentSafe(s: string): string { try { return decodeURIComponent(s); } catch { return s; } }
 
-export function pgPoolConfig(connectionString: string): PgPoolConfig {
+export function pgPoolConfig(connectionString: string, name = 'DATABASE_URL'): PgPoolConfig {
   if (hasOptionsParam(connectionString)) {
-    throw new Error('DATABASE_URL không được chứa tham số "options": ứng dụng tự đặt TimeZone=' + DB_SESSION_TIME_ZONE + ' cho mọi phiên (D.0).');
+    throw new Error(name + ' không được chứa tham số "options": ứng dụng tự đặt TimeZone=' + DB_SESSION_TIME_ZONE + ' cho mọi phiên (D.0).');
   }
   // DateStyle=ISO: bộ đọc của adapter-pg chỉ hiểu đúng định dạng ngày giờ ISO (mặc định của PostgreSQL, ghim lại cho chắc).
   return { connectionString, max: 10, connectionTimeoutMillis: 2000, idleTimeoutMillis: 30000, options: '-c TimeZone=' + DB_SESSION_TIME_ZONE + ' -c DateStyle=ISO' };

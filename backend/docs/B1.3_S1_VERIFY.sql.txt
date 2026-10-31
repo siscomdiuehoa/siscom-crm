@@ -54,14 +54,19 @@ INSERT INTO s1_result SELECT 'A7 siscom_migrator khong superuser, khong tao role
   NOT r.rolsuper AND NOT r.rolcreaterole FROM pg_roles r WHERE r.rolname = 'siscom_migrator';
 
 -- B. Quyen DML cua app (P3b: THEO MA TRAN DUONG GHI RUNTIME cua backend, khong con "DML moi bang")
-INSERT INTO s1_result SELECT 'B1 app co SELECT tren moi bang nghiep vu va INSERT/UPDATE (KHONG DELETE) tren customer/contact/customer_assignment/auth_session',
+-- P3c: pool nghiep vu KHONG con dung toi auth_session / employee_credential (ke ca SELECT) - xem B1e va G.
+INSERT INTO s1_result SELECT 'B1 app co SELECT tren moi bang nghiep vu va INSERT/UPDATE (KHONG DELETE) tren customer/contact/customer_assignment',
   bool_and(has_table_privilege('siscom_app', 'public.' || t, 'SELECT'))
   -- (viet trong SELECT, KHONG dung HAVING: HAVING sai se chen 0 dong => thieu nhan va tong ket khong dem FAIL)
   AND (SELECT bool_and(has_table_privilege('siscom_app', 'public.' || w, 'INSERT') AND has_table_privilege('siscom_app', 'public.' || w, 'UPDATE')
                        AND NOT has_table_privilege('siscom_app', 'public.' || w, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || w, 'TRUNCATE'))
-         FROM unnest(ARRAY['customer', 'contact', 'customer_assignment', 'auth_session']) AS w)
+         FROM unnest(ARRAY['customer', 'contact', 'customer_assignment']) AS w)
   FROM unnest(ARRAY['customer', 'contact', 'activity', 'customer_assignment', 'employee', 'department', 'lookup_item', 'app_meta', 'role', 'permission',
-                    'employee_credential', 'auth_session', 'employee_role', 'role_permission']) AS t;
+                    'employee_role', 'role_permission']) AS t;
+INSERT INTO s1_result SELECT 'B1e app KHONG co quyen nao (ke ca SELECT theo cot) tren auth_session va employee_credential (P3c, S3)',
+  bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'SELECT') AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT')
+       AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE'))
+  FROM unnest(ARRAY['auth_session', 'employee_credential']) AS t;
 -- M-7 (ra soat P3b): runtime KHONG doc yeu cau dac quyen / ma dat lai mat khau => app khong co ca SELECT (giam lo hash token neu bi SQLi).
 INSERT INTO s1_result SELECT 'B1d app KHONG SELECT (ke ca theo cot) tren privileged_change_request / password_reset_token',
   bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'SELECT'))
@@ -73,15 +78,8 @@ INSERT INTO s1_result SELECT 'B1b app KHONG INSERT/UPDATE/DELETE tren bang RBAC/
        AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'TRUNCATE'))
   FROM unnest(ARRAY['employee_role', 'role_permission', 'role', 'permission', 'privileged_change_request', 'password_reset_token', 'app_meta',
                     'employee', 'department', 'lookup_item', 'activity']) AS t;
-INSERT INTO s1_result SELECT 'B1c employee_credential: app KHONG INSERT/DELETE, KHONG UPDATE ca bang, CHI UPDATE 7 cot dem/khoa/thoi diem (S3)',
-  NOT has_any_column_privilege('siscom_app', 'public.employee_credential', 'INSERT') AND NOT has_table_privilege('siscom_app', 'public.employee_credential', 'DELETE')
-  AND NOT has_table_privilege('siscom_app', 'public.employee_credential', 'UPDATE')
-  AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'password_hash', 'UPDATE')
-  AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'token_version', 'UPDATE')
-  AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'must_change_password', 'UPDATE')
-  AND NOT has_column_privilege('siscom_app', 'public.employee_credential', 'status', 'UPDATE')
-  AND bool_and(has_column_privilege('siscom_app', 'public.employee_credential', c, 'UPDATE'))
-  FROM unnest(ARRAY['failed_count', 'window_started_at', 'locked_until', 'lock_level', 'last_login_at', 'password_changed_at', 'updated_at']) AS c;
+INSERT INTO s1_result SELECT 'B1c employee_credential: app KHONG UPDATE cot nao (P3c: 7 cot dem/khoa thuoc pool auth)',
+  NOT has_any_column_privilege('siscom_app', 'public.employee_credential', 'UPDATE');
 INSERT INTO s1_result SELECT 'B2 app chi SELECT/INSERT tren audit_log (khong UPDATE/DELETE/TRUNCATE)',
   has_table_privilege('siscom_app', 'public.audit_log', 'SELECT') AND has_table_privilege('siscom_app', 'public.audit_log', 'INSERT')
   AND NOT has_any_column_privilege('siscom_app', 'public.audit_log', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.audit_log', 'DELETE')
@@ -103,16 +101,16 @@ INSERT INTO s1_result SELECT 'B6 PUBLIC khong CONNECT; app co CONNECT+TEMP; app 
   AND has_database_privilege('siscom_app', current_database(), 'TEMP') AND NOT has_database_privilege('siscom_app', current_database(), 'CREATE');
 
 -- C. Ham dac quyen va tham so
-INSERT INTO s1_result SELECT 'C1 app EXECUTE duoc fn_auth_api_change_own_password (doi mat khau)',
-  has_function_privilege('siscom_app', 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE');
+INSERT INTO s1_result SELECT 'C1 app KHONG EXECUTE fn_auth_api_change_own_password (P3c: chi pool auth)',
+  NOT has_function_privilege('siscom_app', 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE');
 INSERT INTO s1_result SELECT 'C2 app KHONG EXECUTE cac fn_auth_api_* khac (' || count(*) || ' ham) - chi doi mat khau cua chinh minh (P3b, toi thieu)',
   count(*) >= 12 AND bool_and(NOT has_function_privilege('siscom_app', p.oid, 'EXECUTE'))
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'fn\_auth\_api\_%'
    AND p.proname <> 'fn_auth_api_change_own_password';
 -- M-2 (ra soat P3b): khong chi theo ten fn_auth_api_%: MOI ham SECURITY DEFINER trong public ma app EXECUTE duoc (ke ca qua PUBLIC)
 -- phai nam trong danh sach cho phep. Ham dac quyen moi dat ten khac ma quen REVOKE FROM PUBLIC => FAIL o day.
-INSERT INTO s1_result SELECT 'C6 ham SECURITY DEFINER app EXECUTE duoc chi gom fn_auth_api_change_own_password (' || coalesce(string_agg(p.proname, ','), '') || ')',
-  coalesce(bool_and(p.proname = 'fn_auth_api_change_own_password'), true) AND count(*) = 1
+INSERT INTO s1_result SELECT 'C6 app KHONG EXECUTE ham SECURITY DEFINER nao (P3c; dang co: ' || coalesce(string_agg(p.proname, ','), '') || ')',
+  count(*) = 0
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('siscom_app', p.oid, 'EXECUTE');
 INSERT INTO s1_result SELECT 'C3 app KHONG EXECUTE fn_auth_bootstrap_close (chi nguoi van hanh)',
@@ -168,7 +166,7 @@ SELECT pg_temp.expect_denied('D21 app khong doi chu so huu database',           
 -- E. Nhung gi app PHAI lam duoc (trong SAVEPOINT, huy sau)
 DO $$ BEGIN
   BEGIN
-    PERFORM count(*) FROM public.customer; PERFORM count(*) FROM public.auth_session; PERFORM nextval('public.customer_code_seq');
+    PERFORM count(*) FROM public.customer; PERFORM count(*) FROM public.employee; PERFORM nextval('public.customer_code_seq');  -- P3c: auth_session thuoc pool auth
     RAISE EXCEPTION 's1_undo';                                -- ghi ket qua o handler (nextval KHONG rollback duoc: tieu 1 ma, khong lam hong day ma)
   EXCEPTION WHEN raise_exception THEN INSERT INTO s1_result VALUES ('E1 app doc bang nghiep vu va nextval sequence ma khach', SQLERRM = 's1_undo');
             WHEN OTHERS THEN INSERT INTO s1_result VALUES ('E1 app doc bang/nextval [' || SQLSTATE || ']', false); END;
@@ -184,11 +182,7 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN INSERT INTO s1_result VALUES (p_label || ' [' || SQLSTATE || ']', false);
   END;
 END $$;
-SELECT pg_temp.expect_ok('E3 app UPDATE duoc 7 cot dem/khoa/thoi diem cua employee_credential (dang nhap, khoa, doi mat khau)',
-  'UPDATE public.employee_credential SET failed_count = failed_count, window_started_at = window_started_at, locked_until = locked_until, lock_level = lock_level, last_login_at = last_login_at, password_changed_at = password_changed_at, updated_at = updated_at WHERE false');
-SELECT pg_temp.expect_ok('E4 app INSERT/UPDATE auth_session (cap, gia han, thu hoi phien)',
-  'INSERT INTO public.auth_session (employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at) SELECT employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at FROM public.auth_session WHERE false; '
-  || 'UPDATE public.auth_session SET last_used_at = last_used_at, idle_expires_at = idle_expires_at, revoked_at = revoked_at, revoke_reason = revoke_reason WHERE false');
+-- E3/E4 (P3b) da chuyen sang pool auth (B1.3_S1_VERIFY_AUTH.sql.txt H2/H3); voi app chung la ca TU CHOI (G).
 SELECT pg_temp.expect_ok('E5 app UPDATE customer (sua, xoa mem, khoi phuc) va customer_assignment.ended_at',
   'UPDATE public.customer SET deleted_at = deleted_at, restored_at = restored_at, version = version WHERE false; UPDATE public.customer_assignment SET ended_at = ended_at WHERE false');
 SELECT pg_temp.expect_ok('E6 app UPDATE contact',
@@ -220,6 +214,14 @@ INSERT INTO s1_result SELECT 'F16 app KHONG EXECUTE fn_auth_api_request_create /
   NOT has_function_privilege('siscom_app', 'public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer)', 'EXECUTE')
   AND NOT has_function_privilege('siscom_app', 'public.fn_auth_api_role_grant(uuid, uuid)', 'EXECUTE')
   AND NOT has_function_privilege('siscom_app', 'public.fn_auth_api_reset_password(uuid, text, text, text, jsonb)', 'EXECUTE');
+
+-- G. P3c (S3 dong): pool nghiep vu KHONG tu tao phien, KHONG doc hash, KHONG goi ham doi mat khau. Moi cau WHERE false / trong SAVEPOINT.
+SELECT pg_temp.expect_denied('G1 app khong SELECT password_hash / token_version (doc hash de dung p_actor)', 'SELECT password_hash, token_version FROM public.employee_credential WHERE false');
+SELECT pg_temp.expect_denied('G2 app khong SELECT auth_session (doc bam phien)', 'SELECT refresh_hash FROM public.auth_session WHERE false');
+SELECT pg_temp.expect_denied('G3 app khong INSERT auth_session (tu chen phien - R2)', 'INSERT INTO public.auth_session (employee_id, family_id, refresh_hash, csrf_hash, idle_expires_at, abs_expires_at) SELECT gen_random_uuid(), gen_random_uuid(), ''x'', ''x'', now(), now() WHERE false');
+SELECT pg_temp.expect_denied('G4 app khong UPDATE auth_session', 'UPDATE public.auth_session SET revoked_at = revoked_at WHERE false');
+SELECT pg_temp.expect_denied('G5 app khong UPDATE 7 cot dem/khoa (khoa nguoi khac / xoa bo dem do mat khau)', 'UPDATE public.employee_credential SET failed_count = failed_count, locked_until = locked_until WHERE false');
+SELECT pg_temp.expect_denied('G6 app khong goi fn_auth_api_change_own_password (dat mat khau nguoi khac - R1)', 'SELECT public.fn_auth_api_change_own_password(gen_random_uuid(), 1, ''x'', ''argon2id'', ''{}''::jsonb)');
 
 -- Tong ket (dinh dang cua scripts/ci/pg-sql-check.sh mode=res)
 SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM s1_result ORDER BY label;

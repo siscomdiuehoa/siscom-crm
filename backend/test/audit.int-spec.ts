@@ -9,6 +9,7 @@ import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter
 import { requestContext } from '../src/common/middleware/request-context.middleware';
 import { CustomersModule } from '../src/modules/customers/customers.module';
 import { LookupsModule } from '../src/modules/lookups/lookups.module';
+import { AuthPrismaService } from '../src/prisma/auth-prisma.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ACTOR_HEADER, leaks, TestActorProvider } from './helpers/test-app';
 import { assertTestConnection, caught, createTestPrisma } from './helpers/test-db';
@@ -29,7 +30,7 @@ class SabotagedAuditPort extends DbAuditPort {
 }
 
 async function build(opts: { actors: boolean; audit?: DbAuditPort }): Promise<INestApplication> {
-  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule] }).overrideProvider(PrismaService).useValue(prisma);
+  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma); // B1.4 P3c: pool auth giả như pool app (test chỉ dùng TestActorProvider/DenyAll)
   if (opts.actors) b = b.overrideProvider(ACTOR_PROVIDER).useValue(new TestActorProvider(fx));
   if (opts.audit) b = b.overrideProvider(AUDIT_PORT).useValue(opts.audit);
   const app = (await b.compile()).createNestApplication();
