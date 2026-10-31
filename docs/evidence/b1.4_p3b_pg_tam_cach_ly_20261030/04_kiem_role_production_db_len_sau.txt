@@ -1,0 +1,5 @@
+[Nest] 14188  - 30/10/2026, 23:07:05    WARN [PrismaService] Chưa kiểm được role database lúc khởi động (database chưa kết nối được hoặc câu kiểm lỗi); production: kiểm lại mỗi 15 giây.
+[Nest] 14188  - 30/10/2026, 23:07:05     LOG [Bootstrap] SISCOM CRM backend đang chạy tại http://127.0.0.1:3100/api/v1 (môi trường: production)
+[Nest] 14188  - 30/10/2026, 23:07:06   ERROR [HealthService] Kiểm tra database thất bại: 
+[Nest] 14188  - 30/10/2026, 23:07:21   ERROR [PrismaService] Role database không phải đặc quyền tối thiểu: tài khoản "siscom_migrator" là chủ sở hữu database (có thể tắt trigger, sửa nhật ký) — mô hình c�
+exit=1 at 23:07:21
