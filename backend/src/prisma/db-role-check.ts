@@ -75,7 +75,7 @@ export function assessDbRole(f: DbRoleFacts, nodeEnv: string | undefined): DbRol
   if (f.user.toLowerCase() === 'postgres') problems.push('tài khoản là postgres');
   if (f.ownsObjectsInPublic) problems.push('tài khoản "' + f.user + '" sở hữu bảng/sequence/hàm trong schema public (có thể tắt trigger, sửa hàm)');
   if (f.hasAdminAttributes) problems.push('tài khoản "' + f.user + '" có CREATEROLE/CREATEDB/BYPASSRLS');
-  if (f.hasBroadGrants) problems.push('tài khoản "' + f.user + '" có quyền rộng kiểu APP_GRANTS V1 (ghi bảng RBAC / UPDATE password_hash / nhiều hàm đặc quyền) — chạy B1.3_S1_APP_GRANTS_V2.sql.txt');
+  if (f.hasBroadGrants) problems.push('tài khoản "' + f.user + '" có quyền rộng kiểu APP_GRANTS V1 (ghi bảng RBAC / UPDATE password_hash / EXECUTE hàm SECURITY DEFINER ngoài fn_auth_api_change_own_password) — chạy B1.3_S1_APP_GRANTS_V2.sql.txt');
   if (f.isMemberOfOtherRoles) problems.push('tài khoản "' + f.user + '" là thành viên của role khác (quyền thừa qua nhóm)');
   return { leastPrivilege: problems.length === 0, problems, enforce: nodeEnv === 'production' };
 }

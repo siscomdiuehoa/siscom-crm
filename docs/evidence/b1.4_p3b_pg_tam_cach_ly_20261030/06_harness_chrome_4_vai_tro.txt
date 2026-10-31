@@ -95,4 +95,4 @@
 | PASS | 91 |
 | FAIL | 0 |
 | KNOWN | 0 |
-Bằng chứng: C:/Users/HOMEPH~1/AppData/Local/Temp/claude/D--SISCOM-CRM/963bddcc-4ff6-4e62-8ec0-edda9404fa01/scratchpad/harness-4roles-db6-evidence.json
+Bằng chứng: <scratchpad>/harness-4roles-db6-evidence.json
