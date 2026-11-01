@@ -15,8 +15,8 @@
 #   - siscom_migrator / siscom_auth (role CAP CLUSTER): role chua co => SINH NGAU NHIEN 64 ky tu hex; luu vao
 #     %LOCALAPPDATA%\SISCOM-CRM\demo\roles-<port>.secrets (NGOAI repo; ACL chi SID tai khoan Windows hien tai). Role da co ma file chua co mat
 #     khau => hoi an; MOI mat khau role da co deu duoc DANG NHAP THU truoc khi luu file / ghi DB. Truyen cho psql qua stdin (\set), khong qua
-#     dong lenh, khong in. Tao/doi mat khau role chi khi log server KHONG ghi cau lenh (log_statement = none; log_min_duration_statement = -1
-#     hoac >= 1000 ms) - neu khong, CREATE/ALTER ROLE ... PASSWORD co the vao log server.
+#     dong lenh, khong in. Tao/doi mat khau role chi khi server KHONG ghi/luu cau lenh trong DB se chay lenh (Assert-LogSafe: log_statement =
+#     none, log_min_duration_statement = -1, khong lay mau log, pg_stat_statements khong theo doi utility) - neu khong, mat khau co the vao log.
 # Luu y cap cluster (xem runbook muc 0): ROLE_SPLIT tam doi chu so huu MOI database thuoc siscom_app sang siscom_migrator roi tra lai trong CUNG
 #   transaction (C1, tu kiem chu so huu + ACL; sai => huy toan bo). Khong chay song song voi create-test-db / thao tac DB khac.
 [CmdletBinding()]
@@ -104,20 +104,35 @@ function Assert-Pass([string]$label, [string]$out) {
 function Test-RoleLogin([string]$role, [string]$pw) {
   $r = Invoke-Psql $role $pw 'postgres' $null $null 'SELECT 1;' -NoThrow
   if (-not $r.StartsWith('<ERR>')) { return 'ok' }
-  if ($r -match 'password authentication failed|xac thuc mat khau') { return 'badpw' }
+  # Thong bao loi ket noi theo ngon ngu server (lc_messages): chi nhan dien tieng Anh; ngon ngu khac => 'other' (dung an toan, goi y resetpw).
+  if ($r -match 'password authentication failed') { return 'badpw' }
   if ($r -match 'permission denied for database') { return 'ok' } # da qua buoc xac thuc mat khau; chi thieu CONNECT vao DB postgres
-  return ('other: ' + (($r -split "`n" | Select-Object -Last 1) -replace '^<ERR>', ''))
+  return ('other: ' + (($r -split "`n" | Select-Object -Last 1) -replace '^<ERR>', '') + ' (neu do sai mat khau: chay -Step resetpw)')
 }
-# QA I-5: CREATE/ALTER ROLE ... PASSWORD khong duoc vao log server.
-function Assert-LogSafe([string]$adminPw) {
-  # pg_settings.setting cua log_min_duration_statement luon tinh bang ms (khong co don vi).
-  $ls = Invoke-Psql 'postgres' $adminPw 'postgres' $null $null "SELECT current_setting('log_statement') || '|' || (SELECT setting FROM pg_settings WHERE name = 'log_min_duration_statement');" -Data
-  $p = $ls.Split('|'); $dur = [int]$p[1]
-  $durOk = ($dur -eq -1) -or ($dur -ge 1000)
-  if ($p[0] -ne 'none' -or -not $durOk) {
-    Fail ('Log server dang ghi cau lenh (log_statement=' + $p[0] + ', log_min_duration_statement=' + $p[1] + '): tao/doi mat khau role se lo mat khau vao log. Dat log_statement = none va log_min_duration_statement = -1 trong postgresql.conf (hoac ALTER SYSTEM) roi reload, chay lai.')
+# QA I-5 / lan 2 I-B: CREATE/ALTER ROLE ... PASSWORD khong duoc vao log server hay pg_stat_statements. Kiem TRONG DB se chay lenh (thiet lap
+# theo DB/role co hieu luc). Yeu cau: log_statement = none; log_min_duration_statement = -1; khong lay mau cau lenh (log_min_duration_sample = -1
+# hoac log_statement_sample_rate = 0) va log_transaction_sample_rate = 0; khong co pg_stat_statements theo doi lenh utility.
+# Con lai (ghi chu): log_min_error_statement ghi cau lenh LOI vao log (vd tao role trung) - xac suat thap, khong chan.
+function Assert-LogSafe([string]$adminPw, [string]$db) {
+  $q = @"
+SELECT concat_ws('|', current_setting('log_statement'),
+  (SELECT setting FROM pg_settings WHERE name = 'log_min_duration_statement'),
+  coalesce((SELECT setting FROM pg_settings WHERE name = 'log_min_duration_sample'), '-1'),
+  coalesce((SELECT setting FROM pg_settings WHERE name = 'log_statement_sample_rate'), '0'),
+  coalesce((SELECT setting FROM pg_settings WHERE name = 'log_transaction_sample_rate'), '0'),
+  (current_setting('shared_preload_libraries') ~ 'pg_stat_statements' AND coalesce(current_setting('pg_stat_statements.track_utility', true), 'on') = 'on')::text);
+"@
+  $p = (Invoke-Psql 'postgres' $adminPw $db $null $null $q -Data).Split('|')
+  $bad = @()
+  if ($p[0] -ne 'none') { $bad += ('log_statement=' + $p[0]) }
+  if ($p[1] -ne '-1') { $bad += ('log_min_duration_statement=' + $p[1]) }
+  if ($p[2] -ne '-1' -and [double]$p[3] -gt 0) { $bad += ('log_min_duration_sample=' + $p[2] + '/log_statement_sample_rate=' + $p[3]) }
+  if ([double]$p[4] -gt 0) { $bad += ('log_transaction_sample_rate=' + $p[4]) }
+  if ($p[5] -eq 'true') { $bad += 'pg_stat_statements.track_utility=on' }
+  if ($bad.Count -gt 0) {
+    Fail ('Server dang ghi/luu cau lenh (' + ($bad -join ', ') + ' tai DB ' + $db + '): tao/doi mat khau role se lo mat khau. Dat log_statement = none, log_min_duration_statement = -1, tat lay mau log, pg_stat_statements.track_utility = off (postgresql.conf hoac ALTER SYSTEM; kiem ca ALTER DATABASE/ROLE ... SET), reload, chay lai. Chua ghi gi.')
   }
-  Ok ('Log server khong ghi cau lenh (log_statement=none, log_min_duration_statement=' + $p[1] + ').')
+  Ok ('Server khong ghi/luu cau lenh tai DB ' + $db + ' (log_statement=none, log_min_duration_statement=-1, khong lay mau).')
 }
 function Save-Secrets([string]$dir, [string]$file, [string]$mig, [string]$auth) {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -142,7 +157,8 @@ try {
     if (@('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') -contains $DatabaseName) { Fail ($DatabaseName + ' la baseline da khoa, khong duoc thay doi.') }
   }
   $ghi = ' (GHI: role/quyen cap cluster va database thu)'; if ($Step -eq 'verify') { $ghi = ' (khong doi quyen/du lieu)' }; if ($Step -eq 'resetpw') { $ghi = ' (GHI: doi mat khau 2 role cap cluster)' }
-  Say ('Database thu: ' + $DatabaseName + ' | cong ' + $PgPort + ' | Buoc: ' + $Step + $ghi) 'Yellow'
+  if ($Step -eq 'resetpw') { Say ('Cluster cong ' + $PgPort + ' | Buoc: resetpw' + $ghi) 'Yellow' }
+  else { Say ('Database thu: ' + $DatabaseName + ' | cong ' + $PgPort + ' | Buoc: ' + $Step + $ghi) 'Yellow' }
   if (-not $NonInteractive -and ($Step -eq 'split' -or $Step -eq 'migrate')) {
     $c = Read-Host 'Go lai CHINH XAC ten database thu de xac nhan'
     if ($c -ne $DatabaseName) { Fail 'Ten xac nhan khong khop. Dung lai.' }
@@ -162,7 +178,7 @@ try {
 
   if ($Step -eq 'resetpw') {
     if (-not $hasMig -and -not $hasAuth) { Fail 'Chua co role siscom_migrator / siscom_auth: khong co gi de dat lai (chay -Step split).' }
-    Assert-LogSafe $adminPw
+    Assert-LogSafe $adminPw 'postgres'   # ALTER ROLE chay trong DB postgres
     $newMig = New-RandomSecret; $newAuth = New-RandomSecret
     if ($hasMig) { Invoke-Psql 'postgres' $adminPw 'postgres' @{ pw = $newMig } $null "SELECT format('ALTER ROLE siscom_migrator PASSWORD %L', :'pw') \gexec" | Out-Null }
     if ($hasAuth) { Invoke-Psql 'postgres' $adminPw 'postgres' @{ pw = $newAuth } $null "SELECT format('ALTER ROLE siscom_auth PASSWORD %L', :'pw') \gexec" | Out-Null }
@@ -180,6 +196,18 @@ try {
   Say ('Chu so huu hien tai: ' + $owner + ' | role siscom_migrator: ' + $hasMig + ' | role siscom_auth: ' + $hasAuth)
   $appPw = Get-AppPasswordFromEnv $EnvPath $PgPort
   Say 'Mat khau siscom_app lay tu .env (khong in).'
+
+  if ($Step -eq 'split' -and $owner -eq 'siscom_app') {
+    # QA I-2: kiem dieu kien (CHI DOC) TRUOC moi buoc ghi (ke ca file mat khau - QA lan 2 m-2). Hai pha (lan 2 m-1): PostgreSQL phan giai ten
+    # bang/ham luc parse ca o nhanh CASE khong chay => kiem TON TAI truoc, roi moi truy van du lieu.
+    $ex = (Invoke-Psql 'postgres' $adminPw $DatabaseName $null $null "SELECT concat_ws('|', (to_regclass('public._prisma_migrations') IS NOT NULL)::text, (to_regclass('public.remember_device') IS NOT NULL AND to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NOT NULL AND to_regclass('public.lookup_item') IS NOT NULL AND to_regprocedure('public.fn_auth_bootstrap_open()') IS NOT NULL)::text);" -Data).Split('|')
+    if ($ex[0] -ne 'true' -or $ex[1] -ne 'true') { Fail 'DB chua migrate du (thieu bang/ham B1.4). Chay auth-demo-stack.bat -Step migrate truoc. Chua ghi gi.' }
+    $p = (Invoke-Psql 'postgres' $adminPw $DatabaseName $null $null "SELECT concat_ws('|', (SELECT count(*) FROM public._prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL)::text, (SELECT count(*) FROM public.lookup_item)::text, (NOT public.fn_auth_bootstrap_open())::text);" -Data).Split('|')
+    if ($p[0] -ne '0') { Fail 'DB co migration loi do dang. Bo DB nay, tao DB moi. Chua ghi gi.' }
+    if ([int]$p[1] -le 0) { Fail 'Chua seed danh muc (lookup_item rong). Chay auth-demo-stack.bat -Step seed truoc (sau khi tach role siscom_app khong con seed duoc). Chua ghi gi.' }
+    if ($p[2] -ne 'true') { Fail 'Chua bootstrap tai khoan. Chay auth-demo-stack.bat -Step bootstrap truoc (sau khi tach role khong con bootstrap duoc). Chua ghi gi.' }
+    Ok 'Dieu kien truoc tach role: da migrate du, da seed, da bootstrap.'
+  }
 
   if ($Step -ne 'verify') {
     # Mat khau role cap cluster: file ngoai repo. QA I-1: moi mat khau cho role DA CO deu dang nhap thu truoc khi luu / ghi DB.
@@ -204,7 +232,7 @@ try {
       if ($t -ne 'ok') { Fail ('Khong dang nhap thu duoc ' + $role + ': ' + $t + '. Chua ghi gi.') }
       Ok ('Mat khau ' + $role + ' dung (dang nhap thu).')
     }
-    if ($creating) { Assert-LogSafe $adminPw }
+    if ($creating) { Assert-LogSafe $adminPw $DatabaseName }   # CREATE ROLE ... PASSWORD chay trong DB thu (ROLE_SPLIT / AUTH_ROLE)
     if ($changed) { Save-Secrets $dir $secretsFile $sec['MIGRATOR_PW'] $sec['AUTH_PW'] }
     $migPw = $sec['MIGRATOR_PW']; $authPw = $sec['AUTH_PW']
   }
@@ -212,21 +240,7 @@ try {
   switch ($Step) {
     'split' {
       if ($owner -eq 'siscom_app') {
-        # QA I-2: kiem dieu kien (CHI DOC) TRUOC moi buoc ghi - thieu thi dung, khong de DB nua chung.
-        $pre = Invoke-Psql 'postgres' $adminPw $DatabaseName $null $null @"
-SELECT concat_ws('|',
-  (to_regclass('public._prisma_migrations') IS NOT NULL)::text,
-  CASE WHEN to_regclass('public._prisma_migrations') IS NULL THEN '-1' ELSE (SELECT count(*)::text FROM public._prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL) END,
-  (to_regclass('public.remember_device') IS NOT NULL AND to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NOT NULL)::text,
-  CASE WHEN to_regclass('public.lookup_item') IS NULL THEN '0' ELSE (SELECT count(*)::text FROM public.lookup_item) END,
-  CASE WHEN to_regprocedure('public.fn_auth_bootstrap_open()') IS NULL THEN 'chua-migrate' ELSE (NOT public.fn_auth_bootstrap_open())::text END);
-"@ -Data
-        $p = $pre.Split('|')
-        if ($p[0] -ne 'true' -or $p[2] -ne 'true') { Fail 'DB chua migrate du (thieu bang/ham B1.4). Chay auth-demo-stack.bat -Step migrate truoc. Chua ghi gi.' }
-        if ($p[1] -ne '0') { Fail 'DB co migration loi do dang. Bo DB nay, tao DB moi. Chua ghi gi.' }
-        if ([int]$p[3] -le 0) { Fail 'Chua seed danh muc (lookup_item rong). Chay auth-demo-stack.bat -Step seed truoc (sau khi tach role siscom_app khong con seed duoc). Chua ghi gi.' }
-        if ($p[4] -ne 'true') { Fail 'Chua bootstrap tai khoan. Chay auth-demo-stack.bat -Step bootstrap truoc (sau khi tach role khong con bootstrap duoc). Chua ghi gi.' }
-        Ok 'Dieu kien truoc tach role: da migrate du, da seed, da bootstrap.'
+        # Dieu kien (migrate du / seed / bootstrap) da kiem o tren, truoc moi buoc ghi.
         Say '--- 1/5 ROLE_SPLIT (superuser): siscom_migrator thanh chu so huu ---' 'Cyan'
         Invoke-Psql 'postgres' $adminPw $DatabaseName @{ target_db = $DatabaseName; migrator_pw = $migPw } (Join-Path $docs 'B1.3_S1_ROLE_SPLIT.sql.txt') $null | Out-Null
         Ok 'ROLE_SPLIT xong.'

@@ -90,7 +90,7 @@ Mat khau siscom_app lay tu .env (khong in).
 Chu so huu hien tai: siscom_app | role siscom_migrator: False | role siscom_auth: False
 Sinh mat khau ngau nhien cho role moi siscom_migrator (luu ngoai repo, khong in).
 Sinh mat khau ngau nhien cho role moi siscom_auth (luu ngoai repo, khong in).
-[DAT] Da luu mat khau role vao %LOCALAPPDATA%\SISCOM-CRM\demo\roles-55432.secrets (chi tai khoan <user>).
+[DAT] Da luu mat khau role vao %LOCALAPPDATA%\SISCOM-CRM\demo\roles-55432.secrets (chi tai khoan Windows hien tai).
 --- 1/5 ROLE_SPLIT (superuser): siscom_migrator thanh chu so huu ---
 [DAT] ROLE_SPLIT xong.
 --- 2/5 AUTH_ROLE (superuser): role siscom_auth + CONNECT/SET ---
