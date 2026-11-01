@@ -25,7 +25,11 @@ function Fail([string]$m) { throw (New-Object System.ApplicationException -Argum
 function Say([string]$m, [string]$c = 'Gray') { Write-Host $m -ForegroundColor $c }
 function Ok([string]$m) { Say ('[DAT] ' + $m) 'Green' }
 function Warn([string]$m) { Say ('[CHUA] ' + $m) 'Yellow' }
-function Test-Http([string]$url) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 3; return $r.StatusCode } catch { return 0 } }
+function Test-Http([string]$url) {
+  # Tra ma HTTP ke ca 4xx/5xx (PS 5.1 nem loi voi 4xx/5xx) de "cong dang co dich vu" khong bi bo sot; 0 = khong ket noi duoc.
+  try { $r = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 3; return $r.StatusCode }
+  catch { if ($_.Exception.Response) { try { return [int]$_.Exception.Response.StatusCode } catch { return 0 } }; return 0 }
+}
 function Test-HttpsNoVerify([string]$url) {
   # Chi de kiem Caddy da len (CA mkcert chua nam trong kho tin cay cua may): bo xac thuc chung chi TAM THOI trong tien trinh nay.
   $old = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
@@ -69,14 +73,18 @@ try {
   $cert = Join-Path $CertDir ($ip + '.pem'); $key = Join-Path $CertDir ($ip + '-key.pem'); $ca = Join-Path $CertDir 'CA\rootCA.pem'
   $caddyfile = Join-Path $CertDir ('Caddyfile.' + $ip + '.' + $LanPort)
   $ruleName = 'SISCOM demo LAN ' + $LanPort
-  $prof = 'Private'; if ($profile -and $profile.NetworkCategory -eq 'Public') { $prof = 'Public' }
+  # Ho so mang -> -Profile cua quy tac firewall: Private | Public | DomainAuthenticated -> Domain; khong xac dinh => canh bao, in Private.
+  $prof = 'Private'
+  if ($profile) {
+    switch ([string]$profile.NetworkCategory) { 'Public' { $prof = 'Public' }; 'DomainAuthenticated' { $prof = 'Domain' }; 'Private' { $prof = 'Private' }; default { Warn ('Ho so mang khong xac dinh (' + $profile.NetworkCategory + '): kiem lai -Profile truoc khi tao quy tac.') } }
+  } else { Warn 'Khong doc duoc ho so mang cua adapter: kiem Get-NetConnectionProfile truoc khi tao quy tac firewall.' }
 
   Say ('Dia chi Wi-Fi: ' + $ip + '/' + $addr.PrefixLength + ' (' + $(if ($adapter) { $adapter.Name } else { '?' }) + ', ho so mang: ' + $(if ($profile) { $profile.NetworkCategory } else { '?' }) + ') | origin: ' + $origin) 'Cyan'
   if ($profile -and $profile.NetworkCategory -eq 'Public') { Warn 'Ho so mang la Public: quy tac firewall duoi day dung -Profile Public (hoac doi mang sang Private truoc - cai dat he thong, can owner).' }
 
   # --- Caddyfile (tao/cap nhat trong thu muc private; chi doc o -Step check) ---
   $cf = @(
-    '{', "`tadmin off", "`tauto_https off", '}',
+    '{', "`tadmin off", "`tauto_https off", "`tservers {", "`t`tprotocols h1 h2", "`t}", '}',
     ($origin + ' {'), ("`tbind " + $ip), ("`ttls `"" + $cert.Replace('\', '/') + "`" `"" + $key.Replace('\', '/') + "`""), "`tencode gzip",
     "`thandle /api/* {", ("`t`treverse_proxy 127.0.0.1:" + $ApiPort), "`t}",
     "`thandle {", "`t`treverse_proxy 127.0.0.1:4173 {", "`t`t`theader_up Host 127.0.0.1:4173", "`t`t}", "`t}",
@@ -128,23 +136,26 @@ try {
   if (-not $ok) { Fail 'Giao dien khong len sau 40 giay: xem cua so "SISCOM demo web".' }
 
   Say ('Mo Caddy (cua so rieng) nghe ' + $origin + ' ...') 'Cyan'
-  $cdCmd = "title SISCOM demo LAN proxy && `"" + $caddy + "`" run --config `"" + $caddyfile + "`" --adapter caddyfile"
-  Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', $cdCmd) | Out-Null
+  # Chay caddy.exe TRUC TIEP (khong qua cmd /k) de giu duoc tien trinh va dung ngay neu tu kiem cong that bai.
+  $caddyProc = Start-Process -FilePath $caddy -ArgumentList @('run', '--config', $caddyfile, '--adapter', 'caddyfile') -PassThru
   $ok = $false
-  for ($i = 0; $i -lt 30; $i++) { if ((Test-HttpsNoVerify ($origin + '/api/v1/health')) -eq 200) { $ok = $true; break }; Start-Sleep -Seconds 1 }
-  if (-not $ok) { Fail 'Caddy khong len sau 30 giay: xem cua so "SISCOM demo LAN proxy". (Neu Windows hoi "cho phep qua tuong lua": bam HUY - quy tac hep do owner tao rieng.)' }
+  for ($i = 0; $i -lt 30; $i++) { if ($caddyProc.HasExited) { break }; if ((Test-HttpsNoVerify ($origin + '/api/v1/health')) -eq 200) { $ok = $true; break }; Start-Sleep -Seconds 1 }
+  if (-not $ok) { if (-not $caddyProc.HasExited) { Stop-Process -Id $caddyProc.Id -Force -ErrorAction SilentlyContinue }; Fail 'Caddy khong len sau 30 giay (da dung Caddy). Chay thu tay: caddy run --config <Caddyfile> de xem loi. (Neu Windows hoi "cho phep qua tuong lua": bam HUY - quy tac hep do owner tao rieng.)' }
 
-  # Kiem tra lang nghe: chi Caddy tren IP Wi-Fi; backend/giao dien/PostgreSQL chi loopback.
+  # Kiem tra lang nghe: chi Caddy tren IP Wi-Fi; backend/giao dien/PostgreSQL chi loopback. Sai => DUNG CADDY NGAY roi bao loi.
   $listen = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in @($ApiPort, 4173, $PgPort, $LanPort) })
   $bad = @($listen | Where-Object { ($_.LocalPort -ne $LanPort -and $_.LocalAddress -notin @('127.0.0.1', '::1')) -or ($_.LocalPort -eq $LanPort -and $_.LocalAddress -ne $ip) })
   foreach ($l in $listen) { Say ('  nghe ' + $l.LocalAddress + ':' + $l.LocalPort) }
-  if ($bad.Count -gt 0) { Fail 'CO CONG NGHE NGOAI DU KIEN (xem danh sach tren). Dong cac cua so demo ngay.' }
+  if ($bad.Count -gt 0) {
+    if (-not $caddyProc.HasExited) { Stop-Process -Id $caddyProc.Id -Force -ErrorAction SilentlyContinue }
+    Fail 'CO CONG NGHE NGOAI DU KIEN (xem danh sach tren). Da DUNG Caddy; hay dong cua so backend/web va kiem lai cau hinh.'
+  }
   Ok ('Chi ' + $ip + ':' + $LanPort + ' mo ra Wi-Fi; cac dich vu con lai chi loopback.')
   Say ''
   Say ('Dien thoai (da cai CA ' + $ca + '): mo ' + $origin) 'Cyan'
   Say ('May tinh nay: cung mo ' + $origin + ' (cookie Secure; http://127.0.0.1:4173 khong dung trong buoi thu).')
   Say ('Tai khoan demo: ' + (Join-Path $priv ('accounts-' + $DatabaseName + '.txt')))
-  Say ('Ket thuc: dong 3 cua so (LAN proxy, backend, web), Disable-NetFirewallRule -DisplayName "' + $ruleName + '", roi demo-pg.bat -Step stop.')
+  Say ('Ket thuc: dong cua so Caddy (PID ' + $caddyProc.Id + '), backend, web; Disable-NetFirewallRule -DisplayName "' + $ruleName + '"; roi demo-pg.bat -Step stop.')
   if (-not $NoBrowser) { Start-Process $origin | Out-Null }
 } catch {
   Write-Host ('[LOI] ' + $_.Exception.Message) -ForegroundColor Red
