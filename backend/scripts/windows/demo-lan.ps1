@@ -31,10 +31,16 @@ function Test-Http([string]$url) {
   catch { if ($_.Exception.Response) { try { return [int]$_.Exception.Response.StatusCode } catch { return 0 } }; return 0 }
 }
 function Test-HttpsNoVerify([string]$url) {
-  # Chi de kiem Caddy da len (CA mkcert chua nam trong kho tin cay cua may): bo xac thuc chung chi TAM THOI trong tien trinh nay.
-  $old = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
-  try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }; return (Test-Http $url) }
-  finally { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $old }
+  # Chi de kiem Caddy da len (CA mkcert khong nam trong kho tin cay cua may => bo xac thuc chung chi CHI cho lan goi nay).
+  # Dung curl.exe cua Windows 10+ (Invoke-WebRequest cua PS 5.1 khong bat tay duoc TLS voi Caddy: "unexpected error on a send").
+  $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+  if (Test-Path -LiteralPath $curl) {
+    $code = & $curl -sk -m 5 -o NUL -w '%{http_code}' $url 2>$null
+    if ($code -match '^\d{3}$') { return [int]$code }; return 0
+  }
+  $old = [System.Net.ServicePointManager]::ServerCertificateValidationCallback; $oldProto = [System.Net.ServicePointManager]::SecurityProtocol
+  try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12; [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }; return (Test-Http $url) }
+  finally { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $old; [System.Net.ServicePointManager]::SecurityProtocol = $oldProto }
 }
 function Test-PrivateIp([string]$ip) { return ($ip -match '^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$') }
 function Get-LanAddress([string]$want) {
