@@ -753,6 +753,21 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     expect(row.absExpiresAt.getTime()).toBe(pa.getTime() + 90 * day);
   });
 
+  it('QA lần 2 Minor-2: family vừa bị thu hồi song song (còn token chưa xoay) => trigger DB chặn token con, restore 401 + xoá cookie (không 500, không phiên)', async () => {
+    const id = await empId('sale');
+    const cred = await adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: id }, select: { tokenVersion: true } });
+    const tok = randomBytes(32).toString('base64url'); const fam = randomUUID(); const pa = new Date(Date.now() - 86_400_000); const abs = new Date(pa.getTime() + 90 * 86_400_000);
+    const base = { employeeId: id, familyId: fam, tokenVersion: cred.tokenVersion, passwordAuthAt: pa, issuedAt: pa, lastUsedAt: pa, absExpiresAt: abs };
+    await adminPrisma.rememberDevice.create({ data: { ...base, tokenHash: sha(tok) } });
+    // mô phỏng kết quả của một lần thu hồi chạy song song: một hàng khác cùng family đã bị thu hồi
+    await adminPrisma.rememberDevice.create({ data: { ...base, tokenHash: sha(randomBytes(32).toString('base64url')), revokedAt: new Date(), revokeReason: 'LOGOUT' } });
+    const before = await adminPrisma.authSession.count({ where: { employeeId: id } });
+    const res = await restore(tok);
+    expect(res.status).toBe(401); expect(res.body.error.code).toBe('REMEMBER_INVALID'); expect(cleared(res)).toBe(true);
+    expect(await adminPrisma.authSession.count({ where: { employeeId: id } })).toBe(before);
+    expect(await adminPrisma.rememberDevice.count({ where: { familyId: fam } })).toBe(2);
+  });
+
   it('truy cập đồng thời: 6 restore song song cùng token => đúng MỘT 200, còn lại 401 REMEMBER_RACE; đúng một token con, không thu hồi family', async () => {
     const tok = rmbToken(await loginRemember('sale', true));
     const fam = (await rowOf(tok))!.familyId;

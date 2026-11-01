@@ -421,3 +421,22 @@ describe('QA bảo mật I-1/I-2', () => {
     expect(e.sessionRevokes).toContainEqual({ employeeId: 'e1', reason: 'REMEMBER_REPLAY' });
   });
 });
+
+// QA lần 2 Minor-2: thu hồi family chạy song song với rotate => trigger DB từ chối INSERT token con (REMEMBER_FAMILY_REVOKED)
+// => restore trả INVALID (401 + xoá cookie) thay vì lỗi 500 lặp lại ở mỗi lần tải trang.
+describe('QA lần 2 Minor-2', () => {
+  it('rotate bị trigger REMEMBER_FAMILY_REVOKED từ chối => INVALID, không cấp phiên', async () => {
+    const e = build();
+    const tok = await seedDevice(e);
+    e.rememberDevice.create.mockImplementationOnce(async () => { throw new Error('Raw query failed. Code: `23514`. Message: `REMEMBER_FAMILY_REVOKED: family x da bi thu hoi.`'); });
+    const r = await e.svc.restoreRemembered({ ...ctx, token: tok });
+    expect(r.kind).toBe('INVALID');
+    expect(e.sessions).toHaveLength(0);
+  });
+  it('lỗi DB khác vẫn ném ra (không nuốt lỗi)', async () => {
+    const e = build();
+    const tok = await seedDevice(e);
+    e.rememberDevice.create.mockImplementationOnce(async () => { throw new Error('connection reset'); });
+    await expect(e.svc.restoreRemembered({ ...ctx, token: tok })).rejects.toThrow('connection reset');
+  });
+});

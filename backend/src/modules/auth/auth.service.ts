@@ -147,6 +147,11 @@ export class AuthService {
       await tx.authSession.create({ data: ns.data });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: emp.id, action: 'auth.remember_restored', entityType: 'employee', entityId: emp.id, entityCode: emp.code, summary: 'Khôi phục phiên từ thiết bị ghi nhớ', requestId: rid(input.requestId) } });
       return { kind: 'OK' as const, ns, next, emp };
+    }).catch((e: unknown) => {
+      // QA lần 2 Minor-2: thu hồi family chạy song song với rotate => trigger fn_rmb_before_insert từ chối token con. Bảo mật đã giữ
+      // (không hồi sinh family); trả INVALID (401 + xoá cookie) thay vì 500 lặp lại. Lỗi khác: ném tiếp.
+      if (/REMEMBER_FAMILY_REVOKED/.test(e instanceof Error ? e.message : String(e))) return { kind: 'INVALID' as const };
+      throw e;
     });
     if (out.kind !== 'OK') return { kind: out.kind };
     const { ns, next, emp } = out;

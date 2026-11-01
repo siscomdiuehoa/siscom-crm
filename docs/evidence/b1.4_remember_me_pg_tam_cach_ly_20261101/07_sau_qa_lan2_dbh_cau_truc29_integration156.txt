@@ -1,0 +1,27 @@
+# Sau QA bao mat lan 2 - DB H moi: integration 13 suite, 3 pool (gom ca dua thu hoi/xoay vong Minor-2 tren DB that). Cluster tam 127.0.0.1:55432, du lieu gia.
+DAT (RED mong doi voi V2)
+DAT: VERIFY (app) PASS|73
+DAT: VERIFY_AUTH (superuser -> SET ROLE siscom_auth) PASS|33
+HOAN TAT siscom_crm_test_20261101_072931
+## Kiem cau truc
+PASS|29
+## Integration
+PASS test/auth.int-spec.ts (38.117 s)
+    √ QA I-1: restore khi còn 1 giờ tới mốc 90 ngày => phiên thường mới hết hạn đúng mốc (cookie phiên Max-Age <= 3600), không +12h (93 ms)
+    √ QA lần 2 Minor-2: family vừa bị thu hồi song song (còn token chưa xoay) => trigger DB chặn token con, restore 401 + xoá cookie (không 500, không phiên) (211 ms)
+PASS test/customers.search-equivalence.int-spec.ts (5.713 s)
+    √ mọi từ khóa × quyền đọc × sort × trang (đầu/2/cuối/vượt cuối): tổng, ID, thứ tự khớp (4469 ms)
+PASS test/concurrency.int-spec.ts (5.331 s)
+  đồng thời (20 vòng × 10 yêu cầu)
+PASS test/db-roles.int-spec.ts
+PASS test/db-errors.int-spec.ts
+PASS test/customers.int-spec.ts
+PASS test/customers.list-pagination.int-spec.ts
+PASS test/search.int-spec.ts
+PASS test/audit.int-spec.ts
+PASS test/contacts.int-spec.ts
+PASS test/lookups.int-spec.ts
+PASS test/owner-candidates.int-spec.ts
+PASS test/timezone.int-spec.ts
+Test Suites: 13 passed, 13 total
+Tests:       156 passed, 156 total

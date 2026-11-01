@@ -161,3 +161,29 @@ test('giữa chừng: người dùng đăng xuất/đăng nhập lại trước 
   release(); await tick(); await tick(); await tick();
   assert.equal(session.getState().status, 'IDLE');
 });
+
+// QA lần 2 Important-1: nhiều request cùng nhận 401 (danh sách + tìm kiếm) => handleUnauthorized gọi nhiều lần; lần sau KHÔNG được huỷ kết quả restore.
+test('giữa chừng: hai 401 song song => vẫn khôi phục được (lần 401 thứ hai không huỷ restore đang chạy), chỉ một lần restore', async () => {
+  let release; const pending = new Promise((r) => { release = r; });
+  const { session, calls } = await authedSession(() => pending.then(() => resp(200, { data: { me: ME, csrfToken: CSRF2 } })));
+  session.handleUnauthorized();
+  session.handleUnauthorized();
+  release(); await tick(); await tick(); await tick();
+  assert.equal(session.getState().status, 'AUTHENTICATED');
+  assert.equal(session.getCsrfToken(), CSRF2);
+  assert.equal(restoreCalls(calls), 1);
+});
+
+// QA lần 2 Minor-6: auto-restore gặp REMEMBER_RACE (tab khác vừa khôi phục) => hỏi lại /auth/me một lần.
+test('giữa chừng: restore REMEMBER_RACE => hỏi lại /auth/me; phiên tab khác còn => AUTHENTICATED', async () => {
+  const env = mk((url) => {
+    if (url.endsWith('/auth/login')) return resp(200, { data: { me: ME, csrfToken: CSRF } });
+    if (url.endsWith('/auth/remember/restore')) return err(401, 'REMEMBER_RACE');
+    if (url.endsWith('/auth/me')) return resp(200, { data: { me: ME, csrfToken: null } });
+    return resp(404, {});
+  });
+  await env.session.submit('a@b.vn', 'pw-gia-lap', true);
+  env.session.handleUnauthorized();
+  await tick(); await tick(); await tick(); await tick();
+  assert.equal(env.session.getState().status, 'AUTHENTICATED');
+});

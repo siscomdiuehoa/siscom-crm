@@ -20,18 +20,24 @@ export function createCookieSession(client, { readCookie } = {}) {
   const cookies = typeof readCookie === 'function' ? readCookie : () => (typeof document !== 'undefined' ? document.cookie : '');
   const authed = (me) => set({ status: 'AUTHENTICATED', error: null, employeeId: me.employeeId, expiresAt: null, me });
   // B1.4 Remember Me: phiên thường hết hạn GIỮA CHỪNG (tab đang mở) => thử tái lập MỘT lần từ cookie ghi nhớ (HttpOnly). Tối đa 1 lần / 60 giây
-  // (chống vòng lặp 401 -> restore). Thất bại => giữ ERROR SESSION_EXPIRED (đăng nhập lại bằng mật khẩu). Đăng xuất / submit / 401 mới chen ngang => bỏ kết quả.
+  // (chống vòng lặp 401 -> restore). Thất bại => giữ ERROR SESSION_EXPIRED (đăng nhập lại bằng mật khẩu). Đăng xuất / submit chen ngang => bỏ kết quả.
+  // Các 401 đến sau khi đã SESSION_EXPIRED (nhiều request song song) KHÔNG đổi epoch (QA lần 2 Important-1). REMEMBER_RACE (tab khác vừa
+  // khôi phục) => hỏi lại /auth/me một lần (như restore() khi tải trang).
   let lastAutoRestoreAt = -Infinity;
   const now = () => Date.now();
   function autoRestoreAfterExpiry() {
     if (typeof client.restoreRemembered !== 'function' || now() - lastAutoRestoreAt < 60_000) return;
     lastAutoRestoreAt = now();
     const my = epoch;
+    const stillExpired = () => my === epoch && state.status === 'ERROR' && state.error === 'SESSION_EXPIRED';
     Promise.resolve().then(() => client.restoreRemembered()).then((r) => {
-      if (my !== epoch || state.status !== 'ERROR' || state.error !== 'SESSION_EXPIRED') return;
+      if (!stillExpired()) return;
       csrf = r.csrfToken;
       authed(r.me);
-    }, () => { /* giữ SESSION_EXPIRED */ });
+    }, (e) => {
+      if (!(e && e.name === 'AuthHttpError' && e.code === 'REMEMBER_RACE') || !stillExpired()) return; // giữ SESSION_EXPIRED
+      return client.me().then((r2) => { if (!stillExpired()) return; csrf = null; authed(r2.me); }, () => { /* giữ SESSION_EXPIRED */ });
+    });
   }
 
   return {
@@ -133,6 +139,7 @@ export function createCookieSession(client, { readCookie } = {}) {
     // API khác trả 401: phiên server đã hết/thu hồi => về ERROR SESSION_EXPIRED (không tự đăng nhập lại). Khi đang LOADING: bỏ qua.
     handleUnauthorized() {
       if (state.status === 'LOADING') return state;
+      if (state.status === 'ERROR' && state.error === 'SESSION_EXPIRED') return state; // đã xử lý: không huỷ khôi phục đang chạy
       epoch++; csrf = null;
       if (state.status === 'AUTHENTICATED') { fail('SESSION_EXPIRED'); autoRestoreAfterExpiry(); }
       return state;

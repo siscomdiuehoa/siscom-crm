@@ -30,7 +30,7 @@ DAT: VERIFY_AUTH (superuser -> SET ROLE siscom_auth) PASS|33
 (bo qua M1 constraint tests - giu che do khoi tao mo cho auth.int-spec)
 HOAN TAT siscom_crm_test_20261101_070349
 ## Kiem cau truc Remember Me (migrator, tu ROLLBACK)
-psql:D:/SISCOM-CRM-rmb/backend/docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt:77: ERROR:  new row for relation "employee_credential" violates check constraint "ck_cred_window"
+psql:<repo>/backend/docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt:77: ERROR:  new row for relation "employee_credential" violates check constraint "ck_cred_window"
 ## Rollback Remember Me (migrator) -> V3 -> VERIFY (app) PASS
  thiet bi ghi nho se mat (con hieu luc): 0
  ROLLBACK REMEMBER ME XONG
@@ -51,7 +51,7 @@ FAIL|1
  bang_auth_UPDATE (phai 2, co remember_device: 3) | 3
 PASS|73
 PASS|33
-psql:D:/SISCOM-CRM-rmb/backend/docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt:77: ERROR:  new row for relation "employee_credential" violates check constraint "ck_cred_window"
+psql:<repo>/backend/docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt:77: ERROR:  new row for relation "employee_credential" violates check constraint "ck_cred_window"
 ## Rang buoc M1/M1.1/M1.2 (migrator) - khong hoi quy
 B1.3_M1_CONSTRAINT_TESTS: PASS|131 
 B1.3_M1_1_CONSTRAINT_TESTS: PASS|43 
