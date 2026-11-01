@@ -16,8 +16,16 @@ function InfoRow({ icon, label, children }) {
   );
 }
 
-// Customer detail + edit when the customer API flag is ON. Data comes ONLY from GET /customers/:id (no demo/localStorage records);
-// related modules (contacts, quotes, ...) are not part of the customer API yet and are intentionally not shown.
+// B1.4: một người liên hệ (người chính) từ GET /customers/:id/contacts; SĐT hiển thị là SĐT CÔNG TY (không có trường SĐT riêng cho người liên hệ).
+function ContactValue({ st, phone }) {
+  if (st.status === 'idle' || st.status === 'loading') return <span style={{ color: 'var(--text-3)' }}>Đang tải…</span>;
+  if (st.status === 'error') return <span style={{ color: 'var(--text-3)' }}>{st.error && st.error.denied ? 'Không có quyền xem người liên hệ' : 'Chưa tải được người liên hệ'}</span>;
+  if (!st.item) return null;
+  return <span><b style={{ fontWeight: 500 }}>{st.item.fullName}</b>{phone ? <span style={{ color: 'var(--text-2)' }}>{' · ' + phone + ' (SĐT công ty)'}</span> : null}</span>;
+}
+
+// Customer detail + edit when the customer API flag is ON. Data comes ONLY from GET /customers/:id (no demo/localStorage records)
+// plus, B1.4, the primary contact (GET /customers/:id/contacts) when the server granted contact.read; quotes/... are not shown.
 export default function CustomerApiDetail({ ui, id }) {
   const ctl = ui.customerApi;
   const s = useCustomerApiState(ctl);
@@ -26,6 +34,12 @@ export default function CustomerApiDetail({ ui, id }) {
   React.useEffect(() => { setEdit(false); load(); }, [load]);
   const back = <div><Button variant="ghost" size="sm" icon="arrow-left" onClick={() => ui.navigate('/customers')}>Danh sách khách hàng</Button></div>;
   const d = s.detail;
+  const canReadContact = typeof ui.can === 'function' && !!ui.can('contact.read'); // fail-closed; server still checks scope (OWN/DEPARTMENT/ALL)
+  const detailReady = d.id === id && d.status === 'ready';
+  React.useEffect(() => { if (canReadContact && detailReady) ctl.loadContact(id); }, [ctl, id, canReadContact, detailReady]);
+  const ct = s.contact && s.contact.id === id ? s.contact : { status: 'idle', item: null, error: null };
+  const contactName = ct.status === 'ready' && ct.item ? ct.item.fullName : '';
+  const formInitial = React.useMemo(() => (d.customer ? { ...d.customer, contactName } : null), [d.customer, contactName]);
   if (d.id !== id || d.status === 'idle' || d.status === 'loading') {
     return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>{back}<div className="sg-card sg-solid" role="status" aria-live="polite" style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-2)' }}><span className="sg-btn__spin" />Đang tải thông tin khách hàng…</div></div>;
   }
@@ -40,7 +54,9 @@ export default function CustomerApiDetail({ ui, id }) {
     );
   }
   const c = d.customer;
-  const canEdit = typeof ui.can === 'function' && !!ui.can('customer.update', c); // fail-closed: no `can` / no server grant => no edit
+  // QA I-1: với contact.read, chỉ mở sửa khi người liên hệ đã tải xong (ready/error) — tên về muộn sẽ khởi tạo lại biểu mẫu và mất bản nháp.
+  const contactSettled = !canReadContact || ct.status === 'ready' || ct.status === 'error';
+  const canEdit = typeof ui.can === 'function' && !!ui.can('customer.update', c) && contactSettled; // fail-closed: no `can` / no server grant => no edit
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {back}
@@ -60,6 +76,7 @@ export default function CustomerApiDetail({ ui, id }) {
         <h3 style={{ margin: '0 0 4px', font: 'var(--type-h4)' }}>Thông tin doanh nghiệp</h3>
         <InfoRow icon="hash" label="Mã số thuế">{c.taxId ? <span style={{ font: 'var(--type-mono)' }}>{c.taxId}</span> : null}</InfoRow>
         <InfoRow icon="map-pin" label="Địa chỉ">{[c.address, c.city].filter(Boolean).join(', ') || null}</InfoRow>
+        {canReadContact ? <InfoRow icon="contact" label="Người liên hệ">{ct.status === 'ready' && !ct.item ? null : <ContactValue st={ct} phone={c.phone} />}</InfoRow> : null}
         <InfoRow icon="phone" label="Điện thoại">{c.phone}</InfoRow>
         <InfoRow icon="mail" label="Email">{c.email ? <a href={'mailto:' + c.email}>{c.email}</a> : null}</InfoRow>
         <InfoRow icon="globe" label="Website">{c.website ? <a href={'https://' + c.website.replace(/^https?:\/\//, '')} target="_blank" rel="noreferrer">{c.website}</a> : null}</InfoRow>
@@ -69,7 +86,7 @@ export default function CustomerApiDetail({ ui, id }) {
         {c.note ? <InfoRow icon="sticky-note" label="Ghi chú">{c.note}</InfoRow> : null}
         <div style={{ height: 8 }} />
       </section>
-      <CustomerFormDrawer open={edit && canEdit} initial={c} ui={ui} onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />
+      <CustomerFormDrawer open={edit && canEdit} initial={formInitial} ui={ui} onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />
     </div>
   );
 }

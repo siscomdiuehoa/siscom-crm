@@ -46,14 +46,31 @@ export function describeRepoError(err) {
 // Business code shown to people. The backend UUID (`id`) is never displayed; a record without code shows a dash.
 export const customerDisplayCode = (c) => (c && c.code) || '—';
 
-// CustomerForm state -> input for repository.create/update. Contact person and the demo `owner` label are dropped. PR 7: `ownerId` (employee uuid)
-// is kept; for update, `original` (the loaded customer) supplies `ownerIdBefore` so the adapter sends ownerId only when it really changed.
+// CustomerForm state -> input for repository.create/update. Contact person (demo cName/... and API `contactName`) and the demo `owner` label are dropped:
+// the contact goes through its own endpoint (submit/update second argument). PR 7: `ownerId` (employee uuid) is kept; for update, `original`
+// (the loaded customer) supplies `ownerIdBefore` so the adapter sends ownerId only when it really changed.
 export function formToCustomerInput(f, original) {
-  const { cName, cTitle, cPhone, cEmail, owner, ...rest } = f || {};
+  const { cName, cTitle, cPhone, cEmail, owner, contactName, ...rest } = f || {};
   const out = { ...rest, name: String(rest.name || '').trim(), short: String(rest.short || '').trim(), taxId: String(rest.taxId || '').trim(), ownerId: String(rest.ownerId || '').trim() };
   if (original) out.ownerIdBefore = String(original.ownerId || '').trim();
   return out;
 }
+
+// B1.4 người liên hệ (một người / khách hàng): CHỈ người chính (isPrimary). Không có người chính => null (QA M-5: người thường không được hiển thị
+// như "Người liên hệ"; nhập tên sẽ tạo người chính).
+export function pickPrimaryContact(items) {
+  if (!Array.isArray(items)) return null;
+  return items.find((c) => c && c.isPrimary) || null;
+}
+// QA I-2: có tên mới nhưng chưa biết người liên hệ hiện tại của chính khách này => không gửi (tránh tạo trùng) và nói rõ là CHƯA lưu.
+const CONTACT_SKIPPED = { kind: 'contact_skipped', title: 'Chưa lưu người liên hệ', message: 'Chưa tải được người liên hệ hiện tại nên tên người liên hệ chưa được lưu. Tải lại trang rồi sửa lại.', fieldErrors: {}, extra: [], retryable: false, hint: '', staleVersion: false, denied: false };
+export const CONTACT_NAME_MAX = 200; // contact.full_name VARCHAR(200)
+// Tên người liên hệ: không bắt buộc; chỉ kiểm độ dài (server kiểm lại).
+export function contactNameError(v) {
+  const t = String(v == null ? '' : v).trim();
+  return t.length > CONTACT_NAME_MAX ? 'Tên người liên hệ tối đa ' + CONTACT_NAME_MAX + ' ký tự.' : '';
+}
+const trimmed = (v) => String(v == null ? '' : v).trim();
 
 // API mode only: what the owner <Select> may show/do, from controller state `owners` ({ status, scope, items }).
 //   -> { options: [{ value, label }], disabled, hint, allowNone }. "— Chưa phân công —" is offered only for scope ALL (OWN/DEPARTMENT cannot clear the owner).
@@ -141,10 +158,20 @@ export function createCustomerApiController(repo) {
   const noDetail = { status: 'idle', id: null, customer: null, error: null };
   const noLookups = { status: 'idle', maps: null, error: null };
   const noOwners = { status: 'idle', scope: null, items: [], error: null };
-  let state = { mode: repo.mode, lookups: noLookups, owners: noOwners, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null, conflict: null } };
+  const noContact = { status: 'idle', id: null, item: null, error: null };
+  let state = { mode: repo.mode, lookups: noLookups, owners: noOwners, list: idle, submit: { status: 'idle', error: null }, detail: noDetail, update: { status: 'idle', error: null, conflict: null }, contact: noContact };
   const subs = new Set();
   const set = (patch) => { state = { ...state, ...patch }; subs.forEach((f) => f()); };
-  let seq = 0; let lseq = 0; let oseq = 0; let inflight = false; let dseq = 0; let uinflight = false; let uid = null; let cseq = 0;
+  let seq = 0; let lseq = 0; let oseq = 0; let inflight = false; let dseq = 0; let uinflight = false; let uid = null; let cseq = 0; let ctseq = 0;
+  // Đặt người liên hệ chính sau khi khách đã lưu. Lỗi KHÔNG làm hỏng việc lưu khách (đã xong trên server): trả về để giao diện báo riêng, không tự thử lại.
+  const savePrimaryContact = async (customer, name) => {
+    try {
+      const item = await repo.setPrimaryContact(customer.id, trimmed(name), customer.phone);
+      // QA M-6: chỉ cập nhật khi state.contact vẫn là của khách này (người dùng có thể đã mở khách khác trong lúc chờ).
+      if (state.contact.id === customer.id) { ++ctseq; set({ contact: { status: 'ready', id: customer.id, item, error: null } }); }
+      return undefined;
+    } catch (e) { return describeRepoError(e); }
+  };
   return {
     mode: repo.mode,
     getState: () => state,
@@ -190,18 +217,29 @@ export function createCustomerApiController(repo) {
     // Success never patches the visible page by hand (a new row may belong to another page/search; total/totalPages are the server's to state):
     // the list is re-read from the server with the CURRENT params. That reload supersedes older in-flight list requests (seq), and its failure
     // is shown by the list state (retry), never turned into a failed create. List not loaded yet (idle) -> nothing to refresh.
-    async submit(input) {
+    // contactName (tùy chọn, B1.4): sau khi tạo khách, đặt người liên hệ chính mang SĐT công ty. Lỗi => { ok: true, contactError } (khách vẫn đã lưu).
+    async submit(input, contactName) {
       if (inflight) return { ok: false, duplicate: true };
       inflight = true; set({ submit: { status: 'saving', error: null } });
-      let customer;
-      try { customer = await repo.create(input); }
-      catch (e) {
-        const error = describeRepoError(e); set({ submit: { status: 'error', error } });
-        return { ok: false, error };
+      let customer; let contactError;
+      try {
+        try { customer = await repo.create(input); }
+        catch (e) {
+          const error = describeRepoError(e); set({ submit: { status: 'error', error } });
+          return { ok: false, error };
+        }
+        if (trimmed(contactName)) contactError = await savePrimaryContact(customer, contactName);
       } finally { inflight = false; }
       set({ submit: { status: 'idle', error: null } });
       if (state.list.status !== 'idle') await this.reload();
-      return { ok: true, customer };
+      return contactError ? { ok: true, customer, contactError } : { ok: true, customer };
+    },
+    // B1.4: người liên hệ của khách (GET /customers/:id/contacts) -> state.contact { status, id, item (người chính hoặc null), error }. Phản hồi cũ của id khác bị bỏ.
+    async loadContact(id) {
+      const my = ++ctseq;
+      set({ contact: { status: 'loading', id, item: null, error: null } });
+      try { const items = await repo.contacts(id); if (my === ctseq) set({ contact: { status: 'ready', id, item: pickPrimaryContact(items), error: null } }); }
+      catch (e) { if (my === ctseq) set({ contact: { status: 'error', id, item: null, error: describeRepoError(e) } }); }
     },
     // Detail by backend UUID. Stale responses (user moved to another id) are dropped; a failed load never shows the previous customer.
     async loadDetail(id) {
@@ -216,17 +254,25 @@ export function createCustomerApiController(repo) {
       }
     },
     // Update with the optimistic-lock version of the loaded detail. Success replaces detail/list entry with the SERVER response; failure keeps old data (no fake save).
-    async update(id, input, version) {
+    // contactName (tùy chọn, B1.4): chỉ khi đã tải được người liên hệ hiện tại của CHÍNH khách này và tên thực sự đổi (bỏ khoảng trắng) mới đặt người chính mới;
+    // để trống = giữ nguyên (API chưa có xoá/sửa liên hệ). Lỗi => { ok: true, contactError }.
+    async update(id, input, version, contactName) {
       // Same customer: silent duplicate. Another customer's save still running: say so (the form shows it) instead of swallowing the click.
       if (uinflight) return uid === id ? { ok: false, duplicate: true } : { ok: false, error: BUSY_SAVE };
       // `mine` = this save still owns the update state; opening another id / refreshing a conflict bumps cseq, so a late outcome of an older id never lands on the new one.
       const mine = ++cseq; uinflight = true; uid = id; set({ update: { status: 'saving', error: null, conflict: null } });
+      const ct = state.contact; const want = trimmed(contactName); // QA I-2: chụp TRƯỚC khi PATCH (người liên hệ người dùng đã thấy khi bấm Lưu)
       try {
         const customer = await repo.update(id, input, version);
         const items = state.list.items.map((c) => (c.id === customer.id ? customer : c));
         set({ detail: state.detail.id === customer.id ? { status: 'ready', id: customer.id, customer, error: null } : state.detail, list: { ...state.list, items }, ...(mine === cseq ? { update: { status: 'idle', error: null, conflict: null } } : {}) });
         // A list read still in flight may have been taken before this write: re-read so the row never goes back to the old version.
         if (state.list.status === 'loading') this.reload();
+        if (want && !(ct.id === id && ct.status === 'ready')) return { ok: true, customer, contactError: CONTACT_SKIPPED };
+        if (want && want !== trimmed(ct.item && ct.item.fullName)) {
+          const contactError = await savePrimaryContact(customer, want);
+          if (contactError) return { ok: true, customer, contactError };
+        }
         return { ok: true, customer };
       } catch (e) {
         const error = describeRepoError(e);

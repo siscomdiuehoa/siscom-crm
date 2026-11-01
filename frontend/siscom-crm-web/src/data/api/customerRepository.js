@@ -54,12 +54,14 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
       async create(ui, ...rest) { return need().create(ui, ...rest); },
       async get(id) { const l = need(); if (typeof l.get !== 'function') throw new CustomerRepoError('config', 'Nguồn cục bộ không hỗ trợ xem chi tiết.'); return l.get(id); },
       async update(id, ui, ...rest) { const l = need(); if (typeof l.update !== 'function') throw new CustomerRepoError('config', 'Nguồn cục bộ không hỗ trợ cập nhật.'); return l.update(id, ui, ...rest); },
+      async contacts() { throw new CustomerRepoError('config', 'Chế độ demo: người liên hệ dùng dữ liệu cục bộ.'); },
+      async setPrimaryContact() { throw new CustomerRepoError('config', 'Chế độ demo: người liên hệ dùng dữ liệu cục bộ.'); },
     };
   }
 
   if (!config.enabled) {
     const err = () => new CustomerRepoError('config', 'Đã bật VITE_CRM_API_ENABLED nhưng thiếu VITE_CRM_API_BASE. Không dùng dữ liệu cục bộ thay thế.');
-    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); } };
+    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); }, async contacts() { throw err(); }, async setPrimaryContact() { throw err(); } };
   }
 
   // Wrap fetch: transport failures become kind 'network', and we know whether a request was sent
@@ -127,6 +129,28 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
         const maps = needsLookups(ui) ? await api.getLookupMaps() : {};
         sent = false;
         return sameId(await api.update(id, ui, maps, version), id);
+      } catch (err) { throw classify(err); }
+    },
+    // B1.4 người liên hệ: danh sách liên hệ của khách (GET /customers/:id/contacts) -> mảng { id, code, fullName, isPrimary, ... }.
+    async contacts(id) {
+      sent = false;
+      try {
+        checkId(id);
+        const d = await api.listContacts(id);
+        if (!d || !Array.isArray(d.items)) throw malformed('danh sách người liên hệ');
+        return d.items;
+      } catch (err) { throw classify(err); }
+    },
+    // Đặt người liên hệ CHÍNH (POST isPrimary:true). Không có trường SĐT riêng: dùng SĐT công ty (thoả ck_contact_reach của bảng contact).
+    async setPrimaryContact(id, fullName, companyPhone) {
+      sent = false;
+      try {
+        checkId(id);
+        if (blank(fullName)) throw new AdapterError('Vui lòng nhập họ tên người liên hệ', 'contactName');
+        if (blank(companyPhone)) throw new AdapterError('Khách hàng chưa có số điện thoại công ty', 'phone');
+        const c = await api.createContact(id, { fullName: String(fullName).trim(), isPrimary: true, phone: String(companyPhone).trim() });
+        if (!c || typeof c.fullName !== 'string') throw malformed('người liên hệ');
+        return c;
       } catch (err) { throw classify(err); }
     },
   };

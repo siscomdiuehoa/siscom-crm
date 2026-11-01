@@ -14,9 +14,12 @@ class Node_ {
   set textContent(v) { this.childNodes.slice().forEach((c) => this.removeChild(c)); if (v !== '' && v != null) this.appendChild(new Text_(String(v), this.ownerDocument)); }
 }
 class Text_ extends Node_ {
-  constructor(data, doc) { super(3, doc); this.data = data; this.nodeValue = data; }
+  constructor(data, doc) { super(3, doc); this.data = data; }
+  // React cập nhật nút chữ qua nodeValue: giữ nodeValue và data là MỘT giá trị (trước đây nodeValue tách rời => textContent cũ sau khi React đổi chữ).
+  get nodeValue() { return this.data; }
+  set nodeValue(v) { this.data = String(v); }
   get textContent() { return this.data; }
-  set textContent(v) { this.data = String(v); this.nodeValue = this.data; }
+  set textContent(v) { this.data = String(v); }
 }
 class Element_ extends Node_ {
   constructor(tag, doc) {

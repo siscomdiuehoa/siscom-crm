@@ -4,12 +4,12 @@ import * as U from '../../data/util.js';
 import { APP_DATA } from '../../data/demoData.js';
 import { validateCustomer, getCustomerDefaults } from '../../data/customerRules.js';
 import { useCustomerApiState } from './useCustomerApi.js';
-import { formToCustomerInput, customerDisplayCode, diffAgainstServer, lookupFieldView, lookupFormErrors, ownerFieldView } from './customerApiUi.js';
+import { formToCustomerInput, customerDisplayCode, diffAgainstServer, lookupFieldView, lookupFormErrors, ownerFieldView, contactNameError, CONTACT_NAME_MAX } from './customerApiUi.js';
 import { ApiErrorBox, ApiConflictPanel } from './ApiListStatus.jsx';
 
 const withNone = (a, label) => [{ value: '', label: typeof label === 'string' ? label : '— Chưa chọn —' }, ...a];
 // API mode: tier/status start empty (server defaults apply); demo defaults are labels the server may not have.
-const emptyForm = (apiOn) => { const d = getCustomerDefaults(); return { name: '', short: '', taxId: '', industry: '', tier: apiOn ? '' : d.tier, status: apiOn ? '' : d.status, owner: '', ownerId: '', source: '', address: '', city: '', phone: '', email: '', website: '', note: '', cName: '', cTitle: '', cPhone: '', cEmail: '' }; };
+const emptyForm = (apiOn) => { const d = getCustomerDefaults(); return { name: '', short: '', taxId: '', industry: '', tier: apiOn ? '' : d.tier, status: apiOn ? '' : d.status, owner: '', ownerId: '', source: '', address: '', city: '', phone: '', email: '', website: '', note: '', cName: '', cTitle: '', cPhone: '', cEmail: '', contactName: '' }; };
 
 function validate(f, isNew, customers, selfId, original) {
   const e = validateCustomer(f, { customers, selfId, original });
@@ -49,7 +49,16 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   const ow = apiOn ? ownerFieldView(apiS.owners, f.ownerId) : null;
   React.useEffect(() => { setF(start); setTried(false); setBaseVersion(null); if (apiCtl && open) apiCtl.clearSubmitError(); }, [start]);
   const known = apiOn ? apiS.list.items.map((c) => ({ ...c, id: c.code || '' })) : ui.db.customers; // API mode: never show the backend uuid
-  const errs = { ...validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial), ...(apiOn ? lookupFormErrors(lk, f) : {}) };
+  // B1.4 người liên hệ (API): chỉ khi server cấp contact.create (UI gate; server kiểm lại phạm vi + customer.update). Sửa: chỉ khi đã tải được
+  // người liên hệ hiện tại của chính khách này (biết tên hiện tại => không tạo trùng). Không có ô SĐT: dùng SĐT công ty.
+  const ctS = apiOn ? apiS.contact : null;
+  const showContact = apiOn && typeof ui.can === 'function' && !!ui.can('contact.create') && (isNew || (!!ctS && ctS.status === 'ready' && ctS.id === initial.id));
+  const hasContact = !isNew && !!ctS && !!ctS.item;
+  // QA M-4: tên người liên hệ mới mang SĐT công ty; SĐT cũ sai định dạng (được giữ nguyên khi sửa) sẽ bị server từ chối SAU khi khách đã lưu => báo ngay tại ô.
+  const cName = String(f.contactName || '').trim();
+  const cChanged = !!cName && cName !== (hasContact ? String(ctS.item.fullName || '').trim() : '');
+  const cErr = !showContact ? '' : contactNameError(f.contactName) || (cChanged && !U.isPhone(f.phone) ? 'Số điện thoại công ty chưa hợp lệ nên chưa lưu được người liên hệ; sửa ô Điện thoại.' : '');
+  const errs = { ...validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial), ...(apiOn ? lookupFormErrors(lk, f) : {}), ...(cErr ? { contactName: cErr } : {}) };
   const err = (k) => (tried && errs[k]) || (srvErr && srvErr.fieldErrors[k]) || '';
   const dirty = JSON.stringify(f) !== JSON.stringify(start);
   const denied = !!(srvErr && srvErr.denied); // 401/403: the access-denied notice stays (editing the draft does not dismiss it) and saving is blocked until the form is closed/reopened
@@ -62,15 +71,17 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
     if (Object.keys(errs).length) { ui.toast({ tone: 'error', title: 'Vui lòng kiểm tra lại', message: Object.keys(errs).length + ' trường chưa hợp lệ.' }); return; }
     if (apiOn && !isNew) {
       // Update by backend UUID with the optimistic-lock version of the loaded detail; the UI shows the server's response only.
-      const r = await apiCtl.update(initial.id, formToCustomerInput(f, initial), baseVersion || initial.version);
-      if (r.ok) { ui.toast({ tone: 'success', title: 'Đã lưu thay đổi', message: r.customer.short || r.customer.name }); onSaved && onSaved(r.customer); }
+      const r = await apiCtl.update(initial.id, formToCustomerInput(f, initial), baseVersion || initial.version, showContact ? f.contactName : '');
+      if (r.ok && r.contactError) { ui.toast({ tone: 'warning', title: 'Đã lưu khách hàng, chưa lưu người liên hệ', message: r.contactError.message }); onSaved && onSaved(r.customer); }
+      else if (r.ok) { ui.toast({ tone: 'success', title: 'Đã lưu thay đổi', message: r.customer.short || r.customer.name }); onSaved && onSaved(r.customer); }
       else if (!r.duplicate) ui.toast({ tone: 'error', title: r.error.title, message: r.error.staleVersion ? 'Khách hàng đã bị người khác cập nhật. Dữ liệu chưa được lưu.' : r.error.message });
       return;
     }
     if (apiOn) {
       // Async save through the API repository: no localStorage write, no fake success, duplicate clicks ignored while saving.
-      const r = await apiCtl.submit(formToCustomerInput(f));
-      if (r.ok) { ui.toast({ tone: 'success', title: 'Đã thêm khách hàng ' + customerDisplayCode(r.customer), message: r.customer.short || r.customer.name }); onSaved && onSaved(r.customer); }
+      const r = await apiCtl.submit(formToCustomerInput(f), showContact ? f.contactName : '');
+      if (r.ok && r.contactError) { ui.toast({ tone: 'warning', title: 'Đã thêm khách hàng ' + customerDisplayCode(r.customer) + ', chưa lưu người liên hệ', message: r.contactError.message }); onSaved && onSaved(r.customer); }
+      else if (r.ok) { ui.toast({ tone: 'success', title: 'Đã thêm khách hàng ' + customerDisplayCode(r.customer), message: r.customer.short || r.customer.name }); onSaved && onSaved(r.customer); }
       else if (!r.duplicate) ui.toast({ tone: 'error', title: r.error.title, message: r.error.message });
       return;
     }
@@ -102,6 +113,13 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
             <Select label="Ngành nghề" placeholder="Chưa chọn" value={f.industry} onChange={set('industry')} {...L('industry', D.INDUSTRIES, true)} error={err('industry')} />
             <Select label="Nguồn khách hàng" value={f.source} onChange={set('source')} {...L('source', D.SOURCES, true)} error={err('source')} />
           </Section>
+          {showContact ? (
+            // Owner (2026-11-01): mục Người liên hệ đặt ngay sau Thông tin doanh nghiệp, trước Địa chỉ & liên hệ.
+            <Section title="Người liên hệ" icon="contact">
+              <div style={{ gridColumn: '1 / -1' }}><Input label="Tên người liên hệ" placeholder="Nguyễn Văn A" value={f.contactName} onChange={set('contactName')} maxLength={CONTACT_NAME_MAX} error={err('contactName')}
+                hint={'Mỗi khách hàng một người liên hệ; dùng số điện thoại công ty (mục Địa chỉ & liên hệ).' + (hasContact ? ' Để trống = giữ người liên hệ hiện tại.' : '')} /></div>
+            </Section>
+          ) : null}
           <Section title="Địa chỉ & liên hệ" icon="map-pin">
             <div style={{ gridColumn: '1 / -1' }}><Input label="Địa chỉ" placeholder="Số nhà, đường, phường/xã" value={f.address} onChange={set('address')} error={err('address')} /></div>
             <Select label="Tỉnh / Thành phố" placeholder="Chưa chọn" value={f.city} onChange={set('city')} {...L('city', D.CITIES, true)} error={err('city')} />
