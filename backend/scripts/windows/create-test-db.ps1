@@ -29,9 +29,9 @@ function Find-Tool([string]$name) {
 }
 # B1.4 demo cach ly: chi chay tren CUM DEMO (demo-pg.ps1: cluster_name = 'siscom_demo', cong rieng). Cong 5432 (PostgreSQL hien tai) va moi cum
 # khong mang nhan bi TU CHOI, tru khi co -AllowMainCluster (CHI khi owner phe duyet rieng bang van ban). Mat khau postgres / siscom_app cua cum
-# demo lay tu %LOCALAPPDATA%\SISCOM-CRM\demo\pg-<port>.secrets va demo-<port>.env (do demo-pg.ps1 sinh).
+# demo lay tu D:\SISCOM-CRM-demo-pg\private\pg-<port>.secrets va demo-<port>.env (do demo-pg.ps1 sinh).
 function Get-DemoSecret([int]$port, [string]$key) {
-  $f = Join-Path $env:LOCALAPPDATA ('SISCOM-CRM\demo\pg-' + $port + '.secrets')
+  $f = Join-Path 'D:\SISCOM-CRM-demo-pg\private' ('pg-' + $port + '.secrets')
   if (-not (Test-Path -LiteralPath $f)) { return $null }
   foreach ($l in Get-Content -LiteralPath $f) { if ($l -match ('^' + $key + '=([0-9a-f]{64})$')) { return $Matches[1] } }
   return $null
@@ -70,7 +70,7 @@ try {
   # toi mot tien trinh la tren cong demo); moi lan psql bat buoc SCRAM (PGREQUIREAUTH), khong gui mat khau dang ro.
   if (-not $AllowMainCluster) { $env:PGREQUIREAUTH = 'scram-sha-256' }
   $adminPw = Get-DemoSecret $PgPort 'POSTGRES_PW'
-  if (-not $adminPw -and -not $AllowMainCluster) { Fail ('Khong co file mat khau cum demo (%LOCALAPPDATA%\SISCOM-CRM\demo\pg-' + $PgPort + '.secrets). Chay demo-pg.bat -Step init (hoac demo-setup.bat) truoc.') }
+  if (-not $adminPw -and -not $AllowMainCluster) { Fail ('Khong co file mat khau cum demo (D:\SISCOM-CRM-demo-pg\private\pg-' + $PgPort + '.secrets). Chay demo-pg.bat -Step init (hoac demo-setup.bat) truoc.') }
   if ($adminPw) { Write-Host ('Mat khau postgres cua cum demo cong ' + $PgPort + ' lay tu file (khong in).') }
   elseif ($NonInteractive) { $adminPw = $env:SISCOM_PG_ADMIN_PASSWORD; if (-not $adminPw) { Fail 'Che do khong tuong tac can file mat khau cum demo hoac bien SISCOM_PG_ADMIN_PASSWORD.' } }
   else { $adminPw = Read-Secret 'Mat khau tai khoan postgres (chi de TAO database thu; khong luu)' }

@@ -3,8 +3,8 @@
 #   -Step init  : initdb mot cum MOI tai -DataDir (mac dinh D:\SISCOM-CRM-demo-pg\data), chi nghe 127.0.0.1:<PgPort> (mac dinh 55433),
 #                 xac thuc scram-sha-256 (KHONG trust), cluster_name = 'siscom_demo' (nhan de cac script demo nhan ra cum - tu choi cum khac),
 #                 log_statement = none. Tao role siscom_app (mat khau ngau nhien) + quyen SET app.* (nhu create-test-db).
-#                 Mat khau postgres / siscom_app: sinh ngau nhien, luu %LOCALAPPDATA%\SISCOM-CRM\demo\pg-<port>.secrets; file env cho script:
-#                 %LOCALAPPDATA%\SISCOM-CRM\demo\demo-<port>.env (DATABASE_URL siscom_app; ten DB 'siscom_crm_dev' chi de doi chieu, KHONG co
+#                 Mat khau postgres / siscom_app: sinh ngau nhien, luu D:\SISCOM-CRM-demo-pg\private\pg-<port>.secrets; file env cho script:
+#                 D:\SISCOM-CRM-demo-pg\private\demo-<port>.env (DATABASE_URL siscom_app; ten DB 'siscom_crm_dev' chi de doi chieu, KHONG co
 #                 database nay tren cum demo). Ca hai file ngoai repo, ACL chi SID tai khoan Windows hien tai. Khong in mat khau.
 #   -Step start : khoi dong cum (pg_ctl, khong can quyen Administrator, khong dang ky Windows service).
 #   -Step stop  : dung cum (pg_ctl stop -m fast).
@@ -101,7 +101,9 @@ try {
   if (-not $script:pgctl -or -not $script:psql -or -not $script:isready -or -not $initdb) { Fail 'Khong tim thay PostgreSQL 18 (C:\Program Files\PostgreSQL\18\bin).' }
   $root = Split-Path -Parent $DataDir
   $script:logFile = Join-Path $root ('postgres-' + $PgPort + '.log')
-  $dir = Join-Path $env:LOCALAPPDATA 'SISCOM-CRM\demo'
+  # Thu muc bi mat demo CO DINH tren D: (khong dung %LOCALAPPDATA%: khi script chay tu ung dung dong goi MSIX - vd. Claude desktop -
+  # Windows chuyen huong ghi AppData vao Packages\<app>\LocalCache, owner mo file o %LOCALAPPDATA% that se khong thay).
+  $dir = 'D:\SISCOM-CRM-demo-pg\private'
   $secFile = Join-Path $dir ('pg-' + $PgPort + '.secrets'); $envFile = Join-Path $dir ('demo-' + $PgPort + '.env')
   Say ('Cum demo: ' + $DataDir + ' | 127.0.0.1:' + $PgPort + ' | Buoc: ' + $Step) 'Yellow'
 
@@ -113,9 +115,11 @@ try {
       New-Item -ItemType Directory -Force -Path $DataDir, $dir | Out-Null
       # QA M-4: thu muc du lieu (pg_authid, WAL...) chi tai khoan Windows hien tai (postgres chay bang chinh tai khoan nay qua pg_ctl).
       $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-      $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-      try { & icacls.exe $DataDir /inheritance:r /grant:r ('*' + $sid + ':(OI)(CI)F') 2>&1 | Out-Null; $code = $LASTEXITCODE } finally { $ErrorActionPreference = $prev }
-      if ($code -ne 0) { Fail ('Khong dat duoc quyen rieng cho ' + $DataDir + ' (icacls ma ' + $code + ').') }
+      foreach ($d in @($DataDir, $dir)) {  # thu muc du lieu + thu muc bi mat
+        $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        try { & icacls.exe $d /inheritance:r /grant:r ('*' + $sid + ':(OI)(CI)F') 2>&1 | Out-Null; $code = $LASTEXITCODE } finally { $ErrorActionPreference = $prev }
+        if ($code -ne 0) { Fail ('Khong dat duoc quyen rieng cho ' + $d + ' (icacls ma ' + $code + ').') }
+      }
       $pgPw = New-RandomSecret; $appPw = New-RandomSecret
       $pwFile = Join-Path $dir ('initdb-' + $PgPort + '.tmp')
       Write-SecretFile $pwFile @($pgPw) -NoNewline

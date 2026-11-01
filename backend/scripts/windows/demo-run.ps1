@@ -22,7 +22,7 @@ try {
   if ($PgPort -eq 5432) { Fail 'Cong 5432 la PostgreSQL hien tai: demo chi dung cum demo rieng.' }
   $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
   $fe = (Resolve-Path (Join-Path $root '..\frontend\siscom-crm-web')).Path
-  $dir = Join-Path $env:LOCALAPPDATA 'SISCOM-CRM\demo'
+  $dir = 'D:\SISCOM-CRM-demo-pg\private'
   if (-not $DatabaseName) {
     $cur = Join-Path $dir ('current-' + $PgPort + '.txt')
     if (-not (Test-Path -LiteralPath $cur)) { Fail 'Chua co ban demo (chay demo-setup.bat truoc).' }

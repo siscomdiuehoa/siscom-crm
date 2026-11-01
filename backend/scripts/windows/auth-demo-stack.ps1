@@ -16,7 +16,7 @@
 #   -NonInteractive : bo buoc go lai ten DB de xac nhan (danh cho harness tu dong); moi kiem tra khac giu nguyen.
 #   -PgPort         : cong PostgreSQL (mac dinh 55433 = cum demo; 5432 bi tu choi tru -AllowMainCluster). DATABASE_URL trong file env phai cung cong.
 # B1.4 (runbook docs\B1.4_DEMO_WINDOWS_RUNBOOK.md): DB DA TACH ROLE bang demo-split.bat (chu so huu siscom_migrator) => buoc start tu dat
-#   AUTH_DATABASE_URL = siscom_auth (mat khau doc tu %LOCALAPPDATA%\SISCOM-CRM\demo\roles-<port>.secrets do demo-split sinh; khong in).
+#   AUTH_DATABASE_URL = siscom_auth (mat khau doc tu D:\SISCOM-CRM-demo-pg\private\roles-<port>.secrets do demo-split sinh; khong in).
 #   migrate/seed/bootstrap chi cho DB CHUA tach (siscom_app la chu so huu); DB da tach: demo-split.bat -Step migrate.
 [CmdletBinding()]
 param(
@@ -44,9 +44,9 @@ function Find-Tool([string]$name) {
 }
 # B1.4 demo cach ly: chi chay tren CUM DEMO (demo-pg.ps1: cluster_name = 'siscom_demo', cong rieng). Cong 5432 (PostgreSQL hien tai) va moi cum
 # khong mang nhan bi TU CHOI, tru khi co -AllowMainCluster (CHI khi owner phe duyet rieng bang van ban). Mat khau postgres / siscom_app cua cum
-# demo lay tu %LOCALAPPDATA%\SISCOM-CRM\demo\pg-<port>.secrets va demo-<port>.env (do demo-pg.ps1 sinh).
+# demo lay tu D:\SISCOM-CRM-demo-pg\private\pg-<port>.secrets va demo-<port>.env (do demo-pg.ps1 sinh).
 function Get-DemoSecret([int]$port, [string]$key) {
-  $f = Join-Path $env:LOCALAPPDATA ('SISCOM-CRM\demo\pg-' + $port + '.secrets')
+  $f = Join-Path 'D:\SISCOM-CRM-demo-pg\private' ('pg-' + $port + '.secrets')
   if (-not (Test-Path -LiteralPath $f)) { return $null }
   foreach ($l in Get-Content -LiteralPath $f) { if ($l -match ('^' + $key + '=([0-9a-f]{64})$')) { return $Matches[1] } }
   return $null
@@ -117,7 +117,7 @@ try {
   Assert-DemoPort $PgPort ([bool]$AllowMainCluster)
   if (-not $AllowMainCluster) { $env:PGREQUIREAUTH = 'scram-sha-256' }  # QA I-2: psql chi gui mat khau qua SCRAM
   # Cum demo: file env do demo-pg.ps1 sinh (mat khau siscom_app cua cum demo). Khong dung backend\.env (do la cum hien tai).
-  if (-not $EnvPath) { $de = Join-Path $env:LOCALAPPDATA ('SISCOM-CRM\demo\demo-' + $PgPort + '.env'); if (Test-Path -LiteralPath $de) { $EnvPath = $de } }
+  if (-not $EnvPath) { $de = Join-Path 'D:\SISCOM-CRM-demo-pg\private' ('demo-' + $PgPort + '.env'); if (Test-Path -LiteralPath $de) { $EnvPath = $de } }
   if (-not $EnvPath) { $EnvPath = Join-Path $root '.env'; if (-not (Test-Path -LiteralPath $EnvPath) -and (Test-Path -LiteralPath 'D:\SISCOM-CRM\backend\.env')) { $EnvPath = 'D:\SISCOM-CRM\backend\.env' } }
   $script:psql = Find-Tool 'psql.exe'; if (-not $script:psql) { Fail 'Khong tim thay psql.exe.' }
   if ($Step -eq 'status') {
@@ -147,7 +147,7 @@ try {
   if ($split -and $Step -ne 'start') { Fail ('DB da tach role (chu so huu siscom_migrator): buoc ' + $Step + ' khong dung o day. Migrate: demo-split.bat -Step migrate. Seed/bootstrap phai chay TRUOC khi tach role.') }
   $authUrl = $null
   if ($split) {
-    $sf = Join-Path $env:LOCALAPPDATA ('SISCOM-CRM\demo\roles-' + $PgPort + '.secrets')
+    $sf = Join-Path 'D:\SISCOM-CRM-demo-pg\private' ('roles-' + $PgPort + '.secrets')
     $ap = $null
     if (Test-Path -LiteralPath $sf) { foreach ($l in Get-Content -LiteralPath $sf) { if ($l -match '^AUTH_PW=([0-9a-f]{64})$') { $ap = $Matches[1] } } }
     if (-not $ap) { Fail ('DB da tach role nhung chua co mat khau siscom_auth trong ' + $sf + ' (chay demo-split.bat -Step split tren may nay).') }

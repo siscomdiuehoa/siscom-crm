@@ -21,6 +21,7 @@ Máy owner (Windows 11), worktree `D:\SISCOM-CRM-demo2`, nhánh `ops/b1.4-demo-i
 | `09_demo-setup_after_qa.txt` | `demo-setup -Yes` sau sửa: DB `siscom_crm_test_20261101_103435` | **PASS**, `VERIFY PASS\|73`, `VERIFY_AUTH PASS\|33`; file tài khoản ACL 1 quy tắc |
 | `10_chrome_4roles_after_qa.txt/.json` | Chrome 4 vai trò trên DB mới (backend khởi động lại bằng `demo-run`) | **PASS 91 / FAIL 0 / KNOWN 0** |
 | `11_chrome_remember_me_after_qa.txt/.json` | Remember Me Chrome trên DB mới | **PASS 22 / FAIL 0 / KNOWN 1** (BUG-1) |
+| `12_secrets_moved_to_D.txt` | Owner không thấy file ở `%LOCALAPPDATA%\SISCOM-CRM`: Claude desktop là ứng dụng MSIX, Windows chuyển hướng ghi `AppData\Local` vào `Packages\Claude_<id>\LocalCache\Local\SISCOM-CRM\demo`. Đổi thư mục bí mật của mọi script sang `D:\SISCOM-CRM-demo-pg\private`; chép 6 file hiện có (hash khớp, ACL chỉ SID owner); chạy lại `demo-pg status`, `demo-split verify` (73/33), từ chối cổng thiếu file, `demo-run`, `init` cụm thử 55434 (file mới nằm trên D:, không vào LocalCache) | **PASS** |
 
 Minor chưa sửa (ghi nhận, chờ owner): M-1 kiểm nhãn và lệnh ghi dùng hai kết nối khác nhau (cùng host/cổng; cần một tiến trình khác chiếm cổng đúng giữa hai lệnh); M-2 `init` dừng giữa chừng phải dọn tay (runbook mục 7 đã ghi cách dọn); M-5 `CREATE ROLE ... PASSWORD` có thể vào log máy chủ nếu chính câu lệnh đó lỗi (`log_min_error_statement`); cụm demo 55433 hiện tại được init TRƯỚC khi thêm ACL thư mục data (thư mục kế thừa ACL của `D:\`; init lại để có ACL riêng).
 

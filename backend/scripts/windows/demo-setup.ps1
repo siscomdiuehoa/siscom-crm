@@ -6,8 +6,8 @@
 #      vite build voi VITE_CRM_AUTH_ENABLED/VITE_CRM_API_ENABLED=true, VITE_CRM_API_BASE=/api/v1. Can npm ci truoc (runbook muc 1).
 #   3. create-test-db -> auth-demo-stack migrate / seed / bootstrap -> demo-split split (tat ca -NonInteractive, chi cum demo).
 #      Mat khau 5 tai khoan demo (sysadmin/admin/sale/kythuat/ketoan@siscom.local) SINH NGAU NHIEN, luu TRUOC khi bootstrap vao
-#      %LOCALAPPDATA%\SISCOM-CRM\demo\accounts-<db>.txt (ACL chi tai khoan hien tai) - anh mo file nay de lay mat khau dang nhap.
-#   4. Ghi ten DB demo hien hanh vao %LOCALAPPDATA%\SISCOM-CRM\demo\current-<port>.txt (demo-run.ps1 doc).
+#      D:\SISCOM-CRM-demo-pg\private\accounts-<db>.txt (ACL chi tai khoan hien tai) - anh mo file nay de lay mat khau dang nhap.
+#   4. Ghi ten DB demo hien hanh vao D:\SISCOM-CRM-demo-pg\private\current-<port>.txt (demo-run.ps1 doc).
 # Moi lan chay tao MOT database demo moi (siscom_crm_test_<thoi diem>); DB cu giu nguyen tren cum demo.
 [CmdletBinding()]
 param(
@@ -45,7 +45,7 @@ try {
   if ($PgPort -eq 5432) { Fail 'Cong 5432 la PostgreSQL hien tai: ban demo chi dung cum demo rieng (mac dinh 55433).' }
   $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
   $fe = (Resolve-Path (Join-Path $root '..\frontend\siscom-crm-web')).Path
-  $dir = Join-Path $env:LOCALAPPDATA 'SISCOM-CRM\demo'
+  $dir = 'D:\SISCOM-CRM-demo-pg\private'
   Say ('Dung ban demo SISCOM CRM tren cum PostgreSQL DEMO 127.0.0.1:' + $PgPort + ' (' + $DataDir + '). KHONG dung PostgreSQL cong 5432.') 'Yellow'
   if (-not $Yes) { $c = Read-Host 'Go TAO-DEMO de bat dau'; if ($c -ne 'TAO-DEMO') { Fail 'Khong xac nhan. Dung lai.' } }
 
