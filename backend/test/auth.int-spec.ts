@@ -1,6 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { applyTrustProxy, TrustProxySetting } from '../src/app.setup';
 import { AUTH_CONFIG, AuthConfig } from '../src/common/auth/auth.config';
@@ -598,5 +598,267 @@ describe('B1.4 P2 — PASSWORD_CHANGE_REQUIRED', () => {
     expectBlocked(await srv().get(C2).set('Cookie', s.cookie));
     await setFlag(false);
     expect((await srv().get(C2).set('Cookie', s.cookie)).status).toBe(200);
+  });
+});
+
+// B1.4 Remember Me 90 ngày (Issue #177) trên DB thử THẬT, qua pool auth (siscom_auth khi đã tách). Token/mật khẩu là giá trị tổng hợp.
+// Phủ: không tích => không đổi chính sách phiên; tích => cookie riêng HttpOnly/SameSite/Path hẹp, DB chỉ lưu SHA-256, mốc 90 ngày từ lần nhập
+// mật khẩu; restore hợp lệ (xoay vòng, cùng mốc); Origin/header bắt buộc; token giả / hết hạn / thu hồi; replay (cả family bị thu hồi);
+// race trong 10 giây; truy cập đồng thời (đúng MỘT thắng); logout, đổi mật khẩu (trigger token_version), nhân viên nghỉ việc; tối đa 5 thiết bị.
+describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
+  const RESTORE = '/api/v1/auth/remember/restore';
+  const sha = (t: string) => createHash('sha256').update(t).digest('hex');
+  const all = (res: request.Response): string[] => { const sc = res.headers['set-cookie']; return Array.isArray(sc) ? sc : sc ? [String(sc)] : []; };
+  const rmbOf = (res: request.Response): string | null => all(res).find((c) => c.startsWith('siscom_rmb=') && !c.startsWith('siscom_rmb=;')) ?? null;
+  const rmbToken = (res: request.Response): string => rmbOf(res)!.split(';')[0].split('=')[1];
+  const cleared = (res: request.Response): boolean => all(res).some((c) => /^siscom_rmb=; Path=\/api\/v1\/auth; HttpOnly; SameSite=Lax; Max-Age=0/.test(c));
+  const restore = (token: string | null, h: Record<string, string> = {}) => {
+    const r = srv().post(RESTORE).set('Origin', ORIGIN).set('X-Remember-Restore', '1');
+    if (token !== null) r.set('Cookie', 'siscom_rmb=' + token);
+    for (const [k, v] of Object.entries(h)) r.set(k, v);
+    return r;
+  };
+  const loginRemember = (key: string, remember: boolean | undefined, extraCookie?: string) => {
+    const u = USERS.find((x) => x.key === key)!;
+    const r = srv().post('/api/v1/auth/login').set('Origin', ORIGIN);
+    if (extraCookie) r.set('Cookie', extraCookie);
+    return r.send(remember === undefined ? { login: u.email, password: u.password } : { login: u.email, password: u.password, remember });
+  };
+  const empId = async (key: string) => (await prisma.employee.findFirstOrThrow({ where: { email: USERS.find((x) => x.key === key)!.email }, select: { id: true } })).id;
+  const rowOf = (token: string) => adminPrisma.rememberDevice.findUnique({ where: { tokenHash: sha(token) } });
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('không tích (thiếu remember / remember=false): KHÔNG có cookie siscom_rmb, KHÔNG thêm hàng; phiên thường như cũ', async () => {
+    const id = await empId('sale');
+    const before = await adminPrisma.rememberDevice.count({ where: { employeeId: id } });
+    for (const v of [undefined, false]) {
+      const res = await loginRemember('sale', v);
+      expect(res.status).toBe(200);
+      expect(rmbOf(res)).toBeNull();
+      expect(all(res)).toHaveLength(2);
+      expect(all(res).find((c) => c.startsWith('siscom_sid='))).toMatch(/Max-Age=1800(;|$)/); // cfg.sessionIdleMinutes=30: chính sách phiên không đổi
+    }
+    expect(await adminPrisma.rememberDevice.count({ where: { employeeId: id } })).toBe(before);
+    expect((await srv().post('/api/v1/auth/login').set('Origin', ORIGIN).send({ login: USERS[2].email, password: USERS[2].password, remember: 'true' })).status).toBe(400);
+  });
+
+  it('tích: cookie siscom_rmb HttpOnly; SameSite=Lax; Path=/api/v1/auth; Max-Age = 90 ngày; DB chỉ lưu SHA-256; mốc = lần nhập mật khẩu + 90 ngày', async () => {
+    const t0 = Date.now();
+    const res = await loginRemember('sale', true);
+    expect(res.status).toBe(200);
+    const c = rmbOf(res)!;
+    expect(c).toMatch(/^siscom_rmb=[A-Za-z0-9_-]{43}; Path=\/api\/v1\/auth; HttpOnly; SameSite=Lax; Max-Age=(77759\d\d|7776000)$/);
+    const tok = rmbToken(res);
+    expect(JSON.stringify(res.body)).not.toContain(tok);
+    const row = (await rowOf(tok))!;
+    expect(row).not.toBeNull();
+    expect(row.tokenHash).toBe(sha(tok));
+    expect(row.absExpiresAt.getTime() - row.passwordAuthAt.getTime()).toBe(90 * 86_400_000);
+    expect(Math.abs(row.passwordAuthAt.getTime() - t0)).toBeLessThan(60_000);
+    expect(row.employeeId).toBe(await empId('sale'));
+    const raw = await adminPrisma.$queryRaw<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM public.remember_device WHERE token_hash = ${tok} OR ua_short = ${tok} OR ip_prefix = ${tok}`;
+    expect(Number(raw[0].n)).toBe(0);
+  });
+
+  it('restore hợp lệ: phiên THƯỜNG mới + CSRF mới + token xoay vòng (cùng family, CÙNG mốc tuyệt đối); /auth/me chạy bằng phiên mới', async () => {
+    const tok = rmbToken(await loginRemember('sale', true));
+    const old = (await rowOf(tok))!;
+    const res = await restore(tok);
+    expect(res.status).toBe(200);
+    expect(res.body.data.me).toMatchObject({ code: codes.sale, roles: ['sales'] });
+    expect(res.body.data.csrfToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const sid = cookieOf(res);
+    expect(all(res).find((c) => c.startsWith('siscom_sid='))).toMatch(/Max-Age=1800(;|$)/);
+    const next = rmbToken(res);
+    expect(next).not.toBe(tok);
+    const oldAfter = (await rowOf(tok))!; const child = (await rowOf(next))!;
+    expect(oldAfter.rotatedAt).not.toBeNull();
+    expect(oldAfter.replacedById).toBe(child.id);
+    expect(child.familyId).toBe(old.familyId);
+    expect(child.absExpiresAt.getTime()).toBe(old.absExpiresAt.getTime());
+    expect(child.passwordAuthAt.getTime()).toBe(old.passwordAuthAt.getTime());
+    const me = await srv().get('/api/v1/auth/me').set('Cookie', sid);
+    expect(me.status).toBe(200);
+    expect(me.body.data.me.code).toBe(codes.sale);
+    const audit = await prisma.auditLog.findMany({ where: { action: { startsWith: 'auth.remember' } }, select: { action: true, summary: true, changes: true } });
+    expect(audit.some((a) => a.action === 'auth.remember_restored')).toBe(true);
+    expect(JSON.stringify(audit)).not.toContain(tok);
+    expect(JSON.stringify(audit)).not.toContain(next);
+  });
+
+  it('restore bắt buộc Origin allowlist + X-Remember-Restore: 1 (403 CSRF_FAILED), token KHÔNG bị tiêu', async () => {
+    const tok = rmbToken(await loginRemember('sale', true));
+    const bare = (o: (r: request.Test) => request.Test) => o(srv().post(RESTORE).set('Cookie', 'siscom_rmb=' + tok));
+    for (const r of [
+      bare((x) => x.set('X-Remember-Restore', '1')),
+      bare((x) => x.set('Origin', 'http://evil.example').set('X-Remember-Restore', '1')),
+      bare((x) => x.set('Origin', ORIGIN)),
+      bare((x) => x.set('Origin', ORIGIN).set('X-Remember-Restore', '0')),
+    ]) { const res = await r; expect(res.status).toBe(403); expect(res.body.error.code).toBe('CSRF_FAILED'); }
+    expect((await rowOf(tok))!.rotatedAt).toBeNull();
+    expect((await restore(tok)).status).toBe(200);
+  });
+
+  it('không cookie / token giả đúng định dạng / sai định dạng => 401 REMEMBER_INVALID (không lộ chi tiết); token giả => xoá cookie', async () => {
+    const none = await restore(null);
+    expect(none.status).toBe(401); expect(none.body.error.code).toBe('REMEMBER_INVALID');
+    const forged = await restore(randomBytes(32).toString('base64url'));
+    expect(forged.status).toBe(401); expect(forged.body.error.code).toBe('REMEMBER_INVALID'); expect(cleared(forged)).toBe(true);
+    const bad = await restore('khong-dung-dinh-dang');
+    expect(bad.status).toBe(401); expect(bad.body.error.code).toBe('REMEMBER_INVALID'); expect(cleared(bad)).toBe(true);
+    expect(forged.body.error.message).toBe(bad.body.error.message);
+  });
+
+  it('token hết hạn (quá mốc 90 ngày) => 401 REMEMBER_INVALID + xoá cookie, không tạo phiên', async () => {
+    const id = await empId('sale');
+    const cred = await adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: id }, select: { tokenVersion: true } });
+    const tok = randomBytes(32).toString('base64url'); const day = 86_400_000; const now = Date.now();
+    await adminPrisma.rememberDevice.create({ data: { employeeId: id, familyId: randomUUID(), tokenHash: sha(tok), tokenVersion: cred.tokenVersion,
+      passwordAuthAt: new Date(now - 91 * day), issuedAt: new Date(now - 91 * day), lastUsedAt: new Date(now - 2 * day), absExpiresAt: new Date(now - day) } });
+    const sessionsBefore = await adminPrisma.authSession.count({ where: { employeeId: id } });
+    const res = await restore(tok);
+    expect(res.status).toBe(401); expect(res.body.error.code).toBe('REMEMBER_INVALID'); expect(cleared(res)).toBe(true);
+    expect(await adminPrisma.authSession.count({ where: { employeeId: id } })).toBe(sessionsBefore);
+  });
+
+  it('dùng lại token cũ TRONG 10 giây => 401 REMEMBER_RACE (giữ cookie, không thu hồi); SAU 10 giây => replay: thu hồi CẢ family (kể cả token con), audit', async () => {
+    const tok = rmbToken(await loginRemember('sale', true));
+    const first = await restore(tok); const child = rmbToken(first); const thiefSid = cookieOf(first);
+    const race = await restore(tok);
+    expect(race.status).toBe(401); expect(race.body.error.code).toBe('REMEMBER_RACE'); expect(all(race)).toHaveLength(0);
+    expect((await rowOf(child))!.revokedAt).toBeNull();
+    await sleep(10_500);
+    const replay = await restore(tok);
+    expect(replay.status).toBe(401); expect(replay.body.error.code).toBe('REMEMBER_INVALID'); expect(cleared(replay)).toBe(true);
+    const fam = await adminPrisma.rememberDevice.findMany({ where: { familyId: (await rowOf(tok))!.familyId } });
+    expect(fam.length).toBe(2);
+    expect(fam.find((r) => r.tokenHash === sha(child))!.revokeReason).toBe('REPLAY');
+    expect((await restore(child)).status).toBe(401);
+    expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBeGreaterThan(0);
+    // QA I-2: phiên thường đã tái lập từ family bị lộ cũng bị thu hồi (kẻ restore trước bị đá ra).
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
+  }, 30_000);
+
+  it('QA I-1: restore khi còn 1 giờ tới mốc 90 ngày => phiên thường mới hết hạn đúng mốc (cookie phiên Max-Age <= 3600), không +12h', async () => {
+    const id = await empId('sale');
+    const cred = await adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: id }, select: { tokenVersion: true } });
+    const tok = randomBytes(32).toString('base64url'); const day = 86_400_000; const pa = new Date(Date.now() - 90 * day + 3_600_000);
+    await adminPrisma.rememberDevice.create({ data: { employeeId: id, familyId: randomUUID(), tokenHash: sha(tok), tokenVersion: cred.tokenVersion,
+      passwordAuthAt: pa, issuedAt: pa, lastUsedAt: pa, absExpiresAt: new Date(pa.getTime() + 90 * day) } });
+    const res = await restore(tok);
+    expect(res.status).toBe(200);
+    const maxAge = Number(/Max-Age=([0-9]+)/.exec(all(res).find((x) => x.startsWith('siscom_sid='))!)![1]);
+    expect(maxAge).toBeLessThanOrEqual(3600);
+    const row = await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(cookieOf(res).split('=')[1]) } });
+    expect(row.absExpiresAt.getTime()).toBe(pa.getTime() + 90 * day);
+  });
+
+  it('QA lần 2 Minor-2: family vừa bị thu hồi song song (còn token chưa xoay) => trigger DB chặn token con, restore 401 + xoá cookie (không 500, không phiên)', async () => {
+    const id = await empId('sale');
+    const cred = await adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: id }, select: { tokenVersion: true } });
+    const tok = randomBytes(32).toString('base64url'); const fam = randomUUID(); const pa = new Date(Date.now() - 86_400_000); const abs = new Date(pa.getTime() + 90 * 86_400_000);
+    const base = { employeeId: id, familyId: fam, tokenVersion: cred.tokenVersion, passwordAuthAt: pa, issuedAt: pa, lastUsedAt: pa, absExpiresAt: abs };
+    await adminPrisma.rememberDevice.create({ data: { ...base, tokenHash: sha(tok) } });
+    // mô phỏng kết quả của một lần thu hồi chạy song song: một hàng khác cùng family đã bị thu hồi
+    await adminPrisma.rememberDevice.create({ data: { ...base, tokenHash: sha(randomBytes(32).toString('base64url')), revokedAt: new Date(), revokeReason: 'LOGOUT' } });
+    const before = await adminPrisma.authSession.count({ where: { employeeId: id } });
+    const res = await restore(tok);
+    expect(res.status).toBe(401); expect(res.body.error.code).toBe('REMEMBER_INVALID'); expect(cleared(res)).toBe(true);
+    expect(await adminPrisma.authSession.count({ where: { employeeId: id } })).toBe(before);
+    expect(await adminPrisma.rememberDevice.count({ where: { familyId: fam } })).toBe(2);
+  });
+
+  it('QA lần 3 Important-1: kẻ trộm restore trước rồi tự thu hồi thiết bị (revoke-all) để né phát hiện => nạn nhân dùng lại token cũ sau 10 giây vẫn là REPLAY, phiên kẻ trộm bị thu hồi', async () => {
+    const tok = rmbToken(await loginRemember('sale', true));
+    const thief = await restore(tok); expect(thief.status).toBe(200);
+    const thiefSid = cookieOf(thief); const thiefCsrf = thief.body.data.csrfToken as string;
+    const ra = await srv().post('/api/v1/auth/remember/revoke-all').set('Origin', ORIGIN).set('Cookie', thiefSid).set('X-CSRF-Token', thiefCsrf);
+    expect(ra.status).toBe(200);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(200); // thu hồi thiết bị không tự đá phiên
+    const replaysBefore = await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } });
+    await sleep(10_500);
+    const victim = await restore(tok);
+    expect(victim.status).toBe(401); expect(victim.body.error.code).toBe('REMEMBER_INVALID');
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
+    expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBe(replaysBefore + 1);
+    // QA lần 3b Important-A: nạn nhân đăng nhập lại; kẻ cầm token cũ gửi lại => KHÔNG đăng xuất được phiên mới.
+    const again = await loginRemember('sale', false); expect(again.status).toBe(200);
+    const victimSid = cookieOf(again);
+    const replay2 = await restore(tok);
+    expect(replay2.status).toBe(401);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', victimSid)).status).toBe(200);
+    // QA lần 3c Minor-2: lần thử này VẪN có dấu vết audit (đánh dấu familyAlreadyRevoked, không thu hồi phiên nào).
+    expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBe(replaysBefore + 2);
+  }, 30_000);
+
+  it('truy cập đồng thời: 6 restore song song cùng token => đúng MỘT 200, còn lại 401 REMEMBER_RACE; đúng một token con, không thu hồi family', async () => {
+    const tok = rmbToken(await loginRemember('sale', true));
+    const fam = (await rowOf(tok))!.familyId;
+    const rs = await Promise.all(Array.from({ length: 6 }, () => restore(tok)));
+    expect(rs.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(rs.filter((r) => r.status === 401 && r.body.error.code === 'REMEMBER_RACE')).toHaveLength(5);
+    const rows = await adminPrisma.rememberDevice.findMany({ where: { familyId: fam } });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.revokedAt === null)).toBe(true);
+  });
+
+  it('logout thu hồi chuỗi ghi nhớ của thiết bị này (LOGOUT) và xoá cookie; restore sau đó 401', async () => {
+    const res = await loginRemember('sale', true); const tok = rmbToken(res); const sid = cookieOf(res);
+    const out = await srv().post('/api/v1/auth/logout').set('Origin', ORIGIN).set('Cookie', sid + '; siscom_rmb=' + tok).set('X-CSRF-Token', res.body.data.csrfToken);
+    expect(out.status).toBe(200); expect(cleared(out)).toBe(true);
+    expect((await rowOf(tok))!.revokeReason).toBe('LOGOUT');
+    expect((await restore(tok)).status).toBe(401);
+  });
+
+  it('đăng nhập lại KHÔNG tích trên thiết bị còn cookie cũ => thu hồi chuỗi cũ (LOGIN_NO_REMEMBER) + xoá cookie', async () => {
+    const tok = rmbToken(await loginRemember('sale', true));
+    const res = await loginRemember('sale', false, 'siscom_rmb=' + tok);
+    expect(res.status).toBe(200); expect(rmbOf(res)).toBeNull(); expect(cleared(res)).toBe(true);
+    expect((await rowOf(tok))!.revokeReason).toBe('LOGIN_NO_REMEMBER');
+  });
+
+  it('nhân viên không còn ACTIVE (khoá/nghỉ việc) => restore 401, thu hồi family (INVALID_STATE), không cấp phiên', async () => {
+    // kỹ thuật viên: không giữ vai trò quan trọng (admin cuối cùng bị trigger M1.1 LAST_ADMIN chặn đổi trạng thái — đúng thiết kế).
+    const tok = rmbToken(await loginRemember('technician', true));
+    const id = await empId('technician');
+    await adminPrisma.employee.update({ where: { id }, data: { status: 'RESIGNED' } });
+    try {
+      const res = await restore(tok);
+      expect(res.status).toBe(401); expect(res.body.error.code).toBe('REMEMBER_INVALID');
+      expect((await rowOf(tok))!.revokeReason).toBe('INVALID_STATE');
+    } finally { await adminPrisma.employee.update({ where: { id }, data: { status: 'ACTIVE' } }); }
+    expect((await restore(tok)).status).toBe(401);
+  });
+
+  it('tối đa 5 thiết bị: thiết bị thứ 6 thay thiết bị ít dùng gần nhất (DEVICE_LIMIT)', async () => {
+    const id = await empId('admin');
+    const toks: string[] = [];
+    for (let i = 0; i < 6; i++) toks.push(rmbToken(await loginRemember('admin', true)));
+    const active = await adminPrisma.rememberDevice.count({ where: { employeeId: id, revokedAt: null, rotatedAt: null, absExpiresAt: { gt: new Date() } } });
+    expect(active).toBe(5);
+    expect((await rowOf(toks[0]))!.revokeReason).toBe('DEVICE_LIMIT');
+  });
+
+  it('đổi mật khẩu => trigger DB (token_version) thu hồi MỌI thiết bị (TOKEN_VERSION), response xoá cookie; token cũ restore 401', async () => {
+    const u = USERS.find((x) => x.key === 'sale')!;
+    const a = rmbToken(await loginRemember('sale', true));
+    const s = await loginRemember('sale', true); const b = rmbToken(s);
+    const NEW = 'Ghi-nho-90-ngay#doi-mk';
+    const res = await srv().post('/api/v1/auth/change-password').set('Origin', ORIGIN).set('Cookie', cookieOf(s) + '; siscom_rmb=' + b)
+      .set('X-CSRF-Token', s.body.data.csrfToken).send({ currentPassword: u.password, newPassword: NEW, confirmPassword: NEW });
+    expect(res.status).toBe(200);
+    u.password = NEW;
+    expect(cleared(res)).toBe(true);
+    for (const t of [a, b]) {
+      expect((await rowOf(t))!.revokeReason).toBe('TOKEN_VERSION');
+      expect((await restore(t)).status).toBe(401);
+    }
+    const left = await adminPrisma.rememberDevice.count({ where: { employeeId: await empId('sale'), revokedAt: null } });
+    expect(left).toBe(0);
+  });
+
+  it('pool nghiệp vụ (prisma = siscom_app) không đọc được remember_device khi đã tách pool auth', async () => {
+    if (!process.env.TEST_AUTH_DATABASE_URL) return; // chưa tách (Windows dev): bỏ qua, kiểm ở db-roles.int-spec / CI
+    await expect(prisma.rememberDevice.count()).rejects.toThrow();
   });
 });

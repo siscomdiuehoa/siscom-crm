@@ -2,6 +2,9 @@
 //   POST /auth/login  {login,password} -> 200 {data:{me, csrfToken}} + Set-Cookie siscom_sid (HttpOnly) + siscom_csrf (đọc được)
 //   GET  /auth/me     (cookie)         -> 200 {data:{me}} | 401
 //   POST /auth/logout (cookie + Origin + X-CSRF-Token) -> 200 {data:{ok:true}} + cookie xoá | 401 | 403 CSRF_FAILED
+// B1.4 Remember Me (Issue #177): login gửi remember:true CHỈ khi người dùng tích (thiếu = không ghi nhớ; backend cũ vẫn chạy khi không tích).
+//   POST /auth/remember/restore (cookie siscom_rmb HttpOnly do trình duyệt gửi + X-Remember-Restore: 1) -> 200 {data:{me, csrfToken}} | 401 | 403 | 429.
+//   JS KHÔNG đọc/ghi cookie siscom_rmb (HttpOnly); không ghi storage.
 // Cùng origin qua Vite proxy /api (base mặc định '/api/v1'); mọi yêu cầu dùng credentials:'include'. Không có token trong JS;
 // CSRF token lấy từ phản hồi login hoặc cookie siscom_csrf (double-submit), chỉ giữ trong bộ nhớ, không ghi storage, không log.
 import { AuthHttpError, AuthNetworkError, AuthUnavailableError } from './authClient.js';
@@ -46,9 +49,9 @@ function isMe(d) {
 export function createCookieAuthClient(config, fetchImpl) {
   const cfg = config || { enabled: false, baseUrl: '' };
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
-  async function call(method, path, { body, csrf } = {}) {
+  async function call(method, path, { body, csrf, extraHeaders } = {}) {
     if (!cfg.enabled || !doFetch) throw new AuthUnavailableError();
-    const headers = { Accept: 'application/json' };
+    const headers = { Accept: 'application/json', ...(extraHeaders || {}) };
     if (body) headers['Content-Type'] = 'application/json';
     if (csrf) headers['X-CSRF-Token'] = csrf;
     let res;
@@ -65,9 +68,15 @@ export function createCookieAuthClient(config, fetchImpl) {
   return {
     enabled: cfg.enabled,
     mode: 'cookie',
-    async login(login, password) {
+    async login(login, password, remember) {
       if (typeof login !== 'string' || !login || typeof password !== 'string' || !password) throw new AuthHttpError(400, 'REQUEST_INVALID');
-      const d = await call('POST', '/auth/login', { body: { login, password } });
+      const d = await call('POST', '/auth/login', { body: remember === true ? { login, password, remember: true } : { login, password } });
+      if (!isMe(d.me) || typeof d.csrfToken !== 'string' || !B64URL_256.test(d.csrfToken)) throw new AuthHttpError(200, 'BAD_RESPONSE');
+      return { me: d.me, csrfToken: d.csrfToken };
+    },
+    // Tái lập phiên thường từ cookie ghi nhớ (HttpOnly). Không có body; header tuỳ biến buộc preflight CORS (máy chủ kiểm Origin + header).
+    async restoreRemembered() {
+      const d = await call('POST', '/auth/remember/restore', { extraHeaders: { 'X-Remember-Restore': '1' } });
       if (!isMe(d.me) || typeof d.csrfToken !== 'string' || !B64URL_256.test(d.csrfToken)) throw new AuthHttpError(200, 'BAD_RESPONSE');
       return { me: d.me, csrfToken: d.csrfToken };
     },

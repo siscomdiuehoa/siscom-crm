@@ -10,7 +10,9 @@ import { readCsrfCookie } from './cookieAuthClient.js';
 
 const idle = () => ({ status: 'IDLE', error: null, employeeId: null, expiresAt: null, me: null });
 
-export function createCookieSession(client, { readCookie } = {}) {
+// raceDelayMs: chờ trước khi hỏi lại /auth/me khi restore trả REMEMBER_RACE (tab thắng cần thời gian nhận Set-Cookie). QA lần 3 Minor-2.
+// lateCheckTimeoutMs: thời gian chờ tối đa cho lần kiểm /auth/me khi có 401 muộn sau khôi phục (QA lần 3c Minor-3).
+export function createCookieSession(client, { readCookie, raceDelayMs = 700, lateCheckTimeoutMs = 10_000 } = {}) {
   let csrf = null;
   let epoch = 0;
   let state = client && client.enabled ? idle() : { status: 'UNAVAILABLE', error: null, employeeId: null, expiresAt: null, me: null };
@@ -19,6 +21,31 @@ export function createCookieSession(client, { readCookie } = {}) {
   const fail = (code) => set({ status: 'ERROR', error: code, employeeId: null, expiresAt: null, me: null });
   const cookies = typeof readCookie === 'function' ? readCookie : () => (typeof document !== 'undefined' ? document.cookie : '');
   const authed = (me) => set({ status: 'AUTHENTICATED', error: null, employeeId: me.employeeId, expiresAt: null, me });
+  // B1.4 Remember Me: phiên thường hết hạn GIỮA CHỪNG (tab đang mở) => thử tái lập MỘT lần từ cookie ghi nhớ (HttpOnly). Tối đa 1 lần / 60 giây
+  // (chống vòng lặp 401 -> restore). Thất bại => giữ ERROR SESSION_EXPIRED (đăng nhập lại bằng mật khẩu). Đăng xuất / submit chen ngang => bỏ kết quả.
+  // Các 401 đến sau khi đã SESSION_EXPIRED (nhiều request song song) KHÔNG đổi epoch (QA lần 2 Important-1). REMEMBER_RACE (tab khác vừa
+  // khôi phục) => hỏi lại /auth/me một lần (như restore() khi tải trang).
+  let lastAutoRestoreAt = -Infinity;
+  let lastRestoreOkAt = -Infinity; // QA lần 3 Minor-3: 401 muộn của request gửi bằng cookie cũ ngay sau khi vừa khôi phục
+  let lateCheck = null; // QA lần 3b Minor-A: một lần kiểm /auth/me đang chạy, các 401 muộn khác gộp vào
+  // QA lần 3c Minor-3: đăng xuất / đăng nhập lại => bỏ trạng thái "vừa khôi phục" (401 sau đó là thật).
+  const resetRestoreWindow = () => { lastRestoreOkAt = -Infinity; lateCheck = null; };
+  const now = () => Date.now();
+  const wait = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
+  const restoredOk = (r, fromRestore) => { csrf = fromRestore ? r.csrfToken : null; lastRestoreOkAt = now(); authed(r.me); };
+  function autoRestoreAfterExpiry() {
+    if (typeof client.restoreRemembered !== 'function' || now() - lastAutoRestoreAt < 60_000) return;
+    lastAutoRestoreAt = now();
+    const my = epoch;
+    const stillExpired = () => my === epoch && state.status === 'ERROR' && state.error === 'SESSION_EXPIRED';
+    Promise.resolve().then(() => client.restoreRemembered()).then((r) => {
+      if (!stillExpired()) return;
+      restoredOk(r, true);
+    }, (e) => {
+      if (!(e && e.name === 'AuthHttpError' && e.code === 'REMEMBER_RACE') || !stillExpired()) return; // giữ SESSION_EXPIRED
+      return wait(raceDelayMs).then(() => client.me()).then((r2) => { if (!stillExpired()) return; restoredOk(r2, false); }, () => { /* giữ SESSION_EXPIRED */ });
+    });
+  }
 
   return {
     mode: 'cookie',
@@ -31,6 +58,8 @@ export function createCookieSession(client, { readCookie } = {}) {
       return csrf || readCsrfCookie(cookies());
     },
     // Tải lại trang: cookie phiên có thể còn hiệu lực => hỏi /auth/me. Không ném lỗi; thất bại => IDLE (phải đăng nhập lại).
+    // B1.4 Remember Me: /auth/me trả 401 => thử MỘT lần tái lập phiên từ cookie ghi nhớ (HttpOnly; JS không thấy cookie). REMEMBER_RACE (tab khác
+    // vừa xoay vòng token) => hỏi lại /auth/me một lần. Mọi lỗi khác => IDLE (đăng nhập bằng mật khẩu). Lỗi mạng ở /auth/me => không thử restore.
     async restore() {
       if (state.status === 'UNAVAILABLE') return state;
       const my = ++epoch;
@@ -40,13 +69,26 @@ export function createCookieSession(client, { readCookie } = {}) {
         if (my !== epoch) return state;
         csrf = null; // lấy từ cookie siscom_csrf khi cần
         authed(r.me);
+        return state;
       } catch (e) {
         if (my !== epoch) return state;
+        if (!(e && e.name === 'AuthHttpError' && e.status === 401) || typeof client.restoreRemembered !== 'function') { set(idle()); return state; }
+      }
+      try {
+        const r = await client.restoreRemembered();
+        if (my !== epoch) return state;
+        restoredOk(r, true);
+      } catch (e) {
+        if (my !== epoch) return state;
+        if (e && e.name === 'AuthHttpError' && e.code === 'REMEMBER_RACE') {
+          try { await wait(raceDelayMs); if (my !== epoch) return state; const r2 = await client.me(); if (my !== epoch) return state; restoredOk(r2, false); return state; } catch (e2) { if (my !== epoch) return state; }
+        }
         set(idle());
       }
       return state;
     },
-    async submit(loginInput, password) {
+    // remember: ô "Ghi nhớ đăng nhập trên thiết bị này" (mặc định không tích). Chỉ đúng true mới gửi.
+    async submit(loginInput, password, remember) {
       if (state.status === 'UNAVAILABLE' || state.status === 'LOADING') return state;
       const reject = (code) => { epoch++; csrf = null; fail(code); return state; };
       const id = parseLoginIdentifier(loginInput);
@@ -54,10 +96,11 @@ export function createCookieSession(client, { readCookie } = {}) {
       const pe = validatePassword(password);
       if (pe) return reject(pe);
       const my = ++epoch;
+      resetRestoreWindow();
       csrf = null;
       set({ status: 'LOADING', error: null, employeeId: null, expiresAt: null, me: null });
       try {
-        const r = await client.login(id.value, password);
+        const r = await client.login(id.value, password, remember === true);
         if (my !== epoch) return state;
         csrf = r.csrfToken;
         authed(r.me);
@@ -70,6 +113,7 @@ export function createCookieSession(client, { readCookie } = {}) {
     async logout() {
       if (state.status === 'UNAVAILABLE') return state;
       const my = ++epoch;
+      resetRestoreWindow();
       const t = this.getCsrfToken ? this.getCsrfToken() : csrf;
       const wasAuthed = state.status === 'AUTHENTICATED';
       csrf = null;
@@ -103,8 +147,22 @@ export function createCookieSession(client, { readCookie } = {}) {
     // API khác trả 401: phiên server đã hết/thu hồi => về ERROR SESSION_EXPIRED (không tự đăng nhập lại). Khi đang LOADING: bỏ qua.
     handleUnauthorized() {
       if (state.status === 'LOADING') return state;
+      if (state.status === 'ERROR' && state.error === 'SESSION_EXPIRED') return state; // đã xử lý: không huỷ khôi phục đang chạy
+      // QA lần 3 Minor-3: vừa khôi phục (< 60 giây) => 401 có thể là request cũ gửi bằng cookie cũ. Hỏi /auth/me trước khi kết luận hết hạn.
+      if (state.status === 'AUTHENTICATED' && now() - lastRestoreOkAt < 60_000) {
+        if (lateCheck) return state; // đã có một lần kiểm đang chạy: gộp (nhiều request cũ song song)
+        const my = epoch;
+        // Thời gian chờ: request treo không được giữ mọi 401 muộn mãi (hết chờ => giải phóng, 401 kế tiếp kiểm lại).
+        let timer = null;
+        const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('LATE_CHECK_TIMEOUT')), lateCheckTimeoutMs); });
+        const mine = lateCheck = Promise.race([Promise.resolve().then(() => client.me()), timeout]).then(() => { /* phiên mới còn tốt */ }, (e) => {
+          if (my !== epoch || state.status !== 'AUTHENTICATED' || !(e && e.name === 'AuthHttpError' && e.status === 401)) return;
+          epoch++; csrf = null; lastRestoreOkAt = -Infinity; fail('SESSION_EXPIRED');
+        }).then(() => { clearTimeout(timer); if (lateCheck === mine) lateCheck = null; });
+        return state;
+      }
       epoch++; csrf = null;
-      if (state.status === 'AUTHENTICATED') fail('SESSION_EXPIRED');
+      if (state.status === 'AUTHENTICATED') { fail('SESSION_EXPIRED'); autoRestoreAfterExpiry(); }
       return state;
     },
   };

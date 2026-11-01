@@ -67,6 +67,11 @@ INSERT INTO s1_result SELECT 'B1e app KHONG co quyen nao (ke ca SELECT theo cot)
   bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'SELECT') AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT')
        AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE'))
   FROM unnest(ARRAY['auth_session', 'employee_credential']) AS t;
+-- B1.4 Remember Me (Issue #177): token ghi nho 90 ngay thuoc pool auth; app KHONG co quyen nao (bang chua ton tai => dat).
+INSERT INTO s1_result SELECT 'B1f app KHONG co quyen nao (ke ca SELECT theo cot) tren remember_device (B1.4 Remember Me)',
+  to_regclass('public.remember_device') IS NULL
+  OR NOT (has_any_column_privilege('siscom_app', 'public.remember_device', 'SELECT') OR has_any_column_privilege('siscom_app', 'public.remember_device', 'INSERT')
+          OR has_any_column_privilege('siscom_app', 'public.remember_device', 'UPDATE') OR has_table_privilege('siscom_app', 'public.remember_device', 'DELETE'));
 -- M-7 (ra soat P3b): runtime KHONG doc yeu cau dac quyen / ma dat lai mat khau => app khong co ca SELECT (giam lo hash token neu bi SQLi).
 INSERT INTO s1_result SELECT 'B1d app KHONG SELECT (ke ca theo cot) tren privileged_change_request / password_reset_token',
   bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'SELECT'))

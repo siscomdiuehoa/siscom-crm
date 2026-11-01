@@ -1,0 +1,97 @@
+-- SISCOM CRM - B1.4 Remember Me (20261029000000_b1_4_remember_device): KIEM CAU TRUC / RANG BUOC / TRIGGER o tang DB.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI CHAY TREN BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) bang CHU SO HUU BANG (siscom_migrator sau tach role), che do khoi tao
+--   con MO (can chen credential thu). Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu; sequence ma nhan vien/audit van tang).
+-- In "PASS|n" va (neu co) "FAIL|n". Ky vong: khong co FAIL.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF to_regclass('public.remember_device') IS NULL THEN RAISE EXCEPTION 'Chua ap migration 20261029000000_b1_4_remember_device.'; END IF;
+  IF NOT public.fn_auth_bootstrap_open() THEN RAISE EXCEPTION 'Che do khoi tao da dong: can DB thu moi (bo kiem chen credential thu).'; END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text) ON COMMIT DROP;
+CREATE FUNCTION pg_temp.expect_err(p_label text, p_sql text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+    RAISE EXCEPTION 'rmb_undo' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN raise_exception THEN INSERT INTO res VALUES (false, p_label || CASE WHEN SQLERRM = 'rmb_undo' THEN ' [CHAY DUOC]' ELSE ' [' || SQLERRM || ']' END);
+    WHEN OTHERS THEN INSERT INTO res VALUES (SQLSTATE = p_state, p_label || CASE WHEN SQLSTATE = p_state THEN '' ELSE ' [' || SQLSTATE || ' thay vi ' || p_state || ']' END);
+  END;
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_sql text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v boolean;
+BEGIN
+  EXECUTE 'SELECT (' || p_sql || ')' INTO v;
+  INSERT INTO res VALUES (coalesce(v, false), p_label);
+EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQLSTATE || ']');
+END $$;
+
+-- Du lieu thu (tong hop): 2 nhan vien co credential; token_hash la hex 64 ky tu tong hop, khong phai token that.
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('f1404000-0000-4000-8000-000000000001', 'B14 RMB 1', 'b14.rmb1@example.invalid', 'ACTIVE', true),
+ ('f1404000-0000-4000-8000-000000000002', 'B14 RMB 2', 'b14.rmb2@example.invalid', 'ACTIVE', true);
+INSERT INTO employee_credential (employee_id, password_hash, password_algo, password_params) VALUES
+ ('f1404000-0000-4000-8000-000000000001', '$argon2id$v=19$thu-r1', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f1404000-0000-4000-8000-000000000002', '$argon2id$v=19$thu-r2', 'argon2id', '{"m":65536,"t":3,"p":1}');
+INSERT INTO remember_device (id, employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at, issued_at, last_used_at) VALUES
+ ('f1404100-0000-4000-8000-000000000001', 'f1404000-0000-4000-8000-000000000001', 'f1404200-0000-4000-8000-000000000001', repeat('a', 64), 1, now(), now() + interval '90 days', now(), now()),
+ ('f1404100-0000-4000-8000-000000000002', 'f1404000-0000-4000-8000-000000000001', 'f1404200-0000-4000-8000-000000000002', repeat('b', 64), 1, now(), now() + interval '30 days', now(), now()),
+ ('f1404100-0000-4000-8000-000000000003', 'f1404000-0000-4000-8000-000000000002', 'f1404200-0000-4000-8000-000000000003', repeat('c', 64), 1, now(), now() + interval '90 days', now(), now());
+
+-- 1. Rang buoc CHECK / UNIQUE / FK
+SELECT pg_temp.expect_true('S1 hang hop le (90 ngay dung tran) chen duoc', $q$ (SELECT count(*) FROM remember_device WHERE employee_id IN ('f1404000-0000-4000-8000-000000000001', 'f1404000-0000-4000-8000-000000000002')) = 3 $q$);
+SELECT pg_temp.expect_err('S2 tran 90 ngay do DB cuong che (90 ngay + 1 giay bi tu choi)', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) VALUES ('f1404000-0000-4000-8000-000000000001', gen_random_uuid(), repeat('d', 64), 1, now(), now() + interval '7776001 seconds') $q$, '23514');
+SELECT pg_temp.expect_err('S3 token_hash phai la SHA-256 hex thuong 64 ky tu (plaintext/hoa bi tu choi)', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) VALUES ('f1404000-0000-4000-8000-000000000001', gen_random_uuid(), repeat('A', 64), 1, now(), now() + interval '1 day') $q$, '23514');
+SELECT pg_temp.expect_err('S4 token_hash trung bi tu choi (UNIQUE)', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) VALUES ('f1404000-0000-4000-8000-000000000002', gen_random_uuid(), repeat('a', 64), 1, now(), now() + interval '1 day') $q$, '23505');
+SELECT pg_temp.expect_err('S5 abs_expires_at phai sau issued_at', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at, issued_at) VALUES ('f1404000-0000-4000-8000-000000000001', gen_random_uuid(), repeat('e', 64), 1, now() - interval '10 days', now() - interval '1 day', now()) $q$, '23514');
+SELECT pg_temp.expect_err('S6 revoked_at va revoke_reason phai di cung nhau', $q$ UPDATE remember_device SET revoked_at = now() WHERE id = 'f1404100-0000-4000-8000-000000000002' $q$, '23514');
+SELECT pg_temp.expect_err('S7 replaced_by can rotated_at', $q$ UPDATE remember_device SET replaced_by = 'f1404100-0000-4000-8000-000000000003' WHERE id = 'f1404100-0000-4000-8000-000000000002' $q$, '23514');
+SELECT pg_temp.expect_err('S8 token_version >= 1', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) VALUES ('f1404000-0000-4000-8000-000000000001', gen_random_uuid(), repeat('f', 64), 0, now(), now() + interval '1 day') $q$, '23514');
+SELECT pg_temp.expect_err('S9 nhan vien khong ton tai bi tu choi (FK)', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) VALUES (gen_random_uuid(), gen_random_uuid(), repeat('9', 64), 1, now(), now() + interval '1 day') $q$, '23503');
+SELECT pg_temp.expect_true('S10 FK employee_id ON DELETE RESTRICT (xoa nhan vien con thiet bi bi chan; xoa nhan vien con bi trigger B1.2 chan som hon)', $q$ (SELECT confdeltype = 'r' FROM pg_constraint WHERE conname = 'remember_device_employee_id_fkey') $q$);
+
+-- 2. Trigger bat bien
+SELECT pg_temp.expect_err('S11 khong sua token_hash', $q$ UPDATE remember_device SET token_hash = repeat('1', 64) WHERE id = 'f1404100-0000-4000-8000-000000000001' $q$, '23001');
+SELECT pg_temp.expect_err('S12 khong gia han abs_expires_at (ke ca trong tran 90 ngay)', $q$ UPDATE remember_device SET abs_expires_at = abs_expires_at + interval '1 second' WHERE id = 'f1404100-0000-4000-8000-000000000002' $q$, '23001');
+SELECT pg_temp.expect_err('S13 khong doi chu (employee_id) / family / token_version / password_auth_at', $q$ UPDATE remember_device SET employee_id = 'f1404000-0000-4000-8000-000000000002' WHERE id = 'f1404100-0000-4000-8000-000000000001' $q$, '23001');
+UPDATE remember_device SET rotated_at = now(), last_used_at = now() WHERE id = 'f1404100-0000-4000-8000-000000000002';
+SELECT pg_temp.expect_err('S14 rotated_at dat mot lan (khong xoa/doi lai)', $q$ UPDATE remember_device SET rotated_at = NULL WHERE id = 'f1404100-0000-4000-8000-000000000002' $q$, '23001');
+UPDATE remember_device SET revoked_at = now(), revoke_reason = 'LOGOUT' WHERE id = 'f1404100-0000-4000-8000-000000000002';
+SELECT pg_temp.expect_err('S15 hang da thu hoi khong mo lai', $q$ UPDATE remember_device SET revoked_at = NULL, revoke_reason = NULL WHERE id = 'f1404100-0000-4000-8000-000000000002' $q$, '23001');
+SELECT pg_temp.expect_err('S16 hang da thu hoi khong doi ly do', $q$ UPDATE remember_device SET revoke_reason = 'REVOKE_ALL' WHERE id = 'f1404100-0000-4000-8000-000000000002' $q$, '23001');
+
+-- 2b. QA bao mat I-3: INSERT khong lach duoc tran 90 ngay
+SELECT pg_temp.expect_err('S25 password_auth_at o tuong lai bi tu choi (khong doi moc 90 ngay ve sau)', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at, issued_at) VALUES ('f1404000-0000-4000-8000-000000000002', gen_random_uuid(), repeat('7', 64), 1, now() + interval '30 days', now() + interval '60 days', now() + interval '30 days') $q$, '23514');
+SELECT pg_temp.expect_err('S26 chen vao family san co voi moc khac (gia han qua rotate) bi tu choi', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) VALUES ('f1404000-0000-4000-8000-000000000002', 'f1404200-0000-4000-8000-000000000003', repeat('6', 64), 1, now(), now() + interval '90 days' - interval '1 second') $q$, '23514');
+SELECT pg_temp.expect_err('S27 chen vao family cua NHAN VIEN KHAC bi tu choi', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) SELECT 'f1404000-0000-4000-8000-000000000001', family_id, repeat('5', 64), token_version, password_auth_at, abs_expires_at FROM remember_device WHERE id = 'f1404100-0000-4000-8000-000000000003' $q$, '23514');
+INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) SELECT employee_id, family_id, repeat('4', 64), token_version, password_auth_at, abs_expires_at FROM remember_device WHERE id = 'f1404100-0000-4000-8000-000000000003';
+SELECT pg_temp.expect_true('S28 rotate hop le (cung family, cung moc) chen duoc', $q$ (SELECT count(*) = 2 FROM remember_device WHERE family_id = 'f1404200-0000-4000-8000-000000000003') $q$);
+SELECT pg_temp.expect_err('S29 chen vao family da thu hoi bi tu choi (khong hoi sinh)', $q$ INSERT INTO remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) SELECT employee_id, family_id, repeat('3', 64), token_version, password_auth_at, abs_expires_at FROM remember_device WHERE id = 'f1404100-0000-4000-8000-000000000002' $q$, '23514');
+
+-- 3. Thu hoi theo token_version (doi mat khau / khoa / reset deu tang token_version) - chi nhan vien do
+UPDATE employee_credential SET password_hash = '$argon2id$v=19$moi-r1', token_version = token_version + 1 WHERE employee_id = 'f1404000-0000-4000-8000-000000000001';
+SELECT pg_temp.expect_true('S17 token_version tang => moi thiet bi con hieu luc cua nhan vien bi thu hoi (TOKEN_VERSION)', $q$ (SELECT revoked_at IS NOT NULL AND revoke_reason = 'TOKEN_VERSION' FROM remember_device WHERE id = 'f1404100-0000-4000-8000-000000000001') $q$);
+SELECT pg_temp.expect_true('S18 hang da thu hoi truoc do giu nguyen ly do (LOGOUT)', $q$ (SELECT revoke_reason = 'LOGOUT' FROM remember_device WHERE id = 'f1404100-0000-4000-8000-000000000002') $q$);
+SELECT pg_temp.expect_true('S19 nhan vien KHAC khong bi anh huong', $q$ (SELECT count(*) = 2 AND bool_and(revoked_at IS NULL) FROM remember_device WHERE family_id = 'f1404200-0000-4000-8000-000000000003') $q$);
+UPDATE employee_credential SET last_login_at = now() WHERE employee_id = 'f1404000-0000-4000-8000-000000000002';
+SELECT pg_temp.expect_true('S20 cap nhat cot khac (last_login_at) KHONG thu hoi thiet bi', $q$ (SELECT bool_and(revoked_at IS NULL) FROM remember_device WHERE family_id = 'f1404200-0000-4000-8000-000000000003') $q$);
+
+-- 4. Doi tuong / quyen
+SELECT pg_temp.expect_true('S21 fn_cred_revoke_remember la SECURITY DEFINER, search_path co dinh, PUBLIC khong EXECUTE', $q$ (SELECT p.prosecdef AND p.proconfig IS NOT NULL AND NOT has_function_privilege('public', p.oid, 'EXECUTE') FROM pg_proc p WHERE p.oid = 'public.fn_cred_revoke_remember()'::regprocedure) $q$);
+SELECT pg_temp.expect_true('S22 trigger trg_cred_revoke_remember (AFTER UPDATE OF token_version), trg_rmb_before_update, trg_rmb_before_insert ton tai, bat', $q$ (SELECT count(*) = 3 FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O' AND tgname IN ('trg_cred_revoke_remember', 'trg_rmb_before_update', 'trg_rmb_before_insert')) $q$);
+SELECT pg_temp.expect_true('S23 chi muc thiet bi dang hoat dong (partial) va token_hash UNIQUE ton tai', $q$ to_regclass('public.remember_device_active_idx') IS NOT NULL AND to_regclass('public.remember_device_token_hash_key') IS NOT NULL $q$);
+SELECT pg_temp.expect_true('S24 khong cot nao luu token goc (chi token_hash)', $q$ NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'remember_device' AND column_name IN ('token', 'token_plain', 'refresh_token')) $q$);
+
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
+SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+ROLLBACK;

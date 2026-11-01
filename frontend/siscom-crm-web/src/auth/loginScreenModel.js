@@ -16,6 +16,9 @@ export const LOGIN_UI_TEXT = {
   unavailable: 'Đăng nhập chưa khả dụng: máy chủ xác thực chưa được bật.',
   showPassword: 'Hiện mật khẩu',
   hidePassword: 'Ẩn mật khẩu',
+  // B1.4 Remember Me (Issue #177): mặc định KHÔNG tích.
+  rememberLabel: 'Ghi nhớ đăng nhập trên thiết bị này (tối đa 90 ngày)',
+  rememberHint: 'Không chọn trên máy dùng chung. Đổi mật khẩu hoặc đăng xuất sẽ huỷ ghi nhớ.',
 };
 
 // Thông báo lỗi trường chi tiết hơn LOGIN_ERRORS.IDENTIFIER_INVALID (giữ nguyên hằng này cho bộ điều khiển headless).
@@ -86,13 +89,13 @@ export function deriveLoginView({ status, error, identifier = '', password = '',
 
 // Gửi qua bộ điều khiển headless (có thể là mock). Trả về { submitted, touched, firstInvalid, reason }.
 // Không gọi submit khi UNAVAILABLE/LOADING/AUTHENTICATED hoặc dữ liệu sai hình dạng (bộ điều khiển vẫn tự kiểm tra lại).
-export async function submitLogin(session, identifier, password) {
+export async function submitLogin(session, identifier, password, remember) {
   const status = session.getState().status;
   const touched = { identifier: true, password: true };
   if (status === 'UNAVAILABLE' || status === 'LOADING' || status === 'AUTHENTICATED') return { submitted: false, touched, firstInvalid: null, reason: 'BLOCKED' };
   const firstInvalid = describeIdentifierProblem(identifier) ? 'identifier' : validatePassword(password) ? 'password' : null;
   if (firstInvalid) return { submitted: false, touched, firstInvalid, reason: 'INVALID' };
-  await session.submit(identifier, password);
+  await session.submit(identifier, password, remember === true);
   return { submitted: true, touched, firstInvalid: null, reason: null };
 }
 
@@ -100,10 +103,10 @@ export async function submitLogin(session, identifier, password) {
 // chuyển LOADING) chỉ tạo đúng một lần session.submit. Các lần bị bỏ trả reason 'IN_FLIGHT'.
 export function createLoginSubmitter(session) {
   let inFlight = false;
-  return async function submit(identifier, password) {
+  return async function submit(identifier, password, remember) {
     if (inFlight) return { submitted: false, touched: { identifier: true, password: true }, firstInvalid: null, reason: 'IN_FLIGHT' };
     inFlight = true;
-    try { return await submitLogin(session, identifier, password); } finally { inFlight = false; }
+    try { return await submitLogin(session, identifier, password, remember); } finally { inFlight = false; }
   };
 }
 

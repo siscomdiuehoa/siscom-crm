@@ -1,0 +1,54 @@
+# DB B (che do khoi tao con mo) - integration 13 suite, 3 pool (app / migrator / auth), nhanh Remember Me
+PASS|63
+FAIL|10
+DAT (RED mong doi voi V2)
+PASS|73
+DAT: VERIFY (app) PASS|73
+PASS|33
+DAT: VERIFY_AUTH (superuser -> SET ROLE siscom_auth) PASS|33
+HOAN TAT siscom_crm_test_20261101_070435
+FAIL test/auth.int-spec.ts (37.686 s)
+    √ email đúng => 200 + cookie HttpOnly SameSite=Lax + csrfToken + me (vai trò, quyền); body không chứa token phiên (200 ms)
+    √ logout: cần Origin + X-CSRF-Token; thành công => cookie xoá, phiên thu hồi, me sau đó 401; token cũ không dùng lại được (218 ms)
+    √ phiên hết hạn (idle) => 401; thu hồi toàn bộ phiên khi token_version tăng (đổi mật khẩu/khoá) — trigger M1.2 (366 ms)
+    √ audit: đăng nhập/đăng xuất được ghi với actor; không có mật khẩu/token trong nhật ký (4 ms)
+    √ thành công: hash Argon2id mới, token_version+1, mọi phiên cũ 401 (cả thiết bị khác), phiên mới dùng được, nhật ký; mật khẩu cũ không đăng nhập được (1256 ms)
+    √ mật khẩu hiện tại sai => 400 PASSWORD_CURRENT_INVALID; hash/token_version không đổi; nhật ký auth.password_change_failed; phiên vẫn dùng được (không khoá) (294 ms)
+    √ admin: restore khách đang hoạt động => HTTP 409 và body error.code = CUSTOMER_NOT_DELETED (178 ms)
+    √ admin: DELETE có cookie + Origin nhưng THIẾU X-CSRF-Token => 403 CSRF_FAILED (không phải 409); token của phiên khác cũng 403 (512 ms)
+    √ kế toán / kỹ thuật / kinh doanh: DELETE và restore => 403 FORBIDDEN (kiểm quyền trước phạm vi, không lộ 404), không đổi dữ liệu (465 ms)
+    √ không tích (thiếu remember / remember=false): KHÔNG có cookie siscom_rmb, KHÔNG thêm hàng; phiên thường như cũ (304 ms)
+    √ tích: cookie siscom_rmb HttpOnly; SameSite=Lax; Path=/api/v1/auth; Max-Age = 90 ngày; DB chỉ lưu SHA-256; mốc = lần nhập mật khẩu + 90 ngày (145 ms)
+    √ restore hợp lệ: phiên THƯỜNG mới + CSRF mới + token xoay vòng (cùng family, CÙNG mốc tuyệt đối); /auth/me chạy bằng phiên mới (185 ms)
+    √ restore bắt buộc Origin allowlist + X-Remember-Restore: 1 (403 CSRF_FAILED), token KHÔNG bị tiêu (170 ms)
+    √ không cookie / token giả đúng định dạng / sai định dạng => 401 REMEMBER_INVALID (không lộ chi tiết); token giả => xoá cookie (6 ms)
+    √ token hết hạn (quá mốc 90 ngày) => 401 REMEMBER_INVALID + xoá cookie, không tạo phiên (9 ms)
+    √ dùng lại token cũ TRONG 10 giây => 401 REMEMBER_RACE (giữ cookie, không thu hồi); SAU 10 giây => replay: thu hồi CẢ family (kể cả token con), audit (10707 ms)
+    √ truy cập đồng thời: 6 restore song song cùng token => đúng MỘT 200, còn lại 401 REMEMBER_RACE; đúng một token con, không thu hồi family (192 ms)
+    √ logout thu hồi chuỗi ghi nhớ của thiết bị này (LOGOUT) và xoá cookie; restore sau đó 401 (173 ms)
+    √ đăng nhập lại KHÔNG tích trên thiết bị còn cookie cũ => thu hồi chuỗi cũ (LOGIN_NO_REMEMBER) + xoá cookie (294 ms)
+    √ tối đa 5 thiết bị: thiết bị thứ 6 thay thiết bị ít dùng gần nhất (DEVICE_LIMIT) (889 ms)
+    √ đổi mật khẩu => trigger DB (token_version) thu hồi MỌI thiết bị (TOKEN_VERSION), response xoá cookie; token cũ restore 401 (709 ms)
+    √ pool nghiệp vụ (prisma = siscom_app) không đọc được remember_device khi đã tách pool auth (10 ms)
+  ● B1.4 Remember Me 90 ngày (Issue #177) › nhân viên không còn ACTIVE (khoá/nghỉ việc) => restore 401, thu hồi family (INVALID_STATE), không cấp phiên
+PASS test/db-roles.int-spec.ts
+    √ P3b (S2/S3): siscom_app bị từ chối 42501 khi ghi thẳng bí mật/quyền — password_hash, token_version, must_change_password, employee_role, privileged_change_request, reset token, app_meta, DELETE, setval (496 ms)
+    √ siscom_app (pool nghiệp vụ) bị 42501: đọc password_hash/token_version, đọc/chèn/sửa auth_session, sửa 7 cột đếm, gọi fn_auth_api_change_own_password (357 ms)
+    √ siscom_auth bị 42501 ngoài phạm vi xác thực: SELECT/INSERT customer, INSERT employee_role, UPDATE password_hash/token_version trực tiếp, DELETE auth_session, UPDATE audit_log, DDL, fn_auth_bootstrap_close (482 ms)
+PASS test/customers.int-spec.ts
+    √ 7. sinh mã đồng thời: 20 yêu cầu song song, 20 mã khác nhau (117 ms)
+    √ 16. không tồn tại -> 404 (GET, PATCH, restore, DELETE) (12 ms)
+PASS test/audit.int-spec.ts
+    √ khôi phục khách: có dòng nhật ký customer.restore (26 ms)
+PASS test/search.int-spec.ts
+    √ deleted=only: cần quyền restore và vẫn theo phạm vi (17 ms)
+PASS test/concurrency.int-spec.ts
+PASS test/db-errors.int-spec.ts
+PASS test/contacts.int-spec.ts
+PASS test/customers.search-equivalence.int-spec.ts (5.595 s)
+PASS test/timezone.int-spec.ts
+PASS test/owner-candidates.int-spec.ts
+PASS test/customers.list-pagination.int-spec.ts
+PASS test/lookups.int-spec.ts
+Test Suites: 1 failed, 12 passed, 13 total
+Tests:       1 failed, 153 passed, 154 total

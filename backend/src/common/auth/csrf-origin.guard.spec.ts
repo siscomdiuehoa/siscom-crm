@@ -1,6 +1,6 @@
 import type { ExecutionContext } from '@nestjs/common';
 import type { AuthConfig } from './auth.config';
-import { CsrfOriginGuard } from './csrf-origin.guard';
+import { CsrfOriginGuard, OriginOnly } from './csrf-origin.guard';
 import { DenyAllActorProvider } from './deny-all-actor.provider';
 import { SessionActorProvider, SessionRequest } from './session/session-actor.provider';
 import { newOpaqueToken, SESSION_COOKIE_NAME, sha256Hex } from './session/session-token';
@@ -51,5 +51,37 @@ describe('CsrfOriginGuard', () => {
   it('provider không phải SessionActorProvider (vd. giả trong test) mà có cookie phiên => 403 (fail-closed)', async () => {
     const g = new CsrfOriginGuard(new DenyAllActorProvider(), cfg);
     await expect403(g, ctx('POST', { cookie, origin: 'http://localhost:5173', 'x-csrf-token': csrf }).ec);
+  });
+});
+
+// Issue #177 — route tái lập phiên từ token ghi nhớ (@OriginOnly): chưa có phiên nên không có CSRF-token phiên; thay bằng Origin BẮT BUỘC + header tuỳ biến.
+describe('CsrfOriginGuard — @OriginOnly (restore Remember Me)', () => {
+  class Ctl { @OriginOnly() restore(): void { /* marker */ } other(): void { /* marker */ } }
+  const ctlCtx = (handler: 'restore' | 'other', method: string, headers: Record<string, unknown>) => {
+    const req = { method, headers } as unknown as SessionRequest;
+    return { ec: { switchToHttp: () => ({ getRequest: () => req }), getHandler: () => Ctl.prototype[handler] } as unknown as ExecutionContext, req };
+  };
+  const ok = { origin: 'http://localhost:5173', 'x-remember-restore': '1' };
+  it('Origin hợp lệ + header đúng => qua, KHÔNG tra phiên', async () => {
+    const p = provider(true);
+    const g = new CsrfOriginGuard(p, cfg);
+    expect(await g.canActivate(ctlCtx('restore', 'POST', ok).ec)).toBe(true);
+    expect((p as unknown as { lookup: jest.Mock }).lookup).not.toHaveBeenCalled();
+  });
+  it('cookie phiên cũ/hết hạn còn sót KHÔNG chặn restore (khác nhánh thường cần X-CSRF-Token)', async () => {
+    const g = new CsrfOriginGuard(provider(false), cfg);
+    expect(await g.canActivate(ctlCtx('restore', 'POST', { ...ok, cookie }).ec)).toBe(true);
+  });
+  it('thiếu Origin / Origin lạ / "null" / thiếu header / header sai => 403 CSRF_FAILED', async () => {
+    const g = new CsrfOriginGuard(provider(false), cfg);
+    await expect403(g, ctlCtx('restore', 'POST', { 'x-remember-restore': '1' }).ec);
+    await expect403(g, ctlCtx('restore', 'POST', { ...ok, origin: 'http://evil.example' }).ec);
+    await expect403(g, ctlCtx('restore', 'POST', { ...ok, origin: 'null' }).ec);
+    await expect403(g, ctlCtx('restore', 'POST', { origin: 'http://localhost:5173' }).ec);
+    await expect403(g, ctlCtx('restore', 'POST', { ...ok, 'x-remember-restore': '0' }).ec);
+  });
+  it('route KHÔNG gắn @OriginOnly giữ nguyên hành vi cũ (có cookie phiên hỏng => 403)', async () => {
+    const g = new CsrfOriginGuard(provider(false), cfg);
+    await expect403(g, ctlCtx('other', 'POST', { ...ok, cookie }).ec);
   });
 });

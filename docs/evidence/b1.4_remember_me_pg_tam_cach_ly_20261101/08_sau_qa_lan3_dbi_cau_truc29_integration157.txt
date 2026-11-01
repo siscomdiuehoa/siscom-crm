@@ -1,0 +1,26 @@
+# Sau QA bao mat lan 3 - cluster tam moi, DB I: cau truc + integration 13 suite 3 pool (gom Important-1). 127.0.0.1:55432, du lieu gia.
+DAT (RED mong doi voi V2)
+DAT: VERIFY (app) PASS|73
+DAT: VERIFY_AUTH (superuser -> SET ROLE siscom_auth) PASS|33
+HOAN TAT siscom_crm_test_20261101_074600
+## Kiem cau truc
+PASS|29
+## Integration
+PASS test/auth.int-spec.ts (46.69 s)
+    √ QA lần 3 Important-1: kẻ trộm restore trước rồi tự thu hồi thiết bị (revoke-all) để né phát hiện => nạn nhân dùng lại token cũ sau 10 giây vẫn là REPLAY, phiên kẻ trộm bị thu hồi (10699 ms)
+PASS test/customers.search-equivalence.int-spec.ts
+    √ mọi từ khóa × quyền đọc × sort × trang (đầu/2/cuối/vượt cuối): tổng, ID, thứ tự khớp (3606 ms)
+PASS test/concurrency.int-spec.ts
+  đồng thời (20 vòng × 10 yêu cầu)
+PASS test/db-roles.int-spec.ts
+PASS test/db-errors.int-spec.ts
+PASS test/customers.int-spec.ts
+PASS test/search.int-spec.ts
+PASS test/customers.list-pagination.int-spec.ts
+PASS test/audit.int-spec.ts
+PASS test/contacts.int-spec.ts
+PASS test/owner-candidates.int-spec.ts
+PASS test/timezone.int-spec.ts
+PASS test/lookups.int-spec.ts
+Test Suites: 13 passed, 13 total
+Tests:       157 passed, 157 total

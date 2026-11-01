@@ -9,11 +9,18 @@ import { DomainException } from '../../common/errors/domain.exception';
 import { AuthPrismaService } from '../../prisma/auth-prisma.service';
 import { LoginLimiter } from './login-limiter';
 import { checkPasswordPolicy } from '../../common/auth/login/password-policy';
+import { ipPrefix } from './client-hints';
+import { RememberDevices } from './remember-devices';
 
-export interface LoginInput { login: string; password: string; source: string; ip: string | null; userAgent: string | null; requestId?: string }
+// remember: checkbox "Ghi nhớ đăng nhập trên thiết bị này" (mặc định false). previousRememberToken: cookie siscom_rmb đã có trên thiết bị (nếu có).
+export interface LoginInput { login: string; password: string; source: string; ip: string | null; userAgent: string | null; requestId?: string; remember?: boolean; previousRememberToken?: string | null }
+export interface RememberCookieGrant { token: string; maxAgeSeconds: number }
+export interface RestoreInput { token: string | null; source: string; ip: string | null; userAgent: string | null; requestId?: string }
+// ABSENT: không có cookie hợp lệ; INVALID: từ chối (xoá cookie); RACE: yêu cầu song song vừa rotate (giữ cookie, thử lại /auth/me).
+export type RestoreOutcome = { kind: 'ABSENT' } | { kind: 'INVALID' } | { kind: 'RACE' } | ({ kind: 'OK'; remember: RememberCookieGrant } & Omit<LoginResult, 'remember'>);
 // B1.3.3 (PR 8): đổi mật khẩu của chính mình — D16 hợp đồng, D18 A hạn mức, D19 thu hồi mọi phiên rồi cấp phiên mới.
 export interface ChangePasswordInput { currentPassword: string; newPassword: string; confirmPassword: string; source: string; ip: string | null; userAgent: string | null; requestId?: string }
-export interface LoginResult { sessionToken: string; csrfToken: string; maxAgeSeconds: number; me: MeView }
+export interface LoginResult { sessionToken: string; csrfToken: string; maxAgeSeconds: number; me: MeView; remember?: RememberCookieGrant }
 export interface MeView { employeeId: string; code: string; fullName: string; departmentId: string | null; roles: readonly string[]; permissions: Readonly<Record<string, string>>; mustChangePassword: boolean }
 
 const LOGIN_FAILED = () => new DomainException(401, 'LOGIN_INVALID', 'Tên đăng nhập hoặc mật khẩu không đúng.');
@@ -33,20 +40,25 @@ export class AuthService {
   private readonly limiter: LoginLimiter;
   private readonly cpLimiter: LoginLimiter; // D18 A: hạn mức đổi mật khẩu theo (nguồn + nhân viên), cùng cấu hình với đăng nhập, không khoá tài khoản
   private readonly cpEmployeeLimiter: LoginLimiter; // D18 A (F4): trần theo nhân viên bất kể nguồn
+  private readonly restoreLimiter: LoginLimiter; // Issue #177: hạn mức tái lập phiên từ token ghi nhớ theo nguồn (chỉ tính khi có cookie đúng định dạng)
+  readonly rememberDevices = new RememberDevices();
 
-  // B1.4 P3c: moi truy van xac thuc di qua POOL AUTH (siscom_auth); pool nghiep vu khong con quyen.
+  // B1.4 P3c: moi truy van xac thuc di qua POOL AUTH (siscom_auth); pool nghiep vu khong con quyen. remember_device cung chi thuoc pool auth (V3).
   constructor(private readonly prisma: AuthPrismaService, @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig, private readonly sessions: SessionActorProvider) {
+    this.restoreLimiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: cfg.loginMaxPerSource, maxPerIdentifier: cfg.loginMaxPerIdentifier });
     this.limiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: cfg.loginMaxPerSource, maxPerIdentifier: cfg.loginMaxPerIdentifier });
     this.cpLimiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: cfg.loginMaxPerSource, maxPerIdentifier: cfg.loginMaxPerIdentifier });
     this.cpEmployeeLimiter = new LoginLimiter({ windowMs: cfg.loginWindowMinutes * 60_000, maxPerSource: 1_000_000_000, maxPerIdentifier: cfg.loginMaxPerIdentifier * CP_EMPLOYEE_FACTOR });
   }
 
   // Dữ liệu một phiên mới (token đục 256-bit, DB chỉ lưu SHA-256). Dùng chung cho login và changePassword.
-  private newSession(employeeId: string, now: Date, ip: string | null, userAgent: string | null) {
+  // capAbs (Remember Me, QA I-1): mốc tuyệt đối không được vượt (hạn 90 ngày của thiết bị ghi nhớ). Không truyền => chính sách phiên thường.
+  private newSession(employeeId: string, now: Date, ip: string | null, userAgent: string | null, capAbs?: Date) {
     const sessionToken = newOpaqueToken();
     const csrfToken = newOpaqueToken();
     const idle = new Date(now.getTime() + this.cfg.sessionIdleMinutes * 60_000);
-    const abs = new Date(now.getTime() + this.cfg.sessionAbsHours * 3_600_000);
+    const normalAbs = now.getTime() + this.cfg.sessionAbsHours * 3_600_000;
+    const abs = new Date(capAbs !== undefined ? Math.min(normalAbs, capAbs.getTime()) : normalAbs);
     const data = {
       employeeId, familyId: randomUUID(), refreshHash: sha256Hex(sessionToken), csrfHash: sha256Hex(csrfToken),
       issuedAt: now, lastUsedAt: now, idleExpiresAt: idle < abs ? idle : abs, absExpiresAt: abs,
@@ -71,7 +83,7 @@ export class AuthService {
     const row = employeeId === null ? null : await this.prisma.employee.findUnique({
       where: { id: employeeId },
       select: { id: true, code: true, fullName: true, status: true, departmentId: true,
-        credential: { select: { passwordHash: true, passwordAlgo: true, status: true, lockedUntil: true, failedCount: true, windowStartedAt: true, lockLevel: true, mustChangePassword: true } } },
+        credential: { select: { passwordHash: true, passwordAlgo: true, status: true, lockedUntil: true, failedCount: true, windowStartedAt: true, lockLevel: true, mustChangePassword: true, tokenVersion: true } } },
     });
     const cred = row?.credential ?? null;
     const usable = row !== null && row.status === 'ACTIVE' && cred !== null && cred.status === 'ACTIVE' && cred.passwordAlgo === ARGON2_ALGO
@@ -84,13 +96,95 @@ export class AuthService {
 
     const ns = this.newSession(row!.id, now, input.ip, input.userAgent);
     const { sessionToken, csrfToken } = ns;
-    await this.prisma.$transaction(async (tx) => {
+    // Issue #177: chỉ cấp token ghi nhớ khi người dùng CHỦ ĐỘNG tích (mặc định false) và không bị buộc đổi mật khẩu (token sẽ vô dụng: restore từ chối).
+    const wantRemember = input.remember === true && !cred!.mustChangePassword;
+    const remember = await this.prisma.$transaction(async (tx) => {
       await tx.employeeCredential.update({ where: { employeeId: row!.id }, data: { failedCount: 0, windowStartedAt: null, lockedUntil: null, lockLevel: 0, lastLoginAt: now } });
       await tx.authSession.create({ data: ns.data });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: row!.id, action: 'auth.login_ok', entityType: 'employee', entityId: row!.id, entityCode: row!.code, summary: 'Đăng nhập thành công', requestId: rid(input.requestId) } });
+      // Thiết bị đã có cookie nhớ cũ: luôn thu hồi chuỗi cũ (đăng nhập lại bằng mật khẩu = thiết lập lại lựa chọn), rồi cấp mới nếu được tích.
+      if (input.previousRememberToken) await this.rememberDevices.revokeByToken(tx, input.previousRememberToken, null, 'LOGIN_NO_REMEMBER', now);
+      if (!wantRemember) return undefined;
+      const g = await this.rememberDevices.issue(tx, { employeeId: row!.id, tokenVersion: cred!.tokenVersion, passwordAuthAt: now, now, ip: input.ip, userAgent: input.userAgent });
+      await tx.auditLog.create({ data: { actorType: 'USER', actorId: row!.id, action: 'auth.remember_issued', entityType: 'employee', entityId: row!.id, entityCode: row!.code, summary: 'Bật ghi nhớ đăng nhập trên thiết bị', requestId: rid(input.requestId) } });
+      return { token: g.token, maxAgeSeconds: g.maxAgeSeconds };
     });
     const me = await this.me(await this.sessions.lookup(sessionCookieFor(sessionToken)), row!);
-    return { sessionToken, csrfToken, maxAgeSeconds: ns.maxAgeSeconds, me };
+    return { sessionToken, csrfToken, maxAgeSeconds: ns.maxAgeSeconds, me, ...(remember ? { remember } : {}) };
+  }
+
+  // Tái lập một phiên THƯỜNG (8h idle/12h abs) từ token ghi nhớ (Issue #177). Một transaction: compare-and-set rotated_at => kiểm tài khoản
+  // => token con (cùng family, cùng mốc 90 ngày) + auth_session mới + nhật ký. Mọi kết quả từ chối được commit trước khi trả (thu hồi không bị rollback).
+  async restoreRemembered(input: RestoreInput): Promise<RestoreOutcome> {
+    if (input.token === null) return { kind: 'ABSENT' };
+    if (!this.restoreLimiter.allow(input.source, null)) throw new DomainException(429, 'REMEMBER_THROTTLED', 'Quá nhiều lần thử, vui lòng thử lại sau.');
+    const token = input.token;
+    const now = new Date();
+    const out = await this.prisma.$transaction(async (tx) => {
+      const c = await this.rememberDevices.consume(tx, token, now);
+      if (c.kind === 'REPLAY' && c.row) {
+        // QA lần 3b Important-A: family ĐÃ bị thu hồi trước đó => mốc = thời điểm thu hồi sớm nhất đã xảy ra (lần thu hồi family).
+        const priorRevokedAt = await this.rememberDevices.familyRevokedAt(tx, c.row.familyId);
+        await this.rememberDevices.revokeFamily(tx, c.row.familyId, 'REPLAY', now);
+        // QA bảo mật I-2: kẻ đánh cắp có thể đã restore trước và đang giữ phiên thường. Chưa có liên kết phiên <-> family (cần migration riêng)
+        // => thu hồi mọi phiên đang mở của nhân viên được TẠO TRƯỚC mốc: family chưa thu hồi => tới hiện tại; đã thu hồi => tới lúc thu hồi family
+        // (phiên của kẻ trộm luôn tạo trước đó; phiên nạn nhân đăng nhập lại SAU đó không bị token cũ đăng xuất lặp lại).
+        const cutoff = priorRevokedAt ?? now;
+        const n = (await tx.authSession.updateMany({ where: { employeeId: c.row.employeeId, revokedAt: null, issuedAt: { lte: cutoff } }, data: { revokedAt: now, revokeReason: 'REMEMBER_REPLAY' } })).count;
+        // QA lần 3c Minor-2: luôn ghi audit (dấu vết thử dùng token bị lộ), đánh dấu khi family đã bị thu hồi từ trước. Số dòng bị chặn bởi restoreLimiter.
+        await tx.auditLog.create({ data: { actorType: 'ANONYMOUS', action: 'auth.remember_replay', entityType: 'employee', entityId: c.row.employeeId,
+          summary: 'Phát hiện dùng lại token ghi nhớ đã xoay vòng; thu hồi thiết bị và các phiên tạo trước đó',
+          changes: priorRevokedAt === null ? { sessions: n } : { sessions: n, familyAlreadyRevoked: true }, requestId: rid(input.requestId) } });
+        return { kind: 'INVALID' as const };
+      }
+      if (c.kind !== 'OK') return { kind: (c.kind === 'RACE' ? 'RACE' : 'INVALID') as 'RACE' | 'INVALID' };
+      const emp = await tx.employee.findUnique({
+        where: { id: c.row.employeeId },
+        select: { id: true, code: true, fullName: true, status: true, deletedAt: true, departmentId: true, credential: { select: { status: true, mustChangePassword: true, tokenVersion: true } } },
+      });
+      const cred = emp?.credential ?? null;
+      // Fail-closed: không ACTIVE / đã xoá / bị buộc đổi mật khẩu / token_version đã đổi => thu hồi chuỗi, KHÔNG cấp phiên.
+      if (!emp || emp.status !== 'ACTIVE' || emp.deletedAt !== null || cred === null || cred.status !== 'ACTIVE' || cred.mustChangePassword || cred.tokenVersion !== c.row.tokenVersion) {
+        await this.rememberDevices.revokeFamily(tx, c.row.familyId, 'INVALID_STATE', now);
+        return { kind: 'INVALID' as const };
+      }
+      // QA bảo mật I-1: phiên tái lập không được sống quá mốc 90 ngày của thiết bị.
+      const ns = this.newSession(emp.id, now, input.ip, input.userAgent, c.row.absExpiresAt);
+      const next = await this.rememberDevices.rotate(tx, c.row, { now, ip: input.ip, userAgent: input.userAgent });
+      await tx.authSession.create({ data: ns.data });
+      await tx.auditLog.create({ data: { actorType: 'USER', actorId: emp.id, action: 'auth.remember_restored', entityType: 'employee', entityId: emp.id, entityCode: emp.code, summary: 'Khôi phục phiên từ thiết bị ghi nhớ', requestId: rid(input.requestId) } });
+      return { kind: 'OK' as const, ns, next, emp };
+    }).catch((e: unknown) => {
+      // QA lần 2 Minor-2: thu hồi family chạy song song với rotate => trigger fn_rmb_before_insert từ chối token con. Bảo mật đã giữ
+      // (không hồi sinh family); trả INVALID (401 + xoá cookie) thay vì 500 lặp lại. Lỗi khác: ném tiếp.
+      if (/REMEMBER_FAMILY_REVOKED/.test(e instanceof Error ? e.message : String(e))) return { kind: 'INVALID' as const };
+      throw e;
+    });
+    if (out.kind !== 'OK') return { kind: out.kind };
+    const { ns, next, emp } = out;
+    const me = await this.me(await this.sessions.lookup(sessionCookieFor(ns.sessionToken)), { id: emp.id, code: emp.code, fullName: emp.fullName, departmentId: emp.departmentId, credential: { mustChangePassword: false } });
+    return { kind: 'OK', sessionToken: ns.sessionToken, csrfToken: ns.csrfToken, maxAgeSeconds: ns.maxAgeSeconds, me, remember: { token: next.token, maxAgeSeconds: next.maxAgeSeconds } };
+  }
+
+  async listRememberDevices(s: ResolvedSession, currentToken: string | null) {
+    return this.rememberDevices.list(this.prisma, s.actor.employeeId, currentToken, new Date());
+  }
+
+  // false => không có thiết bị đó của chính mình (controller trả 404, không phân biệt "của người khác" với "không tồn tại").
+  async revokeRememberDevice(s: ResolvedSession, familyId: string, requestId?: string): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const ok = await this.rememberDevices.revokeOne(tx, s.actor.employeeId, familyId, 'REVOKED_BY_USER', new Date());
+      if (ok) await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi một thiết bị ghi nhớ', requestId: rid(requestId) } });
+      return ok;
+    });
+  }
+
+  async revokeAllRememberDevices(s: ResolvedSession, requestId?: string): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const n = await this.rememberDevices.revokeAll(tx, s.actor.employeeId, 'REVOKE_ALL', new Date());
+      await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi mọi thiết bị ghi nhớ', changes: { devices: n }, requestId: rid(requestId) } });
+      return n;
+    });
   }
 
   // Đổi mật khẩu của chính mình (B1.3.3). Thứ tự: hạn mức (D18 A: nguồn+nhân viên, và trần theo nhân viên) -> xác nhận khớp -> tải nhân viên/credential
@@ -176,9 +270,12 @@ export class AuthService {
     }
   }
 
-  async logout(s: ResolvedSession, requestId?: string): Promise<void> {
+  // Đăng xuất thiết bị hiện tại: hủy phiên VÀ chuỗi token ghi nhớ của thiết bị này (chỉ khi token thuộc đúng nhân viên đang đăng xuất).
+  async logout(s: ResolvedSession, requestId?: string, rememberToken?: string | null): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      await tx.authSession.updateMany({ where: { id: s.sessionId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'LOGOUT' } });
+      const now = new Date();
+      await tx.authSession.updateMany({ where: { id: s.sessionId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'LOGOUT' } });
+      if (rememberToken) await this.rememberDevices.revokeByToken(tx, rememberToken, s.actor.employeeId, 'LOGOUT', now);
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.logout', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Đăng xuất', requestId: rid(requestId) } });
     });
   }
@@ -198,11 +295,3 @@ function isStaleTokenVersion(e: unknown): boolean {
   return /STALE_TOKEN_VERSION/.test(text) || /STALE_TOKEN_VERSION/.test(String(meta?.message ?? ''));
 }
 const sessionCookieFor = (token: string): string => SESSION_COOKIE_NAME + '=' + token;
-// Chỉ lưu tiền tố IP (IPv4 /24, IPv6 /48) để nhận diện phiên bất thường mà không lưu địa chỉ đầy đủ.
-function ipPrefix(ip: string | null): string | null {
-  if (!ip) return null;
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/.exec(ip);
-  if (v4) return `${v4[1]}.${v4[2]}.${v4[3]}.0/24`;
-  if (ip.includes(':')) return ip.split(':').slice(0, 3).join(':') + '::/48';
-  return null;
-}
