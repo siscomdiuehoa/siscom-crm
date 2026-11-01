@@ -33,5 +33,8 @@ Test tự động (chạy trên máy owner):
 Ghi nhận, không sửa: **I-3** `customerContactPersonUi.test.mjs` (React + vite) chưa nằm trong CI — giống các test miniDom có sẵn khác (khoảng trống CI cũ); chạy tay: đạt. **M-7** đổi tên nhiều lần để lại bản ghi cũ (đúng thiết kế đã duyệt).
 Sau sửa: FE `node --test tests/*.test.mjs` **494 / 494**; `04_chrome_nguoi_lien_he_sau_QA.txt/.json` Chrome thật **18 / 0** (bản build sau sửa). Hồi quy 91 ca (file 02) chạy trên bản trước sửa QA.
 
+## Chỉnh theo ghi chú owner (ảnh khoanh đỏ, 2026-11-01)
+Mục "Người liên hệ" chuyển lên ngay sau "Thông tin doanh nghiệp", trước "Địa chỉ & liên hệ"; gợi ý ô đổi thành "dùng số điện thoại công ty (mục Địa chỉ & liên hệ)". Test thứ tự mục (UI) + FE **495 / 495**; Chrome thật: `05_chrome_thu_tu_muc.txt` PASS, ảnh `05_form_thu_tu_muc_nguoi_lien_he.png`.
+
 Chưa kiểm chứng: khách nhập từ dữ liệu cũ có SĐT công ty không hợp lệ (người liên hệ sẽ bị server từ chối, giao diện báo cảnh báo — có test giả lập, chưa có dữ liệu thật); trình duyệt khác Chrome.
 Dữ liệu thử để lại trên DB demo: 2 khách `Cty LH Admin …`, `Cty LH Sale …` và 3 người liên hệ.

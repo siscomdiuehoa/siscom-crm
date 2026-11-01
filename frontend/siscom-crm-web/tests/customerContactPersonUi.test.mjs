@@ -207,3 +207,12 @@ test('QA M-4: SĐT công ty cũ không hợp lệ + nhập tên người liên h
     assert.match(text(m.container), /Số điện thoại công ty chưa hợp lệ/);
   } finally { await m.unmount(); }
 });
+
+test('owner 2026-11-01: mục "Người liên hệ" nằm ngay sau "Thông tin doanh nghiệp", trước "Địa chỉ & liên hệ"', async () => {
+  const f = server(); const m = await mountNew(f);
+  try {
+    const legends = [...m.container.querySelectorAll((e) => e.tagName === 'LEGEND')].map((e) => text(e));
+    const i = (re) => legends.findIndex((t) => re.test(t));
+    assert.ok(i(/Thông tin doanh nghiệp/) >= 0 && i(/^Người liên hệ$/) === i(/Thông tin doanh nghiệp/) + 1 && i(/Địa chỉ & liên hệ/) === i(/^Người liên hệ$/) + 1, JSON.stringify(legends));
+  } finally { await m.unmount(); }
+});

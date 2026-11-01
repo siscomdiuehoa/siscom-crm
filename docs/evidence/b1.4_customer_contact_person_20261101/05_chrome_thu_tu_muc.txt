@@ -1,0 +1,2 @@
+﻿[PASS] O1 thu tu muc: Thong tin doanh nghiep -> Nguoi lien he -> Dia chi & lien he — ["Thông tin doanh nghiệp","Người liên hệ","Địa chỉ & liên hệ","Phân loại & phụ trách"]
+TONG: PASS=1 FAIL=0

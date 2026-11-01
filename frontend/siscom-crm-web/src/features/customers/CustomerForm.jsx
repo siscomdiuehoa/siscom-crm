@@ -113,6 +113,13 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
             <Select label="Ngành nghề" placeholder="Chưa chọn" value={f.industry} onChange={set('industry')} {...L('industry', D.INDUSTRIES, true)} error={err('industry')} />
             <Select label="Nguồn khách hàng" value={f.source} onChange={set('source')} {...L('source', D.SOURCES, true)} error={err('source')} />
           </Section>
+          {showContact ? (
+            // Owner (2026-11-01): mục Người liên hệ đặt ngay sau Thông tin doanh nghiệp, trước Địa chỉ & liên hệ.
+            <Section title="Người liên hệ" icon="contact">
+              <div style={{ gridColumn: '1 / -1' }}><Input label="Tên người liên hệ" placeholder="Nguyễn Văn A" value={f.contactName} onChange={set('contactName')} maxLength={CONTACT_NAME_MAX} error={err('contactName')}
+                hint={'Mỗi khách hàng một người liên hệ; dùng số điện thoại công ty (mục Địa chỉ & liên hệ).' + (hasContact ? ' Để trống = giữ người liên hệ hiện tại.' : '')} /></div>
+            </Section>
+          ) : null}
           <Section title="Địa chỉ & liên hệ" icon="map-pin">
             <div style={{ gridColumn: '1 / -1' }}><Input label="Địa chỉ" placeholder="Số nhà, đường, phường/xã" value={f.address} onChange={set('address')} error={err('address')} /></div>
             <Select label="Tỉnh / Thành phố" placeholder="Chưa chọn" value={f.city} onChange={set('city')} {...L('city', D.CITIES, true)} error={err('city')} />
@@ -128,12 +135,6 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
               : <div style={{ gridColumn: '1 / -1' }}><Select label="Nhân viên kinh doanh phụ trách" placeholder="Chưa chọn" icon="user-round" value={f.owner} onChange={set('owner')} options={withNone(D.OWNERS)} error={err('owner')} /></div>}
             <div style={{ gridColumn: '1 / -1' }}><Input label="Ghi chú nội bộ" multiline rows={3} placeholder="Nhu cầu, lịch sử hợp tác, lưu ý khi làm việc…" value={f.note} onChange={set('note')} hint={f.note.length + '/500 ký tự'} maxLength={500} /></div>
           </Section>
-          {showContact ? (
-            <Section title="Người liên hệ" icon="contact">
-              <div style={{ gridColumn: '1 / -1' }}><Input label="Tên người liên hệ" placeholder="Nguyễn Văn A" value={f.contactName} onChange={set('contactName')} maxLength={CONTACT_NAME_MAX} error={err('contactName')}
-                hint={'Mỗi khách hàng một người liên hệ; dùng số điện thoại công ty ở trên.' + (hasContact ? ' Để trống = giữ người liên hệ hiện tại.' : '')} /></div>
-            </Section>
-          ) : null}
           {isNew && !apiOn ? (
             <Section title="Người liên hệ chính (không bắt buộc)" icon="contact">
               <Input label="Họ và tên" placeholder="Nguyễn Văn A" value={f.cName} onChange={set('cName')} />
