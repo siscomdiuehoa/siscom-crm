@@ -1,0 +1,2 @@
+# Bang chung: giao dien o be rong dien thoai (390 px, deviceScaleFactor 2, user-agent iPhone) - Chrome headless that tren ban demo (cum 55433), ma = main ebe43a8 + PR #191 (khong doi giao dien).
+Ket qua: dang nhap / danh sach / chi tiet / bieu mau sua dung duoc; 2 loi nho: thanh tren cung bi cat bieu tuong chuong (anh m02), man hinh dang nhap rong 396 px > 390 px (lech 6 px; kiem M1 doc lech thoi diem nen ghi PASS nhung so do thuc te la 396).

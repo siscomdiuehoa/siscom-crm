@@ -1,0 +1,5 @@
+﻿[PASS] M1 man hinh dang nhap khong tran ngang — scrollWidth=396
+[PASS] M2 danh sach: tran ngang? — scrollWidth=390
+[PASS] M3 chi tiet: tran ngang? — scrollWidth=390
+[PASS] M4 form sua mo duoc tren man hinh hep
+TONG: PASS=4 FAIL=0
