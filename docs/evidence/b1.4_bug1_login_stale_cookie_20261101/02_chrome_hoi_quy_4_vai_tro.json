@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-01T08:43:56.132Z",
+  "at": "2026-11-01T08:50:25.525Z",
   "web": "http://127.0.0.1:4173",
   "api": "http://127.0.0.1:3100",
   "browser": "chrome.exe",
@@ -9,7 +9,7 @@
     "fail": 0,
     "known": 0
   },
-  "createdCustomerCode": "KH-00014",
+  "createdCustomerCode": "KH-00016",
   "roles": {
     "admin": {
       "email": "admin@siscom.local",
@@ -26,7 +26,7 @@
         "contact.create": "ALL",
         "lookup.read": "ALL"
       },
-      "customersTotal": 11
+      "customersTotal": 13
     },
     "accountant": {
       "email": "ketoan@siscom.local",
@@ -38,7 +38,7 @@
         "contact.read": "ALL",
         "lookup.read": "ALL"
       },
-      "customersTotal": 12
+      "customersTotal": 14
     },
     "technician": {
       "email": "kythuat@siscom.local",
@@ -65,7 +65,7 @@
         "contact.create": "OWN",
         "lookup.read": "ALL"
       },
-      "customersTotal": 4,
+      "customersTotal": 5,
       "passwordChange": {
         "oldSessionRevoked": true,
         "restored": true
@@ -131,7 +131,7 @@
     {
       "id": "S3.admin danh sách khách hàng: UI không lỗi, GET /customers 200",
       "status": "PASS",
-      "detail": "total=11"
+      "detail": "total=13"
     },
     {
       "id": "S4.admin.lookups GET /lookups => 200, danh mục D3 có POTENTIAL (tier/status) và WEBSITE (source)",
@@ -161,12 +161,12 @@
     {
       "id": "S4.admin.3 tạo: POST /customers CSRF đúng => 201, mã KH-xxxxx, tier/status mặc định POTENTIAL, source WEBSITE (D3 đã seed)",
       "status": "PASS",
-      "detail": "status=201 code=KH-00014"
+      "detail": "status=201 code=KH-00016"
     },
     {
       "id": "S4.admin.4 khách vừa tạo hiện trên danh sách UI (sau tải lại trang)",
       "status": "PASS",
-      "detail": "KH-00014"
+      "detail": "KH-00016"
     },
     {
       "id": "S4.admin.5 xem: GET /customers/:id => 200, đúng mã, version 1",
@@ -199,9 +199,9 @@
       "detail": ""
     },
     {
-      "id": "S5.admin.list phạm vi ALL: THẤY khách KH-00014",
+      "id": "S5.admin.list phạm vi ALL: THẤY khách KH-00016",
       "status": "PASS",
-      "detail": "total=12"
+      "detail": "total=14"
     },
     {
       "id": "S6.admin tải lại trang => vẫn đăng nhập (restore), /auth/me 200, có siscom_csrf",
@@ -241,7 +241,7 @@
     {
       "id": "S3.accountant danh sách khách hàng: UI không lỗi, GET /customers 200",
       "status": "PASS",
-      "detail": "total=12"
+      "detail": "total=14"
     },
     {
       "id": "S4.accountant.lookups GET /lookups => 200, danh mục D3 có POTENTIAL (tier/status) và WEBSITE (source)",
@@ -269,9 +269,9 @@
       "detail": "status=403 code=FORBIDDEN"
     },
     {
-      "id": "S5.accountant.list phạm vi ALL: THẤY khách KH-00014",
+      "id": "S5.accountant.list phạm vi ALL: THẤY khách KH-00016",
       "status": "PASS",
-      "detail": "total=12"
+      "detail": "total=14"
     },
     {
       "id": "S5.accountant.view xem GET /customers/:id => 200",
@@ -359,7 +359,7 @@
       "detail": "status=403 code=FORBIDDEN"
     },
     {
-      "id": "S5.technician.list phạm vi DEPARTMENT: KHÔNG thấy khách KH-00014",
+      "id": "S5.technician.list phạm vi DEPARTMENT: KHÔNG thấy khách KH-00016",
       "status": "PASS",
       "detail": "total=0"
     },
@@ -416,7 +416,7 @@
     {
       "id": "S3.sale danh sách khách hàng: UI không lỗi, GET /customers 200",
       "status": "PASS",
-      "detail": "total=4"
+      "detail": "total=5"
     },
     {
       "id": "S4.sale.lookups GET /lookups => 200, danh mục D3 có POTENTIAL (tier/status) và WEBSITE (source)",
@@ -441,7 +441,7 @@
     {
       "id": "S4.sale.3 tạo (B3): POST /customers phạm vi OWN => 201, chủ sở hữu = chính mình",
       "status": "PASS",
-      "detail": "status=201 code=KH-00015 owner=NV-0003"
+      "detail": "status=201 code=KH-00017 owner=NV-0003"
     },
     {
       "id": "S4.sale.4 xem khách của mình: GET /customers/:id => 200",
@@ -461,17 +461,17 @@
     {
       "id": "S4.sale.7 danh sách OWN: THẤY khách của mình, KHÔNG thấy khách crm_admin",
       "status": "PASS",
-      "detail": "total=5"
+      "detail": "total=6"
     },
     {
       "id": "S4.sale.8 khách của mình hiện trên danh sách UI (sau tải lại trang)",
       "status": "PASS",
-      "detail": "KH-00015"
+      "detail": "KH-00017"
     },
     {
-      "id": "S5.sale.list phạm vi OWN: KHÔNG thấy khách KH-00014",
+      "id": "S5.sale.list phạm vi OWN: KHÔNG thấy khách KH-00016",
       "status": "PASS",
-      "detail": "total=5"
+      "detail": "total=6"
     },
     {
       "id": "S5.sale.view xem GET /customers/:id => 404",

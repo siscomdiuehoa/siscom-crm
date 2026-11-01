@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-01T08:43:27.641Z",
+  "at": "2026-11-01T08:50:08.592Z",
   "web": "http://127.0.0.1:4173",
   "user": "sale@siscom.local",
   "results": [
@@ -56,7 +56,7 @@
     {
       "id": "R3.2 token ghi nho da xoay vong (gia tri moi, so bang hash)",
       "status": "PASS",
-      "detail": "cu=cdc48105 moi=1bbe3b02"
+      "detail": "cu=cc741dc4 moi=be4e348d"
     },
     {
       "id": "R3.3 co phien thuong moi (siscom_sid) va /auth/me 200",
