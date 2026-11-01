@@ -66,6 +66,9 @@ export async function fetchDbRoleFacts(client: Pick<PrismaClient, '$queryRaw'>):
                OR has_column_privilege(current_user, 'public.employee_credential', 'password_hash', 'SELECT')
                OR has_any_column_privilege(current_user, 'public.employee_credential', 'INSERT') OR has_any_column_privilege(current_user, 'public.employee_credential', 'UPDATE')
                OR has_table_privilege(current_user, 'public.employee_credential', 'DELETE')
+               OR (CASE WHEN to_regclass('public.remember_device') IS NULL THEN false
+                        ELSE has_any_column_privilege(current_user, 'public.remember_device', 'SELECT') OR has_any_column_privilege(current_user, 'public.remember_device', 'INSERT')
+                             OR has_any_column_privilege(current_user, 'public.remember_device', 'UPDATE') OR has_table_privilege(current_user, 'public.remember_device', 'DELETE') END)
                OR (CASE WHEN to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NULL THEN false
                         ELSE has_function_privilege(current_user, 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE') END) END) AS has_auth_grants,
     (CASE WHEN to_regclass('public.customer') IS NULL THEN false ELSE has_any_column_privilege(current_user, 'public.customer', 'INSERT') END) AS can_write_business`;

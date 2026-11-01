@@ -7,7 +7,7 @@ import { deriveLoginView, createLoginSubmitter, focusTargetAfterSubmit, touchedA
 // `session` là bộ điều khiển headless (createLoginSession); component không tự tạo client, không đọc storage.
 // Trợ năng: Enter gửi qua <form> (một lần, có chặn gửi trùng), lỗi gắn aria-describedby + aria-invalid,
 // banner role="alert", focus về trường lỗi đầu tiên, nút hiện/ẩn mật khẩu (không log, không lưu).
-export const LOGIN_IDS = { identifier: 'login-identifier', password: 'login-password', identifierError: 'login-identifier-error', passwordError: 'login-password-error', banner: 'login-banner' };
+export const LOGIN_IDS = { identifier: 'login-identifier', password: 'login-password', identifierError: 'login-identifier-error', passwordError: 'login-password-error', banner: 'login-banner', remember: 'login-remember', rememberHint: 'login-remember-hint' };
 
 function FieldError({ id, children }) {
   if (!children) return null;
@@ -20,6 +20,7 @@ export default function LoginScreen({ session, enabled = false }) {
   const [password, setPassword] = React.useState('');
   const [touched, setTouched] = React.useState({});
   const [showPassword, setShowPassword] = React.useState(false);
+  const [remember, setRemember] = React.useState(false); // B1.4 Remember Me: mặc định KHÔNG tích
   const [focusRequest, setFocusRequest] = React.useState(null); // { field, n }
   const submitter = React.useMemo(() => createLoginSubmitter(session), [session]);
 
@@ -34,7 +35,7 @@ export default function LoginScreen({ session, enabled = false }) {
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    const r = await submitter(identifier, password);
+    const r = await submitter(identifier, password, remember);
     if (r.reason === 'IN_FLIGHT') return;
     setTouched(touchedAfterSubmit(r));
     if (r.submitted) { setPassword(''); setShowPassword(false); } // không giữ mật khẩu sau khi gửi
@@ -74,6 +75,14 @@ export default function LoginScreen({ session, enabled = false }) {
             )}
             onChange={(e) => setPassword(e.target.value)} onBlur={() => setTouched((t) => ({ ...t, password: true }))} />
           <FieldError id={LOGIN_IDS.passwordError}>{view.passwordError}</FieldError>
+        </div>
+        <div style={{ display: 'grid', gap: 4 }}>
+          <label htmlFor={LOGIN_IDS.remember} style={{ display: 'flex', gap: 8, alignItems: 'center', font: 'var(--type-sm)' }}>
+            <input id={LOGIN_IDS.remember} name="remember" type="checkbox" checked={remember} disabled={view.inputsDisabled}
+              aria-describedby={LOGIN_IDS.rememberHint} onChange={(e) => setRemember(e.target.checked)} />
+            {LOGIN_UI_TEXT.rememberLabel}
+          </label>
+          <span id={LOGIN_IDS.rememberHint} className="sg-hint" style={{ font: 'var(--type-xs, 12px)', color: 'var(--text-3)' }}>{LOGIN_UI_TEXT.rememberHint}</span>
         </div>
         <Button type="submit" block loading={view.loading} disabled={view.submitBlocked}>{LOGIN_UI_TEXT.submit}</Button>
       </form>

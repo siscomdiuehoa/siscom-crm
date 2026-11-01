@@ -142,10 +142,13 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_CONSTRAINT_TESTS.sql.txt res migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_CONSTRAINT_TESTS.sql.txt res migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_STRUCTURE_TESTS.sql.txt ok app
+          # B1.4 Remember Me: rang buoc 90 ngay, bat bien, thu hoi theo token_version (chu so huu, tu ROLLBACK)
+          bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt res migrator
       - name: Dien tap rollback day du (S1 -> M1.3 -> M1.2 -> M1.1 -> M1), migrate deploy lai (siscom_app), tach role lai, verify
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh unsplit
+          bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_ROLLBACK.sql.txt run app
@@ -164,6 +167,26 @@ jobs:
           set -euo pipefail
           npx prisma migrate deploy
           npx prisma migrate status
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          MIGRATE_DATABASE_URL: ${{ env.TEST_MIGRATE_DATABASE_URL }}
+      # B1.4 Remember Me (Issue #177): dien tap DUNG thu tu production - migration moi ap SAU khi tach role (bang siscom_migrator). Quyen mac dinh
+      # (V3 muc 6) cap SELECT cho siscom_app tren bang MOI => VERIFY (app) phai bat duoc (B1f) cho toi khi chay lai V3. Rollback truoc, ap lai sau.
+      - name: B1.4 Remember Me - rollback (migrator) => V3 => VERIFY PASS; migrate deploy (migrator) => VERIFY FAIL B1f (quyen mac dinh) => V3 => PASS app + auth + cau truc
+        run: |
+          set -euo pipefail
+          bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_ROLLBACK.sql.txt run migrator
+          bash scripts/ci/pg-temp-db.sh grants v3
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
+          npx prisma migrate deploy
+          npx prisma migrate status
+          out="$(bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app 2>&1)" && { echo "$out" | tail -5; echo 'KHONG DAT: VERIFY phai FAIL (B1f) truoc khi chay lai V3'; exit 1; } || true
+          echo "$out" | grep -E '^B1f .*KHONG DAT' || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay B1f bi bat'; exit 1; }
+          echo 'DAT (RED mong doi): bang moi nhan SELECT mac dinh cho siscom_app => VERIFY bat B1f'
+          bash scripts/ci/pg-temp-db.sh grants v3
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt res migrator
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
           MIGRATE_DATABASE_URL: ${{ env.TEST_MIGRATE_DATABASE_URL }}
@@ -224,7 +247,7 @@ jobs:
       - name: Test offline FE (R01 adapter + M02 XSS + S02 cau noi auth + PR4 phien cookie + PR7 nhan vien phu trach + D.0 ngay gio VN; node --test, khong Chrome, khong DB)
         run: |
           set -euo pipefail
-          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs tests/ownerCandidates.test.mjs tests/changePassword.test.mjs tests/dateVN.test.mjs"
+          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs tests/ownerCandidates.test.mjs tests/changePassword.test.mjs tests/dateVN.test.mjs tests/rememberMe.test.mjs"
           # node --test coi duong dan khong ton tai nhu glob rong va van thoat 0 -> bat buoc kiem tra ton tai.
           for f in $FILES; do test -f "$f" || { echo "THIEU file test: $f"; exit 1; }; done
           node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=node-tests-junit.xml $FILES

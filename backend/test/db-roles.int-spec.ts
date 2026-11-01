@@ -232,6 +232,11 @@ dAuth('B1.4 P3c — pool xác thực siscom_auth tách khỏi siscom_app', () =>
       'UPDATE public.auth_session SET revoked_at = revoked_at WHERE false',
       'UPDATE public.employee_credential SET failed_count = failed_count, locked_until = locked_until WHERE false',
       "SELECT public.fn_auth_api_change_own_password(gen_random_uuid(), 1, 'x', 'argon2id', '{}'::jsonb)",
+      // B1.4 Remember Me: token ghi nhớ 90 ngày chỉ thuộc pool auth (V3) — app không đọc/chèn/sửa/xoá.
+      'SELECT token_hash FROM public.remember_device WHERE false',
+      "INSERT INTO public.remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) SELECT gen_random_uuid(), gen_random_uuid(), 'x', 1, now(), now() WHERE false",
+      'UPDATE public.remember_device SET revoked_at = revoked_at WHERE false',
+      'DELETE FROM public.remember_device WHERE false',
     ]) expect({ sql, code: await appTry(sql) }).toEqual({ sql, code: '42501' });
   });
   it('siscom_auth làm được việc xác thực: SELECT employee/credential (kể cả password_hash), INSERT/UPDATE auth_session, UPDATE 7 cột, INSERT audit_log; EXECUTE đổi mật khẩu', async () => {
@@ -242,6 +247,9 @@ dAuth('B1.4 P3c — pool xác thực siscom_auth tách khỏi siscom_app', () =>
       'UPDATE public.employee_credential SET failed_count = failed_count, window_started_at = window_started_at, locked_until = locked_until, lock_level = lock_level, last_login_at = last_login_at, password_changed_at = password_changed_at, updated_at = updated_at WHERE false',
       "INSERT INTO public.audit_log (actor_type, action, entity_type, summary) SELECT 'SYSTEM', 's1', 's1', 's1' WHERE false",
       'SELECT r.code, p.code FROM public.employee_role er JOIN public.role r ON r.id = er.role_id JOIN public.role_permission rp ON rp.role_id = r.id JOIN public.permission p ON p.id = rp.permission_id WHERE false',
+      // B1.4 Remember Me: cấp / xoay vòng / thu hồi token ghi nhớ.
+      'INSERT INTO public.remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) SELECT employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at FROM public.remember_device WHERE false',
+      'UPDATE public.remember_device SET rotated_at = rotated_at, replaced_by = replaced_by, revoked_at = revoked_at, revoke_reason = revoke_reason, last_used_at = last_used_at WHERE false',
     ]) expect({ sql, code: await authTry(sql) }).toEqual({ sql, code: null });
     const r = await auth.$queryRaw<{ chpw: boolean }[]>`SELECT has_function_privilege(current_user, 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE') AS chpw`;
     expect(r[0].chpw).toBe(true);
@@ -257,6 +265,9 @@ dAuth('B1.4 P3c — pool xác thực siscom_auth tách khỏi siscom_app', () =>
       'UPDATE public.audit_log SET summary = summary WHERE false',
       'ALTER TABLE public.auth_session DISABLE TRIGGER ALL',
       "SELECT public.fn_auth_bootstrap_close('s1-probe')",
+      // B1.4 Remember Me: không sửa định danh/hạn tuyệt đối, không xoá (chỉ thu hồi bằng UPDATE).
+      'UPDATE public.remember_device SET token_hash = token_hash, abs_expires_at = abs_expires_at WHERE false',
+      'DELETE FROM public.remember_device WHERE false',
     ]) expect({ sql, code: await authTry(sql) }).toEqual({ sql, code: '42501' });
   });
   it('fetchDbRoleFacts thật: app => hasAuthGrants=false, canWriteBusiness=true; auth => hasAuthGrants=true, canWriteBusiness=false; assess đúng theo pool', async () => {

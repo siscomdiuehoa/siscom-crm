@@ -31,6 +31,8 @@ export function createCookieSession(client, { readCookie } = {}) {
       return csrf || readCsrfCookie(cookies());
     },
     // Tải lại trang: cookie phiên có thể còn hiệu lực => hỏi /auth/me. Không ném lỗi; thất bại => IDLE (phải đăng nhập lại).
+    // B1.4 Remember Me: /auth/me trả 401 => thử MỘT lần tái lập phiên từ cookie ghi nhớ (HttpOnly; JS không thấy cookie). REMEMBER_RACE (tab khác
+    // vừa xoay vòng token) => hỏi lại /auth/me một lần. Mọi lỗi khác => IDLE (đăng nhập bằng mật khẩu). Lỗi mạng ở /auth/me => không thử restore.
     async restore() {
       if (state.status === 'UNAVAILABLE') return state;
       const my = ++epoch;
@@ -40,13 +42,27 @@ export function createCookieSession(client, { readCookie } = {}) {
         if (my !== epoch) return state;
         csrf = null; // lấy từ cookie siscom_csrf khi cần
         authed(r.me);
+        return state;
       } catch (e) {
         if (my !== epoch) return state;
+        if (!(e && e.name === 'AuthHttpError' && e.status === 401) || typeof client.restoreRemembered !== 'function') { set(idle()); return state; }
+      }
+      try {
+        const r = await client.restoreRemembered();
+        if (my !== epoch) return state;
+        csrf = r.csrfToken;
+        authed(r.me);
+      } catch (e) {
+        if (my !== epoch) return state;
+        if (e && e.name === 'AuthHttpError' && e.code === 'REMEMBER_RACE') {
+          try { const r2 = await client.me(); if (my !== epoch) return state; csrf = null; authed(r2.me); return state; } catch (e2) { if (my !== epoch) return state; }
+        }
         set(idle());
       }
       return state;
     },
-    async submit(loginInput, password) {
+    // remember: ô "Ghi nhớ đăng nhập trên thiết bị này" (mặc định không tích). Chỉ đúng true mới gửi.
+    async submit(loginInput, password, remember) {
       if (state.status === 'UNAVAILABLE' || state.status === 'LOADING') return state;
       const reject = (code) => { epoch++; csrf = null; fail(code); return state; };
       const id = parseLoginIdentifier(loginInput);
@@ -57,7 +73,7 @@ export function createCookieSession(client, { readCookie } = {}) {
       csrf = null;
       set({ status: 'LOADING', error: null, employeeId: null, expiresAt: null, me: null });
       try {
-        const r = await client.login(id.value, password);
+        const r = await client.login(id.value, password, remember === true);
         if (my !== epoch) return state;
         csrf = r.csrfToken;
         authed(r.me);

@@ -10,6 +10,7 @@ SELECT CASE WHEN current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9
             WHEN current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN 'SELECT s1_fail_baseline_da_khoa()'
             WHEN NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN 'SELECT s1_fail_phai_chay_bang_superuser()'
             WHEN NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth') THEN 'SELECT s1_fail_chua_co_role_siscom_auth()'
+            WHEN to_regclass('public.remember_device') IS NULL THEN 'SELECT s1_fail_chua_co_bang_remember_device_migration_20261029000000()'
             ELSE 'SELECT ''db thu: ' || current_database() || ' / ' || current_user || ' -> SET ROLE siscom_auth''' END \gexec
 
 BEGIN;
@@ -67,6 +68,12 @@ INSERT INTO s1_result SELECT 'H9 auth khong superuser/createrole/createdb/replic
   AND NOT has_database_privilege('siscom_auth', current_database(), 'TEMP')
   AND NOT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = 'siscom_auth');
 
+-- B1.4 Remember Me (Issue #177): pool auth cap/rotate/thu hoi token ghi nho; chi cot trang thai duoc UPDATE.
+SELECT pg_temp.expect_ok('H10 auth SELECT/INSERT remember_device + UPDATE cot trang thai (rotated_at, replaced_by, revoked_at, revoke_reason, last_used_at)',
+  'SELECT token_hash, abs_expires_at FROM public.remember_device WHERE false; '
+  || 'INSERT INTO public.remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) SELECT employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at FROM public.remember_device WHERE false; '
+  || 'UPDATE public.remember_device SET rotated_at = rotated_at, replaced_by = replaced_by, revoked_at = revoked_at, revoke_reason = revoke_reason, last_used_at = last_used_at WHERE false');
+
 -- K. PHAI BI CHAN (pool auth khong phai pool nghiep vu; khong leo thang)
 SELECT pg_temp.expect_denied('K1 auth khong SELECT customer',            'SELECT count(*) FROM public.customer');
 SELECT pg_temp.expect_denied('K2 auth khong INSERT customer',            'INSERT INTO public.customer (name) SELECT ''x'' WHERE false');
@@ -82,6 +89,8 @@ SELECT pg_temp.expect_denied('K10 auth khong SELECT password_reset_token', 'SELE
 SELECT pg_temp.expect_denied('K17 auth khong SELECT privileged_change_request', 'SELECT count(*) FROM public.privileged_change_request');
 SELECT pg_temp.expect_denied('K18 auth khong nextval sequence ma khach (dot ma) - M-5', 'SELECT nextval(''public.customer_code_seq'')');
 SELECT pg_temp.expect_denied('K19 auth khong SELECT department (khong can cho xac thuc) - M-5', 'SELECT count(*) FROM public.department');
+SELECT pg_temp.expect_denied('K20 auth khong UPDATE dinh danh/han tuyet doi remember_device (token_hash, abs_expires_at, employee_id, token_version)', 'UPDATE public.remember_device SET token_hash = token_hash, abs_expires_at = abs_expires_at, employee_id = employee_id, token_version = token_version WHERE false');
+SELECT pg_temp.expect_denied('K21 auth khong DELETE remember_device (chi thu hoi bang UPDATE)', 'DELETE FROM public.remember_device WHERE false');
 SELECT pg_temp.expect_denied('K11 auth khong DDL', 'ALTER TABLE public.auth_session DISABLE TRIGGER ALL');
 SELECT pg_temp.expect_denied('K12 auth khong fn_auth_bootstrap_close', 'SELECT public.fn_auth_bootstrap_close(''s1-probe'')');
 SELECT pg_temp.expect_denied('K13 auth khong setval', 'SELECT setval(''public.customer_code_seq'', last_value, is_called) FROM public.customer_code_seq');

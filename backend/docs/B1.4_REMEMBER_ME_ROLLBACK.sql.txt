@@ -1,0 +1,45 @@
+-- SISCOM CRM - ROLLBACK B1.4 Remember Me (20261029000000_b1_4_remember_device). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.4_REMEMBER_ME_ROLLBACK.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu.
+-- THU TU ROLLBACK (Issue #177):
+--   (1) trien khai lai backend BAN TRUOC Remember Me (ban nay doc/ghi remember_device; ban cu khong biet bang nay);
+--   (2) file nay, bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach), cach chay:
+--       psql -X -v ON_ERROR_STOP=1 -d <db thu> -f B1.4_REMEMBER_ME_ROLLBACK.sql.txt
+--   (3) (DB da tach role) chay lai B1.3_S1_APP_GRANTS_V3.sql.txt: V3 bo qua remember_device khi bang khong con.
+-- MOT transaction: go trigger tren employee_credential -> xoa ham thu hoi -> xoa bang remember_device (kem trigger bat bien + ham)
+--   -> xoa dong _prisma_migrations. MAT moi thiet bi ghi nho (nguoi dung dang nhap lai bang mat khau); KHONG dong toi phien/credential/nhat ky.
+-- Cookie siscom_rmb con sot tren trinh duyet vo hai: backend cu khong doc cookie nay.
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback Remember Me.', current_database();
+  END IF;
+  IF to_regclass('public.remember_device') IS NULL THEN
+    RAISE EXCEPTION 'Remember Me chua duoc ap (khong co bang remember_device). Khong co gi de rollback.';
+  END IF;
+END $$;
+
+SELECT 'thiet bi ghi nho se mat (con hieu luc): ' || count(*) FROM public.remember_device
+ WHERE revoked_at IS NULL AND rotated_at IS NULL AND abs_expires_at > now();
+DROP TRIGGER IF EXISTS trg_cred_revoke_remember ON public.employee_credential;
+DROP FUNCTION IF EXISTS public.fn_cred_revoke_remember();
+DROP TABLE public.remember_device;
+DROP FUNCTION IF EXISTS public.fn_rmb_before_update();
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261029000000_b1_4_remember_device';
+
+DO $$ BEGIN
+  IF to_regclass('public.remember_device') IS NOT NULL
+     OR to_regprocedure('public.fn_cred_revoke_remember()') IS NOT NULL OR to_regprocedure('public.fn_rmb_before_update()') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_cred_revoke_remember', 'trg_rmb_before_update'))
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261029000000_b1_4_remember_device') THEN
+    RAISE EXCEPTION 'Rollback Remember Me chua sach. Huy transaction.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK REMEMBER ME XONG' AS ket_qua;
