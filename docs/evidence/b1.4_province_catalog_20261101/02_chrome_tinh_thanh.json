@@ -1,0 +1,32 @@
+{
+  "at": "2026-11-01T08:06:10.148Z",
+  "web": "http://127.0.0.1:4173",
+  "stamp": "MVXJPSKB",
+  "results": [
+    {
+      "id": "P1 API /lookups?type=province: 34 muc, 3 dau = Ha Noi, TP. Ho Chi Minh, Da Nang",
+      "status": "PASS",
+      "detail": "n=34 dau=Hà Nội, TP. Hồ Chí Minh, Đà Nẵng, An Giang"
+    },
+    {
+      "id": "P2 o \"Tinh / Thanh pho\" tren bieu mau: 34 lua chon, dung thu tu API (3 thanh pho dau, con lai ABC)",
+      "status": "PASS",
+      "detail": "dau=Hà Nội, TP. Hồ Chí Minh, Đà Nẵng, An Giang, Bắc Ninh ... cuoi=Tuyên Quang, Vĩnh Long"
+    },
+    {
+      "id": "P3 khong con thong bao \"May chu chua co danh muc nay\"",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "P2b chon \"Da Nang\" tren o => hien \"Da Nang\"",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "P4 luu khach voi Tinh/Thanh = Da Nang => chi tiet hien \"Da Nang\"",
+      "status": "PASS",
+      "detail": ""
+    }
+  ]
+}

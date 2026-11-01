@@ -3,7 +3,9 @@
 // + mã enum đề xuất ở B1.2_PLAN. Mã ổn định UPPER_SNAKE (ck_lookup_code_fmt), (type, code) là khoá duy nhất và trigger cấm đổi;
 // đổi tên = sửa label_vi; ngừng dùng = is_active=false (KHÔNG xoá). is_system = true chỉ cho giá trị mà mã nguồn dựa vào
 // (customers.defaults.ts: tier/status mặc định POTENTIAL khi POST không gửi).
-// province: KHÔNG seed ở D3 (giao diện B1.1 dùng tỉnh/thành dạng chữ tự do; danh sách 63 tỉnh cần duyệt riêng).
+// province (B1.4, owner duyệt 2026-11-01): 34 đơn vị hành chính cấp tỉnh có hiệu lực từ 01/07/2025 (6 thành phố trực thuộc trung ương
+// + 28 tỉnh). Thứ tự hiển thị: Hà Nội, TP. Hồ Chí Minh, Đà Nẵng (10/20/30), còn lại ABC tiếng Việt (từ 100, bước 10). Chỉ là DỮ LIỆU
+// (bảng lookup_item có sẵn), không đổi cấu trúc. Mã ASCII cố định (trigger cấm đổi); đổi tên hiển thị = sửa label_vi.
 import { DEFAULT_STATUS_CODE, DEFAULT_TIER_CODE } from '../customers/customers.defaults';
 import { LOOKUP_ALLOWED_TYPES } from './lookups.service';
 
@@ -38,6 +40,41 @@ export const LOOKUP_CATALOG: readonly LookupSeedItem[] = [
   it('industry', 'EDUCATION', 'Giáo dục', 80),
   it('industry', 'RETAIL', 'Thương mại – Bán lẻ', 90),
   it('industry', 'ELECTRONICS', 'Điện tử', 100),
+  // province — tỉnh/thành (34 đơn vị từ 01/07/2025): 3 thành phố ưu tiên, rồi ABC tiếng Việt
+  it('province', 'HA_NOI', 'Hà Nội', 10),
+  it('province', 'HO_CHI_MINH', 'TP. Hồ Chí Minh', 20),
+  it('province', 'DA_NANG', 'Đà Nẵng', 30),
+  it('province', 'AN_GIANG', 'An Giang', 100),
+  it('province', 'BAC_NINH', 'Bắc Ninh', 110),
+  it('province', 'CA_MAU', 'Cà Mau', 120),
+  it('province', 'CAO_BANG', 'Cao Bằng', 130),
+  it('province', 'CAN_THO', 'Cần Thơ', 140),
+  it('province', 'DAK_LAK', 'Đắk Lắk', 150),
+  it('province', 'DIEN_BIEN', 'Điện Biên', 160),
+  it('province', 'DONG_NAI', 'Đồng Nai', 170),
+  it('province', 'DONG_THAP', 'Đồng Tháp', 180),
+  it('province', 'GIA_LAI', 'Gia Lai', 190),
+  it('province', 'HA_TINH', 'Hà Tĩnh', 200),
+  it('province', 'HAI_PHONG', 'Hải Phòng', 210),
+  it('province', 'HUE', 'Huế', 220),
+  it('province', 'HUNG_YEN', 'Hưng Yên', 230),
+  it('province', 'KHANH_HOA', 'Khánh Hòa', 240),
+  it('province', 'LAI_CHAU', 'Lai Châu', 250),
+  it('province', 'LANG_SON', 'Lạng Sơn', 260),
+  it('province', 'LAO_CAI', 'Lào Cai', 270),
+  it('province', 'LAM_DONG', 'Lâm Đồng', 280),
+  it('province', 'NGHE_AN', 'Nghệ An', 290),
+  it('province', 'NINH_BINH', 'Ninh Bình', 300),
+  it('province', 'PHU_THO', 'Phú Thọ', 310),
+  it('province', 'QUANG_NGAI', 'Quảng Ngãi', 320),
+  it('province', 'QUANG_NINH', 'Quảng Ninh', 330),
+  it('province', 'QUANG_TRI', 'Quảng Trị', 340),
+  it('province', 'SON_LA', 'Sơn La', 350),
+  it('province', 'TAY_NINH', 'Tây Ninh', 360),
+  it('province', 'THAI_NGUYEN', 'Thái Nguyên', 370),
+  it('province', 'THANH_HOA', 'Thanh Hóa', 380),
+  it('province', 'TUYEN_QUANG', 'Tuyên Quang', 390),
+  it('province', 'VINH_LONG', 'Vĩnh Long', 400),
 ];
 // Loại bắt buộc để tạo được khách hàng (customer.tier_id/status_id NOT NULL) + nguồn (chủ dự án yêu cầu kiểm tra).
 export const REQUIRED_SEED_TYPES: readonly string[] = ['customer_tier', 'customer_status', 'source'];

@@ -1,0 +1,12 @@
+# 2026-11-01: nap danh muc vao DB demo (cum 55433, cluster_name siscom_demo) - owner duyet trong chat. Khong dung siscom_crm_dev / cong 5432.
+# Kiem truoc ghi (psql siscom_migrator, SCRAM): cluster_name|database|so province hien co
+Truoc seed: siscom_demo|siscom_crm_test_20261101_103435|0
+# node dist/cli/seed-lookups.js (MIGRATE_DATABASE_URL = siscom_migrator, vi DB da tach role; mat khau khong in)
+seed ma=0
+Seed bang MIGRATE_DATABASE_URL (tai khoan siscom_migrator).
+Seed danh muc tren siscom_crm_test_20261101_103435: tong 57, chen moi 34, da co 23.
+  customer_tier    4/4
+  customer_status  4/4
+  source           5/5
+  industry         10/10
+  province         34/34
