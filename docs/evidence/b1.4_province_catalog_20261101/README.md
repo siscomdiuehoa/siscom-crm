@@ -13,5 +13,13 @@ Mã ASCII cố định (trigger cấm đổi mã): `HA_NOI`, `HO_CHI_MINH`, `DA_
 
 Test: backend unit `jest --config test/jest-unit.json` **543 / 543** (mới `lookups.province.spec.ts` 5 ca: đủ 34, không còn tên đơn vị đã sáp nhập, mã ASCII duy nhất, mã 3 thành phố ưu tiên, thứ tự). Build backend đạt.
 
+## Sau QA độc lập (0 Critical, 2 Important, 4 Minor)
+- Danh sách 34 đơn vị, chính tả (Thanh Hóa, Khánh Hòa, Đắk Lắk, Huế), thứ tự ABC (Đ sau D; a < ă < â; u < ư), mã ASCII: QA xác nhận đúng.
+- Đã sửa: `02_provinceChrome.mjs` — chú thích đúng nội dung, import `harnessGuard.mjs` theo đường dẫn tương đối trong kho (chạy lại được), ghi rõ web 4173 lúc chạy là build PR #188 (PR này không đổi frontend) và tên ảnh gốc `province_*.png` → `03_*.png`.
+- **Ghi nhận, chờ owner quyết:** tài liệu đã nghiệm thu `docs/B1.3_MVP_ACCEPTANCE.md` và `docs/B1.3_DEMO_PACK.md` vẫn ghi "không seed province / Q3 = 23 mục". Trên DB đã nạp danh mục này, Q3 sẽ ra **57** (= 23 + 34) — đúng, không phải lỗi. PR này không sửa tài liệu nghiệm thu cũ.
+- Cố ý: nhãn "TP. Hồ Chí Minh" có tiền tố theo đúng chữ owner dùng; 5 thành phố khác không có tiền tố.
+- Thứ tự ABC theo từng chữ cái (chuẩn Unicode tiếng Việt): Nghệ An trước Ninh Bình, Quảng Ngãi trước Quảng Ninh (nếu coi "NG" là một chữ cái riêng như một số từ điển cũ thì thứ tự này đảo).
+- Fixture test tích hợp `PROV_A` (sortOrder 10, trùng Hà Nội) chỉ có trong DB test; không ảnh hưởng test hiện tại.
+
 Không chạm `siscom_crm_dev` / PostgreSQL 5432. Muốn có danh mục trên DB khác cần duyệt riêng (chạy cùng CLI seed).
 Dữ liệu thử để lại trên DB demo: khách `Cty Tinh Thanh …` (Đà Nẵng).

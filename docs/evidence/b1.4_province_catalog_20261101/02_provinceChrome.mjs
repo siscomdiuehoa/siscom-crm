@@ -1,8 +1,10 @@
-// Kiem thu "Nguoi lien he" trong Chrome that (headless, CDP) tren ban demo (cum 55433, backend 3100, web 4173 = build nhanh feat/b1.4-customer-contact-person).
+// Kiem thu danh muc "Tinh / Thanh pho" trong Chrome that (headless, CDP) tren ban demo (cum 55433, backend 3100, web 4173).
+// Luc chay (2026-11-01) web 4173 phuc vu ban build nhanh feat/b1.4-customer-contact-person (PR #188); PR nay KHONG doi frontend, o Tinh/Thanh doc
+// GET /lookups?type=province tu backend, nen ket qua ap dung cho main. Anh chup duoc ghi voi ten province_*.png, da doi ten khi luu: 03_*.png.
 // Mat khau doc tu BOOTSTRAP_PASSWORD_ADMIN/_SALE/_TECHNICIAN/_ACCOUNTANT, khong in. Dang nhap bang MA NV (khong tron han muc dang nhap theo email).
-// Ma thoat: 0 dat, 1 co FAIL, 2 BLOCKED.
+// Chay lai: node docs/evidence/b1.4_province_catalog_20261101/02_provinceChrome.mjs (tu goc kho). Ma thoat: 0 dat, 1 co FAIL, 2 BLOCKED.
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-const G = await import('file:///D:/SISCOM-CRM-contact/frontend/siscom-crm-web/tests/browser/harnessGuard.mjs');
+const G = await import(new URL('../../../frontend/siscom-crm-web/tests/browser/harnessGuard.mjs', import.meta.url).href);
 const { withTimeout, createCleanup, spawnChrome, rmDirBestEffort, busyPorts } = G;
 const WEB = 'http://127.0.0.1:4173'; const CDP_PORT = 9357; const EVIDENCE = process.env.E2E_EVIDENCE; const SHOTS = process.env.E2E_SHOTS;
 const ACC = { admin: ['NV-0002', process.env.BOOTSTRAP_PASSWORD_ADMIN], sale: ['NV-0003', process.env.BOOTSTRAP_PASSWORD_SALE], kythuat: ['NV-0004', process.env.BOOTSTRAP_PASSWORD_TECHNICIAN], ketoan: ['NV-0005', process.env.BOOTSTRAP_PASSWORD_ACCOUNTANT] };
