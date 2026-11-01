@@ -1,4 +1,4 @@
--- SISCOM CRM B1.4 (20261029000000_b1_4_remember_device). CHI CONG THEM: 1 bang, 2 ham, 2 trigger bang remember_device, 1 trigger tren employee_credential.
+-- SISCOM CRM B1.4 (20261029000000_b1_4_remember_device). CHI CONG THEM: 1 bang, 3 ham, 3 trigger bang remember_device, 1 trigger tren employee_credential.
 -- KHONG sua doi tuong nao cua B1.2/B1.3 (employee_credential chi them trigger AFTER UPDATE OF token_version). Thiet ke: docs/B1.4_REMEMBER_ME_90D_DESIGN.md (Issue #177).
 -- Muc dich: "Ghi nho dang nhap tren thiet bi nay" toi da 90 ngay TU LAN NHAP MAT KHAU. Token ghi nho RIENG (cookie siscom_rmb), DB chi luu SHA-256.
 --   1 hang / token; family_id = 1 thiet bi (chuoi rotation, moi token dung mot lan). abs_expires_at bat bien, ke thua qua rotate, DB cuong che tran 90 ngay.
@@ -74,6 +74,32 @@ BEGIN
 END $$;
 
 CREATE TRIGGER trg_rmb_before_update BEFORE UPDATE ON remember_device FOR EACH ROW EXECUTE FUNCTION public.fn_rmb_before_update();
+
+-- QA bao mat I-3 (PR #184): tran 90 ngay khong duoc lach bang INSERT (trigger bat bien chi bao ve UPDATE). Moi hang moi:
+--   (a) password_auth_at / issued_at khong o tuong lai (cho phep lech dong ho 5 phut) => khong "doi moc" 90 ngay ve sau;
+--   (b) family da ton tai => cung employee_id, token_version, password_auth_at, abs_expires_at (rotate KHONG gia han, khong doi chu);
+--   (c) khong chen vao family da bi thu hoi (khong hoi sinh thiet bi da thu hoi / da phat hien replay).
+CREATE FUNCTION public.fn_rmb_before_insert() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+DECLARE f record;
+BEGIN
+  IF NEW.password_auth_at > now() + interval '5 minutes' OR NEW.issued_at > now() + interval '5 minutes' THEN
+    RAISE EXCEPTION 'REMEMBER_TIME_FUTURE: password_auth_at/issued_at o tuong lai.' USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT employee_id, token_version, password_auth_at, abs_expires_at, bool_or(revoked_at IS NOT NULL) OVER () AS any_revoked
+    INTO f FROM public.remember_device WHERE family_id = NEW.family_id LIMIT 1;
+  IF FOUND THEN
+    IF f.employee_id <> NEW.employee_id OR f.token_version <> NEW.token_version OR f.password_auth_at <> NEW.password_auth_at
+       OR f.abs_expires_at <> NEW.abs_expires_at THEN
+      RAISE EXCEPTION 'REMEMBER_FAMILY_MISMATCH: hang moi khong khop family %.', NEW.family_id USING ERRCODE = 'check_violation';
+    END IF;
+    IF f.any_revoked THEN
+      RAISE EXCEPTION 'REMEMBER_FAMILY_REVOKED: family % da bi thu hoi.', NEW.family_id USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_rmb_before_insert BEFORE INSERT ON remember_device FOR EACH ROW EXECUTE FUNCTION public.fn_rmb_before_insert();
 
 -- token_version tang (doi mat khau / khoa credential / reset) => thu hoi moi thiet bi nho con hieu luc cua nhan vien.
 -- SECURITY DEFINER: nguoi ghi token_version co the khong co quyen UPDATE tren remember_device (cung ly do M1.3).

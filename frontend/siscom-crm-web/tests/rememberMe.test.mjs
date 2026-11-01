@@ -115,3 +115,49 @@ test('màn hình đăng nhập: ô ghi nhớ mặc định KHÔNG tích, có nh�
     assert.doesNotMatch(src, /localStorage|sessionStorage/, f);
   }
 });
+
+// Phiên hết hạn GIỮA CHỪNG (tab đang mở): API khác trả 401 => handleUnauthorized => thử restore MỘT lần (tối đa 1 lần / 60 giây).
+const tick = () => new Promise((r) => setTimeout(r, 0));
+async function authedSession(restoreResp) {
+  const env = mk((url) => {
+    if (url.endsWith('/auth/login')) return resp(200, { data: { me: ME, csrfToken: CSRF } });
+    if (url.endsWith('/auth/logout')) return resp(200, { data: { ok: true } });
+    if (url.endsWith('/auth/remember/restore')) return typeof restoreResp === 'function' ? restoreResp() : restoreResp;
+    return resp(404, {});
+  });
+  await env.session.submit('a@b.vn', 'pw-gia-lap', true);
+  assert.equal(env.session.getState().status, 'AUTHENTICATED');
+  return env;
+}
+const restoreCalls = (calls) => calls.filter((c) => c.url.endsWith('/auth/remember/restore')).length;
+
+test('giữa chừng: 401 => SESSION_EXPIRED rồi tự khôi phục từ cookie ghi nhớ => AUTHENTICATED, CSRF mới', async () => {
+  const { session, calls } = await authedSession(resp(200, { data: { me: ME, csrfToken: CSRF2 } }));
+  session.handleUnauthorized();
+  assert.equal(session.getState().error, 'SESSION_EXPIRED');
+  await tick(); await tick(); await tick();
+  assert.equal(session.getState().status, 'AUTHENTICATED');
+  assert.equal(session.getCsrfToken(), CSRF2);
+  assert.equal(restoreCalls(calls), 1);
+});
+
+test('giữa chừng: restore thất bại => giữ SESSION_EXPIRED; 401 lần hai trong 60 giây KHÔNG gọi restore nữa', async () => {
+  const { session, calls } = await authedSession(err(401, 'REMEMBER_INVALID'));
+  session.handleUnauthorized();
+  await tick(); await tick(); await tick();
+  assert.equal(session.getState().status, 'ERROR');
+  assert.equal(session.getState().error, 'SESSION_EXPIRED');
+  await session.submit('a@b.vn', 'pw-gia-lap', false);
+  session.handleUnauthorized();
+  await tick(); await tick();
+  assert.equal(restoreCalls(calls), 1);
+});
+
+test('giữa chừng: người dùng đăng xuất/đăng nhập lại trước khi restore trả về => bỏ kết quả restore', async () => {
+  let release; const pending = new Promise((r) => { release = r; });
+  const { session } = await authedSession(() => pending.then(() => resp(200, { data: { me: { ...ME, code: 'NV-9999' }, csrfToken: CSRF2 } })));
+  session.handleUnauthorized();
+  await session.logout();
+  release(); await tick(); await tick(); await tick();
+  assert.equal(session.getState().status, 'IDLE');
+});

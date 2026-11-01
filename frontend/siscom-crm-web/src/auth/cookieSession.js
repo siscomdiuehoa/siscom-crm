@@ -19,6 +19,20 @@ export function createCookieSession(client, { readCookie } = {}) {
   const fail = (code) => set({ status: 'ERROR', error: code, employeeId: null, expiresAt: null, me: null });
   const cookies = typeof readCookie === 'function' ? readCookie : () => (typeof document !== 'undefined' ? document.cookie : '');
   const authed = (me) => set({ status: 'AUTHENTICATED', error: null, employeeId: me.employeeId, expiresAt: null, me });
+  // B1.4 Remember Me: phiên thường hết hạn GIỮA CHỪNG (tab đang mở) => thử tái lập MỘT lần từ cookie ghi nhớ (HttpOnly). Tối đa 1 lần / 60 giây
+  // (chống vòng lặp 401 -> restore). Thất bại => giữ ERROR SESSION_EXPIRED (đăng nhập lại bằng mật khẩu). Đăng xuất / submit / 401 mới chen ngang => bỏ kết quả.
+  let lastAutoRestoreAt = -Infinity;
+  const now = () => Date.now();
+  function autoRestoreAfterExpiry() {
+    if (typeof client.restoreRemembered !== 'function' || now() - lastAutoRestoreAt < 60_000) return;
+    lastAutoRestoreAt = now();
+    const my = epoch;
+    Promise.resolve().then(() => client.restoreRemembered()).then((r) => {
+      if (my !== epoch || state.status !== 'ERROR' || state.error !== 'SESSION_EXPIRED') return;
+      csrf = r.csrfToken;
+      authed(r.me);
+    }, () => { /* giữ SESSION_EXPIRED */ });
+  }
 
   return {
     mode: 'cookie',
@@ -120,7 +134,7 @@ export function createCookieSession(client, { readCookie } = {}) {
     handleUnauthorized() {
       if (state.status === 'LOADING') return state;
       epoch++; csrf = null;
-      if (state.status === 'AUTHENTICATED') fail('SESSION_EXPIRED');
+      if (state.status === 'AUTHENTICATED') { fail('SESSION_EXPIRED'); autoRestoreAfterExpiry(); }
       return state;
     },
   };

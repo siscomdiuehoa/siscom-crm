@@ -1,0 +1,23 @@
+# Kiem tra trinh duyet (Claude in-app browser, Chromium) - backend dist (NODE_ENV=development, COOKIE_SECURE=false, http) voi DATABASE_URL=siscom_app + AUTH_DATABASE_URL=siscom_auth (health: authPool=separate, leastPrivilege=true ca hai pool), FE vite build + preview :4173 proxy /api. DB tam D, tai khoan bootstrap gia sale@e2e.siscom.local (mat khau ngau nhien, khong ghi).
+# Buoc: (1) dang nhap CO tich ghi nho; (2) JS: document.cookie khong thay siscom_rmb/siscom_sid, storage chi 'siscom-crm-theme'; (3) thu hoi phien thuong o DB (gia lap het han); (4a) doi hash => API 401 => (FE cu) 'Phien dang nhap da het han'; (4b) tai lai trang => /auth/me 401 => restore 200 => danh sach khach hang; (5) FE moi: thu hoi phien lai, tim kiem => customers 401 => restore 200 => customers tu tai lai.
+## Nhat ky HTTP backend (chi duong dan/ma, khong cookie):
+GET /api/v1/auth/me 401 6.1ms
+POST /api/v1/auth/remember/restore 401 2.2ms
+GET /api/v1/health/database 200 48.7ms
+GET /api/v1/health/database 200 7.4ms
+GET /api/v1/auth/me 401 1.0ms
+POST /api/v1/auth/remember/restore 401 1.1ms
+POST /api/v1/auth/login 200 255.5ms
+GET /api/v1/customers 401 16.7ms
+GET /api/v1/auth/me 401 15.8ms
+POST /api/v1/auth/remember/restore 200 46.1ms
+GET /api/v1/customers 200 160.7ms
+GET /api/v1/auth/me 401 119.2ms
+POST /api/v1/auth/remember/restore 200 45.8ms
+GET /api/v1/customers 304 47.6ms
+GET /api/v1/customers 401 72.1ms
+POST /api/v1/auth/remember/restore 200 35.2ms
+GET /api/v1/customers 304 38.4ms
+## Trang thai DB sau cung:
+remember_device: 4 hang (chuoi xoay vong), con hieu luc 1, family 1, cung moc abs: true, abs - password_auth_at = 90.0000000000000000 ngay
+audit: auth.login_ok, auth.remember_issued, auth.remember_restored, auth.remember_restored, auth.remember_restored

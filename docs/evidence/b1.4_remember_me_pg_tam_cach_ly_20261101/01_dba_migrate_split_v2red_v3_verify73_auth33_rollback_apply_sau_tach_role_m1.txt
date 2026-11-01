@@ -1,0 +1,59 @@
+# B1.4 Remember Me - DB A: migration (app, mo hinh cu) -> tach role -> V2 RED -> V3 x2 -> VERIFY/VERIFY_AUTH -> cau truc -> rollback/ap lai SAU tach role -> M1. Nhanh feat/b1.4-remember-me-90d-v3 (working tree), cluster tam 127.0.0.1:55432, du lieu gia.
+--- migrate deploy (siscom_app, mo hinh cu) ---
+The following migration(s) have been applied:
+All migrations have been successfully applied.
+--- ROLE_SPLIT + AUTH_ROLE (superuser) ---
+ siscom_auth | f     | f          | f        | f       | t          | f       | t
+(1 row)
+--- V2 (= trang thai P3b) roi VERIFY phai FAIL o muc G (RED cho P3c) ---
+PASS|63
+FAIL|10
+B1c employee_credential: app KHONG UPDATE cot nao (P3c: 7 cot dem/khoa thuoc pool auth) =>
+B1e app KHONG co quyen nao (ke ca SELECT theo cot) tren auth_session va employee_credentia
+B1f app KHONG co quyen nao (ke ca SELECT theo cot) tren remember_device (B1.4 Remember Me)
+C1 app KHONG EXECUTE fn_auth_api_change_own_password (P3c: chi pool auth) => KHONG DAT
+C6 app KHONG EXECUTE ham SECURITY DEFINER nao (P3c; dang co: fn_auth_api_change_own_passwo
+G1 app khong SELECT password_hash / token_version (doc hash de dung p_actor) [app CHAY DUO
+G2 app khong SELECT auth_session (doc bam phien) [app CHAY DUOC] => KHONG DAT
+G3 app khong INSERT auth_session (tu chen phien - R2) [app CHAY DUOC] => KHONG DAT
+G4 app khong UPDATE auth_session [app CHAY DUOC] => KHONG DAT
+G5 app khong UPDATE 7 cot dem/khoa (khoa nguoi khac / xoa bo dem do mat khau) [app CHAY DU
+DAT (RED mong doi voi V2)
+--- V3 lan 1 ---
+ siscom_crm_test_20261101_070349 | siscom_migrator; muc | gia_tri ; bang_app_INSERT | 4; bang_app_UPDATE (phai 3) | 3; bang_app_DELETE (phai 0) | 0; cot_credential_app_UPDATE (phai 0) | 0; ham_api_app_EXECUTE (phai 0) | 0; auth_session_app_SELECT (phai f) | false; remember_device_app_bat_ky_quyen (phai f) | false; bang_auth_INSERT (phai 2, co remember_device: 3) | 3; bang_auth_UPDATE (phai 2, co remember_device: 3) | 3; cot_credential_auth_UPDATE (phai 7) | 7; ham_api_auth_EXECUTE (phai 1) | 1; customer_auth_SELECT (phai f) | false; sequence_app_UPDATE (phai 0) | 0; bootstrap_close_app_EXECUTE (phai f) | false;
+--- V3 lan 2 ---
+ siscom_crm_test_20261101_070349 | siscom_migrator; muc | gia_tri ; bang_app_INSERT | 4; bang_app_UPDATE (phai 3) | 3; bang_app_DELETE (phai 0) | 0; cot_credential_app_UPDATE (phai 0) | 0; ham_api_app_EXECUTE (phai 0) | 0; auth_session_app_SELECT (phai f) | false; remember_device_app_bat_ky_quyen (phai f) | false; bang_auth_INSERT (phai 2, co remember_device: 3) | 3; bang_auth_UPDATE (phai 2, co remember_device: 3) | 3; cot_credential_auth_UPDATE (phai 7) | 7; ham_api_auth_EXECUTE (phai 1) | 1; customer_auth_SELECT (phai f) | false; sequence_app_UPDATE (phai 0) | 0; bootstrap_close_app_EXECUTE (phai f) | false;
+PASS|73
+DAT: VERIFY (app) PASS|73
+PASS|33
+DAT: VERIFY_AUTH (superuser -> SET ROLE siscom_auth) PASS|33
+(bo qua M1 constraint tests - giu che do khoi tao mo cho auth.int-spec)
+HOAN TAT siscom_crm_test_20261101_070349
+## Kiem cau truc Remember Me (migrator, tu ROLLBACK)
+psql:D:/SISCOM-CRM-rmb/backend/docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt:77: ERROR:  new row for relation "employee_credential" violates check constraint "ck_cred_window"
+## Rollback Remember Me (migrator) -> V3 -> VERIFY (app) PASS
+ thiet bi ghi nho se mat (con hieu luc): 0
+ ROLLBACK REMEMBER ME XONG
+ remember_device: chua co bang (bo qua)
+ remember_device_app_bat_ky_quyen (phai f)        | false
+ bang_auth_INSERT (phai 2, co remember_device: 3) | 2
+ bang_auth_UPDATE (phai 2, co remember_device: 3) | 2
+PASS|73
+## migrate deploy bang siscom_migrator (SAU tach role) -> VERIFY phai FAIL B1f (quyen mac dinh SELECT) -> V3 -> PASS
+The following migration(s) have been applied:
+  └─ 20261029000000_b1_4_remember_device/
+All migrations have been successfully applied.
+B1f app KHONG co quyen nao (ke ca SELECT theo cot) tren remember_device (B1.4 Remember Me) => KHONG DAT
+PASS|72
+FAIL|1
+ remember_device_app_bat_ky_quyen (phai f)        | false
+ bang_auth_INSERT (phai 2, co remember_device: 3) | 3
+ bang_auth_UPDATE (phai 2, co remember_device: 3) | 3
+PASS|73
+PASS|33
+psql:D:/SISCOM-CRM-rmb/backend/docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt:77: ERROR:  new row for relation "employee_credential" violates check constraint "ck_cred_window"
+## Rang buoc M1/M1.1/M1.2 (migrator) - khong hoi quy
+B1.3_M1_CONSTRAINT_TESTS: PASS|131 
+B1.3_M1_1_CONSTRAINT_TESTS: PASS|43 
+B1.3_M1_2_CONSTRAINT_TESTS: PASS|115 
+HOAN TAT

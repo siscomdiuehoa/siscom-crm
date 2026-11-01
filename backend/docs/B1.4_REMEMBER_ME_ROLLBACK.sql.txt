@@ -31,12 +31,13 @@ DROP TRIGGER IF EXISTS trg_cred_revoke_remember ON public.employee_credential;
 DROP FUNCTION IF EXISTS public.fn_cred_revoke_remember();
 DROP TABLE public.remember_device;
 DROP FUNCTION IF EXISTS public.fn_rmb_before_update();
+DROP FUNCTION IF EXISTS public.fn_rmb_before_insert();
 DELETE FROM public._prisma_migrations WHERE migration_name = '20261029000000_b1_4_remember_device';
 
 DO $$ BEGIN
   IF to_regclass('public.remember_device') IS NOT NULL
-     OR to_regprocedure('public.fn_cred_revoke_remember()') IS NOT NULL OR to_regprocedure('public.fn_rmb_before_update()') IS NOT NULL
-     OR EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_cred_revoke_remember', 'trg_rmb_before_update'))
+     OR to_regprocedure('public.fn_cred_revoke_remember()') IS NOT NULL OR to_regprocedure('public.fn_rmb_before_update()') IS NOT NULL OR to_regprocedure('public.fn_rmb_before_insert()') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_cred_revoke_remember', 'trg_rmb_before_update', 'trg_rmb_before_insert'))
      OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261029000000_b1_4_remember_device') THEN
     RAISE EXCEPTION 'Rollback Remember Me chua sach. Huy transaction.';
   END IF;

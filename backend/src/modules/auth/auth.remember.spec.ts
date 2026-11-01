@@ -50,7 +50,9 @@ function build(over: { emps?: Emp[] } = {}) {
     }),
   };
   const employee = { findUnique: jest.fn(async ({ where }: { where: { id: string } }) => emps.find((e) => e.id === where.id) ?? null) };
-  const authSession = { create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => { sessions.push(data); return { id: 'sess-new' }; }) };
+  const sessionRevokes: Array<{ employeeId: unknown; reason: unknown }> = [];
+  const authSession = { create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => { sessions.push(data); return { id: 'sess-new' }; }),
+    updateMany: jest.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => { sessionRevokes.push({ employeeId: where.employeeId, reason: data.revokeReason }); return { count: 1 }; }) };
   const auditLog = { create: jest.fn(async ({ data }: { data: { action: string; actorId?: string; changes?: unknown } }) => { audits.push(data); return {}; }) };
   const employeeCredential = { update: jest.fn(async () => ({})) };
   const $executeRaw = jest.fn(async () => 0);
@@ -60,7 +62,7 @@ function build(over: { emps?: Emp[] } = {}) {
   const roleOf = (id: string) => emps.find((e) => e.id === id)?.roles ?? [];
   const sessionProvider = { lookup: jest.fn(async (): Promise<ResolvedSession> => ({ sessionId: 'sess-new', csrfHash: 'h', actor: { employeeId: 'e1', departmentId: 'd1' }, roles: roleOf('e1'), scopes: {}, mustChangePassword: false })) };
   const svc = new AuthService(prisma as never, cfg as never, sessionProvider as never);
-  return { svc, rows, emps, audits, sessions, log, prisma, rememberDevice, sessionProvider, cfg };
+  return { svc, rows, emps, audits, sessions, sessionRevokes, log, prisma, rememberDevice, sessionProvider, cfg };
 }
 type Env = ReturnType<typeof build>;
 
@@ -383,5 +385,39 @@ describe('thu hồi', () => {
     e.emps[0].credential!.tokenVersion = 4;
     expect((await e.svc.restoreRemembered({ ...ctx, token: tok })).kind).toBe('INVALID');
     expect(e.sessions).toHaveLength(0);
+  });
+});
+
+// QA bảo mật lần 1 (PR #184): I-1 phiên tái lập KHÔNG được sống quá mốc 90 ngày; I-2 phát hiện replay phải thu hồi cả phiên đang mở.
+describe('QA bảo mật I-1/I-2', () => {
+  it('I-1: restore sát mốc 90 ngày => phiên mới hết hạn tuyệt đối ĐÚNG mốc 90 ngày (không +12h), idle <= abs, cookie phiên <= thời gian còn lại', async () => {
+    const e = build();
+    const tok = await seedDevice(e, { passwordAuthAt: T0 });
+    jest.setSystemTime(new Date(T0.getTime() + 90 * DAY - 2 * 3_600_000)); // còn 2 giờ tới mốc
+    const r = await e.svc.restoreRemembered({ ...ctx, token: tok });
+    if (r.kind !== 'OK') throw new Error('mong đợi OK, nhận ' + r.kind);
+    const s = e.sessions[0] as { idleExpiresAt: Date; absExpiresAt: Date };
+    expect(s.absExpiresAt.getTime()).toBe(T0.getTime() + 90 * DAY);
+    expect(s.idleExpiresAt.getTime()).toBeLessThanOrEqual(s.absExpiresAt.getTime());
+    expect(r.maxAgeSeconds).toBeLessThanOrEqual(2 * 3600);
+    expect(r.remember.maxAgeSeconds).toBeLessThanOrEqual(2 * 3600);
+  });
+  it('I-1: còn xa mốc => giữ chính sách phiên thường (12h abs)', async () => {
+    const e = build();
+    const tok = await seedDevice(e, { passwordAuthAt: T0 });
+    jest.setSystemTime(new Date(T0.getTime() + 10 * DAY));
+    const r = await e.svc.restoreRemembered({ ...ctx, token: tok });
+    if (r.kind !== 'OK') throw new Error('mong đợi OK');
+    const s = e.sessions[0] as { absExpiresAt: Date; issuedAt: Date };
+    expect(s.absExpiresAt.getTime() - s.issuedAt.getTime()).toBe(12 * 3_600_000);
+  });
+  it('I-2: replay thật => thu hồi family VÀ mọi auth_session đang mở của nhân viên (kẻ đã restore trước bị đá ra)', async () => {
+    const e = build();
+    const tok = await seedDevice(e);
+    const ok = await e.svc.restoreRemembered({ ...ctx, token: tok });
+    expect(ok.kind).toBe('OK');
+    jest.setSystemTime(new Date(Date.now() + 11_000));
+    expect((await e.svc.restoreRemembered({ ...ctx, token: tok })).kind).toBe('INVALID');
+    expect(e.sessionRevokes).toContainEqual({ employeeId: 'e1', reason: 'REMEMBER_REPLAY' });
   });
 });

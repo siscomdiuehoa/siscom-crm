@@ -1,0 +1,26 @@
+siscom_crm_test_20261101_070349|siscom_migrator
+S1 hang hop le (90 ngay dung tran) chen duoc => ok
+S10 FK employee_id ON DELETE RESTRICT (xoa nhan vien con thiet bi bi chan; xoa nhan vien con bi trigger B1.2 chan som hon) => ok
+S11 khong sua token_hash => ok
+S12 khong gia han abs_expires_at (ke ca trong tran 90 ngay) => ok
+S13 khong doi chu (employee_id) / family / token_version / password_auth_at => ok
+S14 rotated_at dat mot lan (khong xoa/doi lai) => ok
+S15 hang da thu hoi khong mo lai => ok
+S16 hang da thu hoi khong doi ly do => ok
+S17 token_version tang => moi thiet bi con hieu luc cua nhan vien bi thu hoi (TOKEN_VERSION) => ok
+S18 hang da thu hoi truoc do giu nguyen ly do (LOGOUT) => ok
+S19 nhan vien KHAC khong bi anh huong => ok
+S2 tran 90 ngay do DB cuong che (90 ngay + 1 giay bi tu choi) => ok
+S20 cap nhat cot khac (last_login_at) KHONG thu hoi thiet bi => ok
+S21 fn_cred_revoke_remember la SECURITY DEFINER, search_path co dinh, PUBLIC khong EXECUTE => ok
+S22 trigger trg_cred_revoke_remember (AFTER UPDATE OF token_version) va trg_rmb_before_update ton tai, bat => ok
+S23 chi muc thiet bi dang hoat dong (partial) va token_hash UNIQUE ton tai => ok
+S24 khong cot nao luu token goc (chi token_hash) => ok
+S3 token_hash phai la SHA-256 hex thuong 64 ky tu (plaintext/hoa bi tu choi) => ok
+S4 token_hash trung bi tu choi (UNIQUE) => ok
+S5 abs_expires_at phai sau issued_at => ok
+S6 revoked_at va revoke_reason phai di cung nhau => ok
+S7 replaced_by can rotated_at => ok
+S8 token_version >= 1 => ok
+S9 nhan vien khong ton tai bi tu choi (FK) => ok
+PASS|24

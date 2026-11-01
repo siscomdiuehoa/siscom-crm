@@ -723,7 +723,7 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
 
   it('dùng lại token cũ TRONG 10 giây => 401 REMEMBER_RACE (giữ cookie, không thu hồi); SAU 10 giây => replay: thu hồi CẢ family (kể cả token con), audit', async () => {
     const tok = rmbToken(await loginRemember('sale', true));
-    const child = rmbToken(await restore(tok));
+    const first = await restore(tok); const child = rmbToken(first); const thiefSid = cookieOf(first);
     const race = await restore(tok);
     expect(race.status).toBe(401); expect(race.body.error.code).toBe('REMEMBER_RACE'); expect(all(race)).toHaveLength(0);
     expect((await rowOf(child))!.revokedAt).toBeNull();
@@ -735,7 +735,23 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     expect(fam.find((r) => r.tokenHash === sha(child))!.revokeReason).toBe('REPLAY');
     expect((await restore(child)).status).toBe(401);
     expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBeGreaterThan(0);
+    // QA I-2: phiên thường đã tái lập từ family bị lộ cũng bị thu hồi (kẻ restore trước bị đá ra).
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
   }, 30_000);
+
+  it('QA I-1: restore khi còn 1 giờ tới mốc 90 ngày => phiên thường mới hết hạn đúng mốc (cookie phiên Max-Age <= 3600), không +12h', async () => {
+    const id = await empId('sale');
+    const cred = await adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: id }, select: { tokenVersion: true } });
+    const tok = randomBytes(32).toString('base64url'); const day = 86_400_000; const pa = new Date(Date.now() - 90 * day + 3_600_000);
+    await adminPrisma.rememberDevice.create({ data: { employeeId: id, familyId: randomUUID(), tokenHash: sha(tok), tokenVersion: cred.tokenVersion,
+      passwordAuthAt: pa, issuedAt: pa, lastUsedAt: pa, absExpiresAt: new Date(pa.getTime() + 90 * day) } });
+    const res = await restore(tok);
+    expect(res.status).toBe(200);
+    const maxAge = Number(/Max-Age=([0-9]+)/.exec(all(res).find((x) => x.startsWith('siscom_sid='))!)![1]);
+    expect(maxAge).toBeLessThanOrEqual(3600);
+    const row = await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(cookieOf(res).split('=')[1]) } });
+    expect(row.absExpiresAt.getTime()).toBe(pa.getTime() + 90 * day);
+  });
 
   it('truy cập đồng thời: 6 restore song song cùng token => đúng MỘT 200, còn lại 401 REMEMBER_RACE; đúng một token con, không thu hồi family', async () => {
     const tok = rmbToken(await loginRemember('sale', true));

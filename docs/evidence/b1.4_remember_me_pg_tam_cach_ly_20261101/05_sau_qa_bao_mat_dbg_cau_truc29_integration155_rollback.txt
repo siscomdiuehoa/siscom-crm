@@ -1,0 +1,40 @@
+# Sau QA bao mat lan 1 (I-1/I-2/I-3) - DB G moi: migration co trigger BEFORE INSERT; cau truc 29 ca; integration 13 suite 3 pool; rollback + ap lai sau tach role. Cluster tam 127.0.0.1:55432, du lieu gia.
+DAT (RED mong doi voi V2)
+DAT: VERIFY (app) PASS|73
+DAT: VERIFY_AUTH (superuser -> SET ROLE siscom_auth) PASS|33
+HOAN TAT siscom_crm_test_20261101_072047
+## Kiem cau truc (migrator)
+PASS|29
+## Integration 13 suite
+PASS test/auth.int-spec.ts (37.586 s)
+    √ dùng lại token cũ TRONG 10 giây => 401 REMEMBER_RACE (giữ cookie, không thu hồi); SAU 10 giây => replay: thu hồi CẢ family (kể cả token con), audit (10688 ms)
+    √ QA I-1: restore khi còn 1 giờ tới mốc 90 ngày => phiên thường mới hết hạn đúng mốc (cookie phiên Max-Age <= 3600), không +12h (15 ms)
+PASS test/customers.search-equivalence.int-spec.ts
+    √ mọi từ khóa × quyền đọc × sort × trang (đầu/2/cuối/vượt cuối): tổng, ID, thứ tự khớp (3567 ms)
+PASS test/concurrency.int-spec.ts
+  đồng thời (20 vòng × 10 yêu cầu)
+PASS test/db-roles.int-spec.ts
+PASS test/db-errors.int-spec.ts
+PASS test/audit.int-spec.ts
+PASS test/customers.int-spec.ts
+PASS test/search.int-spec.ts
+PASS test/customers.list-pagination.int-spec.ts
+PASS test/contacts.int-spec.ts
+PASS test/lookups.int-spec.ts
+PASS test/owner-candidates.int-spec.ts
+PASS test/timezone.int-spec.ts
+Test Suites: 13 passed, 13 total
+Tests:       155 passed, 155 total
+## Rollback (migrator, co du lieu tu integration) -> V3 -> VERIFY; migrate deploy (migrator) -> VERIFY FAIL B1f -> V3 -> PASS
+ thiet bi ghi nho se mat (con hieu luc): 5
+ ROLLBACK REMEMBER ME XONG
+ remember_device: chua co bang (bo qua)
+PASS|73
+Applying migration `20261029000000_b1_4_remember_device`
+  └─ 20261029000000_b1_4_remember_device/
+B1f app KHONG co quyen nao (ke ca SELECT theo cot) tren remember_device (B1.4 Remember Me) => KHONG DAT
+PASS|72
+FAIL|1
+PASS|73
+PASS|33
+HOAN TAT

@@ -52,11 +52,13 @@ export class AuthService {
   }
 
   // Dữ liệu một phiên mới (token đục 256-bit, DB chỉ lưu SHA-256). Dùng chung cho login và changePassword.
-  private newSession(employeeId: string, now: Date, ip: string | null, userAgent: string | null) {
+  // capAbs (Remember Me, QA I-1): mốc tuyệt đối không được vượt (hạn 90 ngày của thiết bị ghi nhớ). Không truyền => chính sách phiên thường.
+  private newSession(employeeId: string, now: Date, ip: string | null, userAgent: string | null, capAbs?: Date) {
     const sessionToken = newOpaqueToken();
     const csrfToken = newOpaqueToken();
     const idle = new Date(now.getTime() + this.cfg.sessionIdleMinutes * 60_000);
-    const abs = new Date(now.getTime() + this.cfg.sessionAbsHours * 3_600_000);
+    const normalAbs = now.getTime() + this.cfg.sessionAbsHours * 3_600_000;
+    const abs = new Date(capAbs !== undefined ? Math.min(normalAbs, capAbs.getTime()) : normalAbs);
     const data = {
       employeeId, familyId: randomUUID(), refreshHash: sha256Hex(sessionToken), csrfHash: sha256Hex(csrfToken),
       issuedAt: now, lastUsedAt: now, idleExpiresAt: idle < abs ? idle : abs, absExpiresAt: abs,
@@ -122,7 +124,10 @@ export class AuthService {
       const c = await this.rememberDevices.consume(tx, token, now);
       if (c.kind === 'REPLAY' && c.row) {
         await this.rememberDevices.revokeFamily(tx, c.row.familyId, 'REPLAY', now);
-        await tx.auditLog.create({ data: { actorType: 'ANONYMOUS', action: 'auth.remember_replay', entityType: 'employee', entityId: c.row.employeeId, summary: 'Phát hiện dùng lại token ghi nhớ đã xoay vòng; thu hồi thiết bị', requestId: rid(input.requestId) } });
+        // QA bảo mật I-2: kẻ đánh cắp có thể đã restore trước và đang giữ phiên thường. Chưa có liên kết phiên <-> family (cần migration riêng)
+        // => thu hồi MỌI phiên đang mở của nhân viên (fail-safe; người dùng thật đăng nhập lại bằng mật khẩu).
+        await tx.authSession.updateMany({ where: { employeeId: c.row.employeeId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'REMEMBER_REPLAY' } });
+        await tx.auditLog.create({ data: { actorType: 'ANONYMOUS', action: 'auth.remember_replay', entityType: 'employee', entityId: c.row.employeeId, summary: 'Phát hiện dùng lại token ghi nhớ đã xoay vòng; thu hồi thiết bị và mọi phiên đang mở', requestId: rid(input.requestId) } });
         return { kind: 'INVALID' as const };
       }
       if (c.kind !== 'OK') return { kind: (c.kind === 'RACE' ? 'RACE' : 'INVALID') as 'RACE' | 'INVALID' };
@@ -136,7 +141,8 @@ export class AuthService {
         await this.rememberDevices.revokeFamily(tx, c.row.familyId, 'INVALID_STATE', now);
         return { kind: 'INVALID' as const };
       }
-      const ns = this.newSession(emp.id, now, input.ip, input.userAgent);
+      // QA bảo mật I-1: phiên tái lập không được sống quá mốc 90 ngày của thiết bị.
+      const ns = this.newSession(emp.id, now, input.ip, input.userAgent, c.row.absExpiresAt);
       const next = await this.rememberDevices.rotate(tx, c.row, { now, ip: input.ip, userAgent: input.userAgent });
       await tx.authSession.create({ data: ns.data });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: emp.id, action: 'auth.remember_restored', entityType: 'employee', entityId: emp.id, entityCode: emp.code, summary: 'Khôi phục phiên từ thiết bị ghi nhớ', requestId: rid(input.requestId) } });

@@ -1,0 +1,21 @@
+# DB C (moi) - integration 13 suite, 3 pool, sau sua du lieu test ca 'nhan vien khong con ACTIVE'
+DAT (RED mong doi voi V2)
+DAT: VERIFY (app) PASS|73
+DAT: VERIFY_AUTH (superuser -> SET ROLE siscom_auth) PASS|33
+HOAN TAT siscom_crm_test_20261101_070607
+PASS test/auth.int-spec.ts (35.689 s)
+    √ nhân viên không còn ACTIVE (khoá/nghỉ việc) => restore 401, thu hồi family (INVALID_STATE), không cấp phiên (158 ms)
+PASS test/customers.search-equivalence.int-spec.ts
+PASS test/concurrency.int-spec.ts
+PASS test/db-roles.int-spec.ts
+PASS test/db-errors.int-spec.ts
+PASS test/customers.int-spec.ts
+PASS test/customers.list-pagination.int-spec.ts
+PASS test/search.int-spec.ts
+PASS test/audit.int-spec.ts
+PASS test/contacts.int-spec.ts
+PASS test/owner-candidates.int-spec.ts
+PASS test/timezone.int-spec.ts
+PASS test/lookups.int-spec.ts
+Test Suites: 13 passed, 13 total
+Tests:       154 passed, 154 total
