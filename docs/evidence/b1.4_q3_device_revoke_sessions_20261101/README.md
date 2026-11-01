@@ -17,10 +17,10 @@
 Test: backend unit **554 / 554** (mới 4 ca khối "Câu 3" trong `auth.remember.spec.ts`; 1 ca cũ "QA 3b Important-A" chỉnh để chỉ xét lời gọi REPLAY — hành vi nó kiểm không đổi). Tích hợp `test/auth.int-spec.ts` (4 ca mới: ghi cột khi khôi phục, DELETE một thiết bị, revoke-all, thiết bị người khác) chạy trong CI trên PostgreSQL tạm.
 
 ## Sau QA độc lập (2 Critical, 0 Important, 5 Minor)
-- Critical 1 (đã sửa): diễn tập rollback trong CI chưa gỡ migration mới trước — thêm  đứng đầu cả hai chuỗi rollback (bằng  khi chưa tách role, bằng  sau tách role) ⇒ CI nay kiểm cả script rollback mới.
+- Critical 1 (đã sửa): diễn tập rollback trong CI chưa gỡ migration mới trước — thêm `B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK` đứng đầu cả hai chuỗi rollback (bằng `siscom_app` khi chưa tách role, bằng `siscom_migrator` sau tách role) ⇒ CI nay kiểm cả script rollback mới.
 - Critical 2 (đã sửa): test tích hợp cũ "QA lần 3 Important-1" kỳ vọng phiên khôi phục vẫn 200 sau revoke-all — đổi thành 401 (đúng hành vi mới owner duyệt); bước REPLAY sau đó giữ nguyên.
 - Minor (đã sửa): đăng xuất kèm cookie ghi nhớ và đăng nhập không tích trên thiết bị còn cookie cũ (LOGIN_NO_REMEMBER) cũng thu hồi phiên đã khôi phục từ thiết bị đó (kịch bản kẻ trộm khôi phục trước, nạn nhân đăng xuất). Test unit 2 ca + tích hợp 1 ca.
-- Minor ghi nhận (không sửa): thiết bị bị hệ thống tự thu hồi do vượt 5 thiết bị (FAMILY_REVOKED) không kéo theo phiên — phiên tự hết hạn ≤ 8–12 giờ; cột  chưa có trigger chống sửa (chỉ role  có quyền UPDATE — nếu bị chiếm thì đã mất toàn quyền); thu hồi phiên đang gửi yêu cầu không trả tín hiệu riêng cho giao diện (yêu cầu kế tiếp nhận 401 và về màn hình đăng nhập).
+- Minor ghi nhận (không sửa): thiết bị bị hệ thống tự thu hồi do vượt 5 thiết bị (FAMILY_REVOKED) không kéo theo phiên — phiên tự hết hạn ≤ 8–12 giờ; cột `remember_family_id` chưa có trigger chống sửa (chỉ role `siscom_auth` có quyền UPDATE — nếu bị chiếm thì đã mất toàn quyền); thu hồi phiên đang gửi yêu cầu không trả tín hiệu riêng cho giao diện (yêu cầu kế tiếp nhận 401 và về màn hình đăng nhập).
 - Backend unit sau sửa: **556 / 556**.
 
 **Chưa áp** lên database thật, DB demo 55433 hay `siscom_crm_dev`. Áp lên DB nào cũng cần owner duyệt riêng; DB đã tách role: `demo-split -Step migrate` (migrate bằng `siscom_migrator` rồi chạy lại V3 + VERIFY).
