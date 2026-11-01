@@ -28,6 +28,8 @@ try {
     if (-not (Test-Path -LiteralPath $cur)) { Fail 'Chua co ban demo (chay demo-setup.bat truoc).' }
     $DatabaseName = (Get-Content -LiteralPath $cur | Select-Object -First 1).Trim()
   }
+  # QA M-3: duong dan duoc ghep vao lenh powershell -Command / cmd /k => chi chap nhan ky tu an toan (khong ' " % ^ & ! ...).
+  foreach ($p in @($PSScriptRoot, $fe)) { if ($p -notmatch '^[A-Za-z0-9 :._()\\-]+$') { Fail ('Duong dan co ky tu dac biet, khong chay duoc an toan: ' + $p + ' (dat repo o duong dan chi co chu/so/dau cach/._-).') } }
   if ($DatabaseName -notmatch '^siscom_crm_test_\d{8}_\d{6}$') { Fail ('Ten DB demo khong hop le: ' + $DatabaseName) }
   if (-not (Test-Path -LiteralPath (Join-Path $root 'dist\main.js')) -or -not (Test-Path -LiteralPath (Join-Path $fe 'dist\index.html'))) { Fail 'Thieu ban build (chay demo-setup.bat -Build).' }
   if ((Test-Http ('http://127.0.0.1:' + $ApiPort + '/api/v1/health')) -ne 0) { Fail ('Cong ' + $ApiPort + ' dang co dich vu (backend demo dang chay?). Dong cua so backend cu truoc.') }
@@ -46,7 +48,7 @@ try {
   if ($h -notmatch '"authPool":"separate"' -or $h -notmatch '"leastPrivilege":true' -or $h -notmatch '"authLeastPrivilege":true') { Say ('CANH BAO: health khong dung kien truc 2 pool: ' + $h) 'Yellow' } else { Ok 'Backend: 2 pool (siscom_app + siscom_auth), quyen toi thieu.' }
 
   Say 'Mo giao dien (cua so rieng) ...' 'Cyan'
-  $feCmd = "title SISCOM demo web && cd /d `"" + $fe + "`" && set VITE_DEV_API_TARGET=http://127.0.0.1:" + $ApiPort + " && npx.cmd vite preview --port 4173 --strictPort --host 127.0.0.1"
+  $feCmd = "title SISCOM demo web && cd /d `"" + $fe + "`" && set `"VITE_DEV_API_TARGET=http://127.0.0.1:" + $ApiPort + "`" && npx.cmd vite preview --port 4173 --strictPort --host 127.0.0.1"
   Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', $feCmd) | Out-Null
   $ok = $false
   for ($i = 0; $i -lt 40; $i++) { if ((Test-Http 'http://127.0.0.1:4173/') -eq 200) { $ok = $true; break }; Start-Sleep -Seconds 1 }

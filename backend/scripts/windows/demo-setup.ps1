@@ -82,7 +82,9 @@ try {
   $roles = @{ SYSADMIN = 'quan tri ky thuat'; ADMIN = 'crm_admin (toan quyen CRM)'; SALE = 'sales (khach cua minh)'; TECHNICIAN = 'technician (doc theo phong)'; ACCOUNTANT = 'accountant (doc tat ca)' }
   $lines = @(('# Tai khoan demo SISCOM CRM - database ' + $db + ' (cum demo cong ' + $PgPort + '). Mat khau ngau nhien, chi tren may nay.'), '# Dang nhap: http://127.0.0.1:4173 (sau demo-run.bat). Doi mat khau ngay sau lan dang nhap dau neu muon.', '')
   foreach ($k in $keys) { $pw = New-AccountPassword; Set-Item -Path ('Env:BOOTSTRAP_PASSWORD_' + $k) -Value $pw; $lines += ('{0,-28} {1,-22} {2}' -f ($mails[$k] + '@siscom.local'), $pw, $roles[$k]) }
-  Set-Content -LiteralPath $acc -Encoding ASCII -Value $lines; Protect-File $acc; $lines = $null
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  Set-Content -LiteralPath $acc -Encoding ASCII -Value '' -NoNewline; Protect-File $acc  # QA M-4: ACL rieng TRUOC khi ghi mat khau
+  Set-Content -LiteralPath $acc -Encoding ASCII -Value $lines; $lines = $null
   Ok ('Mat khau 5 tai khoan demo da luu: ' + $acc + ' (chi tai khoan Windows hien tai).')
   Run-Step '6. Tao tai khoan demo (bootstrap)' 'auth-demo-stack.ps1' (@('-Step', 'bootstrap') + $common)
   Run-Step '7. Tach role (3 role, 2 pool) + kiem quyen' 'demo-split.ps1' (@('-Step', 'split') + $common)

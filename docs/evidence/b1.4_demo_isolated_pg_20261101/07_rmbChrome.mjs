@@ -5,6 +5,7 @@ const G = await import('file:///D:/SISCOM-CRM-demo2/frontend/siscom-crm-web/test
 const { withTimeout, createCleanup, spawnChrome, rmDirBestEffort, busyPorts } = G;
 const WEB = 'http://127.0.0.1:4173'; const CDP_PORT = 9356; const PW = process.env.BOOTSTRAP_PASSWORD_SALE; const EMAIL = 'sale@siscom.local';
 const EVIDENCE = process.env.E2E_EVIDENCE;
+const WRONG_PW = 'sai-' + Date.now(); // mat khau SAI co y, sinh luc chay (khong de literal giong khoa trong ma - gitleaks)
 const chrome = ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'].find((p) => fs.existsSync(p));
 const results = []; const known = (id, d) => { results.push({ id, status: 'KNOWN', detail: d || '' }); console.log('[KNOWN] ' + id + (d ? ' — ' + d : '')); };
 const rec = (id, ok, d) => { const s = ok ? 'PASS' : 'FAIL'; results.push({ id, status: s, detail: d || '' }); console.log('[' + s + '] ' + id + (d ? ' — ' + d : '')); };
@@ -91,7 +92,7 @@ try {
   rec('R4.3 token moi nhat cung chet (ca chuoi bi thu hoi) => 401', rp2.status === 401, 'status=' + rp2.status);
 
   // R4.4 LOI DA BIET: cookie phien chet con trong trinh duyet => POST /auth/login bi 403 CSRF_FAILED (CsrfOriginGuard). Kiem bang API (mat khau sai co y, guard chan truoc handler => khong ton han muc).
-  const stale = await pageFetch('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'ketoan@siscom.local', password: 'sai-mat-khau-co-y-1234' }) });
+  const stale = await pageFetch('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'ketoan@siscom.local', password: WRONG_PW }) });
   const code44 = stale.body && stale.body.error && stale.body.error.code;
   if (stale.status === 403 && code44 === 'CSRF_FAILED') known('R4.4 LOI: con cookie siscom_sid cua phien da thu hoi => dang nhap bi 403 CSRF_FAILED (giao dien: "Dang nhap that bai.")', 'status=403 code=CSRF_FAILED; xu ly tam: xoa cookie phien');
   else rec('R4.4 dang nhap khi con cookie phien chet khong bi 403', true, 'status=' + stale.status + ' code=' + code44);

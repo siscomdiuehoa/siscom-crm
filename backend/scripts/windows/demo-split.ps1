@@ -10,7 +10,7 @@
 #                  transaction da ROLLBACK => sequence ma khach van tang 1 moi lan chay (sequence khong rollback; vo hai).
 #   -Step resetpw: (superuser) DAT LAI mat khau siscom_migrator / siscom_auth (sinh ngau nhien moi, luu file) khi file mat khau mat/khong khop.
 # Mat khau:
-#   - postgres: hoi an moi lan (khong luu). -NonInteractive: lay tu bien SISCOM_PG_ADMIN_PASSWORD (chi danh cho dien tap tu dong).
+#   - postgres: cum demo => doc tu %LOCALAPPDATA%\SISCOM-CRM\demo\pg-<port>.secrets (bat buoc). Chi khi -AllowMainCluster (owner duyet) moi hoi an / SISCOM_PG_ADMIN_PASSWORD.
 #   - siscom_app: doc tu DATABASE_URL trong backend\.env (nhu auth-demo-stack), khong in.
 #   - siscom_migrator / siscom_auth (role CAP CLUSTER): role chua co => SINH NGAU NHIEN 64 ky tu hex; luu vao
 #     %LOCALAPPDATA%\SISCOM-CRM\demo\roles-<port>.secrets (NGOAI repo; ACL chi SID tai khoan Windows hien tai). Role da co ma file chua co mat
@@ -190,7 +190,11 @@ try {
     $c = Read-Host 'Go DOI-MAT-KHAU de xac nhan dat lai mat khau siscom_migrator va siscom_auth'
     if ($c -ne 'DOI-MAT-KHAU') { Fail 'Khong xac nhan. Dung lai.' }
   }
+  # QA I-2: tren cum demo CHI dung mat khau trong file cua cum demo (khong hoi tay, khong bien moi truong - tranh gui mat khau superuser cum chinh
+  # toi mot tien trinh la tren cong demo); moi lan psql bat buoc SCRAM (PGREQUIREAUTH), khong gui mat khau dang ro.
+  if (-not $AllowMainCluster) { $env:PGREQUIREAUTH = 'scram-sha-256' }
   $adminPw = Get-DemoSecret $PgPort 'POSTGRES_PW'
+  if (-not $adminPw -and -not $AllowMainCluster) { Fail ('Khong co file mat khau cum demo (%LOCALAPPDATA%\SISCOM-CRM\demo\pg-' + $PgPort + '.secrets). Chay demo-pg.bat -Step init (hoac demo-setup.bat) truoc.') }
   if ($adminPw) { Say ('Mat khau postgres cua cum demo cong ' + $PgPort + ' lay tu file (khong in).') }
   elseif ($NonInteractive) { $adminPw = $env:SISCOM_PG_ADMIN_PASSWORD; if (-not $adminPw) { Fail 'Che do khong tuong tac can file mat khau cum demo hoac bien SISCOM_PG_ADMIN_PASSWORD.' } }
   else { $adminPw = Read-Secret 'Mat khau tai khoan postgres (khong luu)' }

@@ -11,7 +11,7 @@ param(
   [ValidateSet('test', 'restore')][string]$Kind = 'test',
   [string]$DatabaseName,
   [switch]$SkipGrantSetParameter,
-  # B1.4 runbook: cong khac 5432 chi de dien tap tren cluster tam; -NonInteractive lay mat khau postgres tu SISCOM_PG_ADMIN_PASSWORD.
+  # B1.4: mac dinh cum demo 55433 (mat khau postgres doc tu pg-<port>.secrets cua demo-pg). 5432 bi tu choi tru -AllowMainCluster (owner duyet).
   [ValidateRange(1024, 65535)][int]$PgPort = 55433,
   [switch]$NonInteractive,
   [switch]$AllowMainCluster
@@ -66,14 +66,18 @@ try {
   if ($DatabaseName -notmatch '^siscom_crm_(restore|test)_\d{8}_\d{6}$') { Fail 'Ten database phai la siscom_crm_test_YYYYMMDD_HHMMSS hoac siscom_crm_restore_YYYYMMDD_HHMMSS. siscom_crm_dev bi tu choi.' }
   Write-Host ('Se TAO database RONG: ' + $DatabaseName + ' (OWNER siscom_app, UTF8, TEMPLATE template0). Khong dung toi siscom_crm_dev.') -ForegroundColor Yellow
   Assert-DemoPort $PgPort ([bool]$AllowMainCluster)
+  # QA I-2: tren cum demo CHI dung mat khau trong file cua cum demo (khong hoi tay, khong bien moi truong - tranh gui mat khau superuser cum chinh
+  # toi mot tien trinh la tren cong demo); moi lan psql bat buoc SCRAM (PGREQUIREAUTH), khong gui mat khau dang ro.
+  if (-not $AllowMainCluster) { $env:PGREQUIREAUTH = 'scram-sha-256' }
   $adminPw = Get-DemoSecret $PgPort 'POSTGRES_PW'
+  if (-not $adminPw -and -not $AllowMainCluster) { Fail ('Khong co file mat khau cum demo (%LOCALAPPDATA%\SISCOM-CRM\demo\pg-' + $PgPort + '.secrets). Chay demo-pg.bat -Step init (hoac demo-setup.bat) truoc.') }
   if ($adminPw) { Write-Host ('Mat khau postgres cua cum demo cong ' + $PgPort + ' lay tu file (khong in).') }
   elseif ($NonInteractive) { $adminPw = $env:SISCOM_PG_ADMIN_PASSWORD; if (-not $adminPw) { Fail 'Che do khong tuong tac can file mat khau cum demo hoac bien SISCOM_PG_ADMIN_PASSWORD.' } }
   else { $adminPw = Read-Secret 'Mat khau tai khoan postgres (chi de TAO database thu; khong luu)' }
   Assert-DemoClusterName (Run-Psql $psql 'postgres' $adminPw 'postgres' "SELECT current_setting('cluster_name');") ([bool]$AllowMainCluster)
   $ver = Run-Psql $psql 'postgres' $adminPw 'postgres' 'SHOW server_version_num;'
   if ((Run-Psql $psql 'postgres' $adminPw 'postgres' ("SELECT 1 FROM pg_database WHERE datname='" + $DatabaseName + "';")) -eq '1') { Fail ('Database ' + $DatabaseName + ' da ton tai (khong ghi de).') }
-  if ((Run-Psql $psql 'postgres' $adminPw 'postgres' "SELECT 1 FROM pg_roles WHERE rolname='siscom_app';") -ne '1') { Fail 'Chua co tai khoan siscom_app (chay setup-db.bat truoc).' }
+  if ((Run-Psql $psql 'postgres' $adminPw 'postgres' "SELECT 1 FROM pg_roles WHERE rolname='siscom_app';") -ne '1') { Fail 'Chua co tai khoan siscom_app (cum demo: chay demo-pg.bat -Step init; KHONG dung setup-db.bat - script do danh cho cong 5432).' }
   Run-Psql $psql 'postgres' $adminPw 'postgres' ('CREATE DATABASE ' + $DatabaseName + " OWNER siscom_app ENCODING 'UTF8' TEMPLATE template0;") | Out-Null
   Run-Psql $psql 'postgres' $adminPw 'postgres' ('REVOKE ALL ON DATABASE ' + $DatabaseName + ' FROM PUBLIC; GRANT CONNECT ON DATABASE ' + $DatabaseName + ' TO siscom_app;') | Out-Null
   Ok ('Da tao database ' + $DatabaseName + ' (chu so huu siscom_app)')

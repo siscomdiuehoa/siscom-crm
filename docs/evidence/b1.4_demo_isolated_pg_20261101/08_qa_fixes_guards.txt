@@ -1,0 +1,42 @@
+# Sau QA (I-1, I-2, M-3): guardqa.ps1
+I-1 stop thu muc gia khong nhan                            ma=1  [LOI] Thu muc C:\Users\<WINUSER>\AppData\Local\Temp\claude\D--SISCOM-CRM\963bddcc-4ff6-4e62-8ec0-edda9404fa01\scratchpad\fakepg khong phai cum demo (thieu cluster_name = siscom_demo). Dung lai.
+I-1 start thu muc gia khong nhan                           ma=1  [LOI] Thu muc C:\Users\<WINUSER>\AppData\Local\Temp\claude\D--SISCOM-CRM\963bddcc-4ff6-4e62-8ec0-edda9404fa01\scratchpad\fakepg khong phai cum demo (thieu cluster_name = siscom_demo). Dung lai.
+I-1 stop thu muc gia nhan dung nhung port = 5432           ma=1  [LOI] Cum tai C:\Users\<WINUSER>\AppData\Local\Temp\claude\D--SISCOM-CRM\963bddcc-4ff6-4e62-8ec0-edda9404fa01\scratchpad\fakepg khong cau hinh port = 55433. Dung lai.
+I-1 stop thu muc gia: postmaster.pid cong 5432             ma=1  [LOI] Cum tai C:\Users\<WINUSER>\AppData\Local\Temp\claude\D--SISCOM-CRM\963bddcc-4ff6-4e62-8ec0-edda9404fa01\scratchpad\fakepg dang chay o cong 5432, khong phai 55433. Dung lai.
+I-1 status thu muc data dich vu (ten ngan 8.3)             ma=1  [LOI] DataDir khong duoc nam trong thu muc cai PostgreSQL (du lieu cua dich vu hien tai).
+Cum demo that 55433: status                                ma=0  Nhan cum: siscom_demo | PostgreSQL 18.6 on x86_64-windows, compiled by msvc-19.44.35229, 64-bit
+I-2 create-test-db cong 55439 khong file secrets           ma=1  [LOI] Khong co file mat khau cum demo (%LOCALAPPDATA%\SISCOM-CRM\demo\pg-55439.secrets). Chay demo-pg.bat -Step init (hoac demo-setup.bat) truoc.
+I-2 demo-split cong 55439 khong file secrets               ma=1  [LOI] Khong co file mat khau cum demo (%LOCALAPPDATA%\SISCOM-CRM\demo\pg-55439.secrets). Chay demo-pg.bat -Step init (hoac demo-setup.bat) truoc.
+M-3 demo-run (demo dang chay)                              ma=1  [LOI] Cong 3100 dang co dich vu (backend demo dang chay?). Dong cua so backend cu truoc.
+
+# Bai cum khong nhan chay lai (file mat khau tam pg-55432.secrets, da xoa)
+Cum tam: cluster_name=[] dbs=3
+create-test-db.ps1   ma=1  [LOI] Cum PostgreSQL dang ket noi co cluster_name = "", khong phai cum demo (siscom_demo). Dung lai, khong ghi gi.
+auth-demo-stack.ps1  ma=1  [LOI] Cum PostgreSQL dang ket noi co cluster_name = "", khong phai cum demo (siscom_demo). Dung lai, khong ghi gi.
+demo-split.ps1       ma=1  [LOI] Cum PostgreSQL dang ket noi co cluster_name = "", khong phai cum demo (siscom_demo). Dung lai, khong ghi gi.
+Sau kiem: 3 DB; co siscom_crm_test_20261101_999998: 0
+Cum tam da huy: True
+
+# Bai cong 5432 chay lai
+demo-pg.ps1          ma=1  [LOI] Cong 5432 la PostgreSQL hien tai cua may: cum demo phai dung cong khac (mac dinh 55433).
+demo-setup.ps1       ma=1  [LOI] Cong 5432 la PostgreSQL hien tai: ban demo chi dung cum demo rieng (mac dinh 55433).
+demo-run.ps1         ma=1  [LOI] Cong 5432 la PostgreSQL hien tai: demo chi dung cum demo rieng.
+create-test-db.ps1   ma=1  [LOI] Cong 5432 la PostgreSQL hien tai cua may: script demo chi chay tren cum demo rieng (demo-pg.bat, mac dinh -PgPort 55433).
+auth-demo-stack.ps1  ma=1  [LOI] Cong 5432 la PostgreSQL hien tai cua may: script demo chi chay tren cum demo rieng (demo-pg.bat, mac dinh -PgPort 55433).
+demo-split.ps1       ma=1  [LOI] Cong 5432 la PostgreSQL hien tai cua may: script demo chi chay tren cum demo rieng (demo-pg.bat, mac dinh -PgPort 55433).
+Ket noi TCP toi 127.0.0.1:5432 (moi trang thai) truoc=0 sau=0 (chi de doi chieu; dich vu khac co the giu ket noi)
+
+# demo-pg init cum thu 55434 sau QA (ACL thu muc data + file bi mat), da xoa
+Cum demo: C:\Users\<WINUSER>\AppData\Local\Temp\claude\D--SISCOM-CRM\963bddcc-4ff6-4e62-8ec0-edda9404fa01\SCRATC~1\pginit55434\data | 127.0.0.1:55434 | Buoc: init
+[DAT] initdb xong (scram-sha-256, UTF8).
+[DAT] Role siscom_app + quyen SET app.*; mat khau luu C:\Users\<WINUSER>\AppData\Local\SISCOM-CRM\demo\pg-55434.secrets va C:\Users\<WINUSER>\AppData\Local\SISCOM-CRM\demo\demo-55434.env (chi tai khoan Windows hien tai).
+
+CUM DEMO SAN SANG: 127.0.0.1:55434 (cluster_name = siscom_demo). Buoc tiep: demo-setup.bat
+
+init ma=0
+ACL data: inheritance tat=True, so quy tac=1, chi SID hien tai=True
+ACL pg-55434.secrets : inheritance tat=True, so quy tac=1, so dong=2
+ACL demo-55434.env : inheritance tat=True, so quy tac=1, so dong=2
+Nhan cum: siscom_demo | PostgreSQL 18.6 on x86_64-windows, compiled by msvc-19.44.35229, 64-bit
+[DAT] Da dung cum demo.
+Da don: True True True

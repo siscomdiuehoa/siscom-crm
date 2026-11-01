@@ -5,14 +5,24 @@ Máy owner (Windows 11), worktree `D:\SISCOM-CRM-demo2`, nhánh `ops/b1.4-demo-i
 
 | File | Nội dung | Kết quả |
 |---|---|---|
-| `00_demo-setup_run1_FAIL_env-bug.txt` | Lần chạy `demo-setup` đầu tiên | **FAIL** ở bước 4: `demo-pg init` ghi `demo-55433.env` thành MỘT dòng (lỗi ưu tiên dấu phẩy PowerShell `@('a' + $x, 'b')`). Đã sửa ở `demo-pg.ps1` (+ chỗ tương tự trong `demo-setup.ps1`), file env của cụm 55433 được ghi lại đúng 2 dòng. DB `siscom_crm_test_20261101_095918` tạo rỗng ở lần này còn nằm trên cụm demo (vô hại) |
+| `00_demo-setup_run1_FAIL_env-bug.txt` | Lần chạy `demo-setup` đầu tiên | **FAIL** ở bước 4: `demo-pg init` ghi `demo-55433.env` thành MỘT dòng (lỗi ưu tiên dấu phẩy PowerShell `@('a' + $x, 'b')`). Đã sửa ở `demo-pg.ps1` (+ chỗ tương tự trong `demo-setup.ps1`). File env của cụm 55433 (đã init trước khi sửa) được Claude **ghi lại bằng tay** đúng 2 dòng từ `pg-55433.secrets` (cùng ACL theo SID; lệnh chỉ in bản che mật khẩu) — không có file bằng chứng riêng cho thao tác này; bằng chứng script đã sửa là file 06. DB `siscom_crm_test_20261101_095918` tạo rỗng ở lần này còn nằm trên cụm demo (vô hại) |
 | `01_demo-setup_run.txt` | `demo-setup.ps1 -Yes` lần 2: start cụm → tạo DB `siscom_crm_test_20261101_100155` → migrate (7 migration) → seed 23 danh mục → bootstrap 5 tài khoản → tách role | **PASS** (mã 0), `VERIFY PASS\|73`, `VERIFY_AUTH PASS\|33`. Các dòng `NativeCommandError` quanh "Loaded Prisma config" là do cách bắt log (`*>` của PowerShell 5.1 bọc stderr của Prisma), không phải lỗi |
 | `02_demo-run.txt` | `demo-run.ps1 -NoBrowser` | **PASS**: backend 3100 + web 4173; health `authPool=separate`, `leastPrivilege=true`, `authLeastPrivilege=true` |
-| `03_guard_port5432.txt` | 6 script với `-PgPort 5432` | **PASS**: cả 6 trả mã 1 trước khi gọi `psql`; 0 kết nối TCP tới 127.0.0.1:5432 trước/sau |
+| `03_guard_port5432.txt` | 6 script với `-PgPort 5432` | **PASS**: cả 6 trả mã 1. "Trước khi gọi `psql`" là theo đọc mã (QA độc lập xác nhận `Assert-DemoPort` đứng trước mọi lệnh psql); số kết nối TCP trước/sau chỉ là ảnh chụp tham khảo, không phải bằng chứng |
 | `04_guard_cluster_label.txt` | Cụm TẠM 55432 không nhãn (initdb trong scratchpad, đã huỷ) | **PASS**: `create-test-db`, `auth-demo-stack`, `demo-split` đều mã 1 với thông báo sai `cluster_name`; không DB nào được tạo |
 | `05_chrome_4roles.txt/.json` | `sessionRolesChrome.mjs` (Chrome thật headless) trên bản demo: đăng nhập, ma trận quyền 4 vai trò, khách hàng (tạo/xem/sửa theo phạm vi), CSRF, đổi mật khẩu | **PASS 91 / FAIL 0 / KNOWN 0** |
 | `06_demo-pg_init_envfix_55434.txt` | `demo-pg init` thật trên cụm thử 55434 (sau khi sửa) | **PASS**: env 2 dòng, nhãn `siscom_demo`; cụm thử + file secrets/env của nó đã xoá |
 | `07_chrome_remember_me.txt/.json` + `07_rmbChrome.mjs` (kịch bản, chạy tay, không thuộc test tự động) | Remember Me trong Chrome thật: không tích ⇒ không cookie; tích ⇒ `siscom_rmb` HttpOnly/SameSite=Lax/Path=/api/v1/auth, hạn 90 ngày, JS không đọc được, 1 thiết bị; mất phiên + F5 ⇒ tự vào lại, token xoay vòng, không kéo dài mốc 90 ngày; phát lại token cũ sau 10 giây ⇒ 401 + phiên đang mở bị thu hồi + cả chuỗi chết; đăng xuất ⇒ xoá ghi nhớ; thu hồi thiết bị ⇒ không tự vào; restore thiếu header ⇒ 403 | **PASS 22 / FAIL 0 / KNOWN 1** (R4.4, lỗi BUG-1 dưới) |
+
+### Sau QA độc lập (commit sửa QA, 0 Critical / 2 Important / 8 Minor)
+| File | Nội dung | Kết quả |
+|---|---|---|
+| `08_qa_fixes_guards.txt` | I-1: `demo-pg start/stop` trên thư mục giả không nhãn / nhãn đúng nhưng `port = 5432` / `postmaster.pid` cổng 5432 ⇒ từ chối; `status` với tên ngắn 8.3 của thư mục data dịch vụ ⇒ từ chối; cụm demo thật `status` vẫn chạy. I-2: cổng không có file mật khẩu ⇒ `create-test-db`, `demo-split` từ chối, không dùng `SISCOM_PG_ADMIN_PASSWORD`. M-3: `demo-run` qua chốt ký tự đường dẫn. Chạy lại bài cụm không nhãn + bài 5432. `demo-pg init` cụm thử 55434: thư mục data và file bí mật chỉ 1 quy tắc ACL (SID hiện tại), không kế thừa | **PASS** toàn bộ (mọi lần từ chối mã 1) |
+| `09_demo-setup_after_qa.txt` | `demo-setup -Yes` sau sửa: DB `siscom_crm_test_20261101_103435` | **PASS**, `VERIFY PASS\|73`, `VERIFY_AUTH PASS\|33`; file tài khoản ACL 1 quy tắc |
+| `10_chrome_4roles_after_qa.txt/.json` | Chrome 4 vai trò trên DB mới (backend khởi động lại bằng `demo-run`) | **PASS 91 / FAIL 0 / KNOWN 0** |
+| `11_chrome_remember_me_after_qa.txt/.json` | Remember Me Chrome trên DB mới | **PASS 22 / FAIL 0 / KNOWN 1** (BUG-1) |
+
+Minor chưa sửa (ghi nhận, chờ owner): M-1 kiểm nhãn và lệnh ghi dùng hai kết nối khác nhau (cùng host/cổng; cần một tiến trình khác chiếm cổng đúng giữa hai lệnh); M-2 `init` dừng giữa chừng phải dọn tay (runbook mục 7 đã ghi cách dọn); M-5 `CREATE ROLE ... PASSWORD` có thể vào log máy chủ nếu chính câu lệnh đó lỗi (`log_min_error_statement`); cụm demo 55433 hiện tại được init TRƯỚC khi thêm ACL thư mục data (thư mục kế thừa ACL của `D:\`; init lại để có ACL riêng).
 
 ### Các lần chạy Remember Me trước lần cuối (ghi đúng sự thật)
 1. R1–R4 đạt; R5 dừng vì "Quá nhiều lần thử": hạn mức đăng nhập 5 lần / 15 phút / (nguồn + tài khoản), tính cả lần đúng (thiết kế đã nghiệm thu, không đổi); `sale` đã đăng nhập nhiều lần trong bài 05. Sửa kịch bản: R5 dùng `ketoan`, R6 dùng `kythuat`, `sale` đăng nhập bằng mã `NV-0003`.

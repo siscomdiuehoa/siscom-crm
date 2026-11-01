@@ -14,7 +14,7 @@
 #                     CORS_ORIGINS = AUTH_ALLOWED_ORIGINS = FE 5173 (vite dev) va 4173 (vite preview). Ctrl-C de dung.
 #   -Step status    : GET http://127.0.0.1:<Port>/api/v1/health (CHI DOC).
 #   -NonInteractive : bo buoc go lai ten DB de xac nhan (danh cho harness tu dong); moi kiem tra khac giu nguyen.
-#   -PgPort         : cong PostgreSQL (mac dinh 5432; khac 5432 chi de dien tap tren cluster tam). DATABASE_URL trong .env phai cung cong.
+#   -PgPort         : cong PostgreSQL (mac dinh 55433 = cum demo; 5432 bi tu choi tru -AllowMainCluster). DATABASE_URL trong file env phai cung cong.
 # B1.4 (runbook docs\B1.4_DEMO_WINDOWS_RUNBOOK.md): DB DA TACH ROLE bang demo-split.bat (chu so huu siscom_migrator) => buoc start tu dat
 #   AUTH_DATABASE_URL = siscom_auth (mat khau doc tu %LOCALAPPDATA%\SISCOM-CRM\demo\roles-<port>.secrets do demo-split sinh; khong in).
 #   migrate/seed/bootstrap chi cho DB CHUA tach (siscom_app la chu so huu); DB da tach: demo-split.bat -Step migrate.
@@ -115,6 +115,7 @@ $ownedVars = @()
 try {
   $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
   Assert-DemoPort $PgPort ([bool]$AllowMainCluster)
+  if (-not $AllowMainCluster) { $env:PGREQUIREAUTH = 'scram-sha-256' }  # QA I-2: psql chi gui mat khau qua SCRAM
   # Cum demo: file env do demo-pg.ps1 sinh (mat khau siscom_app cua cum demo). Khong dung backend\.env (do la cum hien tai).
   if (-not $EnvPath) { $de = Join-Path $env:LOCALAPPDATA ('SISCOM-CRM\demo\demo-' + $PgPort + '.env'); if (Test-Path -LiteralPath $de) { $EnvPath = $de } }
   if (-not $EnvPath) { $EnvPath = Join-Path $root '.env'; if (-not (Test-Path -LiteralPath $EnvPath) -and (Test-Path -LiteralPath 'D:\SISCOM-CRM\backend\.env')) { $EnvPath = 'D:\SISCOM-CRM\backend\.env' } }
