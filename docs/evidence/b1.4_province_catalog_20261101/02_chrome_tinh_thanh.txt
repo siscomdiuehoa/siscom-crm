@@ -1,0 +1,6 @@
+[PASS] P1 API /lookups?type=province: 34 muc, 3 dau = Ha Noi, TP. Ho Chi Minh, Da Nang — n=34 dau=Hà Nội, TP. Hồ Chí Minh, Đà Nẵng, An Giang
+[PASS] P2 o "Tinh / Thanh pho" tren bieu mau: 34 lua chon, dung thu tu API (3 thanh pho dau, con lai ABC) — dau=Hà Nội, TP. Hồ Chí Minh, Đà Nẵng, An Giang, Bắc Ninh ... cuoi=Tuyên Quang, Vĩnh Long
+[PASS] P3 khong con thong bao "May chu chua co danh muc nay"
+[PASS] P2b chon "Da Nang" tren o => hien "Da Nang"
+[PASS] P4 luu khach voi Tinh/Thanh = Da Nang => chi tiet hien "Da Nang"
+TONG: PASS=5 FAIL=0
