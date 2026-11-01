@@ -11,5 +11,11 @@
 | `01_chrome_remember_me_bug1.txt/.json` + `01_rmbChrome.mjs` | Chrome thật trên bản demo (cụm 55433, backend + web build từ nhánh này): sau khi chuỗi ghi nhớ bị thu hồi (REPLAY) cookie phiên chết vẫn còn ⇒ đăng nhập sai trả 401 (không còn 403); **đăng nhập thật qua giao diện khi vẫn còn cookie chết** thành công | **PASS 24 / FAIL 0 / KNOWN 0** (trước sửa: R4.4 KNOWN) |
 | `02_chrome_hoi_quy_4_vai_tro.txt/.json` | Hồi quy `sessionRolesChrome.mjs` (đăng nhập, quyền 4 vai trò, khách hàng, CSRF, đổi mật khẩu) | **PASS 91 / FAIL 0 / KNOWN 0** |
 
-Backend unit toàn bộ: **549 / 549**. Không đổi database, migration, API trả về, frontend. Không chạm `siscom_crm_dev` / PostgreSQL 5432.
+## Sau QA bảo mật độc lập (0 Critical, 0 Important, 3 Minor)
+- Minor 1 đã sửa: route đăng nhập có Origin lạ bị từ chối **trước** khi tra phiên (không truy vấn DB, không gia hạn idle) — test mới, thấy đỏ trước khi sửa.
+- Minor 2 (đăng nhập lại khi phiên còn sống không thu hồi phiên cũ) và Minor 3 (hai cookie siscom_sid trùng tên => coi như không cookie) có từ trước, PR không đổi; ghi nhận chờ owner.
+- Tài liệu thiết kế  ghi ngoại lệ .
+- CI trên e376dff (trước sửa Minor 1): 5/5 xanh, gồm 2 ca tích hợp mới trên PostgreSQL tạm.
+
+Backend unit toàn bộ: **550 / 550** (sau sửa Minor 1). Không đổi database, migration, API trả về, frontend. Không chạm `siscom_crm_dev` / PostgreSQL 5432.
 Runbook: dòng sự cố BUG-1 cập nhật "đã sửa".

@@ -127,3 +127,13 @@ describe('CsrfOriginGuard — @LoginEndpoint (đăng nhập khi còn cookie phi�
     await expect403(g, ctlCtx('login', 'POST', { cookie, origin }).ec);
   });
 });
+
+describe('CsrfOriginGuard — @LoginEndpoint: Origin lạ bị từ chối TRƯỚC khi tra phiên (QA Minor 1)', () => {
+  class Ctl { @LoginEndpoint() login(): void { /* marker */ } }
+  const c = (headers: Record<string, unknown>) => ({ switchToHttp: () => ({ getRequest: () => ({ method: 'POST', headers }) }), getHandler: () => Ctl.prototype.login } as unknown as ExecutionContext);
+  it('cookie + Origin lạ => 403 và KHÔNG gọi lookup (không truy vấn DB, không gia hạn idle)', async () => {
+    const p = provider(true); const g = new CsrfOriginGuard(p, cfg);
+    await expect403(g, c({ cookie, origin: 'http://evil.example' }));
+    expect((p as unknown as { lookup: jest.Mock }).lookup).not.toHaveBeenCalled();
+  });
+});

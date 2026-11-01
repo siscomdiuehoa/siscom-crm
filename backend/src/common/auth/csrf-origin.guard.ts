@@ -47,6 +47,8 @@ export class CsrfOriginGuard implements CanActivate {
     const provider = this.provider;
     if (!(provider instanceof SessionActorProvider)) throw csrfFailed();
     if (typeof context.getHandler === 'function' && Reflect.getMetadata(LOGIN_ENDPOINT, context.getHandler()) === true) {
+      // Origin có nhưng lạ => từ chối TRƯỚC khi tra phiên (không truy vấn DB, không gia hạn idle cho request sẽ bị chặn).
+      if (origin !== undefined && !checkOrigin(origin, this.cfg.allowedOrigins).ok) throw csrfFailed();
       if (req.authSession === undefined) req.authSession = await provider.lookup(req.headers.cookie);
       if (!req.authSession) return noCookiePath(); // BUG-1: phiên chết => như chưa có cookie
     }
