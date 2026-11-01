@@ -13,7 +13,9 @@ import { ipPrefix } from './client-hints';
 import { RememberDevices } from './remember-devices';
 
 // remember: checkbox "Ghi nhớ đăng nhập trên thiết bị này" (mặc định false). previousRememberToken: cookie siscom_rmb đã có trên thiết bị (nếu có).
-export interface LoginInput { login: string; password: string; source: string; ip: string | null; userAgent: string | null; requestId?: string; remember?: boolean; previousRememberToken?: string | null }
+// previousSession: phiên CÒN SỐNG của cookie siscom_sid trình duyệt gửi kèm (do CsrfOriginGuard tra, đã qua Origin + X-CSRF-Token) — đăng nhập
+// thành công sẽ thu hồi nó (RELOGIN; owner duyệt 2026-11-01).
+export interface LoginInput { login: string; password: string; source: string; ip: string | null; userAgent: string | null; requestId?: string; remember?: boolean; previousRememberToken?: string | null; previousSession?: { sessionId: string; employeeId: string } | null }
 export interface RememberCookieGrant { token: string; maxAgeSeconds: number }
 export interface RestoreInput { token: string | null; source: string; ip: string | null; userAgent: string | null; requestId?: string }
 // ABSENT: không có cookie hợp lệ; INVALID: từ chối (xoá cookie); RACE: yêu cầu song song vừa rotate (giữ cookie, thử lại /auth/me).
@@ -102,6 +104,12 @@ export class AuthService {
       await tx.employeeCredential.update({ where: { employeeId: row!.id }, data: { failedCount: 0, windowStartedAt: null, lockedUntil: null, lockLevel: 0, lastLoginAt: now } });
       await tx.authSession.create({ data: ns.data });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: row!.id, action: 'auth.login_ok', entityType: 'employee', entityId: row!.id, entityCode: row!.code, summary: 'Đăng nhập thành công', requestId: rid(input.requestId) } });
+      // Trình duyệt đang giữ phiên CÒN SỐNG (của bất kỳ ai — máy dùng chung): cookie đó bị ghi đè nên thu hồi luôn phiên cũ ở server (RELOGIN),
+      // tránh token cũ (nếu đã lộ) dùng tiếp tới 8–12 giờ. Chỉ sau khi mật khẩu đúng; nhật ký không chứa id phiên.
+      if (input.previousSession) {
+        const n = (await tx.authSession.updateMany({ where: { id: input.previousSession.sessionId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'RELOGIN' } })).count;
+        if (n > 0) await tx.auditLog.create({ data: { actorType: 'USER', actorId: row!.id, action: 'auth.session_revoked_relogin', entityType: 'employee', entityId: input.previousSession.employeeId, summary: 'Thu hồi phiên cũ trên cùng trình duyệt khi đăng nhập lại', requestId: rid(input.requestId) } });
+      }
       // Thiết bị đã có cookie nhớ cũ: luôn thu hồi chuỗi cũ (đăng nhập lại bằng mật khẩu = thiết lập lại lựa chọn), rồi cấp mới nếu được tích.
       if (input.previousRememberToken) await this.rememberDevices.revokeByToken(tx, input.previousRememberToken, null, 'LOGIN_NO_REMEMBER', now);
       if (!wantRemember) return undefined;
