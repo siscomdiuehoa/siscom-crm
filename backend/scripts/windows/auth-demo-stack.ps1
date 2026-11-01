@@ -27,7 +27,10 @@ param(
   [string]$Origins = 'http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4173,http://localhost:4173',
   [ValidateRange(1024, 65535)][int]$PgPort = 55433,
   [switch]$AllowMainCluster,
-  [switch]$NonInteractive
+  [switch]$NonInteractive,
+  # B1.5 demo-lan (sau reverse proxy HTTPS cung may): -CookieSecure => COOKIE_SECURE=true; -TrustProxy loopback => TRUST_PROXY=loopback.
+  [switch]$CookieSecure,
+  [ValidateSet('false', 'loopback')][string]$TrustProxy = 'false'
 )
 $ErrorActionPreference = 'Stop'
 $script:pw = $null; $script:psql = $null
@@ -215,9 +218,10 @@ try {
       }
       'start' {
         if (-not (Test-Path -LiteralPath (Join-Path $root 'dist\main.js'))) { Fail 'Thieu dist\main.js: chay "npm run build" trong backend truoc.' }
-        Say ('Backend: http://127.0.0.1:' + $Port + '/api/v1 | DB thu ' + $DatabaseName + ' | COOKIE_SECURE=false | origin: ' + $Origins) 'Cyan'
+        $cookieSecureVal = 'false'; if ($CookieSecure) { $cookieSecureVal = 'true' }
+        Say ('Backend: http://127.0.0.1:' + $Port + '/api/v1 | DB thu ' + $DatabaseName + ' | COOKIE_SECURE=' + $cookieSecureVal + ' | TRUST_PROXY=' + $TrustProxy + ' | origin: ' + $Origins) 'Cyan'
         Say 'Ctrl-C de dung. FE: frontend\siscom-crm-web, "npm run dev" (hoac build + "npm run preview") voi VITE_CRM_AUTH_ENABLED=true, VITE_CRM_API_ENABLED=true.'
-        $envs = @{ DATABASE_URL = $url; NODE_ENV = 'development'; HOST = '127.0.0.1'; PORT = [string]$Port; CORS_ORIGINS = $Origins; AUTH_ALLOWED_ORIGINS = $Origins; COOKIE_SECURE = 'false'; LOG_LEVEL = 'log'; TRUST_PROXY = 'false' }
+        $envs = @{ DATABASE_URL = $url; NODE_ENV = 'development'; HOST = '127.0.0.1'; PORT = [string]$Port; CORS_ORIGINS = $Origins; AUTH_ALLOWED_ORIGINS = $Origins; COOKIE_SECURE = $cookieSecureVal; LOG_LEVEL = 'log'; TRUST_PROXY = $TrustProxy }
         if ($authUrl) { $envs['AUTH_DATABASE_URL'] = $authUrl; Say 'AUTH_DATABASE_URL = siscom_auth (pool xac thuc rieng). Kiem: GET /api/v1/health/database => role.authPool = separate.' 'Cyan' }
         $code = Run-Node @('dist\main.js') $envs; $envs = $null
         Say ('Backend da dung (ma thoat ' + $code + ').')
