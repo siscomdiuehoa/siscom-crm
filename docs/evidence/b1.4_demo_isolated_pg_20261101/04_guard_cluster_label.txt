@@ -1,0 +1,6 @@
+Cum tam: cluster_name=[] dbs=3
+create-test-db.ps1   ma=1  [LOI] Cum PostgreSQL dang ket noi co cluster_name = "", khong phai cum demo (siscom_demo). Dung lai, khong ghi gi.
+auth-demo-stack.ps1  ma=1  [LOI] Cum PostgreSQL dang ket noi co cluster_name = "", khong phai cum demo (siscom_demo). Dung lai, khong ghi gi.
+demo-split.ps1       ma=1  [LOI] Cum PostgreSQL dang ket noi co cluster_name = "", khong phai cum demo (siscom_demo). Dung lai, khong ghi gi.
+Sau kiem: 3 DB; co siscom_crm_test_20261101_999998: 0
+Cum tam da huy: True

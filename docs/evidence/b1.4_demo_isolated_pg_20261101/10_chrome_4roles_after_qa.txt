@@ -1,0 +1,98 @@
+[PASS] S0.1 chưa đăng nhập => màn hình đăng nhập (AuthGate)
+[PASS] S0.2 GET /auth/me khi chưa đăng nhập => 401 — status=401
+[PASS] S0.3 không có cookie phiên trước khi đăng nhập
+[PASS] S1.1 sai mật khẩu => banner lỗi (role=alert), vẫn màn hình đăng nhập — data-kind=credentials
+[PASS] S1.2 sai mật khẩu => /auth/me vẫn 401
+[PASS] S2.admin đăng nhập admin@siscom.local => App hiện "Đang đăng nhập: Quản trị CRM (NV-0002)" — me=NV-0002
+[PASS] S2.admin.roles /auth/me 200, vai trò = [crm_admin] — roles=["crm_admin"]
+[PASS] S2.admin.perms quyền customer.*/contact.*/lookup.read đúng ma trận V2 — thực tế={"customer.read":"ALL","customer.create":"ALL","customer.update":"ALL","customer.delete":"ALL","customer.restore":"ALL","contact.read":"ALL","contact.create":"ALL","lookup.read":"ALL"}
+[PASS] S2.admin.label nhãn vai trò trên Topbar = "Quản trị CRM"
+[PASS] S2.admin.csrf cookie siscom_csrf đọc được từ JS sau đăng nhập
+[PASS] S2.admin.cookies siscom_sid HttpOnly+SameSite=Lax+Path=/api/v1; siscom_csrf KHÔNG HttpOnly, Path=/ — [{"name":"siscom_csrf","httpOnly":false,"secure":false,"sameSite":"Lax","path":"/"},{"name":"siscom_sid","httpOnly":true,"secure":false,"sameSite":"Lax","path":"/api/v1"}]
+[PASS] S3.admin danh sách khách hàng: UI không lỗi, GET /customers 200 — total=0
+[PASS] S4.admin.lookups GET /lookups => 200, danh mục D3 có POTENTIAL (tier/status) và WEBSITE (source) — status=200 tier=4 status=4 source=5
+[PASS] S4.admin.owners GET /customers/owner-candidates => 200 scope ALL (>= 5 nhân viên) — status=200 scope=ALL n=5
+[PASS] S4.admin.ownersUi biểu mẫu Thêm khách hàng có ô "Nhân viên phụ trách" bật, danh sách >= 5 + mục Chưa phân công — trigger=opened options=6
+[PASS] S4.admin.1 POST /customers KHÔNG X-CSRF-Token => 403 CSRF_FAILED — status=403
+[PASS] S4.admin.2 POST /customers X-CSRF-Token SAI => 403 — status=403
+[PASS] S4.admin.3 tạo: POST /customers CSRF đúng => 201, mã KH-xxxxx, tier/status mặc định POTENTIAL, source WEBSITE (D3 đã seed) — status=201 code=KH-00002
+[PASS] S4.admin.4 khách vừa tạo hiện trên danh sách UI (sau tải lại trang) — KH-00002
+[PASS] S4.admin.5 xem: GET /customers/:id => 200, đúng mã, version 1 — status=200
+[PASS] S4.admin.6 sửa: PATCH /customers/:id (version 1; tên, tier VIP, status ACTIVE) => 200, version 2, giá trị mới — status=200
+[PASS] S4.admin.7 sửa với version cũ => 409 (khoá lạc quan) — status=409 code=CUSTOMER_VERSION_CONFLICT
+[PASS] S4.admin.8 PATCH KHÔNG X-CSRF-Token => 403 CSRF_FAILED — status=403
+[PASS] S4.admin.9 PATCH tier ngoài danh mục => 400 LOOKUP_INVALID (field tier) — status=400 code=LOOKUP_INVALID
+[PASS] S4.admin.10 trang chi tiết (#/customers/:id) hiện tên đã sửa
+[PASS] S5.admin.list phạm vi ALL: THẤY khách KH-00002 — total=1
+[PASS] S6.admin tải lại trang => vẫn đăng nhập (restore), /auth/me 200, có siscom_csrf
+[PASS] S7.admin đăng xuất => màn hình đăng nhập, /auth/me 401, cookie đã xoá — status=401
+[PASS] S2.accountant đăng nhập ketoan@siscom.local => App hiện "Đang đăng nhập: Nhân viên kế toán (NV-0005)" — me=NV-0005
+[PASS] S2.accountant.roles /auth/me 200, vai trò = [accountant] — roles=["accountant"]
+[PASS] S2.accountant.perms quyền customer.*/contact.*/lookup.read đúng ma trận V2 — thực tế={"customer.read":"ALL","contact.read":"ALL","lookup.read":"ALL"}
+[PASS] S2.accountant.label nhãn vai trò trên Topbar = "Kế toán"
+[PASS] S2.accountant.csrf cookie siscom_csrf đọc được từ JS sau đăng nhập
+[PASS] S3.accountant danh sách khách hàng: UI không lỗi, GET /customers 200 — total=1
+[PASS] S4.accountant.lookups GET /lookups => 200, danh mục D3 có POTENTIAL (tier/status) và WEBSITE (source) — status=200 tier=4 status=4 source=5
+[PASS] S4.accountant.owners GET /customers/owner-candidates => 403 FORBIDDEN — status=403 scope=undefined n=0 code=FORBIDDEN
+[PASS] S4.accountant.1 POST /customers KHÔNG X-CSRF-Token => 403 CSRF_FAILED — status=403
+[PASS] S4.accountant.2 POST /customers X-CSRF-Token SAI => 403 — status=403
+[PASS] S4.accountant.3 POST /customers (không có customer.create) => 403 FORBIDDEN — status=403 code=FORBIDDEN
+[PASS] S5.accountant.list phạm vi ALL: THẤY khách KH-00002 — total=1
+[PASS] S5.accountant.view xem GET /customers/:id => 200 — status=200 code=null
+[PASS] S5.accountant.update sửa PATCH /customers/:id => 403 — status=403 code=FORBIDDEN
+[PASS] S5.accountant.delete xoá DELETE /customers/:id (không có customer.delete) => 403 FORBIDDEN — status=403 code=FORBIDDEN
+[PASS] S5.accountant.intact sau sửa/xoá trái phép khách không đổi (version 2) — version=2
+[PASS] S6.accountant tải lại trang => vẫn đăng nhập (restore), /auth/me 200, có siscom_csrf
+[PASS] S7.accountant đăng xuất => màn hình đăng nhập, /auth/me 401, cookie đã xoá — status=401
+[PASS] S2.technician đăng nhập kythuat@siscom.local => App hiện "Đang đăng nhập: Nhân viên kỹ thuật (NV-0004)" — me=NV-0004
+[PASS] S2.technician.roles /auth/me 200, vai trò = [technician] — roles=["technician"]
+[PASS] S2.technician.perms quyền customer.*/contact.*/lookup.read đúng ma trận V2 — thực tế={"customer.read":"DEPARTMENT","contact.read":"DEPARTMENT","lookup.read":"ALL"}
+[PASS] S2.technician.label nhãn vai trò trên Topbar = "Kỹ thuật"
+[PASS] S2.technician.csrf cookie siscom_csrf đọc được từ JS sau đăng nhập
+[PASS] S3.technician danh sách khách hàng: UI không lỗi, GET /customers 200 — total=0
+[PASS] S4.technician.lookups GET /lookups => 200, danh mục D3 có POTENTIAL (tier/status) và WEBSITE (source) — status=200 tier=4 status=4 source=5
+[PASS] S4.technician.owners GET /customers/owner-candidates => 403 FORBIDDEN — status=403 scope=undefined n=0 code=FORBIDDEN
+[PASS] S4.technician.1 POST /customers KHÔNG X-CSRF-Token => 403 CSRF_FAILED — status=403
+[PASS] S4.technician.2 POST /customers X-CSRF-Token SAI => 403 — status=403
+[PASS] S4.technician.3 POST /customers (không có customer.create) => 403 FORBIDDEN — status=403 code=FORBIDDEN
+[PASS] S5.technician.list phạm vi DEPARTMENT: KHÔNG thấy khách KH-00002 — total=0
+[PASS] S5.technician.view xem GET /customers/:id => 404 — status=404 code=CUSTOMER_NOT_FOUND
+[PASS] S5.technician.update sửa PATCH /customers/:id => 403 — status=403 code=FORBIDDEN
+[PASS] S5.technician.delete xoá DELETE /customers/:id (không có customer.delete) => 403 FORBIDDEN — status=403 code=FORBIDDEN
+[PASS] S6.technician tải lại trang => vẫn đăng nhập (restore), /auth/me 200, có siscom_csrf
+[PASS] S7.technician đăng xuất => màn hình đăng nhập, /auth/me 401, cookie đã xoá — status=401
+[PASS] S2.sale đăng nhập sale@siscom.local => App hiện "Đang đăng nhập: Nhân viên kinh doanh (NV-0003)" — me=NV-0003
+[PASS] S2.sale.roles /auth/me 200, vai trò = [sales] — roles=["sales"]
+[PASS] S2.sale.perms quyền customer.*/contact.*/lookup.read đúng ma trận V2 — thực tế={"customer.read":"OWN","customer.create":"OWN","customer.update":"OWN","contact.read":"OWN","contact.create":"OWN","lookup.read":"ALL"}
+[PASS] S2.sale.label nhãn vai trò trên Topbar = "Kinh doanh"
+[PASS] S2.sale.csrf cookie siscom_csrf đọc được từ JS sau đăng nhập
+[PASS] S3.sale danh sách khách hàng: UI không lỗi, GET /customers 200 — total=0
+[PASS] S4.sale.lookups GET /lookups => 200, danh mục D3 có POTENTIAL (tier/status) và WEBSITE (source) — status=200 tier=4 status=4 source=5
+[PASS] S4.sale.owners GET /customers/owner-candidates => 200 scope OWN (chỉ chính mình) — status=200 scope=OWN n=1
+[PASS] S4.sale.1 POST /customers KHÔNG X-CSRF-Token => 403 CSRF_FAILED — status=403
+[PASS] S4.sale.2 POST /customers X-CSRF-Token SAI => 403 — status=403
+[PASS] S4.sale.3 tạo (B3): POST /customers phạm vi OWN => 201, chủ sở hữu = chính mình — status=201 code=KH-00003 owner=NV-0003
+[PASS] S4.sale.4 xem khách của mình: GET /customers/:id => 200 — status=200
+[PASS] S4.sale.5 sửa khách của mình (OWN) => 200, version 2 — status=200
+[PASS] S4.sale.6 bàn giao cho người khác (OWN) => 403 FORBIDDEN — status=403 code=FORBIDDEN
+[PASS] S4.sale.7 danh sách OWN: THẤY khách của mình, KHÔNG thấy khách crm_admin — total=1
+[PASS] S4.sale.8 khách của mình hiện trên danh sách UI (sau tải lại trang) — KH-00003
+[PASS] S5.sale.list phạm vi OWN: KHÔNG thấy khách KH-00002 — total=1
+[PASS] S5.sale.view xem GET /customers/:id => 404 — status=404 code=CUSTOMER_NOT_FOUND
+[PASS] S5.sale.update sửa PATCH /customers/:id => 404 — status=404 code=CUSTOMER_NOT_FOUND
+[PASS] S5.sale.delete xoá DELETE /customers/:id (không có customer.delete) => 403 FORBIDDEN — status=403 code=FORBIDDEN
+[PASS] S6.sale tải lại trang => vẫn đăng nhập (restore), /auth/me 200, có siscom_csrf
+[PASS] S9.1 nút "Đổi mật khẩu" mở hộp thoại Liquid Glass có 3 ô mật khẩu + thanh độ mạnh
+[PASS] S9.2 mật khẩu hiện tại sai => lỗi tại ô hiện tại (400 PASSWORD_CURRENT_INVALID), ô đã xoá, vẫn đăng nhập
+[PASS] S9.3 mật khẩu mới yếu => lỗi tại ô mật khẩu mới (chính sách D17, chặn ở máy khách), hộp thoại vẫn mở
+[PASS] S9.4 đổi thành công: toast, /auth/me 200 với phiên mới; cookie phiên cũ => 401 (đã thu hồi, D19) — me=200 old=401
+[PASS] S9.5 đổi lại mật khẩu gốc => đăng nhập bằng mật khẩu gốc 200 (tài khoản demo giữ nguyên); phiên hiện tại vẫn 200 — relogin=200
+[PASS] S7.sale đăng xuất => màn hình đăng nhập, /auth/me 401, cookie đã xoá — status=401
+[PASS] S8 không có lỗi console/ngoại lệ JS trong suốt kịch bản
+
+| Kết quả | Số |
+|---|---|
+| PASS | 91 |
+| FAIL | 0 |
+| KNOWN | 0 |
+Bằng chứng: C:\Users\<WINUSER8>\AppData\Local\Temp\claude\D--SISCOM-CRM\963bddcc-4ff6-4e62-8ec0-edda9404fa01\scratchpad\chrome-roles-demo2.json
