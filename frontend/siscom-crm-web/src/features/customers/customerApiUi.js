@@ -56,11 +56,14 @@ export function formToCustomerInput(f, original) {
   return out;
 }
 
-// B1.4 người liên hệ (một người / khách hàng): người CHÍNH (isPrimary) nếu có, không thì người đầu tiên (server đã sắp chính lên đầu), rỗng => null.
+// B1.4 người liên hệ (một người / khách hàng): CHỈ người chính (isPrimary). Không có người chính => null (QA M-5: người thường không được hiển thị
+// như "Người liên hệ"; nhập tên sẽ tạo người chính).
 export function pickPrimaryContact(items) {
-  if (!Array.isArray(items) || !items.length) return null;
-  return items.find((c) => c && c.isPrimary) || items[0];
+  if (!Array.isArray(items)) return null;
+  return items.find((c) => c && c.isPrimary) || null;
 }
+// QA I-2: có tên mới nhưng chưa biết người liên hệ hiện tại của chính khách này => không gửi (tránh tạo trùng) và nói rõ là CHƯA lưu.
+const CONTACT_SKIPPED = { kind: 'contact_skipped', title: 'Chưa lưu người liên hệ', message: 'Chưa tải được người liên hệ hiện tại nên tên người liên hệ chưa được lưu. Tải lại trang rồi sửa lại.', fieldErrors: {}, extra: [], retryable: false, hint: '', staleVersion: false, denied: false };
 export const CONTACT_NAME_MAX = 200; // contact.full_name VARCHAR(200)
 // Tên người liên hệ: không bắt buộc; chỉ kiểm độ dài (server kiểm lại).
 export function contactNameError(v) {
@@ -164,7 +167,8 @@ export function createCustomerApiController(repo) {
   const savePrimaryContact = async (customer, name) => {
     try {
       const item = await repo.setPrimaryContact(customer.id, trimmed(name), customer.phone);
-      ++ctseq; set({ contact: { status: 'ready', id: customer.id, item, error: null } });
+      // QA M-6: chỉ cập nhật khi state.contact vẫn là của khách này (người dùng có thể đã mở khách khác trong lúc chờ).
+      if (state.contact.id === customer.id) { ++ctseq; set({ contact: { status: 'ready', id: customer.id, item, error: null } }); }
       return undefined;
     } catch (e) { return describeRepoError(e); }
   };
@@ -257,14 +261,15 @@ export function createCustomerApiController(repo) {
       if (uinflight) return uid === id ? { ok: false, duplicate: true } : { ok: false, error: BUSY_SAVE };
       // `mine` = this save still owns the update state; opening another id / refreshing a conflict bumps cseq, so a late outcome of an older id never lands on the new one.
       const mine = ++cseq; uinflight = true; uid = id; set({ update: { status: 'saving', error: null, conflict: null } });
+      const ct = state.contact; const want = trimmed(contactName); // QA I-2: chụp TRƯỚC khi PATCH (người liên hệ người dùng đã thấy khi bấm Lưu)
       try {
         const customer = await repo.update(id, input, version);
         const items = state.list.items.map((c) => (c.id === customer.id ? customer : c));
         set({ detail: state.detail.id === customer.id ? { status: 'ready', id: customer.id, customer, error: null } : state.detail, list: { ...state.list, items }, ...(mine === cseq ? { update: { status: 'idle', error: null, conflict: null } } : {}) });
         // A list read still in flight may have been taken before this write: re-read so the row never goes back to the old version.
         if (state.list.status === 'loading') this.reload();
-        const ct = state.contact; const want = trimmed(contactName);
-        if (want && ct.id === id && ct.status === 'ready' && want !== trimmed(ct.item && ct.item.fullName)) {
+        if (want && !(ct.id === id && ct.status === 'ready')) return { ok: true, customer, contactError: CONTACT_SKIPPED };
+        if (want && want !== trimmed(ct.item && ct.item.fullName)) {
           const contactError = await savePrimaryContact(customer, want);
           if (contactError) return { ok: true, customer, contactError };
         }

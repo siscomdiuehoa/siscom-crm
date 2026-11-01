@@ -22,5 +22,16 @@ Test tự động (chạy trên máy owner):
 - `tests/helpers/miniDom.mjs`: sửa nút chữ để `nodeValue` và `data` là một (React cập nhật chữ qua `nodeValue`; trước đây DOM giả giữ chữ cũ). Toàn bộ test cũ vẫn đạt.
 - Backend (không đổi mã): `jest --config test/jest-unit.json customers.contacts.service customers.http` **37 / 37 PASS**.
 
+## Sau QA độc lập (0 Critical / 3 Important / 5 Minor)
+Đã sửa (mỗi sửa có test thấy ĐỎ trước, XANH sau):
+- **I-1** mở form sửa trước khi người liên hệ tải xong => tên về muộn khởi tạo lại form, mất bản nháp: nút "Sửa thông tin" khoá tới khi người liên hệ tải xong (ready/error) nếu có `contact.read`. Đã kiểm test thấy đỏ khi tắt sửa.
+- **I-2** `update` đọc người liên hệ hiện tại SAU PATCH, có thể bỏ tên mới mà vẫn báo thành công: chụp trước PATCH; không biết người liên hệ hiện tại của chính khách này => không POST và trả cảnh báo "chưa được lưu".
+- **M-4** SĐT công ty cũ sai định dạng + tên người liên hệ mới => lỗi ngay tại ô, không gửi gì.
+- **M-5** chỉ hiển thị người có `isPrimary` (không coi người thường là người liên hệ).
+- **M-6** lưu người liên hệ của khách A xong khi đang xem khách B => không ghi đè trạng thái của B.
+- **M-8** thêm test: người liên hệ đang tải là của khách khác => không POST.
+Ghi nhận, không sửa: **I-3** `customerContactPersonUi.test.mjs` (React + vite) chưa nằm trong CI — giống các test miniDom có sẵn khác (khoảng trống CI cũ); chạy tay: đạt. **M-7** đổi tên nhiều lần để lại bản ghi cũ (đúng thiết kế đã duyệt).
+Sau sửa: FE `node --test tests/*.test.mjs` **494 / 494**; `04_chrome_nguoi_lien_he_sau_QA.txt/.json` Chrome thật **18 / 0** (bản build sau sửa). Hồi quy 91 ca (file 02) chạy trên bản trước sửa QA.
+
 Chưa kiểm chứng: khách nhập từ dữ liệu cũ có SĐT công ty không hợp lệ (người liên hệ sẽ bị server từ chối, giao diện báo cảnh báo — có test giả lập, chưa có dữ liệu thật); trình duyệt khác Chrome.
 Dữ liệu thử để lại trên DB demo: 2 khách `Cty LH Admin …`, `Cty LH Sale …` và 3 người liên hệ.

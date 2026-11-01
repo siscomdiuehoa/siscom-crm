@@ -16,11 +16,48 @@ const mockFetch = (handler) => { const calls = []; const f = async (url, init) =
 const path = (url) => new URL(url).pathname.replace('/api/v1', '');
 const deferred = () => { let resolve; const promise = new Promise((a) => { resolve = a; }); return { promise, resolve }; };
 
-test('pickPrimaryContact: ưu tiên isPrimary, rồi người đầu tiên, rỗng => null', () => {
+test('pickPrimaryContact: CHỈ người có isPrimary (QA M-5: không coi người thường là người liên hệ); không có => null', () => {
   assert.equal(pickPrimaryContact([]), null);
   assert.equal(pickPrimaryContact(null), null);
   assert.equal(pickPrimaryContact([contact({ id: 'a', isPrimary: false }), contact({ id: 'b', isPrimary: true })]).id, 'b');
-  assert.equal(pickPrimaryContact([contact({ id: 'a', isPrimary: false }), contact({ id: 'b', isPrimary: false })]).id, 'a');
+  assert.equal(pickPrimaryContact([contact({ id: 'a', isPrimary: false }), contact({ id: 'b', isPrimary: false })]), null);
+});
+
+test('QA I-2: update kèm tên mới khi người liên hệ hiện tại CHƯA tải xong => PATCH vẫn lưu, KHÔNG POST, trả contactError (không báo thành công giả)', async () => {
+  const d = deferred();
+  const f = mockFetch((url, init) => (init.method === 'PATCH' ? res(200, { data: apiCust({ version: 3 }) }) : init.method === 'POST' ? res(201, { data: contact() }) : d.promise));
+  const c = createCustomerApiUi({ env: ON, fetchImpl: f });
+  const p = c.loadContact(ID); // đang loading
+  const r = await c.update(ID, { name: 'Công ty A', phone: '0901234567' }, 2, 'Tên mới');
+  assert.equal(r.ok, true); assert.ok(r.contactError, 'phải có contactError'); assert.match(r.contactError.message, /chưa được lưu/);
+  assert.equal(f.calls.filter((x) => x.init.method === 'POST').length, 0);
+  d.resolve(res(200, { data: { items: [] } })); await p;
+});
+
+test('QA M-8: update khi state.contact thuộc khách KHÁC => không POST, trả contactError', async () => {
+  const f = mockFetch((url, init) => (init.method === 'PATCH' ? res(200, { data: apiCust({ version: 3 }) }) : res(200, { data: { items: [contact({ fullName: 'Của KH2' })] } })));
+  const c = createCustomerApiUi({ env: ON, fetchImpl: f });
+  await c.loadContact(ID2);
+  const r = await c.update(ID, { name: 'Công ty A', phone: '0901234567' }, 2, 'Tên mới');
+  assert.equal(r.ok, true); assert.ok(r.contactError);
+  assert.equal(f.calls.filter((x) => x.init.method === 'POST').length, 0);
+  assert.equal(c.getState().contact.id, ID2); assert.equal(c.getState().contact.item.fullName, 'Của KH2');
+});
+
+test('QA M-6: lưu người liên hệ của khách A xong khi trang đang ở khách B => không ghi đè state.contact của B', async () => {
+  const d = deferred();
+  const f = mockFetch((url, init) => {
+    if (init.method === 'POST' && path(url) === '/customers') return res(201, { data: apiCust() });
+    if (init.method === 'POST') return d.promise;
+    return res(200, { data: { items: [contact({ fullName: 'Của KH2' })] } });
+  });
+  const c = createCustomerApiUi({ env: ON, fetchImpl: f });
+  const p = c.submit({ name: 'Công ty A', phone: '0901234567' }, 'Người A');
+  await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0));
+  await c.loadContact(ID2); // người dùng mở khách B
+  d.resolve(res(201, { data: contact({ fullName: 'Người A' }) })); const r = await p;
+  assert.equal(r.ok, true); assert.equal(r.contactError, undefined);
+  assert.equal(c.getState().contact.id, ID2); assert.equal(c.getState().contact.status, 'ready'); assert.equal(c.getState().contact.item.fullName, 'Của KH2');
 });
 
 test('contactNameError: rỗng hợp lệ (không bắt buộc); quá 200 ký tự báo lỗi', () => {

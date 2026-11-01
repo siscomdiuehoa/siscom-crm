@@ -29,16 +29,16 @@ before(async () => {
 after(async () => { if (vite) await vite.close(); if (dom) dom.restore(); delete globalThis.IS_REACT_ACT_ENVIRONMENT; });
 
 // contacts(): items cho GET /contacts (hoặc response). post(n): response cho lần POST /contacts thứ n.
-const server = ({ contacts = () => [contact()], post, patch } = {}) => {
+const server = ({ contacts = () => [contact()], post, patch, cust = apiCust() } = {}) => {
   const calls = []; let npost = 0;
   const f = async (url, init = {}) => {
     const method = init.method || 'GET'; const p = new URL(url).pathname; calls.push({ p, method, body: init.body ? JSON.parse(init.body) : null });
     if (p.endsWith('/lookups')) return res(200, { data: LOOKUPS });
     if (p.endsWith('/customers/owner-candidates')) return res(200, { data: { scope: 'ALL', items: [] } });
-    if (p.endsWith('/contacts') && method === 'GET') { const c = contacts(); return c && typeof c.status === 'number' ? c : res(200, { data: { items: c } }); }
+    if (p.endsWith('/contacts') && method === 'GET') { const c = contacts(); return c && (typeof c.status === 'number' || typeof c.then === 'function') ? c : res(200, { data: { items: c } }); }
     if (p.endsWith('/contacts') && method === 'POST') return post ? post(++npost, calls[calls.length - 1].body) : res(201, { data: contact({ id: 'c2', fullName: calls[calls.length - 1].body.fullName }) });
     if (method === 'PATCH') return patch ? patch() : res(200, { data: apiCust({ version: 3 }) });
-    return res(200, { data: apiCust() });
+    return res(200, { data: cust });
   };
   f.calls = calls; f.contactGets = () => calls.filter((c) => c.method === 'GET' && c.p.endsWith('/contacts')); f.contactPosts = () => calls.filter((c) => c.method === 'POST' && c.p.endsWith('/contacts'));
   return f;
@@ -178,5 +178,32 @@ test('tên quá 200 ký tự => lỗi tại ô, không gửi', async () => {
     await act_(() => click(buttonByText(m.container, /Thêm khách hàng/)));
     assert.equal(f.calls.filter((c) => c.method === 'POST').length, 0);
     assert.match(text(m.container), /Tên người liên hệ tối đa 200 ký tự/);
+  } finally { await m.unmount(); }
+});
+
+test('QA I-1: nút "Sửa thông tin" khoá cho tới khi tải xong người liên hệ (không mất bản nháp khi tên tải về muộn)', async () => {
+  let release; const gate = new Promise((r) => { release = r; });
+  const f = server({ contacts: () => gate });
+  const m = await mountDetail(f);
+  try {
+    assert.equal(buttonByText(m.container, /Sửa thông tin/).disabled, true);
+    await act_(async () => { release(res(200, { data: { items: [contact()] } })); });
+    assert.equal(buttonByText(m.container, /Sửa thông tin/).disabled, false);
+  } finally { await m.unmount(); }
+});
+
+test('QA I-1: không có contact.read => nút Sửa không phải chờ người liên hệ', async () => {
+  const f = server(); const m = await mountDetail(f, grants('customer.read', 'customer.update'));
+  try { assert.equal(buttonByText(m.container, /Sửa thông tin/).disabled, false); } finally { await m.unmount(); }
+});
+
+test('QA M-4: SĐT công ty cũ không hợp lệ + nhập tên người liên hệ mới => lỗi ngay tại ô, không PATCH/POST', async () => {
+  const f = server({ cust: apiCust({ phone: '12345' }), contacts: () => [] }); const m = await mountDetail(f);
+  try {
+    await act_(() => click(buttonByText(m.container, /Sửa thông tin/)));
+    await act_(() => type(inputByLabel(m.container, /^Tên người liên hệ/), 'Lê Văn C'));
+    await act_(() => click(buttonByText(m.container, /Lưu thay đổi/)));
+    assert.equal(f.calls.filter((c) => c.method === 'PATCH' || c.method === 'POST').length, 0);
+    assert.match(text(m.container), /Số điện thoại công ty chưa hợp lệ/);
   } finally { await m.unmount(); }
 });

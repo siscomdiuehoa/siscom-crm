@@ -54,7 +54,10 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   const ctS = apiOn ? apiS.contact : null;
   const showContact = apiOn && typeof ui.can === 'function' && !!ui.can('contact.create') && (isNew || (!!ctS && ctS.status === 'ready' && ctS.id === initial.id));
   const hasContact = !isNew && !!ctS && !!ctS.item;
-  const cErr = showContact ? contactNameError(f.contactName) : '';
+  // QA M-4: tên người liên hệ mới mang SĐT công ty; SĐT cũ sai định dạng (được giữ nguyên khi sửa) sẽ bị server từ chối SAU khi khách đã lưu => báo ngay tại ô.
+  const cName = String(f.contactName || '').trim();
+  const cChanged = !!cName && cName !== (hasContact ? String(ctS.item.fullName || '').trim() : '');
+  const cErr = !showContact ? '' : contactNameError(f.contactName) || (cChanged && !U.isPhone(f.phone) ? 'Số điện thoại công ty chưa hợp lệ nên chưa lưu được người liên hệ; sửa ô Điện thoại.' : '');
   const errs = { ...validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial), ...(apiOn ? lookupFormErrors(lk, f) : {}), ...(cErr ? { contactName: cErr } : {}) };
   const err = (k) => (tried && errs[k]) || (srvErr && srvErr.fieldErrors[k]) || '';
   const dirty = JSON.stringify(f) !== JSON.stringify(start);

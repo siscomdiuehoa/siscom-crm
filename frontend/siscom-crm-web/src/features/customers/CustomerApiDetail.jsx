@@ -54,7 +54,9 @@ export default function CustomerApiDetail({ ui, id }) {
     );
   }
   const c = d.customer;
-  const canEdit = typeof ui.can === 'function' && !!ui.can('customer.update', c); // fail-closed: no `can` / no server grant => no edit
+  // QA I-1: với contact.read, chỉ mở sửa khi người liên hệ đã tải xong (ready/error) — tên về muộn sẽ khởi tạo lại biểu mẫu và mất bản nháp.
+  const contactSettled = !canReadContact || ct.status === 'ready' || ct.status === 'error';
+  const canEdit = typeof ui.can === 'function' && !!ui.can('customer.update', c) && contactSettled; // fail-closed: no `can` / no server grant => no edit
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {back}
