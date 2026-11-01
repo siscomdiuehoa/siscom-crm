@@ -600,4 +600,17 @@ describe('Câu 3 (bổ sung) — logout / LOGIN_NO_REMEMBER kéo theo phiên đ�
     await e.svc.logout(S1, 'r1', other);
     expect(sessCalls(e).some((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED')).toBe(false);
   });
+  // Rà soát độc lập 2026-11-01 (Minor 1): nhánh login(LOGIN_NO_REMEMBER) chưa có assertion về thu hồi phiên — bổ sung.
+  it('đăng nhập KHÔNG tích trên thiết bị còn cookie cũ (LOGIN_NO_REMEMBER) => thu hồi phiên có rememberFamilyId = family của cookie đó', async () => {
+    const e = build();
+    const old = await seedDevice(e); const fam = e.rows[0].familyId;
+    const emp = { id: 'e1', code: 'NV-0001', fullName: 'A', status: 'ACTIVE', departmentId: 'd1',
+      credential: { passwordHash: '$argon2id$x', passwordAlgo: 'argon2id', status: 'ACTIVE', lockedUntil: null, failedCount: 0, windowStartedAt: null, lockLevel: 0, mustChangePassword: false, tokenVersion: 3 } };
+    (e.prisma as unknown as Record<string, unknown>).$queryRaw = jest.fn().mockResolvedValue([{ id: 'e1' }]);
+    (e.prisma.employee as unknown as { findUnique: jest.Mock }).findUnique = jest.fn().mockResolvedValue(emp);
+    (e.svc as unknown as { hasher: unknown }).hasher = { verify: jest.fn().mockResolvedValue(true), hash: jest.fn() };
+    await e.svc.login({ login: 'NV-0001', password: PW, source: 's', ip: null, userAgent: null, previousRememberToken: old });
+    expect(e.rows[0].revokeReason).toBe('LOGIN_NO_REMEMBER');
+    expect(sessCalls(e).find((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED')?.where).toEqual({ employeeId: 'e1', rememberFamilyId: fam, revokedAt: null });
+  });
 });

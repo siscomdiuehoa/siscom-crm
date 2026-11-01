@@ -796,10 +796,13 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     expect(ra.status).toBe(200);
     // Owner duyệt 2026-11-01 (câu 3): revoke-all nay thu hồi luôn phiên đã khôi phục — kể cả phiên của kẻ trộm đang gọi lệnh (trước đây vẫn 200).
     expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
+    // Rà soát 2026-11-01 Minor 3: ghim đúng đường thu hồi (revoke-all, không phải REPLAY).
+    expect((await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(thiefSid.split('=')[1]) } })).revokeReason).toBe('REMEMBER_DEVICE_REVOKED');
     const replaysBefore = await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } });
     await sleep(10_500);
     const victim = await restore(tok);
     expect(victim.status).toBe(401); expect(victim.body.error.code).toBe('REMEMBER_INVALID');
+    // Phiên kẻ trộm đã chết từ bước revoke-all ở trên; việc REPLAY tự thu hồi phiên được chứng minh ở test "QA I-2" (kẻ trộm không tự thu hồi).
     expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
     expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBe(replaysBefore + 1);
     // QA lần 3b Important-A: nạn nhân đăng nhập lại; kẻ cầm token cũ gửi lại => KHÔNG đăng xuất được phiên mới.
@@ -836,6 +839,19 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     const res = await loginRemember('sale', false, 'siscom_rmb=' + tok);
     expect(res.status).toBe(200); expect(rmbOf(res)).toBeNull(); expect(cleared(res)).toBe(true);
     expect((await rowOf(tok))!.revokeReason).toBe('LOGIN_NO_REMEMBER');
+  });
+
+  it('Rà soát 2026-11-01 Minor 1: kẻ trộm restore trước; nạn nhân đăng nhập KHÔNG tích trên thiết bị còn cookie => phiên kẻ trộm 401 (REMEMBER_DEVICE_REVOKED), phiên mới của nạn nhân 200', async () => {
+    const tok = rmbToken(await loginRemember('sale', true));
+    const thief = await restore(tok); expect(thief.status).toBe(200);
+    const thiefSid = cookieOf(thief);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(200);
+    const again = await loginRemember('sale', false, 'siscom_rmb=' + tok);
+    expect(again.status).toBe(200); expect(cleared(again)).toBe(true);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', cookieOf(again))).status).toBe(200);
+    const dead = await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(thiefSid.split('=')[1]) } });
+    expect(dead.revokeReason).toBe('REMEMBER_DEVICE_REVOKED');
   });
 
   it('nhân viên không còn ACTIVE (khoá/nghỉ việc) => restore 401, thu hồi family (INVALID_STATE), không cấp phiên', async () => {

@@ -129,8 +129,8 @@ export class AuthService {
         // QA lần 3b Important-A: family ĐÃ bị thu hồi trước đó => mốc = thời điểm thu hồi sớm nhất đã xảy ra (lần thu hồi family).
         const priorRevokedAt = await this.rememberDevices.familyRevokedAt(tx, c.row.familyId);
         await this.rememberDevices.revokeFamily(tx, c.row.familyId, 'REPLAY', now);
-        // QA bảo mật I-2: kẻ đánh cắp có thể đã restore trước và đang giữ phiên thường. Chưa có liên kết phiên <-> family (cần migration riêng)
-        // => thu hồi mọi phiên đang mở của nhân viên được TẠO TRƯỚC mốc: family chưa thu hồi => tới hiện tại; đã thu hồi => tới lúc thu hồi family
+        // QA bảo mật I-2: kẻ đánh cắp có thể đã restore trước và đang giữ phiên thường. Giữ phạm vi RỘNG (không thu hẹp theo remember_family_id
+        // dù câu 3 đã có cột này — thu hẹp là quyết định riêng của owner): thu hồi mọi phiên đang mở của nhân viên được TẠO TRƯỚC mốc: family chưa thu hồi => tới hiện tại; đã thu hồi => tới lúc thu hồi family
         // (phiên của kẻ trộm luôn tạo trước đó; phiên nạn nhân đăng nhập lại SAU đó không bị token cũ đăng xuất lặp lại).
         const cutoff = priorRevokedAt ?? now;
         const n = (await tx.authSession.updateMany({ where: { employeeId: c.row.employeeId, revokedAt: null, issuedAt: { lte: cutoff } }, data: { revokedAt: now, revokeReason: 'REMEMBER_REPLAY' } })).count;
