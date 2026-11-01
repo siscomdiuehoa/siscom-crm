@@ -12,8 +12,9 @@ param(
   [string]$DatabaseName,
   [switch]$SkipGrantSetParameter,
   # B1.4 runbook: cong khac 5432 chi de dien tap tren cluster tam; -NonInteractive lay mat khau postgres tu SISCOM_PG_ADMIN_PASSWORD.
-  [ValidateRange(1024, 65535)][int]$PgPort = 5432,
-  [switch]$NonInteractive
+  [ValidateRange(1024, 65535)][int]$PgPort = 55433,
+  [switch]$NonInteractive,
+  [switch]$AllowMainCluster
 )
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -25,6 +26,23 @@ function Find-Tool([string]$name) {
   $dirs = Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory -ErrorAction SilentlyContinue | Sort-Object { [int]($_.Name -replace '\D', '0') } -Descending
   foreach ($d in $dirs) { $p = Join-Path $d.FullName ('bin\' + $name); if (Test-Path -LiteralPath $p) { return $p } }
   return $null
+}
+# B1.4 demo cach ly: chi chay tren CUM DEMO (demo-pg.ps1: cluster_name = 'siscom_demo', cong rieng). Cong 5432 (PostgreSQL hien tai) va moi cum
+# khong mang nhan bi TU CHOI, tru khi co -AllowMainCluster (CHI khi owner phe duyet rieng bang van ban). Mat khau postgres / siscom_app cua cum
+# demo lay tu %LOCALAPPDATA%\SISCOM-CRM\demo\pg-<port>.secrets va demo-<port>.env (do demo-pg.ps1 sinh).
+function Get-DemoSecret([int]$port, [string]$key) {
+  $f = Join-Path $env:LOCALAPPDATA ('SISCOM-CRM\demo\pg-' + $port + '.secrets')
+  if (-not (Test-Path -LiteralPath $f)) { return $null }
+  foreach ($l in Get-Content -LiteralPath $f) { if ($l -match ('^' + $key + '=([0-9a-f]{64})$')) { return $Matches[1] } }
+  return $null
+}
+function Assert-DemoPort([int]$port, [bool]$allowMain) {
+  if ($allowMain) { Write-Host 'CANH BAO: -AllowMainCluster - KHONG kiem nhan cum demo. Chi dung khi owner phe duyet rieng bang van ban.' -ForegroundColor Yellow; return }
+  if ($port -eq 5432) { throw (New-Object System.ApplicationException -ArgumentList 'Cong 5432 la PostgreSQL hien tai cua may: script demo chi chay tren cum demo rieng (demo-pg.bat, mac dinh -PgPort 55433).') }
+}
+function Assert-DemoClusterName([string]$name, [bool]$allowMain) {
+  if ($allowMain) { return }
+  if ($name -ne 'siscom_demo') { throw (New-Object System.ApplicationException -ArgumentList ('Cum PostgreSQL dang ket noi co cluster_name = "' + $name + '", khong phai cum demo (siscom_demo). Dung lai, khong ghi gi.')) }
 }
 function Read-Secret([string]$prompt) {
   $s = Read-Host $prompt -AsSecureString
@@ -47,8 +65,12 @@ try {
   if (-not $DatabaseName) { $DatabaseName = 'siscom_crm_' + $Kind + '_' + (Get-Date -Format 'yyyyMMdd_HHmmss') }
   if ($DatabaseName -notmatch '^siscom_crm_(restore|test)_\d{8}_\d{6}$') { Fail 'Ten database phai la siscom_crm_test_YYYYMMDD_HHMMSS hoac siscom_crm_restore_YYYYMMDD_HHMMSS. siscom_crm_dev bi tu choi.' }
   Write-Host ('Se TAO database RONG: ' + $DatabaseName + ' (OWNER siscom_app, UTF8, TEMPLATE template0). Khong dung toi siscom_crm_dev.') -ForegroundColor Yellow
-  if ($NonInteractive) { $adminPw = $env:SISCOM_PG_ADMIN_PASSWORD; if (-not $adminPw) { Fail 'Che do khong tuong tac can bien SISCOM_PG_ADMIN_PASSWORD.' } }
+  Assert-DemoPort $PgPort ([bool]$AllowMainCluster)
+  $adminPw = Get-DemoSecret $PgPort 'POSTGRES_PW'
+  if ($adminPw) { Write-Host ('Mat khau postgres cua cum demo cong ' + $PgPort + ' lay tu file (khong in).') }
+  elseif ($NonInteractive) { $adminPw = $env:SISCOM_PG_ADMIN_PASSWORD; if (-not $adminPw) { Fail 'Che do khong tuong tac can file mat khau cum demo hoac bien SISCOM_PG_ADMIN_PASSWORD.' } }
   else { $adminPw = Read-Secret 'Mat khau tai khoan postgres (chi de TAO database thu; khong luu)' }
+  Assert-DemoClusterName (Run-Psql $psql 'postgres' $adminPw 'postgres' "SELECT current_setting('cluster_name');") ([bool]$AllowMainCluster)
   $ver = Run-Psql $psql 'postgres' $adminPw 'postgres' 'SHOW server_version_num;'
   if ((Run-Psql $psql 'postgres' $adminPw 'postgres' ("SELECT 1 FROM pg_database WHERE datname='" + $DatabaseName + "';")) -eq '1') { Fail ('Database ' + $DatabaseName + ' da ton tai (khong ghi de).') }
   if ((Run-Psql $psql 'postgres' $adminPw 'postgres' "SELECT 1 FROM pg_roles WHERE rolname='siscom_app';") -ne '1') { Fail 'Chua co tai khoan siscom_app (chay setup-db.bat truoc).' }
