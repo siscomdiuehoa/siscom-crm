@@ -11,7 +11,8 @@ import { readCsrfCookie } from './cookieAuthClient.js';
 const idle = () => ({ status: 'IDLE', error: null, employeeId: null, expiresAt: null, me: null });
 
 // raceDelayMs: chờ trước khi hỏi lại /auth/me khi restore trả REMEMBER_RACE (tab thắng cần thời gian nhận Set-Cookie). QA lần 3 Minor-2.
-export function createCookieSession(client, { readCookie, raceDelayMs = 700 } = {}) {
+// lateCheckTimeoutMs: thời gian chờ tối đa cho lần kiểm /auth/me khi có 401 muộn sau khôi phục (QA lần 3c Minor-3).
+export function createCookieSession(client, { readCookie, raceDelayMs = 700, lateCheckTimeoutMs = 10_000 } = {}) {
   let csrf = null;
   let epoch = 0;
   let state = client && client.enabled ? idle() : { status: 'UNAVAILABLE', error: null, employeeId: null, expiresAt: null, me: null };
@@ -27,6 +28,8 @@ export function createCookieSession(client, { readCookie, raceDelayMs = 700 } = 
   let lastAutoRestoreAt = -Infinity;
   let lastRestoreOkAt = -Infinity; // QA lần 3 Minor-3: 401 muộn của request gửi bằng cookie cũ ngay sau khi vừa khôi phục
   let lateCheck = null; // QA lần 3b Minor-A: một lần kiểm /auth/me đang chạy, các 401 muộn khác gộp vào
+  // QA lần 3c Minor-3: đăng xuất / đăng nhập lại => bỏ trạng thái "vừa khôi phục" (401 sau đó là thật).
+  const resetRestoreWindow = () => { lastRestoreOkAt = -Infinity; lateCheck = null; };
   const now = () => Date.now();
   const wait = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
   const restoredOk = (r, fromRestore) => { csrf = fromRestore ? r.csrfToken : null; lastRestoreOkAt = now(); authed(r.me); };
@@ -93,6 +96,7 @@ export function createCookieSession(client, { readCookie, raceDelayMs = 700 } = 
       const pe = validatePassword(password);
       if (pe) return reject(pe);
       const my = ++epoch;
+      resetRestoreWindow();
       csrf = null;
       set({ status: 'LOADING', error: null, employeeId: null, expiresAt: null, me: null });
       try {
@@ -109,6 +113,7 @@ export function createCookieSession(client, { readCookie, raceDelayMs = 700 } = 
     async logout() {
       if (state.status === 'UNAVAILABLE') return state;
       const my = ++epoch;
+      resetRestoreWindow();
       const t = this.getCsrfToken ? this.getCsrfToken() : csrf;
       const wasAuthed = state.status === 'AUTHENTICATED';
       csrf = null;
@@ -147,10 +152,13 @@ export function createCookieSession(client, { readCookie, raceDelayMs = 700 } = 
       if (state.status === 'AUTHENTICATED' && now() - lastRestoreOkAt < 60_000) {
         if (lateCheck) return state; // đã có một lần kiểm đang chạy: gộp (nhiều request cũ song song)
         const my = epoch;
-        lateCheck = Promise.resolve().then(() => client.me()).then(() => { /* phiên mới còn tốt */ }, (e) => {
+        // Thời gian chờ: request treo không được giữ mọi 401 muộn mãi (hết chờ => giải phóng, 401 kế tiếp kiểm lại).
+        let timer = null;
+        const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('LATE_CHECK_TIMEOUT')), lateCheckTimeoutMs); });
+        const mine = lateCheck = Promise.race([Promise.resolve().then(() => client.me()), timeout]).then(() => { /* phiên mới còn tốt */ }, (e) => {
           if (my !== epoch || state.status !== 'AUTHENTICATED' || !(e && e.name === 'AuthHttpError' && e.status === 401)) return;
           epoch++; csrf = null; lastRestoreOkAt = -Infinity; fail('SESSION_EXPIRED');
-        }).then(() => { lateCheck = null; });
+        }).then(() => { clearTimeout(timer); if (lateCheck === mine) lateCheck = null; });
         return state;
       }
       epoch++; csrf = null;

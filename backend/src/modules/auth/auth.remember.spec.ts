@@ -508,6 +508,35 @@ describe('QA lần 3b Important-A', () => {
     jest.setSystemTime(new Date(Date.now() + 3_600_000));
     await e.svc.restoreRemembered({ ...ctx, token: tok });
     expect(e.sessionRevokes[1]).toEqual({ employeeId: 'e1', reason: 'REMEMBER_REPLAY', issuedBefore: firstAt });
-    expect(e.audits.filter((a) => a.action === 'auth.remember_replay').length).toBe(audits1);
+    expect(e.audits.filter((a) => a.action === 'auth.remember_replay').length).toBe(audits1 + 1); // QA lần 3c Minor-2: vẫn ghi (đánh dấu)
+  });
+});
+
+// QA lần 3c Minor-1: đua thu hồi ↔ xoay vòng — kẻ trộm xoay vòng (rotated_at) SAU mốc revoked_at sớm nhất (lệnh thu hồi chốt `now` trước).
+// Mốc = max(MIN(revoked_at), MAX(rotated_at)) của family => phiên sinh từ lần xoay vòng đó vẫn bị thu hồi.
+describe('QA lần 3c Minor-1', () => {
+  it('family có hàng xoay vòng sau mốc thu hồi sớm nhất => mốc = rotated_at muộn nhất', async () => {
+    const e = build();
+    const tok = await seedDevice(e);
+    await e.svc.restoreRemembered({ ...ctx, token: tok }); // hàng 0 xoay vòng, hàng 1 là token con
+    const t = Date.now();
+    const [first, child] = e.rows;
+    first.revokedAt = new Date(t - 5); first.revokeReason = 'REVOKED_BY_USER'; // lệnh thu hồi chốt now_v sớm hơn...
+    child.rotatedAt = new Date(t);                                              // ...kẻ trộm xoay vòng con ở now_r > now_v (hàng ma)
+    jest.setSystemTime(new Date(t + 11_000));
+    expect((await e.svc.restoreRemembered({ ...ctx, token: tok })).kind).toBe('INVALID');
+    expect(e.sessionRevokes[0]).toEqual({ employeeId: 'e1', reason: 'REMEMBER_REPLAY', issuedBefore: new Date(t) });
+  });
+  it('Minor-2: gửi lại token cũ của family đã thu hồi, không còn phiên để thu hồi => VẪN ghi audit (đánh dấu familyAlreadyRevoked)', async () => {
+    const e = build();
+    const tok = await seedDevice(e);
+    await e.svc.restoreRemembered({ ...ctx, token: tok });
+    jest.setSystemTime(new Date(Date.now() + 11_000));
+    await e.svc.restoreRemembered({ ...ctx, token: tok });
+    jest.setSystemTime(new Date(Date.now() + 3_600_000));
+    await e.svc.restoreRemembered({ ...ctx, token: tok });
+    const rep = e.audits.filter((a) => a.action === 'auth.remember_replay');
+    expect(rep).toHaveLength(2);
+    expect(rep[1].changes).toEqual({ sessions: 0, familyAlreadyRevoked: true });
   });
 });

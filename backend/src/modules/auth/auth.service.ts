@@ -131,9 +131,10 @@ export class AuthService {
         // (phiên của kẻ trộm luôn tạo trước đó; phiên nạn nhân đăng nhập lại SAU đó không bị token cũ đăng xuất lặp lại).
         const cutoff = priorRevokedAt ?? now;
         const n = (await tx.authSession.updateMany({ where: { employeeId: c.row.employeeId, revokedAt: null, issuedAt: { lte: cutoff } }, data: { revokedAt: now, revokeReason: 'REMEMBER_REPLAY' } })).count;
-        if (priorRevokedAt === null || n > 0) {
-          await tx.auditLog.create({ data: { actorType: 'ANONYMOUS', action: 'auth.remember_replay', entityType: 'employee', entityId: c.row.employeeId, summary: 'Phát hiện dùng lại token ghi nhớ đã xoay vòng; thu hồi thiết bị và các phiên tạo trước đó', changes: { sessions: n }, requestId: rid(input.requestId) } });
-        }
+        // QA lần 3c Minor-2: luôn ghi audit (dấu vết thử dùng token bị lộ), đánh dấu khi family đã bị thu hồi từ trước. Số dòng bị chặn bởi restoreLimiter.
+        await tx.auditLog.create({ data: { actorType: 'ANONYMOUS', action: 'auth.remember_replay', entityType: 'employee', entityId: c.row.employeeId,
+          summary: 'Phát hiện dùng lại token ghi nhớ đã xoay vòng; thu hồi thiết bị và các phiên tạo trước đó',
+          changes: priorRevokedAt === null ? { sessions: n } : { sessions: n, familyAlreadyRevoked: true }, requestId: rid(input.requestId) } });
         return { kind: 'INVALID' as const };
       }
       if (c.kind !== 'OK') return { kind: (c.kind === 'RACE' ? 'RACE' : 'INVALID') as 'RACE' | 'INVALID' };

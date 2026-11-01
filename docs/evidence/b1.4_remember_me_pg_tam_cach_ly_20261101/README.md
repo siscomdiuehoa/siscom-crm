@@ -2,7 +2,7 @@
 
 | Mục | Giá trị |
 |---|---|
-| PR | #184 `feat/b1.4-remember-me-90d-v3` (Draft, chưa merge). File 01–04: working tree tương đương `ca476b2`; 05–06: sau QA bảo mật lần 1 (`f98745a`); 07: sau QA bảo mật lần 2 (`efa9212`); 08: sau QA bảo mật lần 3 (`8ae0a4d`); 09: sau QA lần 3b |
+| PR | #184 `feat/b1.4-remember-me-90d-v3` (Draft, chưa merge). File 01–04: working tree tương đương `ca476b2`; 05–06: sau QA bảo mật lần 1 (`f98745a`); 07: sau QA bảo mật lần 2 (`efa9212`); 08: sau QA bảo mật lần 3 (`8ae0a4d`); 09: sau QA lần 3b (`150f7b5`); 10: sau QA lần 3c (commit kế tiếp của `150f7b5`) |
 | Môi trường | Cluster PostgreSQL **riêng** (`initdb` thư mục tạm, PostgreSQL 18, chỉ `127.0.0.1:55432`), huỷ sau khi kiểm. **Không** dùng server của owner (5432); không chạm `siscom_crm_dev`/baseline |
 | Dữ liệu | Giả: DB `siscom_crm_test_<stamp>`, tài khoản bootstrap `*@siscom.local` / `*@e2e.siscom.local`, mật khẩu ngẫu nhiên (đã xoá). Ba role: `siscom_app`, `siscom_migrator`, `siscom_auth` |
 | Đã loại bỏ | Chuỗi kết nối (`<url-da-che>`), mật khẩu, đường dẫn cục bộ (`<repo>/`), mã ANSI. Nhật ký HTTP chỉ có đường dẫn/mã, không cookie |
@@ -18,5 +18,6 @@
 | `07_…` | Sau QA bảo mật lần 2, DB H mới: kiểm cấu trúc + integration (gồm ca đua thu hồi/xoay vòng trên DB thật) | `PASS|29`; **156/156** |
 | `08_…` | Sau QA bảo mật lần 3, cluster tạm dựng lại, DB I mới: kiểm cấu trúc + integration (gồm ca kẻ trộm tự thu hồi thiết bị rồi nạn nhân dùng lại token cũ) | `PASS|29`; **157/157** |
 | `09_…` | Sau QA lần 3b (Important-A), cluster tạm dựng lại, DB J: kiểm cấu trúc + integration (nạn nhân đăng nhập lại, token cũ gửi lại không đăng xuất được, không audit lặp) | `PASS|29`; **157/157** |
+| `10_…` | Sau QA lần 3c (mốc thu hồi gồm `rotated_at` muộn nhất, audit luôn ghi, FE timeout/reset), cluster tạm dựng lại, DB K | `PASS|29`; **157/157** |
 
 Chưa chạy (NOT_RUN): harness Chrome 4 vai trò (`sessionRolesChrome.mjs`) với Remember Me; chế độ `NODE_ENV=production` + HTTPS (`COOKIE_SECURE=true`).

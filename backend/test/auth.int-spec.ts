@@ -781,13 +781,14 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     expect(victim.status).toBe(401); expect(victim.body.error.code).toBe('REMEMBER_INVALID');
     expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
     expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBe(replaysBefore + 1);
-    // QA lần 3b Important-A: nạn nhân đăng nhập lại; kẻ cầm token cũ gửi lại => KHÔNG đăng xuất được phiên mới, không ghi audit lặp.
+    // QA lần 3b Important-A: nạn nhân đăng nhập lại; kẻ cầm token cũ gửi lại => KHÔNG đăng xuất được phiên mới.
     const again = await loginRemember('sale', false); expect(again.status).toBe(200);
     const victimSid = cookieOf(again);
     const replay2 = await restore(tok);
     expect(replay2.status).toBe(401);
     expect((await srv().get('/api/v1/auth/me').set('Cookie', victimSid)).status).toBe(200);
-    expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBe(replaysBefore + 1);
+    // QA lần 3c Minor-2: lần thử này VẪN có dấu vết audit (đánh dấu familyAlreadyRevoked, không thu hồi phiên nào).
+    expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBe(replaysBefore + 2);
   }, 30_000);
 
   it('truy cập đồng thời: 6 restore song song cùng token => đúng MỘT 200, còn lại 401 REMEMBER_RACE; đúng một token con, không thu hồi family', async () => {

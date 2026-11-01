@@ -88,13 +88,19 @@ export class RememberDevices {
     return true;
   }
 
-  // Thời điểm family bị thu hồi LẦN ĐẦU (sớm nhất), null nếu chưa. Sau mốc này không thể tái lập phiên mới từ family (trigger + CAS),
-  // nên mọi phiên kẻ trộm có được từ family đều tạo TRƯỚC mốc (QA lần 3b Important-A).
+  // Mốc thu hồi phiên khi phát hiện REPLAY trên family ĐÃ bị thu hồi (QA lần 3b Important-A, lần 3c Minor-1); null nếu family chưa thu hồi.
+  // Mốc = max(MIN(revoked_at), MAX(rotated_at)): mọi phiên tái lập từ family có issued_at = rotated_at của một hàng (consume và newSession
+  // dùng chung `now`), và sau khi family bị thu hồi không còn rotated_at nào được commit (CAS cần revoked_at IS NULL; hàng "ma" thắng CAS thì
+  // trigger chặn token con => rollback). Lệnh thu hồi chốt `now` trước lần xoay vòng song song vẫn được phủ. Phiên nạn nhân đăng nhập lại
+  // SAU mốc không bị đăng xuất lặp lại.
   async familyRevokedAt(db: Pick<PrismaClient, 'rememberDevice'>, familyId: string): Promise<Date | null> {
-    const rows = await db.rememberDevice.findMany({ where: { familyId, revokedAt: { not: null } }, select: { revokedAt: true } });
-    let min: Date | null = null;
-    for (const r of rows) if (r.revokedAt !== null && (min === null || r.revokedAt.getTime() < min.getTime())) min = r.revokedAt;
-    return min;
+    const rows = await db.rememberDevice.findMany({ where: { familyId }, select: { revokedAt: true, rotatedAt: true } });
+    let minRevoked: number | null = null; let maxRotated: number | null = null;
+    for (const r of rows) {
+      if (r.revokedAt !== null && (minRevoked === null || r.revokedAt.getTime() < minRevoked)) minRevoked = r.revokedAt.getTime();
+      if (r.rotatedAt !== null && (maxRotated === null || r.rotatedAt.getTime() > maxRotated)) maxRotated = r.rotatedAt.getTime();
+    }
+    return minRevoked === null ? null : new Date(Math.max(minRevoked, maxRotated ?? minRevoked));
   }
 
   // Family của nhân viên đã có ít nhất một hàng bị thu hồi (coi như thu hồi cả family; trigger DB cũng chặn xoay vòng tiếp).

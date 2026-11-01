@@ -242,3 +242,35 @@ test('hai 401 muộn liên tiếp sau khi vừa khôi phục: một lần kiểm
   assert.equal(session.getCsrfToken(), CSRF2);
   assert.equal(calls.filter((c) => c.url.endsWith('/auth/me')).length - before, 1);
 });
+
+// QA lần 3c Minor-3: đăng xuất / đăng nhập lại xoá trạng thái "vừa khôi phục" => 401 thật sau đó báo hết hạn NGAY (không kiểm /auth/me thêm).
+test('sau khi tự khôi phục rồi đăng xuất + đăng nhập lại: 401 kế tiếp => SESSION_EXPIRED ngay', async () => {
+  const { session, calls } = await authedSession(resp(200, { data: { me: ME, csrfToken: CSRF2 } }));
+  session.handleUnauthorized();
+  await tick(); await tick(); await tick();
+  assert.equal(session.getState().status, 'AUTHENTICATED');
+  await session.logout();
+  await session.submit('a@b.vn', 'pw-gia-lap', false);
+  const meBefore = calls.filter((c) => c.url.endsWith('/auth/me')).length;
+  session.handleUnauthorized();
+  assert.equal(session.getState().error, 'SESSION_EXPIRED');
+  assert.equal(calls.filter((c) => c.url.endsWith('/auth/me')).length, meBefore);
+});
+// QA lần 3c Minor-3: lần kiểm /auth/me của 401 muộn bị treo => hết thời gian chờ thì không còn gộp mãi (401 sau đó được xử lý).
+test('kiểm /auth/me treo quá thời gian chờ => giải phóng, 401 sau đó lại được kiểm', async () => {
+  let meCalls = 0;
+  const env = mk((url) => {
+    if (url.endsWith('/auth/login')) return resp(200, { data: { me: ME, csrfToken: CSRF } });
+    if (url.endsWith('/auth/remember/restore')) return resp(200, { data: { me: ME, csrfToken: CSRF2 } });
+    if (url.endsWith('/auth/me')) { meCalls++; return new Promise(() => {}); } // treo
+    return resp(404, {});
+  }, { lateCheckTimeoutMs: 20 });
+  await env.session.submit('a@b.vn', 'pw-gia-lap', true);
+  env.session.handleUnauthorized();
+  await tick(); await tick(); await tick();
+  env.session.handleUnauthorized();
+  await new Promise((r) => setTimeout(r, 40));
+  env.session.handleUnauthorized();
+  await tick();
+  assert.equal(meCalls, 2);
+});
