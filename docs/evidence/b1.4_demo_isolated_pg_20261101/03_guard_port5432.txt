@@ -1,0 +1,7 @@
+demo-pg.ps1          ma=1  [LOI] Cong 5432 la PostgreSQL hien tai cua may: cum demo phai dung cong khac (mac dinh 55433).
+demo-setup.ps1       ma=1  [LOI] Cong 5432 la PostgreSQL hien tai: ban demo chi dung cum demo rieng (mac dinh 55433).
+demo-run.ps1         ma=1  [LOI] Cong 5432 la PostgreSQL hien tai: demo chi dung cum demo rieng.
+create-test-db.ps1   ma=1  [LOI] Cong 5432 la PostgreSQL hien tai cua may: script demo chi chay tren cum demo rieng (demo-pg.bat, mac dinh -PgPort 55433).
+auth-demo-stack.ps1  ma=1  [LOI] Cong 5432 la PostgreSQL hien tai cua may: script demo chi chay tren cum demo rieng (demo-pg.bat, mac dinh -PgPort 55433).
+demo-split.ps1       ma=1  [LOI] Cong 5432 la PostgreSQL hien tai cua may: script demo chi chay tren cum demo rieng (demo-pg.bat, mac dinh -PgPort 55433).
+Ket noi TCP toi 127.0.0.1:5432 (moi trang thai) truoc=0 sau=0 (chi de doi chieu; dich vu khac co the giu ket noi)

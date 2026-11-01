@@ -10,7 +10,7 @@
 #                  transaction da ROLLBACK => sequence ma khach van tang 1 moi lan chay (sequence khong rollback; vo hai).
 #   -Step resetpw: (superuser) DAT LAI mat khau siscom_migrator / siscom_auth (sinh ngau nhien moi, luu file) khi file mat khau mat/khong khop.
 # Mat khau:
-#   - postgres: hoi an moi lan (khong luu). -NonInteractive: lay tu bien SISCOM_PG_ADMIN_PASSWORD (chi danh cho dien tap tu dong).
+#   - postgres: cum demo => doc tu %LOCALAPPDATA%\SISCOM-CRM\demo\pg-<port>.secrets (bat buoc). Chi khi -AllowMainCluster (owner duyet) moi hoi an / SISCOM_PG_ADMIN_PASSWORD.
 #   - siscom_app: doc tu DATABASE_URL trong backend\.env (nhu auth-demo-stack), khong in.
 #   - siscom_migrator / siscom_auth (role CAP CLUSTER): role chua co => SINH NGAU NHIEN 64 ky tu hex; luu vao
 #     %LOCALAPPDATA%\SISCOM-CRM\demo\roles-<port>.secrets (NGOAI repo; ACL chi SID tai khoan Windows hien tai). Role da co ma file chua co mat
@@ -24,8 +24,9 @@ param(
   [Parameter(Mandatory = $true)][ValidateSet('split', 'migrate', 'verify', 'resetpw')][string]$Step,
   [string]$DatabaseName,
   [string]$EnvPath,
-  [ValidateRange(1024, 65535)][int]$PgPort = 5432,
-  [switch]$NonInteractive
+  [ValidateRange(1024, 65535)][int]$PgPort = 55433,
+  [switch]$NonInteractive,
+  [switch]$AllowMainCluster
 )
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -38,6 +39,23 @@ function Find-Tool([string]$name) {
   $dirs = Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory -ErrorAction SilentlyContinue | Sort-Object { [int]($_.Name -replace '\D', '0') } -Descending
   foreach ($d in $dirs) { $p = Join-Path $d.FullName ('bin\' + $name); if (Test-Path -LiteralPath $p) { return $p } }
   return $null
+}
+# B1.4 demo cach ly: chi chay tren CUM DEMO (demo-pg.ps1: cluster_name = 'siscom_demo', cong rieng). Cong 5432 (PostgreSQL hien tai) va moi cum
+# khong mang nhan bi TU CHOI, tru khi co -AllowMainCluster (CHI khi owner phe duyet rieng bang van ban). Mat khau postgres / siscom_app cua cum
+# demo lay tu %LOCALAPPDATA%\SISCOM-CRM\demo\pg-<port>.secrets va demo-<port>.env (do demo-pg.ps1 sinh).
+function Get-DemoSecret([int]$port, [string]$key) {
+  $f = Join-Path $env:LOCALAPPDATA ('SISCOM-CRM\demo\pg-' + $port + '.secrets')
+  if (-not (Test-Path -LiteralPath $f)) { return $null }
+  foreach ($l in Get-Content -LiteralPath $f) { if ($l -match ('^' + $key + '=([0-9a-f]{64})$')) { return $Matches[1] } }
+  return $null
+}
+function Assert-DemoPort([int]$port, [bool]$allowMain) {
+  if ($allowMain) { Write-Host 'CANH BAO: -AllowMainCluster - KHONG kiem nhan cum demo. Chi dung khi owner phe duyet rieng bang van ban.' -ForegroundColor Yellow; return }
+  if ($port -eq 5432) { throw (New-Object System.ApplicationException -ArgumentList 'Cong 5432 la PostgreSQL hien tai cua may: script demo chi chay tren cum demo rieng (demo-pg.bat, mac dinh -PgPort 55433).') }
+}
+function Assert-DemoClusterName([string]$name, [bool]$allowMain) {
+  if ($allowMain) { return }
+  if ($name -ne 'siscom_demo') { throw (New-Object System.ApplicationException -ArgumentList ('Cum PostgreSQL dang ket noi co cluster_name = "' + $name + '", khong phai cum demo (siscom_demo). Dung lai, khong ghi gi.')) }
 }
 function Read-Secret([string]$prompt) {
   $s = Read-Host $prompt -AsSecureString
@@ -152,6 +170,8 @@ $savedDb = $env:DATABASE_URL; $savedMig = $env:MIGRATE_DATABASE_URL
 try {
   $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
   $docs = Join-Path $root 'docs'
+  Assert-DemoPort $PgPort ([bool]$AllowMainCluster)
+  if (-not $EnvPath) { $de = Join-Path $env:LOCALAPPDATA ('SISCOM-CRM\demo\demo-' + $PgPort + '.env'); if (Test-Path -LiteralPath $de) { $EnvPath = $de } }
   if (-not $EnvPath) { $EnvPath = Join-Path $root '.env'; if (-not (Test-Path -LiteralPath $EnvPath) -and (Test-Path -LiteralPath 'D:\SISCOM-CRM\backend\.env')) { $EnvPath = 'D:\SISCOM-CRM\backend\.env' } }
   $script:psql = Find-Tool 'psql.exe'; if (-not $script:psql) { Fail 'Khong tim thay psql.exe.' }
   if ($Step -ne 'resetpw') {
@@ -170,8 +190,15 @@ try {
     $c = Read-Host 'Go DOI-MAT-KHAU de xac nhan dat lai mat khau siscom_migrator va siscom_auth'
     if ($c -ne 'DOI-MAT-KHAU') { Fail 'Khong xac nhan. Dung lai.' }
   }
-  if ($NonInteractive) { $adminPw = $env:SISCOM_PG_ADMIN_PASSWORD; if (-not $adminPw) { Fail 'Che do khong tuong tac can bien SISCOM_PG_ADMIN_PASSWORD.' } }
+  # QA I-2: tren cum demo CHI dung mat khau trong file cua cum demo (khong hoi tay, khong bien moi truong - tranh gui mat khau superuser cum chinh
+  # toi mot tien trinh la tren cong demo); moi lan psql bat buoc SCRAM (PGREQUIREAUTH), khong gui mat khau dang ro.
+  if (-not $AllowMainCluster) { $env:PGREQUIREAUTH = 'scram-sha-256' }
+  $adminPw = Get-DemoSecret $PgPort 'POSTGRES_PW'
+  if (-not $adminPw -and -not $AllowMainCluster) { Fail ('Khong co file mat khau cum demo (%LOCALAPPDATA%\SISCOM-CRM\demo\pg-' + $PgPort + '.secrets). Chay demo-pg.bat -Step init (hoac demo-setup.bat) truoc.') }
+  if ($adminPw) { Say ('Mat khau postgres cua cum demo cong ' + $PgPort + ' lay tu file (khong in).') }
+  elseif ($NonInteractive) { $adminPw = $env:SISCOM_PG_ADMIN_PASSWORD; if (-not $adminPw) { Fail 'Che do khong tuong tac can file mat khau cum demo hoac bien SISCOM_PG_ADMIN_PASSWORD.' } }
   else { $adminPw = Read-Secret 'Mat khau tai khoan postgres (khong luu)' }
+  Assert-DemoClusterName (Invoke-Psql 'postgres' $adminPw 'postgres' $null $null "SELECT current_setting('cluster_name');" -Data) ([bool]$AllowMainCluster)
   $isSu = Invoke-Psql 'postgres' $adminPw 'postgres' $null $null 'SELECT rolsuper FROM pg_roles WHERE rolname = current_user;' -Data
   if ($isSu -ne 't') { Fail 'Tai khoan postgres phai la superuser.' }
   $roles = Invoke-Psql 'postgres' $adminPw 'postgres' $null $null "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator')::text || '|' || EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_auth')::text;" -Data

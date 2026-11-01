@@ -1,0 +1,9 @@
+Cum demo: D:\SISCOM-CRM-demo-pg\data | 127.0.0.1:55433 | Buoc: start
+[DAT] Cum demo dang chay.
+Mo backend (cua so rieng) tren DB siscom_crm_test_20261101_100155 ...
+[DAT] Backend: 2 pool (siscom_app + siscom_auth), quyen toi thieu.
+Mo giao dien (cua so rieng) ...
+[DAT] Giao dien: http://127.0.0.1:4173
+
+Tai khoan demo: C:\Users\<WINUSER>\AppData\Local\SISCOM-CRM\demo\accounts-siscom_crm_test_20261101_100155.txt
+Dung demo: dong 2 cua so "SISCOM demo backend" va "SISCOM demo web", roi demo-pg.bat -Step stop.

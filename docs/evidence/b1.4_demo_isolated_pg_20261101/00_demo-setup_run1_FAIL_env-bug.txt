@@ -1,0 +1,51 @@
+Dung ban demo SISCOM CRM tren cum PostgreSQL DEMO 127.0.0.1:55433 (D:\SISCOM-CRM-demo-pg\data). KHONG dung PostgreSQL cong 5432.
+=== 1. Tao cum PostgreSQL demo moi ===
+Cum demo: D:\SISCOM-CRM-demo-pg\data | 127.0.0.1:55433 | Buoc: init
+[DAT] initdb xong (scram-sha-256, UTF8).
+[DAT] Role siscom_app + quyen SET app.*; mat khau luu C:\Users\<WINUSER>\AppData\Local\SISCOM-CRM\demo\pg-55433.secrets va C:\Users\<WINUSER>\AppData\Local\SISCOM-CRM\demo\demo-55433.env (chi tai khoan Windows hien tai).
+CUM DEMO SAN SANG: 127.0.0.1:55433 (cluster_name = siscom_demo). Buoc tiep: demo-setup.bat
+=== 2. Build backend + frontend (neu can) ===
+> siscom-crm-backend@0.1.0 build
+> prisma generate && nest build && node -e "require('fs').accessSync('dist/main.js')"
+Loaded Prisma config from prisma.config.ts.
+System.Management.Automation.RemoteException
+Prisma schema loaded from prisma\schema.prisma.
+✔ Generated Prisma Client (7.10.0) to .\src\generated\prisma in 148ms
+> siscom-crm-web@0.1.0 build
+> vite build
+vite v5.4.21 building for production...
+transforming...
+✓ 104 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                        0.39 kB │ gzip:   0.28 kB
+dist/assets/JetBrainsMono-vietnamese-BehTv68k.woff2    5.89 kB
+dist/assets/Inter-vietnamese-CBcvBZtf.woff2           10.25 kB
+dist/assets/JetBrainsMono-latin-ext-DIC32ArD.woff2    11.62 kB
+dist/assets/JetBrainsMono-latin-6fWv1k7M.woff2        31.43 kB
+dist/assets/Inter-latin-Dx4kXJAl.woff2                48.26 kB
+dist/assets/logo-siscom-CmlgANp5.png                  72.92 kB
+dist/assets/Inter-latin-ext-DO1Apj_S.woff2            85.07 kB
+dist/assets/lucide-DgtJURad.woff2                    220.86 kB
+dist/assets/index-BDw4r29m.css                       112.59 kB │ gzip:  22.53 kB
+dist/assets/index-DfOQBYse.js                        344.14 kB │ gzip: 109.21 kB
+✓ built in 711ms
+[DAT] Backend dist + frontend dist san sang.
+=== 3. Tao database demo siscom_crm_test_20261101_095918 ===
+Se TAO database RONG: siscom_crm_test_20261101_095918 (OWNER siscom_app, UTF8, TEMPLATE template0). Khong dung toi siscom_crm_dev.
+Mat khau postgres cua cum demo cong 55433 lay tu file (khong in).
+[OK] Da tao database siscom_crm_test_20261101_095918 (chu so huu siscom_app)
+Cap quyen (toan cluster) GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO siscom_app - can cho migration M1.2.
+[OK] siscom_app co quyen SET app.actor_employee_id, app.priv_request_id (toan cluster).
+[OK] Xac minh: ten=siscom_crm_test_20261101_095918 owner=siscom_app encoding=UTF8 server=180006
+TEN DATABASE THU: siscom_crm_test_20261101_095918
+Buoc tiep (cung thu muc):
+  auth-demo-stack.bat -Step migrate   -DatabaseName siscom_crm_test_20261101_095918
+  auth-demo-stack.bat -Step seed      -DatabaseName siscom_crm_test_20261101_095918
+  auth-demo-stack.bat -Step bootstrap -DatabaseName siscom_crm_test_20261101_095918
+  demo-split.bat      -Step split     -DatabaseName siscom_crm_test_20261101_095918   (B1.4: tach role, khuyen nghi cho nghiem thu)
+  auth-demo-stack.bat -Step start     -DatabaseName siscom_crm_test_20261101_095918
+Xoa khi khong can (ban tu chay, can mat khau postgres): DROP DATABASE siscom_crm_test_20261101_095918;
+=== 4. Migrate ===
+[LOI] Khong co dong DATABASE_URL trong .env.
+[LOI] 4. Migrate that bai (ma 1). Dung lai; xem thong bao o tren.

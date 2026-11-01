@@ -1,0 +1,7 @@
+Cum demo: C:\Users\<WINUSER>\AppData\Local\Temp\claude\D--SISCOM-CRM\963bddcc-4ff6-4e62-8ec0-edda9404fa01\SCRATC~1\pginit55434\data | 127.0.0.1:55434 | Buoc: init
+[DAT] initdb xong (scram-sha-256, UTF8).
+[DAT] Role siscom_app + quyen SET app.*; mat khau luu C:\Users\<WINUSER>\AppData\Local\SISCOM-CRM\demo\pg-55434.secrets va C:\Users\<WINUSER>\AppData\Local\SISCOM-CRM\demo\demo-55434.env (chi tai khoan Windows hien tai).
+
+CUM DEMO SAN SANG: 127.0.0.1:55434 (cluster_name = siscom_demo). Buoc tiep: demo-setup.bat
+
+# Sau do: demo-55434.env co 2 dong (chu thich + DATABASE_URL, mat khau da che), status nhan siscom_demo, stop OK; cum thu 55434 va 2 file secrets/env da xoa.
