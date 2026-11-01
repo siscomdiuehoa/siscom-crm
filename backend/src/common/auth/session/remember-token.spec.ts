@@ -89,3 +89,19 @@ describe('classifyRememberFailure — phân loại khi compare-and-set thua', ()
     expect(classifyRememberFailure({ ...base, rotatedAt: new Date(now.getTime() + REMEMBER_RACE_GRACE_MS + 1) }, now)).toBe('REPLAY');
   });
 });
+
+// QA bảo mật lần 3 Important-1: kẻ trộm tự thu hồi family (DELETE thiết bị / revoke-all) để token cũ của nạn nhân bị xếp INVALID thay vì REPLAY
+// => né thu hồi phiên (I-2). Token ĐÃ xoay vòng xuất hiện lại sau cửa sổ race luôn là REPLAY, bất kể family đã bị thu hồi hay chưa.
+describe('classifyRememberFailure — token đã xoay vòng + family đã thu hồi (QA lần 3)', () => {
+  const now = new Date('2026-02-01T12:00:00.000Z');
+  const base = { revokedAt: new Date(now.getTime() - 1_000), rotatedAt: null as Date | null, absExpiresAt: new Date(now.getTime() + DAY) };
+  it('đã xoay vòng quá cửa sổ + đã thu hồi => REPLAY', () => {
+    expect(classifyRememberFailure({ ...base, rotatedAt: new Date(now.getTime() - REMEMBER_RACE_GRACE_MS - 1) }, now)).toBe('REPLAY');
+  });
+  it('đã xoay vòng trong cửa sổ + đã thu hồi => INVALID (không RACE: không giữ cookie của family đã thu hồi)', () => {
+    expect(classifyRememberFailure({ ...base, rotatedAt: new Date(now.getTime() - 1) }, now)).toBe('INVALID');
+  });
+  it('đã thu hồi, chưa từng xoay vòng => INVALID (logout/đổi mật khẩu bình thường)', () => {
+    expect(classifyRememberFailure(base, now)).toBe('INVALID');
+  });
+});

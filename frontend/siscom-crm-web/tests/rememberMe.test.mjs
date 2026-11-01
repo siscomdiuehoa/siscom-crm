@@ -11,11 +11,11 @@ const CSRF2 = 'd'.repeat(43);
 const ME = { employeeId: '0b9f1c52-3a0e-4c3e-9d6f-0a1b2c3d4e5f', code: 'NV-0003', fullName: 'Sale A', departmentId: null, roles: ['sales'], permissions: { 'customer.read': 'OWN' }, mustChangePassword: false };
 const resp = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const cfg = { enabled: true, baseUrl: '/api/v1' };
-function mk(handler) {
+function mk(handler, opts = {}) {
   const calls = [];
   const fetchImpl = async (url, init) => { calls.push({ url, init }); return handler(url, init, calls.length); };
   const client = createCookieAuthClient(cfg, fetchImpl);
-  return { client, calls, session: createCookieSession(client, { readCookie: () => '' }) };
+  return { client, calls, session: createCookieSession(client, { readCookie: () => '', raceDelayMs: 0, ...opts }) };
 }
 const err = (status, code) => resp(status, { error: { code, message: 'x' } });
 
@@ -186,4 +186,44 @@ test('giữa chừng: restore REMEMBER_RACE => hỏi lại /auth/me; phiên tab 
   env.session.handleUnauthorized();
   await tick(); await tick(); await tick(); await tick();
   assert.equal(env.session.getState().status, 'AUTHENTICATED');
+});
+
+// QA lần 3 Minor-2: tab thua RACE hỏi /auth/me quá sớm (tab thắng chưa kịp nhận Set-Cookie) => chờ ngắn trước khi hỏi lại.
+test('RACE khi tải trang: chờ raceDelayMs trước khi hỏi lại /auth/me', async () => {
+  let t0 = 0; let meAt = 0; let meCalls = 0;
+  const { session } = mk((url) => {
+    if (url.endsWith('/auth/me')) { meCalls++; if (meCalls === 1) return err(401, 'UNAUTHENTICATED'); meAt = Date.now(); return resp(200, { data: { me: ME, csrfToken: null } }); }
+    t0 = Date.now(); return err(401, 'REMEMBER_RACE');
+  }, { raceDelayMs: 120 });
+  await session.restore();
+  assert.equal(session.getState().status, 'AUTHENTICATED');
+  assert.ok(meAt - t0 >= 100, 'phải chờ trước khi hỏi lại /auth/me');
+});
+
+// QA lần 3 Minor-3: request gửi bằng cookie CŨ trả 401 SAU khi tự khôi phục thành công => không được đưa UI về "hết hạn" khi phiên mới vẫn tốt.
+test('401 muộn ngay sau khi vừa khôi phục: hỏi /auth/me; phiên mới còn tốt => giữ AUTHENTICATED', async () => {
+  const { session } = await authedSession(resp(200, { data: { me: ME, csrfToken: CSRF2 } }));
+  session.handleUnauthorized();
+  await tick(); await tick(); await tick();
+  assert.equal(session.getState().status, 'AUTHENTICATED');
+  session.handleUnauthorized(); // 401 muộn của request cũ
+  await tick(); await tick(); await tick();
+  assert.equal(session.getState().status, 'AUTHENTICATED');
+  assert.equal(session.getCsrfToken(), CSRF2);
+});
+test('401 muộn sau khôi phục mà /auth/me cũng 401 => SESSION_EXPIRED thật', async () => {
+  let restored = false;
+  const env = mk((url) => {
+    if (url.endsWith('/auth/login')) return resp(200, { data: { me: ME, csrfToken: CSRF } });
+    if (url.endsWith('/auth/remember/restore')) { restored = true; return resp(200, { data: { me: ME, csrfToken: CSRF2 } }); }
+    if (url.endsWith('/auth/me')) return restored ? err(401, 'UNAUTHENTICATED') : resp(200, { data: { me: ME, csrfToken: null } });
+    return resp(404, {});
+  });
+  await env.session.submit('a@b.vn', 'pw-gia-lap', true);
+  env.session.handleUnauthorized();
+  await tick(); await tick(); await tick();
+  assert.equal(env.session.getState().status, 'AUTHENTICATED');
+  env.session.handleUnauthorized();
+  await tick(); await tick(); await tick();
+  assert.equal(env.session.getState().error, 'SESSION_EXPIRED');
 });

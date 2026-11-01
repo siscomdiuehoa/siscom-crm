@@ -48,8 +48,11 @@ export interface RememberRowState { revokedAt: Date | null; rotatedAt: Date | nu
 // Gọi SAU KHI compare-and-set (rotated_at IS NULL AND revoked_at IS NULL AND abs_expires_at > now) thua. Mặc định fail-closed (INVALID).
 export function classifyRememberFailure(row: RememberRowState | null, now: Date): RememberFailure {
   if (row === null) return 'INVALID';
-  if (row.revokedAt !== null) return 'INVALID';
   if (row.absExpiresAt.getTime() <= now.getTime()) return 'INVALID';
-  if (row.rotatedAt === null) return 'INVALID';
-  return Math.abs(now.getTime() - row.rotatedAt.getTime()) <= REMEMBER_RACE_GRACE_MS ? 'RACE' : 'REPLAY';
+  if (row.rotatedAt === null) return 'INVALID'; // chưa từng dùng (đã thu hồi / CAS thua bất thường) => INVALID
+  const inGrace = Math.abs(now.getTime() - row.rotatedAt.getTime()) <= REMEMBER_RACE_GRACE_MS;
+  // QA lần 3 Important-1: token ĐÃ xoay vòng xuất hiện lại sau cửa sổ race => REPLAY kể cả khi family đã bị thu hồi (kẻ trộm tự thu hồi
+  // để né phát hiện). Trong cửa sổ mà family đã thu hồi => INVALID (không giữ cookie của family đã thu hồi).
+  if (!inGrace) return 'REPLAY';
+  return row.revokedAt !== null ? 'INVALID' : 'RACE';
 }

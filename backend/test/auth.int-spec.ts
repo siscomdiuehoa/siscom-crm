@@ -768,6 +768,21 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     expect(await adminPrisma.rememberDevice.count({ where: { familyId: fam } })).toBe(2);
   });
 
+  it('QA lần 3 Important-1: kẻ trộm restore trước rồi tự thu hồi thiết bị (revoke-all) để né phát hiện => nạn nhân dùng lại token cũ sau 10 giây vẫn là REPLAY, phiên kẻ trộm bị thu hồi', async () => {
+    const tok = rmbToken(await loginRemember('sale', true));
+    const thief = await restore(tok); expect(thief.status).toBe(200);
+    const thiefSid = cookieOf(thief); const thiefCsrf = thief.body.data.csrfToken as string;
+    const ra = await srv().post('/api/v1/auth/remember/revoke-all').set('Origin', ORIGIN).set('Cookie', thiefSid).set('X-CSRF-Token', thiefCsrf);
+    expect(ra.status).toBe(200);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(200); // thu hồi thiết bị không tự đá phiên
+    const replaysBefore = await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } });
+    await sleep(10_500);
+    const victim = await restore(tok);
+    expect(victim.status).toBe(401); expect(victim.body.error.code).toBe('REMEMBER_INVALID');
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
+    expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBe(replaysBefore + 1);
+  }, 30_000);
+
   it('truy cập đồng thời: 6 restore song song cùng token => đúng MỘT 200, còn lại 401 REMEMBER_RACE; đúng một token con, không thu hồi family', async () => {
     const tok = rmbToken(await loginRemember('sale', true));
     const fam = (await rowOf(tok))!.familyId;

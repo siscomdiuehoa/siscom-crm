@@ -24,7 +24,8 @@ type Where = Record<string, unknown>;
 const match = (r: Row, w: Where): boolean => Object.entries(w).every(([k, v]) => {
   const x = (r as unknown as Record<string, unknown>)[k];
   if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
-    const o = v as { gt?: Date; in?: unknown[] };
+    const o = v as { gt?: Date; in?: unknown[]; not?: unknown };
+    if ('not' in o) return x !== o.not;
     if (o.gt !== undefined) return (x as Date).getTime() > o.gt.getTime();
     if (o.in !== undefined) return o.in.includes(x);
   }
@@ -438,5 +439,33 @@ describe('QA lần 2 Minor-2', () => {
     const tok = await seedDevice(e);
     e.rememberDevice.create.mockImplementationOnce(async () => { throw new Error('connection reset'); });
     await expect(e.svc.restoreRemembered({ ...ctx, token: tok })).rejects.toThrow('connection reset');
+  });
+});
+
+// QA lần 3 Minor-4: hàng "ma" — token con chèn đồng thời với lệnh thu hồi family (snapshot cũ) còn revoked_at IS NULL.
+// Bảo mật vẫn giữ (trigger chặn xoay vòng tiếp), nhưng không được hiện là thiết bị đang hoạt động, không được tính vào giới hạn 5 thiết bị.
+describe('QA lần 3 Minor-4 — family có hàng đã thu hồi', () => {
+  function ghost(e: Env) {
+    const fam = randomUUID(); const t = new Date();
+    const mk = (over: Partial<Row>): Row => ({ id: randomUUID(), employeeId: 'e1', familyId: fam, tokenHash: sha256Hex(newOpaqueToken()), tokenVersion: 3, passwordAuthAt: t, absExpiresAt: new Date(t.getTime() + 90 * DAY), issuedAt: t, lastUsedAt: new Date(t.getTime() - 5 * DAY), rotatedAt: null, replacedById: null, revokedAt: null, revokeReason: null, ipPrefix: null, uaShort: null, ...over });
+    e.rows.push(mk({ rotatedAt: t, revokedAt: t, revokeReason: 'LOGOUT' }), mk({}));
+    return fam;
+  }
+  it('liệt kê: KHÔNG hiện family đã có hàng bị thu hồi', async () => {
+    const e = build();
+    const fam = ghost(e);
+    await seedDevice(e);
+    const list = await e.svc.listRememberDevices(S1, null);
+    expect(list.map((d) => d.id)).not.toContain(fam);
+    expect(list).toHaveLength(1);
+  });
+  it('cấp thiết bị: hàng ma không tính vào giới hạn 5 (không đẩy thiết bị thật ra) và bị thu hồi luôn', async () => {
+    const e = build();
+    const fam = ghost(e);
+    for (let i = 0; i < REMEMBER_MAX_DEVICES; i++) await seedDevice(e);
+    const active = e.rows.filter((r) => r.revokedAt === null && r.rotatedAt === null);
+    expect(active).toHaveLength(REMEMBER_MAX_DEVICES);
+    expect(active.some((r) => r.familyId === fam)).toBe(false);
+    expect(e.rows.filter((r) => r.revokeReason === 'DEVICE_LIMIT')).toHaveLength(0);
   });
 });
