@@ -1,7 +1,7 @@
 # Dien tap runbook demo Windows (docs/B1.4_DEMO_WINDOWS_RUNBOOK.md) tren cluster PostgreSQL TAM 127.0.0.1:55432 (initdb rieng, du lieu gia).
 # Trang thai ban dau giong may owner: chi co role siscom_app + DB canary siscom_crm_dev_canary thuoc siscom_app (thay cho siscom_crm_dev). Script chay bang PowerShell 5.1 voi -PgPort 55432 -NonInteractive.
 
-﻿##### 1 create-test-db
+##### 1 create-test-db
 Se TAO database RONG: siscom_crm_test_20261101_085359 (OWNER siscom_app, UTF8, TEMPLATE template0). Khong dung toi siscom_crm_dev.
 [OK] Da tao database siscom_crm_test_20261101_085359 (chu so huu siscom_app)
 Cap quyen (toan cluster) GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO siscom_app - can cho migration M1.2.
@@ -90,7 +90,7 @@ Mat khau siscom_app lay tu .env (khong in).
 Chu so huu hien tai: siscom_app | role siscom_migrator: False | role siscom_auth: False
 Sinh mat khau ngau nhien cho role moi siscom_migrator (luu ngoai repo, khong in).
 Sinh mat khau ngau nhien cho role moi siscom_auth (luu ngoai repo, khong in).
-[DAT] Da luu mat khau role vao %LOCALAPPDATA%SISCOM-CRMdemooles-55432.secrets (chi tai khoan <user>).
+[DAT] Da luu mat khau role vao %LOCALAPPDATA%\SISCOM-CRM\demo\roles-55432.secrets (chi tai khoan <user>).
 --- 1/5 ROLE_SPLIT (superuser): siscom_migrator thanh chu so huu ---
 [DAT] ROLE_SPLIT xong.
 --- 2/5 AUTH_ROLE (superuser): role siscom_auth + CONNECT/SET ---
@@ -160,7 +160,7 @@ siscom_crm_test_20261101_085359 owner=siscom_migrator app_connect=true
 roles: siscom_app,siscom_auth,siscom_migrator
 
 ## auth-demo-stack -Step start (DB da tach) + health
-﻿DATABASE_URL trong .env hop le (user/host/port da kiem tra). Mat khau siscom_app lay tu .env, khong in.
+DATABASE_URL trong .env hop le (user/host/port da kiem tra). Mat khau siscom_app lay tu .env, khong in.
 [DAT] Dung database thu siscom_crm_test_20261101_085359 (DA tach role: pool nghiep vu siscom_app + pool xac thuc siscom_auth).
 Backend: http://127.0.0.1:3100/api/v1 | DB thu siscom_crm_test_20261101_085359 | COOKIE_SECURE=false | origin: http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4173,http://localhost:4173
 AUTH_DATABASE_URL = siscom_auth (pool xac thuc rieng). Kiem: GET /api/v1/health/database => role.authPool = separate.
