@@ -1,0 +1,25 @@
+[PASS] R1.1 dang nhap KHONG tich ghi nho => khong co cookie siscom_rmb
+[PASS] R1.2 o ghi nho mac dinh khong tich — kiem o buoc R2
+[PASS] R2.0 o "Ghi nho dang nhap" co va mac dinh khong tich
+[PASS] R2.1 tich ghi nho => co cookie siscom_rmb
+[PASS] R2.2 siscom_rmb HttpOnly, SameSite=Lax, Path=/api/v1/auth — httpOnly=true sameSite=Lax path=/api/v1/auth
+[PASS] R2.3 han cookie trong (89.9; 90] ngay — con 90.0000 ngay
+[PASS] R2.4 JS khong doc duoc siscom_rmb (document.cookie)
+[PASS] R2.5 GET /auth/remember/devices => 200, 1 thiet bi — status=200 n=1
+[PASS] R3.0 xoa cookie phien siscom_sid
+[PASS] R3.1 tai lai trang khi khong con phien => tu dang nhap lai tu cookie ghi nho
+[PASS] R3.2 token ghi nho da xoay vong (gia tri moi, so bang hash) — cu=cdc48105 moi=1bbe3b02
+[PASS] R3.3 co phien thuong moi (siscom_sid) va /auth/me 200
+[PASS] R3.4 xoay vong KHONG keo dai moc 90 ngay tu lan nhap mat khau — truoc=90.0000 sau=90.0000
+[PASS] R4.1 phat lai token da xoay (sau 10 giay) => 401 — status=401 code=REMEMBER_INVALID
+[PASS] R4.2 phien dang mo bi thu hoi sau REPLAY (/auth/me 200 -> 401) — truoc=200 sau=401
+[PASS] R4.3 token moi nhat cung chet (ca chuoi bi thu hoi) => 401 — status=401
+[PASS] R4.4 BUG-1: con cookie siscom_sid cua phien da thu hoi => dang nhap sai tra 401 LOGIN_INVALID (khong con 403 CSRF_FAILED) — cookie chet con=true status=401 code=LOGIN_INVALID
+[PASS] R4.5 truoc khi dang nhap lai: trinh duyet van con cookie siscom_sid chet
+[PASS] R5.0 dang nhap lai co ghi nho
+[PASS] R5.1 dang xuat => cookie siscom_rmb bi xoa
+[PASS] R5.2 sau dang xuat, tai lai trang => man hinh dang nhap (khong tu khoi phuc)
+[PASS] R6.1 DELETE /auth/remember/devices/:id (co CSRF) => 2xx — status=200
+[PASS] R6.2 thiet bi da thu hoi + mat phien => man hinh dang nhap
+[PASS] R7.1 POST /auth/remember/restore thieu X-Remember-Restore => 403 — status=403
+TONG: PASS=24 FAIL=0 KNOWN=0

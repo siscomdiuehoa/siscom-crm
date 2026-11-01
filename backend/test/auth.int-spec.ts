@@ -115,6 +115,26 @@ describe('đăng nhập', () => {
     expect(res.body.data.me.permissions['customer.delete']).toBeUndefined();
     expect(JSON.stringify(res.body)).not.toContain(sc.split(';')[0].split('=')[1]);
   });
+  // BUG-1 (B1.4): trình duyệt còn cookie siscom_sid của phiên đã chết (thu hồi / không tồn tại) => trước đây login 403 CSRF_FAILED.
+  it('BUG-1: còn cookie phiên CHẾT (rác hoặc đã đăng xuất) => đăng nhập đúng 200 cấp phiên mới; sai mật khẩu 401 LOGIN_INVALID (không 403)', async () => {
+    const u = USERS[1];
+    const junk = 'siscom_sid=' + randomBytes(32).toString('base64url');
+    const r1 = await login(u.email, u.password).set('Cookie', junk);
+    expect(r1.status).toBe(200); expect(cookieOf(r1)).not.toBe(''); expect(cookieOf(r1)).not.toBe(junk);
+    const r2 = await login(u.email, 'sai-mat-khau-bug1').set('Cookie', junk);
+    expect(r2.status).toBe(401); expect(r2.body.error.code).toBe('LOGIN_INVALID');
+    const s = await session('admin');
+    expect((await srv().post('/api/v1/auth/logout').set('Cookie', s.cookie).set('Origin', ORIGIN).set('X-CSRF-Token', s.csrf)).status).toBeLessThan(300);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(401); // phiên đã thu hồi
+    const r3 = await login(u.email, u.password).set('Cookie', s.cookie);
+    expect(r3.status).toBe(200); expect(cookieOf(r3)).not.toBe(s.cookie);
+  });
+  it('BUG-1: phiên CÒN SỐNG giữ nguyên bảo vệ — đăng nhập kèm cookie phiên sống mà thiếu X-CSRF-Token => 403 CSRF_FAILED', async () => {
+    const u = USERS[1]; const s = await session('admin');
+    const r = await login(u.email, u.password).set('Cookie', s.cookie);
+    expect(r.status).toBe(403); expect(r.body.error.code).toBe('CSRF_FAILED');
+    expect((await login(u.email, u.password).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf)).status).toBe(200);
+  });
   it('mã nhân viên NV-xxxx đúng => 200; email khác hoa/thường vẫn đúng', async () => {
     const u = USERS[1];
     expect((await login(codes.admin, u.password)).status).toBe(200);

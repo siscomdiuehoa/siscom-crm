@@ -1,6 +1,6 @@
 import type { ExecutionContext } from '@nestjs/common';
 import type { AuthConfig } from './auth.config';
-import { CsrfOriginGuard, OriginOnly } from './csrf-origin.guard';
+import { CsrfOriginGuard, LoginEndpoint, OriginOnly } from './csrf-origin.guard';
 import { DenyAllActorProvider } from './deny-all-actor.provider';
 import { SessionActorProvider, SessionRequest } from './session/session-actor.provider';
 import { newOpaqueToken, SESSION_COOKIE_NAME, sha256Hex } from './session/session-token';
@@ -83,5 +83,47 @@ describe('CsrfOriginGuard — @OriginOnly (restore Remember Me)', () => {
   it('route KHÔNG gắn @OriginOnly giữ nguyên hành vi cũ (có cookie phiên hỏng => 403)', async () => {
     const g = new CsrfOriginGuard(provider(false), cfg);
     await expect403(g, ctlCtx('other', 'POST', { ...ok, cookie }).ec);
+  });
+});
+
+// BUG-1 (B1.4 demo, owner duyệt sửa 2026-11-01): trình duyệt còn cookie siscom_sid của phiên ĐÃ CHẾT (bị thu hồi / DB mới) => trước đây
+// POST /auth/login bị 403 CSRF_FAILED, người dùng không đăng nhập lại được. @LoginEndpoint: cookie phiên chết được coi như KHÔNG có cookie
+// (Origin kiểm nếu trình duyệt gửi, như đăng nhập lần đầu); phiên CÒN SỐNG thì giữ nguyên kiểm Origin + X-CSRF-Token.
+describe('CsrfOriginGuard — @LoginEndpoint (đăng nhập khi còn cookie phiên cũ)', () => {
+  class Ctl { @LoginEndpoint() login(): void { /* marker */ } other(): void { /* marker */ } }
+  const ctlCtx = (handler: 'login' | 'other', method: string, headers: Record<string, unknown>) => {
+    const req = { method, headers } as unknown as SessionRequest;
+    return { ec: { switchToHttp: () => ({ getRequest: () => req }), getHandler: () => Ctl.prototype[handler] } as unknown as ExecutionContext, req };
+  };
+  const origin = 'http://localhost:5173';
+  it('cookie phiên CHẾT + Origin hợp lệ => qua (đăng nhập lại được), không gắn phiên vào req', async () => {
+    const g = new CsrfOriginGuard(provider(false), cfg);
+    const c = ctlCtx('login', 'POST', { cookie, origin });
+    expect(await g.canActivate(c.ec)).toBe(true);
+    expect(c.req.authSession).toBeFalsy();
+  });
+  it('cookie phiên CHẾT + Origin lạ / "null" => 403 (như đăng nhập không cookie)', async () => {
+    const g = new CsrfOriginGuard(provider(false), cfg);
+    await expect403(g, ctlCtx('login', 'POST', { cookie, origin: 'http://evil.example' }).ec);
+    await expect403(g, ctlCtx('login', 'POST', { cookie, origin: 'null' }).ec);
+  });
+  it('cookie phiên CHẾT + không Origin (công cụ CLI) => qua, như đăng nhập không cookie', async () => {
+    const g = new CsrfOriginGuard(provider(false), cfg);
+    expect(await g.canActivate(ctlCtx('login', 'POST', { cookie }).ec)).toBe(true);
+  });
+  it('phiên CÒN SỐNG: giữ nguyên — thiếu Origin / thiếu hoặc sai X-CSRF-Token => 403; đủ => qua', async () => {
+    const g = new CsrfOriginGuard(provider(true), cfg);
+    await expect403(g, ctlCtx('login', 'POST', { cookie }).ec);
+    await expect403(g, ctlCtx('login', 'POST', { cookie, origin }).ec);
+    await expect403(g, ctlCtx('login', 'POST', { cookie, origin, 'x-csrf-token': newOpaqueToken() }).ec);
+    expect(await g.canActivate(ctlCtx('login', 'POST', { cookie, origin, 'x-csrf-token': csrf }).ec)).toBe(true);
+  });
+  it('route KHÔNG gắn @LoginEndpoint: cookie phiên chết vẫn 403 (không nới cho route khác)', async () => {
+    const g = new CsrfOriginGuard(provider(false), cfg);
+    await expect403(g, ctlCtx('other', 'POST', { cookie, origin }).ec);
+  });
+  it('provider giả (không phải SessionActorProvider) + cookie => 403 kể cả route đăng nhập (fail-closed)', async () => {
+    const g = new CsrfOriginGuard(new DenyAllActorProvider(), cfg);
+    await expect403(g, ctlCtx('login', 'POST', { cookie, origin }).ec);
   });
 });
