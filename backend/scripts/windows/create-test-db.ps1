@@ -10,7 +10,10 @@
 param(
   [ValidateSet('test', 'restore')][string]$Kind = 'test',
   [string]$DatabaseName,
-  [switch]$SkipGrantSetParameter
+  [switch]$SkipGrantSetParameter,
+  # B1.4 runbook: cong khac 5432 chi de dien tap tren cluster tam; -NonInteractive lay mat khau postgres tu SISCOM_PG_ADMIN_PASSWORD.
+  [ValidateRange(1024, 65535)][int]$PgPort = 5432,
+  [switch]$NonInteractive
 )
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -32,7 +35,7 @@ function Run-Psql([string]$psql, [string]$user, [string]$pw, [string]$db, [strin
   $env:PGPASSWORD = $pw; $env:PGCLIENTENCODING = 'UTF8'
   $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
   try {
-    $out = $sql | & $psql -X -q -t -A -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U $user -d $db -f - 2>$null
+    $out = $sql | & $psql -X -q -t -A -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $PgPort -U $user -d $db -f - 2>$null
     $code = $LASTEXITCODE
   } finally { $ErrorActionPreference = $prev; Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue }
   if ($code -ne 0) { Fail ('psql bao loi (ma ' + $code + ') voi tai khoan "' + $user + '" tren "' + $db + '". Sai mat khau postgres hoac dich vu PostgreSQL chua chay?') }
@@ -44,7 +47,8 @@ try {
   if (-not $DatabaseName) { $DatabaseName = 'siscom_crm_' + $Kind + '_' + (Get-Date -Format 'yyyyMMdd_HHmmss') }
   if ($DatabaseName -notmatch '^siscom_crm_(restore|test)_\d{8}_\d{6}$') { Fail 'Ten database phai la siscom_crm_test_YYYYMMDD_HHMMSS hoac siscom_crm_restore_YYYYMMDD_HHMMSS. siscom_crm_dev bi tu choi.' }
   Write-Host ('Se TAO database RONG: ' + $DatabaseName + ' (OWNER siscom_app, UTF8, TEMPLATE template0). Khong dung toi siscom_crm_dev.') -ForegroundColor Yellow
-  $adminPw = Read-Secret 'Mat khau tai khoan postgres (chi de TAO database thu; khong luu)'
+  if ($NonInteractive) { $adminPw = $env:SISCOM_PG_ADMIN_PASSWORD; if (-not $adminPw) { Fail 'Che do khong tuong tac can bien SISCOM_PG_ADMIN_PASSWORD.' } }
+  else { $adminPw = Read-Secret 'Mat khau tai khoan postgres (chi de TAO database thu; khong luu)' }
   $ver = Run-Psql $psql 'postgres' $adminPw 'postgres' 'SHOW server_version_num;'
   if ((Run-Psql $psql 'postgres' $adminPw 'postgres' ("SELECT 1 FROM pg_database WHERE datname='" + $DatabaseName + "';")) -eq '1') { Fail ('Database ' + $DatabaseName + ' da ton tai (khong ghi de).') }
   if ((Run-Psql $psql 'postgres' $adminPw 'postgres' "SELECT 1 FROM pg_roles WHERE rolname='siscom_app';") -ne '1') { Fail 'Chua co tai khoan siscom_app (chay setup-db.bat truoc).' }
@@ -71,6 +75,7 @@ try {
   Write-Host ('  auth-demo-stack.bat -Step migrate   -DatabaseName ' + $DatabaseName)
   Write-Host ('  auth-demo-stack.bat -Step seed      -DatabaseName ' + $DatabaseName)
   Write-Host ('  auth-demo-stack.bat -Step bootstrap -DatabaseName ' + $DatabaseName)
+  Write-Host ('  demo-split.bat      -Step split     -DatabaseName ' + $DatabaseName + '   (B1.4: tach role, khuyen nghi cho nghiem thu)')
   Write-Host ('  auth-demo-stack.bat -Step start     -DatabaseName ' + $DatabaseName)
   Write-Host ('Xoa khi khong can (ban tu chay, can mat khau postgres): DROP DATABASE ' + $DatabaseName + ';') -ForegroundColor DarkGray
 } catch {
