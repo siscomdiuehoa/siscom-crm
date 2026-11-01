@@ -1,0 +1,121 @@
+# Luot ngan sau QA lan 3 PR #185 (script cuoi: kiem pgaudit, dung som khi chu so huu la, goi y resetpw hep hon). Cluster PostgreSQL TAM 127.0.0.1:55432, du lieu gia; ban dau chi siscom_app + DB canary.
+
+﻿##### 1 create-test-db
+Se TAO database RONG: siscom_crm_test_20261101_093425 (OWNER siscom_app, UTF8, TEMPLATE template0). Khong dung toi siscom_crm_dev.
+[OK] Da tao database siscom_crm_test_20261101_093425 (chu so huu siscom_app)
+Cap quyen (toan cluster) GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO siscom_app - can cho migration M1.2.
+[OK] siscom_app co quyen SET app.actor_employee_id, app.priv_request_id (toan cluster).
+[OK] Xac minh: ten=siscom_crm_test_20261101_093425 owner=siscom_app encoding=UTF8 server=180006
+TEN DATABASE THU: siscom_crm_test_20261101_093425
+Buoc tiep (cung thu muc):
+  auth-demo-stack.bat -Step migrate   -DatabaseName siscom_crm_test_20261101_093425
+  auth-demo-stack.bat -Step seed      -DatabaseName siscom_crm_test_20261101_093425
+  auth-demo-stack.bat -Step bootstrap -DatabaseName siscom_crm_test_20261101_093425
+  demo-split.bat      -Step split     -DatabaseName siscom_crm_test_20261101_093425   (B1.4: tach role, khuyen nghi cho nghiem thu)
+  auth-demo-stack.bat -Step start     -DatabaseName siscom_crm_test_20261101_093425
+Xoa khi khong can (ban tu chay, can mat khau postgres): DROP DATABASE siscom_crm_test_20261101_093425;
+##### ma thoat (script chinh): 0
+##### 2 migrate
+DATABASE_URL trong .env hop le (user/host/port da kiem tra). Mat khau siscom_app lay tu .env, khong in.
+Database thu: siscom_crm_test_20261101_093425 | Buoc: migrate (GHI vao database thu)
+[DAT] Dung database thu siscom_crm_test_20261101_093425 (owner siscom_app).
+[DAT] siscom_app co quyen SET app.actor_employee_id, app.priv_request_id.
+Loaded Prisma config from prisma.config.ts.
+System.Management.Automation.RemoteException
+Prisma schema loaded from prisma\schema.prisma.
+Datasource "db": PostgreSQL database "siscom_crm_test_20261101_093425", schema "public" at "127.0.0.1:55432"
+7 migrations found in prisma/migrations
+Applying migration `20261011000000_init`
+Applying migration `20261012000000_b1_2_crm_core`
+Applying migration `20261020000000_b1_3_auth_core`
+Applying migration `20261020120000_b1_3_auth_m1_1_guards`
+Applying migration `20261020180000_b1_3_auth_m1_2_priv_api`
+Applying migration `20261021000000_b1_3_auth_m1_3_reset_revocation`
+Applying migration `20261029000000_b1_4_remember_device`
+The following migration(s) have been applied:
+migrations/
+  └─ 20261011000000_init/
+    └─ migration.sql
+  └─ 20261012000000_b1_2_crm_core/
+    └─ migration.sql
+  └─ 20261020000000_b1_3_auth_core/
+    └─ migration.sql
+  └─ 20261020120000_b1_3_auth_m1_1_guards/
+    └─ migration.sql
+  └─ 20261020180000_b1_3_auth_m1_2_priv_api/
+    └─ migration.sql
+  └─ 20261021000000_b1_3_auth_m1_3_reset_revocation/
+    └─ migration.sql
+  └─ 20261029000000_b1_4_remember_device/
+    └─ migration.sql
+All migrations have been successfully applied.
+prisma migrate deploy ma thoat = 0
+Loaded Prisma config from prisma.config.ts.
+System.Management.Automation.RemoteException
+Prisma schema loaded from prisma\schema.prisma.
+Datasource "db": PostgreSQL database "siscom_crm_test_20261101_093425", schema "public" at "127.0.0.1:55432"
+7 migrations found in prisma/migrations
+Database schema is up to date!
+prisma migrate status ma thoat = 0
+[DAT] Schema da ap len database thu, migrate status up to date.
+##### ma thoat (script chinh): 0
+##### 3 seed
+DATABASE_URL trong .env hop le (user/host/port da kiem tra). Mat khau siscom_app lay tu .env, khong in.
+Database thu: siscom_crm_test_20261101_093425 | Buoc: seed (GHI vao database thu)
+[DAT] Dung database thu siscom_crm_test_20261101_093425 (owner siscom_app).
+Seed bang DATABASE_URL (tai khoan siscom_app).
+Seed danh muc tren siscom_crm_test_20261101_093425: tong 23, chen moi 23, da co 0.
+  customer_tier    4/4
+  customer_status  4/4
+  source           5/5
+  industry         10/10
+[DAT] Da seed danh muc chuan D3 (idempotent; chay lai khong trung).
+##### ma thoat (script chinh): 0
+##### 4 bootstrap
+DATABASE_URL trong .env hop le (user/host/port da kiem tra). Mat khau siscom_app lay tu .env, khong in.
+Database thu: siscom_crm_test_20261101_093425 | Buoc: bootstrap (GHI vao database thu)
+[DAT] Dung database thu siscom_crm_test_20261101_093425 (owner siscom_app).
+Khoi tao xong tren siscom_crm_test_20261101_093425 (qua DATABASE_URL, closed=true). Tai khoan (dang nhap bang email HOAC ma NV):
+  sysadmin   NV-0001  sysadmin@demo.siscom.local  vai tro=admin
+  admin      NV-0002  admin@demo.siscom.local  vai tro=crm_admin
+  sale       NV-0003  sale@demo.siscom.local  vai tro=sales
+  technician NV-0004  kythuat@demo.siscom.local  vai tro=technician
+  accountant NV-0005  ketoan@demo.siscom.local  vai tro=accountant
+[DAT] Da khoi tao 4+1 tai khoan thu va dong che do khoi tao M1 (mat khau khong duoc in).
+##### ma thoat (script chinh): 0
+##### 5 split (script sau QA lan 3: kiem pgaudit, owner som)
+Database thu: siscom_crm_test_20261101_093425 | cong 55432 | Buoc: split (GHI: role/quyen cap cluster va database thu)
+Chu so huu hien tai: siscom_app | role siscom_migrator: False | role siscom_auth: False
+Mat khau siscom_app lay tu .env (khong in).
+[DAT] Dieu kien truoc tach role: da migrate du, da seed, da bootstrap.
+Role siscom_migrator chua co: se tao voi mat khau ngau nhien (luu ngoai repo, khong in).
+Role siscom_auth chua co: se tao voi mat khau ngau nhien (luu ngoai repo, khong in).
+[DAT] Server khong ghi/luu cau lenh tai DB siscom_crm_test_20261101_093425 (log_statement=none, log_min_duration_statement=-1, khong lay mau).
+[DAT] Da luu mat khau role vao C:\Users\Home Phong\AppData\Local\SISCOM-CRM\demo\roles-55432.secrets (chi tai khoan Windows hien tai).
+--- 1/5 ROLE_SPLIT (superuser): siscom_migrator thanh chu so huu ---
+[DAT] ROLE_SPLIT xong.
+--- 2/5 AUTH_ROLE (superuser): role siscom_auth + CONNECT/SET ---
+[DAT] AUTH_ROLE xong.
+--- 3/5 APP_GRANTS_V3 lan 1 (siscom_migrator, idempotent) ---
+--- 4/5 APP_GRANTS_V3 lan 2 (siscom_migrator, idempotent) ---
+[DAT] APP_GRANTS_V3 x2 xong.
+--- Kiem tra quyen: VERIFY (siscom_app) + VERIFY_AUTH (superuser -> SET ROLE siscom_auth) ---
+[DAT] VERIFY (pool nghiep vu siscom_app) PASS|73
+[DAT] VERIFY_AUTH (pool xac thuc siscom_auth) PASS|33
+DATABASE THU DA TACH ROLE: siscom_crm_test_20261101_093425
+Buoc tiep: auth-demo-stack.bat -Step start -DatabaseName siscom_crm_test_20261101_093425   (tu dat AUTH_DATABASE_URL = siscom_auth)
+##### ma thoat (script chinh): 0
+##### 6 verify
+Database thu: siscom_crm_test_20261101_093425 | cong 55432 | Buoc: verify (khong doi quyen/du lieu)
+Chu so huu hien tai: siscom_migrator | role siscom_migrator: True | role siscom_auth: True
+Mat khau siscom_app lay tu .env (khong in).
+--- Kiem tra quyen: VERIFY (siscom_app) + VERIFY_AUTH (superuser -> SET ROLE siscom_auth) ---
+[DAT] VERIFY (pool nghiep vu siscom_app) PASS|73
+[DAT] VERIFY_AUTH (pool xac thuc siscom_auth) PASS|33
+DATABASE THU DA TACH ROLE: siscom_crm_test_20261101_093425
+Buoc tiep: auth-demo-stack.bat -Step start -DatabaseName siscom_crm_test_20261101_093425   (tu dat AUTH_DATABASE_URL = siscom_auth)
+##### ma thoat (script chinh): 0
+##### 7 chu so huu cac DB
+siscom_crm_dev_canary owner=siscom_app
+siscom_crm_test_20261101_093425 owner=siscom_migrator
+##### ma thoat (script chinh): 0

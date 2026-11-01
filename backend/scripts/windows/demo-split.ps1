@@ -107,7 +107,8 @@ function Test-RoleLogin([string]$role, [string]$pw) {
   # Thong bao loi ket noi theo ngon ngu server (lc_messages): chi nhan dien tieng Anh; ngon ngu khac => 'other' (dung an toan, goi y resetpw).
   if ($r -match 'password authentication failed') { return 'badpw' }
   if ($r -match 'permission denied for database') { return 'ok' } # da qua buoc xac thuc mat khau; chi thieu CONNECT vao DB postgres
-  return ('other: ' + (($r -split "`n" | Select-Object -Last 1) -replace '^<ERR>', '') + ' (neu do sai mat khau: chay -Step resetpw)')
+  # QA lan 3 m-2: resetpw doi mat khau CAP CLUSTER => chi goi y khi thong bao that su la loi xac thuc mat khau (vd server khong dung tieng Anh).
+  return ('other: ' + (($r -split "`n" | Select-Object -Last 1) -replace '^<ERR>', '') + ' (chi khi day la loi xac thuc mat khau - vd server bao loi bang tieng Viet - moi chay -Step resetpw; loi ket noi/het thoi gian: kiem dich vu PostgreSQL)')
 }
 # QA I-5 / lan 2 I-B: CREATE/ALTER ROLE ... PASSWORD khong duoc vao log server hay pg_stat_statements. Kiem TRONG DB se chay lenh (thiet lap
 # theo DB/role co hieu luc). Yeu cau: log_statement = none; log_min_duration_statement = -1; khong lay mau cau lenh (log_min_duration_sample = -1
@@ -120,7 +121,8 @@ SELECT concat_ws('|', current_setting('log_statement'),
   coalesce((SELECT setting FROM pg_settings WHERE name = 'log_min_duration_sample'), '-1'),
   coalesce((SELECT setting FROM pg_settings WHERE name = 'log_statement_sample_rate'), '0'),
   coalesce((SELECT setting FROM pg_settings WHERE name = 'log_transaction_sample_rate'), '0'),
-  (current_setting('shared_preload_libraries') ~ 'pg_stat_statements' AND coalesce(current_setting('pg_stat_statements.track_utility', true), 'on') = 'on')::text);
+  (current_setting('shared_preload_libraries') ~ 'pg_stat_statements' AND coalesce(current_setting('pg_stat_statements.track_utility', true), 'on') = 'on')::text,
+  (current_setting('shared_preload_libraries') ~ 'pgaudit')::text);
 "@
   $p = (Invoke-Psql 'postgres' $adminPw $db $null $null $q -Data).Split('|')
   $bad = @()
@@ -129,6 +131,7 @@ SELECT concat_ws('|', current_setting('log_statement'),
   if ($p[2] -ne '-1' -and [double]$p[3] -gt 0) { $bad += ('log_min_duration_sample=' + $p[2] + '/log_statement_sample_rate=' + $p[3]) }
   if ([double]$p[4] -gt 0) { $bad += ('log_transaction_sample_rate=' + $p[4]) }
   if ($p[5] -eq 'true') { $bad += 'pg_stat_statements.track_utility=on' }
+  if ($p[6] -eq 'true') { $bad += 'pgaudit trong shared_preload_libraries (co the ghi CREATE/ALTER ROLE)' }   # QA lan 3 m-1
   if ($bad.Count -gt 0) {
     Fail ('Server dang ghi/luu cau lenh (' + ($bad -join ', ') + ' tai DB ' + $db + '): tao/doi mat khau role se lo mat khau. Dat log_statement = none, log_min_duration_statement = -1, tat lay mau log, pg_stat_statements.track_utility = off (postgresql.conf hoac ALTER SYSTEM; kiem ca ALTER DATABASE/ROLE ... SET), reload, chay lai. Chua ghi gi.')
   }
@@ -193,6 +196,8 @@ try {
 
   $owner = Invoke-Psql 'postgres' $adminPw 'postgres' $null $null ("SELECT coalesce((SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '" + $DatabaseName + "'), '<khong co>');") -Data
   if ($owner -eq '<khong co>') { Fail ('Chua co database ' + $DatabaseName + ' (tao bang create-test-db.bat).') }
+  # QA lan 3 m-3: chu so huu la ai khac => dung NGAY (truoc moi xu ly mat khau / ghi file).
+  if ($owner -ne 'siscom_app' -and $owner -ne 'siscom_migrator') { Fail ('Chu so huu DB la "' + $owner + '" (khong phai siscom_app/siscom_migrator). Dung lai.') }
   Say ('Chu so huu hien tai: ' + $owner + ' | role siscom_migrator: ' + $hasMig + ' | role siscom_auth: ' + $hasAuth)
   $appPw = Get-AppPasswordFromEnv $EnvPath $PgPort
   Say 'Mat khau siscom_app lay tu .env (khong in).'

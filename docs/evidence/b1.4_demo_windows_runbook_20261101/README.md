@@ -16,7 +16,10 @@
 | `04_…` | JSON harness lượt 2 | 91/0/0 |
 | `05_…` | **Lượt 3 sau QA lần 2** (cluster dựng mới), ghi **mã thoát thật của từng script** (khung diễn tập lưu `$LASTEXITCODE` ngay sau script chính): như lượt 2 + `ALTER DATABASE <DB> SET log_statement = ddl` ⇒ split (tạo role) từ chối trước khi ghi; từ chối do thiếu seed **không** để lại file mật khẩu | 19 bước đúng kỳ vọng (các ca từ chối mã 1, còn lại 0); VERIFY `PASS|73`, VERIFY_AUTH `PASS|33`; canary giữ `siscom_app`; health `authPool=separate`; Chrome **91/0/0** |
 | `06_…` | JSON harness lượt 3 | 91/0/0 |
+| `07_…` | Lượt ngắn với script cuối sau QA lần 3 (thêm kiểm `pgaudit`, dừng sớm khi chủ sở hữu lạ): create → migrate → seed → bootstrap → split → verify | Mã thoát 0; VERIFY `PASS|73`, VERIFY_AUTH `PASS|33`; canary giữ `siscom_app` (không chạy lại harness Chrome — không đổi backend/FE) |
 
 Lỗi tìm thấy khi diễn tập lượt 1 và đã sửa trước commit đầu: file mật khẩu role bị ghi gộp thành một dòng (ưu tiên toán tử dấu phẩy trong PowerShell) ⇒ lần chạy thứ hai không đọc được mật khẩu; đã sửa và chạy lại toàn bộ trên cluster dựng mới (file `01` là lượt chạy lại).
 
 **Đính chính (QA lần 2, I-A):** trong file `03`, ca 9 (log máy chủ ghi DDL ⇒ `resetpw` từ chối) in `[LOI]` đúng nhưng dòng `##### ma thoat: 0` là mã thoát của lệnh `psql` khôi phục cấu hình chạy sau đó (lỗi của khung diễn tập, không phải của script). File `05` chạy lại với khung đã sửa: ca này ghi đúng mã thoát `1`.
+
+**Ghi chú biên tập (QA lần 3, I-1):** file `01` dòng 93 — đường dẫn file mật khẩu được viết lại ở dạng `%LOCALAPPDATA%\SISCOM-CRM\demo\roles-55432.secrets` vì lần che bí mật đầu tiên biến chuỗi `\r` trong đường dẫn thành ký tự xuống dòng; tên người dùng thay bằng `<user>`; phần chữ còn lại giữ nguyên văn do script phiên bản lượt 1 in ra. Các file khác chỉ che (chuỗi kết nối, mật khẩu, đường dẫn/tên người dùng/tên máy), không sửa nội dung.
