@@ -794,7 +794,8 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     const thiefSid = cookieOf(thief); const thiefCsrf = thief.body.data.csrfToken as string;
     const ra = await srv().post('/api/v1/auth/remember/revoke-all').set('Origin', ORIGIN).set('Cookie', thiefSid).set('X-CSRF-Token', thiefCsrf);
     expect(ra.status).toBe(200);
-    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(200); // thu hồi thiết bị không tự đá phiên
+    // Owner duyệt 2026-11-01 (câu 3): revoke-all nay thu hồi luôn phiên đã khôi phục — kể cả phiên của kẻ trộm đang gọi lệnh (trước đây vẫn 200).
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
     const replaysBefore = await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } });
     await sleep(10_500);
     const victim = await restore(tok);
@@ -924,6 +925,14 @@ describe('B1.4 câu 3 — thu hồi thiết bị kéo theo phiên đã khôi ph�
     expect((await me(sidA)).status).toBe(401);
     expect((await me(sidB)).status).toBe(401);
     expect((await me(cookieOf(pw))).status).toBe(200);
+  });
+  it('QA #193: nạn nhân ĐĂNG XUẤT (kèm cookie ghi nhớ) => phiên kẻ trộm đã khôi phục từ thiết bị đó cũng 401', async () => {
+    const victim = await loginRmb(); const tok = rmbToken(victim);
+    const thiefSid = cookieOf(await restore(tok));
+    expect((await me(thiefSid)).status).toBe(200);
+    const lo = await srv().post('/api/v1/auth/logout').set('Origin', ORIGIN).set('Cookie', cookieOf(victim) + '; siscom_rmb=' + tok).set('X-CSRF-Token', victim.body.data.csrfToken);
+    expect(lo.status).toBeLessThan(300);
+    expect((await me(thiefSid)).status).toBe(401);
   });
   it('DELETE thiết bị của NGƯỜI KHÁC => 404 và phiên khôi phục của người đó vẫn 200', async () => {
     const a = await loginRmb(); const tokA = rmbToken(a); const famA = await familyOf(tokA);

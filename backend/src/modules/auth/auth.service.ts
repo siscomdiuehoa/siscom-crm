@@ -103,7 +103,10 @@ export class AuthService {
       await tx.authSession.create({ data: ns.data });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: row!.id, action: 'auth.login_ok', entityType: 'employee', entityId: row!.id, entityCode: row!.code, summary: 'Đăng nhập thành công', requestId: rid(input.requestId) } });
       // Thiết bị đã có cookie nhớ cũ: luôn thu hồi chuỗi cũ (đăng nhập lại bằng mật khẩu = thiết lập lại lựa chọn), rồi cấp mới nếu được tích.
-      if (input.previousRememberToken) await this.rememberDevices.revokeByToken(tx, input.previousRememberToken, null, 'LOGIN_NO_REMEMBER', now);
+      if (input.previousRememberToken) {
+        const dev = await this.rememberDevices.revokeByToken(tx, input.previousRememberToken, null, 'LOGIN_NO_REMEMBER', now);
+        if (dev) await this.revokeRestoredSessions(tx, dev.employeeId, dev.familyId, now); // câu 3
+      }
       if (!wantRemember) return undefined;
       const g = await this.rememberDevices.issue(tx, { employeeId: row!.id, tokenVersion: cred!.tokenVersion, passwordAuthAt: now, now, ip: input.ip, userAgent: input.userAgent });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: row!.id, action: 'auth.remember_issued', entityType: 'employee', entityId: row!.id, entityCode: row!.code, summary: 'Bật ghi nhớ đăng nhập trên thiết bị', requestId: rid(input.requestId) } });
@@ -169,6 +172,11 @@ export class AuthService {
 
   async listRememberDevices(s: ResolvedSession, currentToken: string | null) {
     return this.rememberDevices.list(this.prisma, s.actor.employeeId, currentToken, new Date());
+  }
+
+  // Câu 3 (owner duyệt 2026-11-01): thu hồi mọi phiên thường đang mở đã khôi phục từ thiết bị (family) này. Trả số phiên đã thu hồi.
+  private async revokeRestoredSessions(tx: Pick<AuthPrismaService, 'authSession'>, employeeId: string, familyId: string, now: Date): Promise<number> {
+    return (await tx.authSession.updateMany({ where: { employeeId, rememberFamilyId: familyId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'REMEMBER_DEVICE_REVOKED' } })).count;
   }
 
   // false => không có thiết bị đó của chính mình (controller trả 404, không phân biệt "của người khác" với "không tồn tại").
@@ -283,7 +291,10 @@ export class AuthService {
     await this.prisma.$transaction(async (tx) => {
       const now = new Date();
       await tx.authSession.updateMany({ where: { id: s.sessionId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'LOGOUT' } });
-      if (rememberToken) await this.rememberDevices.revokeByToken(tx, rememberToken, s.actor.employeeId, 'LOGOUT', now);
+      if (rememberToken) {
+        const dev = await this.rememberDevices.revokeByToken(tx, rememberToken, s.actor.employeeId, 'LOGOUT', now);
+        if (dev) await this.revokeRestoredSessions(tx, dev.employeeId, dev.familyId, now); // câu 3: phiên khác khôi phục từ thiết bị này
+      }
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.logout', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Đăng xuất', requestId: rid(requestId) } });
     });
   }

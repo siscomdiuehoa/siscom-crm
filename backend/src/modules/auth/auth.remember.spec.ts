@@ -581,3 +581,23 @@ describe('Câu 3 — thu hồi thiết bị kéo theo phiên đã khôi phục t
     expect(c!.where).toEqual({ employeeId: 'e1', rememberFamilyId: { not: null }, revokedAt: null });
   });
 });
+
+// QA PR #193 Minor: đăng xuất / đăng nhập không tích ghi nhớ trên thiết bị còn cookie cũ cũng thu hồi phiên đã khôi phục từ thiết bị đó
+// (kịch bản: kẻ trộm khôi phục trước, nạn nhân đăng xuất => phiên kẻ trộm phải chết theo).
+describe('Câu 3 (bổ sung) — logout / LOGIN_NO_REMEMBER kéo theo phiên đã khôi phục', () => {
+  const sessCalls = (e: Env) => (e.prisma.authSession.updateMany as jest.Mock).mock.calls.map((c) => c[0] as { where: Record<string, unknown>; data: Record<string, unknown> });
+  it('logout kèm cookie ghi nhớ của chính mình => thu hồi phiên có rememberFamilyId = family đó', async () => {
+    const e = build();
+    const tok = await seedDevice(e); const fam = e.rows[0].familyId;
+    await e.svc.logout(S1, 'r1', tok);
+    expect(sessCalls(e).find((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED')?.where).toEqual({ employeeId: 'e1', rememberFamilyId: fam, revokedAt: null });
+  });
+  it('logout kèm cookie ghi nhớ của NGƯỜI KHÁC => không thu hồi phiên nào theo thiết bị', async () => {
+    const e = build({ emps: [
+      { id: 'e1', status: 'ACTIVE', deletedAt: null, credential: { status: 'ACTIVE', mustChangePassword: false, tokenVersion: 3 }, roles: ['sale'] },
+      { id: 'e2', status: 'ACTIVE', deletedAt: null, credential: { status: 'ACTIVE', mustChangePassword: false, tokenVersion: 3 }, roles: ['admin'] }] });
+    const other = await seedDevice(e, { employeeId: 'e2' });
+    await e.svc.logout(S1, 'r1', other);
+    expect(sessCalls(e).some((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED')).toBe(false);
+  });
+});
