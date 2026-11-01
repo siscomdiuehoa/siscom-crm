@@ -882,3 +882,55 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     await expect(prisma.rememberDevice.count()).rejects.toThrow();
   });
 });
+
+// Owner duyệt 2026-11-01 (Remember Me câu 3): thu hồi thiết bị => thu hồi luôn phiên thường đang mở đã KHÔI PHỤC từ thiết bị đó.
+describe('B1.4 câu 3 — thu hồi thiết bị kéo theo phiên đã khôi phục', () => {
+  const all = (res: request.Response): string[] => { const sc = res.headers['set-cookie']; return Array.isArray(sc) ? sc : sc ? [String(sc)] : []; };
+  const rmbToken = (res: request.Response): string => all(res).find((c) => c.startsWith('siscom_rmb=') && !c.startsWith('siscom_rmb=;'))!.split(';')[0].split('=')[1];
+  const sha = (t: string) => createHash('sha256').update(t).digest('hex');
+  const restore = (token: string) => srv().post('/api/v1/auth/remember/restore').set('Origin', ORIGIN).set('X-Remember-Restore', '1').set('Cookie', 'siscom_rmb=' + token);
+  const loginRmb = () => { const u = USERS.find((x) => x.key === 'technician')!; return srv().post('/api/v1/auth/login').set('Origin', ORIGIN).send({ login: u.email, password: u.password, remember: true }); };
+  const me = (cookie: string) => srv().get('/api/v1/auth/me').set('Cookie', cookie);
+  const familyOf = async (tok: string) => (await adminPrisma.rememberDevice.findUniqueOrThrow({ where: { tokenHash: sha(tok) }, select: { familyId: true } })).familyId;
+
+  it('phiên khôi phục ghi remember_family_id; phiên đăng nhập mật khẩu để NULL', async () => {
+    const a = await loginRmb(); expect(a.status).toBe(200);
+    const tok = rmbToken(a); const fam = await familyOf(tok);
+    const r = await restore(tok); expect(r.status).toBe(200);
+    const sid = cookieOf(r).split('=')[1];
+    const row = await adminPrisma.authSession.findUniqueOrThrow({ where: { refreshHash: sha(sid) }, select: { rememberFamilyId: true } });
+    expect(row.rememberFamilyId).toBe(fam);
+    const pw = await adminPrisma.authSession.findUniqueOrThrow({ where: { refreshHash: sha(cookieOf(a).split('=')[1]) }, select: { rememberFamilyId: true } });
+    expect(pw.rememberFamilyId).toBeNull();
+  });
+  it('DELETE một thiết bị => phiên khôi phục từ thiết bị đó 401; phiên từ thiết bị khác và phiên mật khẩu vẫn 200', async () => {
+    const a = await loginRmb(); const tokA = rmbToken(a); const famA = await familyOf(tokA);
+    const sidA = cookieOf(await restore(tokA));
+    const b = await loginRmb(); const tokB = rmbToken(b);
+    const sidB = cookieOf(await restore(tokB));
+    for (const c of [sidA, sidB, cookieOf(b)]) expect((await me(c)).status).toBe(200);
+    const del = await srv().delete('/api/v1/auth/remember/devices/' + famA).set('Cookie', cookieOf(b)).set('Origin', ORIGIN).set('X-CSRF-Token', b.body.data.csrfToken);
+    expect(del.status).toBeLessThan(300);
+    expect((await me(sidA)).status).toBe(401);
+    expect((await me(sidB)).status).toBe(200);
+    expect((await me(cookieOf(b))).status).toBe(200);
+  });
+  it('revoke-all => mọi phiên khôi phục 401; phiên đăng nhập bằng mật khẩu vẫn 200', async () => {
+    const a = await loginRmb(); const sidA = cookieOf(await restore(rmbToken(a)));
+    const b = await loginRmb(); const sidB = cookieOf(await restore(rmbToken(b)));
+    const pw = await loginRmb();
+    const r = await srv().post('/api/v1/auth/remember/revoke-all').set('Cookie', cookieOf(pw)).set('Origin', ORIGIN).set('X-CSRF-Token', pw.body.data.csrfToken);
+    expect(r.status).toBeLessThan(300);
+    expect((await me(sidA)).status).toBe(401);
+    expect((await me(sidB)).status).toBe(401);
+    expect((await me(cookieOf(pw))).status).toBe(200);
+  });
+  it('DELETE thiết bị của NGƯỜI KHÁC => 404 và phiên khôi phục của người đó vẫn 200', async () => {
+    const a = await loginRmb(); const tokA = rmbToken(a); const famA = await familyOf(tokA);
+    const sidA = cookieOf(await restore(tokA));
+    const other = await session('accountant');
+    const del = await srv().delete('/api/v1/auth/remember/devices/' + famA).set('Cookie', other.cookie).set('Origin', ORIGIN).set('X-CSRF-Token', other.csrf);
+    expect(del.status).toBe(404);
+    expect((await me(sidA)).status).toBe(200);
+  });
+});

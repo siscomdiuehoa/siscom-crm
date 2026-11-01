@@ -1,0 +1,32 @@
+# 2026-11-01 - Dien tap migration 20261101000000_b1_4_session_remember_family + rollback tren PostgreSQL 18 TAM CACH LY
+# Cum tam: initdb trong thu muc scratchpad, 127.0.0.1:55441, du lieu gia, 3 role siscom_app/siscom_migrator/siscom_auth mat khau ngau nhien (khong in).
+# DB: siscom_crm_test_20261101_230000. Cum da dung va XOA sau khi chay. KHONG cham PostgreSQL 5432 / siscom_crm_dev / cum demo 55433.
+# Kich ban: q3-pg.sh (scratchpad) - output nguyen van (chuoi ket noi da che):
+--- 1. migrate deploy (tat ca migration, gom migration moi) ---
+The following migration(s) have been applied:
+  └─ 20261101000000_b1_4_session_remember_family/
+All migrations have been successfully applied.
+--- 2. tach role + V3 x2 + VERIFY ---
+DAT: VERIFY (app) PASS|73
+DAT: VERIFY_AUTH PASS|33
+--- 3. cot + chi muc ton tai; siscom_app KHONG co quyen tren cot moi; siscom_auth INSERT/UPDATE duoc ---
+cot=1
+chi_muc=true
+app_quyen_cot=false
+auth_insert=true auth_update=true
+--- 4. drift: schema.prisma khop DB ---
+drift exit=0 (0 = khop)
+--- 5. ROLLBACK (siscom_migrator) ---
+ phien dang mo co lien ket thiet bi (se mat lien ket, KHONG bi thu hoi): 0
+                          ket_qua
+ ROLLBACK 20261101000000_b1_4_session_remember_family XONG
+cot_sau_rollback=0
+DAT: VERIFY sau rollback PASS|73
+DAT: VERIFY_AUTH sau rollback PASS|33
+--- 6. ap lai migration (siscom_migrator) + V3 + VERIFY ---
+The following migration(s) have been applied:
+  └─ 20261101000000_b1_4_session_remember_family/
+All migrations have been successfully applied.
+DAT: VERIFY sau ap lai PASS|73
+DAT: VERIFY_AUTH sau ap lai PASS|33
+HOAN TAT

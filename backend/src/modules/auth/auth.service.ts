@@ -151,7 +151,8 @@ export class AuthService {
       // QA bảo mật I-1: phiên tái lập không được sống quá mốc 90 ngày của thiết bị.
       const ns = this.newSession(emp.id, now, input.ip, input.userAgent, c.row.absExpiresAt);
       const next = await this.rememberDevices.rotate(tx, c.row, { now, ip: input.ip, userAgent: input.userAgent });
-      await tx.authSession.create({ data: ns.data });
+      // Owner duyệt 2026-11-01 (câu 3): ghi thiết bị đã khôi phục phiên này để thu hồi thiết bị => thu hồi luôn phiên.
+      await tx.authSession.create({ data: { ...ns.data, rememberFamilyId: c.row.familyId } });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: emp.id, action: 'auth.remember_restored', entityType: 'employee', entityId: emp.id, entityCode: emp.code, summary: 'Khôi phục phiên từ thiết bị ghi nhớ', requestId: rid(input.requestId) } });
       return { kind: 'OK' as const, ns, next, emp };
     }).catch((e: unknown) => {
@@ -173,16 +174,23 @@ export class AuthService {
   // false => không có thiết bị đó của chính mình (controller trả 404, không phân biệt "của người khác" với "không tồn tại").
   async revokeRememberDevice(s: ResolvedSession, familyId: string, requestId?: string): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      const ok = await this.rememberDevices.revokeOne(tx, s.actor.employeeId, familyId, 'REVOKED_BY_USER', new Date());
-      if (ok) await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi một thiết bị ghi nhớ', requestId: rid(requestId) } });
-      return ok;
+      const now = new Date();
+      const ok = await this.rememberDevices.revokeOne(tx, s.actor.employeeId, familyId, 'REVOKED_BY_USER', now);
+      if (!ok) return false;
+      // Câu 3: phiên thường đang mở đã khôi phục từ CHÍNH thiết bị này (của chính mình) cũng bị thu hồi — kể cả phiên đang gửi yêu cầu.
+      const sessions = (await tx.authSession.updateMany({ where: { employeeId: s.actor.employeeId, rememberFamilyId: familyId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'REMEMBER_DEVICE_REVOKED' } })).count;
+      await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi một thiết bị ghi nhớ', changes: { sessions }, requestId: rid(requestId) } });
+      return true;
     });
   }
 
   async revokeAllRememberDevices(s: ResolvedSession, requestId?: string): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
-      const n = await this.rememberDevices.revokeAll(tx, s.actor.employeeId, 'REVOKE_ALL', new Date());
-      await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi mọi thiết bị ghi nhớ', changes: { devices: n }, requestId: rid(requestId) } });
+      const now = new Date();
+      const n = await this.rememberDevices.revokeAll(tx, s.actor.employeeId, 'REVOKE_ALL', now);
+      // Câu 3: mọi phiên thường đang mở được khôi phục từ thiết bị ghi nhớ (của chính mình) cũng bị thu hồi; phiên mật khẩu giữ nguyên.
+      const sessions = (await tx.authSession.updateMany({ where: { employeeId: s.actor.employeeId, rememberFamilyId: { not: null }, revokedAt: null }, data: { revokedAt: now, revokeReason: 'REMEMBER_DEVICE_REVOKED' } })).count;
+      await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi mọi thiết bị ghi nhớ', changes: { devices: n, sessions }, requestId: rid(requestId) } });
       return n;
     });
   }

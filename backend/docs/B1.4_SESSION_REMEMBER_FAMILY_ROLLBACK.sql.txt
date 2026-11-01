@@ -1,0 +1,41 @@
+-- SISCOM CRM - ROLLBACK B1.4 (20261101000000_b1_4_session_remember_family). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK.sql.txt (file moi; noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu.
+-- THU TU ROLLBACK:
+--   (1) trien khai lai backend BAN TRUOC thay doi nay (ban moi GHI cot remember_family_id khi khoi phuc phien; ban cu khong biet cot nay);
+--   (2) file nay, bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach):
+--       psql -X -v ON_ERROR_STOP=1 -d <db thu> -f B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK.sql.txt
+--   (3) (DB da tach role) chay lai B1.3_S1_APP_GRANTS_V3.sql.txt + VERIFY / VERIFY_AUTH.
+-- MOT transaction: xoa chi muc -> xoa cot -> xoa dong _prisma_migrations. KHONG xoa phien nao; chi mat lien ket phien <-> thiet bi
+--   (sau rollback, thu hoi thiet bi khong con keo theo phien da khoi phuc - nhu truoc thay doi).
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'auth_session' AND column_name = 'remember_family_id') THEN
+    RAISE EXCEPTION 'Chua ap 20261101000000_b1_4_session_remember_family (khong co cot remember_family_id). Khong co gi de rollback.';
+  END IF;
+END $$;
+
+SELECT 'phien dang mo co lien ket thiet bi (se mat lien ket, KHONG bi thu hoi): ' || count(*) FROM public.auth_session
+ WHERE remember_family_id IS NOT NULL AND revoked_at IS NULL;
+DROP INDEX IF EXISTS public.idx_sess_remember_family_active;
+ALTER TABLE public.auth_session DROP COLUMN remember_family_id;
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261101000000_b1_4_session_remember_family';
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'auth_session' AND column_name = 'remember_family_id')
+     OR to_regclass('public.idx_sess_remember_family_active') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261101000000_b1_4_session_remember_family') THEN
+    RAISE EXCEPTION 'Rollback chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK 20261101000000_b1_4_session_remember_family XONG' AS ket_qua;
