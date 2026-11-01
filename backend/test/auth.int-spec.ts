@@ -821,11 +821,15 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     const thiefSid = cookieOf(thief); const thiefCsrf = thief.body.data.csrfToken as string;
     const ra = await srv().post('/api/v1/auth/remember/revoke-all').set('Origin', ORIGIN).set('Cookie', thiefSid).set('X-CSRF-Token', thiefCsrf);
     expect(ra.status).toBe(200);
-    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(200); // thu hồi thiết bị không tự đá phiên
+    // Owner duyệt 2026-11-01 (câu 3): revoke-all nay thu hồi luôn phiên đã khôi phục — kể cả phiên của kẻ trộm đang gọi lệnh (trước đây vẫn 200).
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
+    // Rà soát 2026-11-01 Minor 3: ghim đúng đường thu hồi (revoke-all, không phải REPLAY).
+    expect((await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(thiefSid.split('=')[1]) } })).revokeReason).toBe('REMEMBER_DEVICE_REVOKED');
     const replaysBefore = await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } });
     await sleep(10_500);
     const victim = await restore(tok);
     expect(victim.status).toBe(401); expect(victim.body.error.code).toBe('REMEMBER_INVALID');
+    // Phiên kẻ trộm đã chết từ bước revoke-all ở trên; việc REPLAY tự thu hồi phiên được chứng minh ở test "QA I-2" (kẻ trộm không tự thu hồi).
     expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
     expect(await prisma.auditLog.count({ where: { action: 'auth.remember_replay' } })).toBe(replaysBefore + 1);
     // QA lần 3b Important-A: nạn nhân đăng nhập lại; kẻ cầm token cũ gửi lại => KHÔNG đăng xuất được phiên mới.
@@ -862,6 +866,41 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     const res = await loginRemember('sale', false, 'siscom_rmb=' + tok);
     expect(res.status).toBe(200); expect(rmbOf(res)).toBeNull(); expect(cleared(res)).toBe(true);
     expect((await rowOf(tok))!.revokeReason).toBe('LOGIN_NO_REMEMBER');
+  });
+
+  it('Rà soát 2026-11-01 Minor 1: kẻ trộm restore trước; nạn nhân đăng nhập KHÔNG tích trên thiết bị còn cookie => phiên kẻ trộm 401 (REMEMBER_DEVICE_REVOKED), phiên mới của nạn nhân 200', async () => {
+    const tok = rmbToken(await loginRemember('sale', true));
+    const thief = await restore(tok); expect(thief.status).toBe(200);
+    const thiefSid = cookieOf(thief);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(200);
+    const again = await loginRemember('sale', false, 'siscom_rmb=' + tok);
+    expect(again.status).toBe(200); expect(cleared(again)).toBe(true);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', thiefSid)).status).toBe(401);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', cookieOf(again))).status).toBe(200);
+    const dead = await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(thiefSid.split('=')[1]) } });
+    expect(dead.revokeReason).toBe('REMEMBER_DEVICE_REVOKED');
+  });
+
+  // Kịch bản GỘP #191 (RELOGIN) + #193 (câu 3), rà soát độc lập I-1: trình duyệt giữ phiên khôi phục S2 (từ family F) + cookie F (token con),
+  // đăng nhập lại bằng mật khẩu không tích => S2 bị RELOGIN (và có audit), phiên khôi phục khác của F (S1) bị REMEMBER_DEVICE_REVOKED,
+  // family F bị LOGIN_NO_REMEMBER, không lỗi trigger, phiên mới 200.
+  it('GỘP RELOGIN + câu 3: đăng nhập lại trên trình duyệt có phiên khôi phục + cookie ghi nhớ => phiên đó RELOGIN, phiên khôi phục khác REMEMBER_DEVICE_REVOKED', async () => {
+    const tok0 = rmbToken(await loginRemember('sale', true));
+    const r1 = await restore(tok0); expect(r1.status).toBe(200); const s1 = cookieOf(r1); const tok1 = rmbToken(r1);
+    const r2 = await restore(tok1); expect(r2.status).toBe(200); const s2 = cookieOf(r2); const tok2 = rmbToken(r2); const csrf2 = r2.body.data.csrfToken as string;
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s1)).status).toBe(200);
+    const relBefore = await prisma.auditLog.count({ where: { action: 'auth.session_revoked_relogin' } });
+    const u = USERS.find((x) => x.key === 'sale')!;
+    const again = await srv().post('/api/v1/auth/login').set('Origin', ORIGIN).set('Cookie', s2 + '; siscom_rmb=' + tok2).set('X-CSRF-Token', csrf2)
+      .send({ login: u.email, password: u.password, remember: false });
+    expect(again.status).toBe(200); expect(cleared(again)).toBe(true);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', cookieOf(again))).status).toBe(200);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s2)).status).toBe(401);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s1)).status).toBe(401);
+    expect((await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(s2.split('=')[1]) } })).revokeReason).toBe('RELOGIN');
+    expect((await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(s1.split('=')[1]) } })).revokeReason).toBe('REMEMBER_DEVICE_REVOKED');
+    expect((await rowOf(tok2))!.revokeReason).toBe('LOGIN_NO_REMEMBER');
+    expect(await prisma.auditLog.count({ where: { action: 'auth.session_revoked_relogin' } })).toBe(relBefore + 1);
   });
 
   it('nhân viên không còn ACTIVE (khoá/nghỉ việc) => restore 401, thu hồi family (INVALID_STATE), không cấp phiên', async () => {
@@ -907,5 +946,65 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
   it('pool nghiệp vụ (prisma = siscom_app) không đọc được remember_device khi đã tách pool auth', async () => {
     if (!process.env.TEST_AUTH_DATABASE_URL) return; // chưa tách (Windows dev): bỏ qua, kiểm ở db-roles.int-spec / CI
     await expect(prisma.rememberDevice.count()).rejects.toThrow();
+  });
+});
+
+// Owner duyệt 2026-11-01 (Remember Me câu 3): thu hồi thiết bị => thu hồi luôn phiên thường đang mở đã KHÔI PHỤC từ thiết bị đó.
+describe('B1.4 câu 3 — thu hồi thiết bị kéo theo phiên đã khôi phục', () => {
+  const all = (res: request.Response): string[] => { const sc = res.headers['set-cookie']; return Array.isArray(sc) ? sc : sc ? [String(sc)] : []; };
+  const rmbToken = (res: request.Response): string => all(res).find((c) => c.startsWith('siscom_rmb=') && !c.startsWith('siscom_rmb=;'))!.split(';')[0].split('=')[1];
+  const sha = (t: string) => createHash('sha256').update(t).digest('hex');
+  const restore = (token: string) => srv().post('/api/v1/auth/remember/restore').set('Origin', ORIGIN).set('X-Remember-Restore', '1').set('Cookie', 'siscom_rmb=' + token);
+  const loginRmb = () => { const u = USERS.find((x) => x.key === 'technician')!; return srv().post('/api/v1/auth/login').set('Origin', ORIGIN).send({ login: u.email, password: u.password, remember: true }); };
+  const me = (cookie: string) => srv().get('/api/v1/auth/me').set('Cookie', cookie);
+  const familyOf = async (tok: string) => (await adminPrisma.rememberDevice.findUniqueOrThrow({ where: { tokenHash: sha(tok) }, select: { familyId: true } })).familyId;
+
+  it('phiên khôi phục ghi remember_family_id; phiên đăng nhập mật khẩu để NULL', async () => {
+    const a = await loginRmb(); expect(a.status).toBe(200);
+    const tok = rmbToken(a); const fam = await familyOf(tok);
+    const r = await restore(tok); expect(r.status).toBe(200);
+    const sid = cookieOf(r).split('=')[1];
+    const row = await adminPrisma.authSession.findUniqueOrThrow({ where: { refreshHash: sha(sid) }, select: { rememberFamilyId: true } });
+    expect(row.rememberFamilyId).toBe(fam);
+    const pw = await adminPrisma.authSession.findUniqueOrThrow({ where: { refreshHash: sha(cookieOf(a).split('=')[1]) }, select: { rememberFamilyId: true } });
+    expect(pw.rememberFamilyId).toBeNull();
+  });
+  it('DELETE một thiết bị => phiên khôi phục từ thiết bị đó 401; phiên từ thiết bị khác và phiên mật khẩu vẫn 200', async () => {
+    const a = await loginRmb(); const tokA = rmbToken(a); const famA = await familyOf(tokA);
+    const sidA = cookieOf(await restore(tokA));
+    const b = await loginRmb(); const tokB = rmbToken(b);
+    const sidB = cookieOf(await restore(tokB));
+    for (const c of [sidA, sidB, cookieOf(b)]) expect((await me(c)).status).toBe(200);
+    const del = await srv().delete('/api/v1/auth/remember/devices/' + famA).set('Cookie', cookieOf(b)).set('Origin', ORIGIN).set('X-CSRF-Token', b.body.data.csrfToken);
+    expect(del.status).toBeLessThan(300);
+    expect((await me(sidA)).status).toBe(401);
+    expect((await me(sidB)).status).toBe(200);
+    expect((await me(cookieOf(b))).status).toBe(200);
+  });
+  it('revoke-all => mọi phiên khôi phục 401; phiên đăng nhập bằng mật khẩu vẫn 200', async () => {
+    const a = await loginRmb(); const sidA = cookieOf(await restore(rmbToken(a)));
+    const b = await loginRmb(); const sidB = cookieOf(await restore(rmbToken(b)));
+    const pw = await loginRmb();
+    const r = await srv().post('/api/v1/auth/remember/revoke-all').set('Cookie', cookieOf(pw)).set('Origin', ORIGIN).set('X-CSRF-Token', pw.body.data.csrfToken);
+    expect(r.status).toBeLessThan(300);
+    expect((await me(sidA)).status).toBe(401);
+    expect((await me(sidB)).status).toBe(401);
+    expect((await me(cookieOf(pw))).status).toBe(200);
+  });
+  it('QA #193: nạn nhân ĐĂNG XUẤT (kèm cookie ghi nhớ) => phiên kẻ trộm đã khôi phục từ thiết bị đó cũng 401', async () => {
+    const victim = await loginRmb(); const tok = rmbToken(victim);
+    const thiefSid = cookieOf(await restore(tok));
+    expect((await me(thiefSid)).status).toBe(200);
+    const lo = await srv().post('/api/v1/auth/logout').set('Origin', ORIGIN).set('Cookie', cookieOf(victim) + '; siscom_rmb=' + tok).set('X-CSRF-Token', victim.body.data.csrfToken);
+    expect(lo.status).toBeLessThan(300);
+    expect((await me(thiefSid)).status).toBe(401);
+  });
+  it('DELETE thiết bị của NGƯỜI KHÁC => 404 và phiên khôi phục của người đó vẫn 200', async () => {
+    const a = await loginRmb(); const tokA = rmbToken(a); const famA = await familyOf(tokA);
+    const sidA = cookieOf(await restore(tokA));
+    const other = await session('accountant');
+    const del = await srv().delete('/api/v1/auth/remember/devices/' + famA).set('Cookie', other.cookie).set('Origin', ORIGIN).set('X-CSRF-Token', other.csrf);
+    expect(del.status).toBe(404);
+    expect((await me(sidA)).status).toBe(200);
   });
 });

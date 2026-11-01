@@ -111,7 +111,10 @@ export class AuthService {
         if (n > 0) await tx.auditLog.create({ data: { actorType: 'USER', actorId: row!.id, action: 'auth.session_revoked_relogin', entityType: 'employee', entityId: input.previousSession.employeeId, summary: 'Thu hồi phiên cũ trên cùng trình duyệt khi đăng nhập lại', requestId: rid(input.requestId) } });
       }
       // Thiết bị đã có cookie nhớ cũ: luôn thu hồi chuỗi cũ (đăng nhập lại bằng mật khẩu = thiết lập lại lựa chọn), rồi cấp mới nếu được tích.
-      if (input.previousRememberToken) await this.rememberDevices.revokeByToken(tx, input.previousRememberToken, null, 'LOGIN_NO_REMEMBER', now);
+      if (input.previousRememberToken) {
+        const dev = await this.rememberDevices.revokeByToken(tx, input.previousRememberToken, null, 'LOGIN_NO_REMEMBER', now);
+        if (dev) await this.revokeRestoredSessions(tx, dev.employeeId, dev.familyId, now); // câu 3
+      }
       if (!wantRemember) return undefined;
       const g = await this.rememberDevices.issue(tx, { employeeId: row!.id, tokenVersion: cred!.tokenVersion, passwordAuthAt: now, now, ip: input.ip, userAgent: input.userAgent });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: row!.id, action: 'auth.remember_issued', entityType: 'employee', entityId: row!.id, entityCode: row!.code, summary: 'Bật ghi nhớ đăng nhập trên thiết bị', requestId: rid(input.requestId) } });
@@ -134,8 +137,8 @@ export class AuthService {
         // QA lần 3b Important-A: family ĐÃ bị thu hồi trước đó => mốc = thời điểm thu hồi sớm nhất đã xảy ra (lần thu hồi family).
         const priorRevokedAt = await this.rememberDevices.familyRevokedAt(tx, c.row.familyId);
         await this.rememberDevices.revokeFamily(tx, c.row.familyId, 'REPLAY', now);
-        // QA bảo mật I-2: kẻ đánh cắp có thể đã restore trước và đang giữ phiên thường. Chưa có liên kết phiên <-> family (cần migration riêng)
-        // => thu hồi mọi phiên đang mở của nhân viên được TẠO TRƯỚC mốc: family chưa thu hồi => tới hiện tại; đã thu hồi => tới lúc thu hồi family
+        // QA bảo mật I-2: kẻ đánh cắp có thể đã restore trước và đang giữ phiên thường. Giữ phạm vi RỘNG (không thu hẹp theo remember_family_id
+        // dù câu 3 đã có cột này — thu hẹp là quyết định riêng của owner): thu hồi mọi phiên đang mở của nhân viên được TẠO TRƯỚC mốc: family chưa thu hồi => tới hiện tại; đã thu hồi => tới lúc thu hồi family
         // (phiên của kẻ trộm luôn tạo trước đó; phiên nạn nhân đăng nhập lại SAU đó không bị token cũ đăng xuất lặp lại).
         const cutoff = priorRevokedAt ?? now;
         const n = (await tx.authSession.updateMany({ where: { employeeId: c.row.employeeId, revokedAt: null, issuedAt: { lte: cutoff } }, data: { revokedAt: now, revokeReason: 'REMEMBER_REPLAY' } })).count;
@@ -159,7 +162,8 @@ export class AuthService {
       // QA bảo mật I-1: phiên tái lập không được sống quá mốc 90 ngày của thiết bị.
       const ns = this.newSession(emp.id, now, input.ip, input.userAgent, c.row.absExpiresAt);
       const next = await this.rememberDevices.rotate(tx, c.row, { now, ip: input.ip, userAgent: input.userAgent });
-      await tx.authSession.create({ data: ns.data });
+      // Owner duyệt 2026-11-01 (câu 3): ghi thiết bị đã khôi phục phiên này để thu hồi thiết bị => thu hồi luôn phiên.
+      await tx.authSession.create({ data: { ...ns.data, rememberFamilyId: c.row.familyId } });
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: emp.id, action: 'auth.remember_restored', entityType: 'employee', entityId: emp.id, entityCode: emp.code, summary: 'Khôi phục phiên từ thiết bị ghi nhớ', requestId: rid(input.requestId) } });
       return { kind: 'OK' as const, ns, next, emp };
     }).catch((e: unknown) => {
@@ -178,19 +182,31 @@ export class AuthService {
     return this.rememberDevices.list(this.prisma, s.actor.employeeId, currentToken, new Date());
   }
 
+  // Câu 3 (owner duyệt 2026-11-01): thu hồi mọi phiên thường đang mở đã khôi phục từ thiết bị (family) này. Trả số phiên đã thu hồi.
+  private async revokeRestoredSessions(tx: Pick<AuthPrismaService, 'authSession'>, employeeId: string, familyId: string, now: Date): Promise<number> {
+    return (await tx.authSession.updateMany({ where: { employeeId, rememberFamilyId: familyId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'REMEMBER_DEVICE_REVOKED' } })).count;
+  }
+
   // false => không có thiết bị đó của chính mình (controller trả 404, không phân biệt "của người khác" với "không tồn tại").
   async revokeRememberDevice(s: ResolvedSession, familyId: string, requestId?: string): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      const ok = await this.rememberDevices.revokeOne(tx, s.actor.employeeId, familyId, 'REVOKED_BY_USER', new Date());
-      if (ok) await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi một thiết bị ghi nhớ', requestId: rid(requestId) } });
-      return ok;
+      const now = new Date();
+      const ok = await this.rememberDevices.revokeOne(tx, s.actor.employeeId, familyId, 'REVOKED_BY_USER', now);
+      if (!ok) return false;
+      // Câu 3: phiên thường đang mở đã khôi phục từ CHÍNH thiết bị này (của chính mình) cũng bị thu hồi — kể cả phiên đang gửi yêu cầu.
+      const sessions = (await tx.authSession.updateMany({ where: { employeeId: s.actor.employeeId, rememberFamilyId: familyId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'REMEMBER_DEVICE_REVOKED' } })).count;
+      await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi một thiết bị ghi nhớ', changes: { sessions }, requestId: rid(requestId) } });
+      return true;
     });
   }
 
   async revokeAllRememberDevices(s: ResolvedSession, requestId?: string): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
-      const n = await this.rememberDevices.revokeAll(tx, s.actor.employeeId, 'REVOKE_ALL', new Date());
-      await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi mọi thiết bị ghi nhớ', changes: { devices: n }, requestId: rid(requestId) } });
+      const now = new Date();
+      const n = await this.rememberDevices.revokeAll(tx, s.actor.employeeId, 'REVOKE_ALL', now);
+      // Câu 3: mọi phiên thường đang mở được khôi phục từ thiết bị ghi nhớ (của chính mình) cũng bị thu hồi; phiên mật khẩu giữ nguyên.
+      const sessions = (await tx.authSession.updateMany({ where: { employeeId: s.actor.employeeId, rememberFamilyId: { not: null }, revokedAt: null }, data: { revokedAt: now, revokeReason: 'REMEMBER_DEVICE_REVOKED' } })).count;
+      await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.remember_revoked', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Thu hồi mọi thiết bị ghi nhớ', changes: { devices: n, sessions }, requestId: rid(requestId) } });
       return n;
     });
   }
@@ -283,7 +299,10 @@ export class AuthService {
     await this.prisma.$transaction(async (tx) => {
       const now = new Date();
       await tx.authSession.updateMany({ where: { id: s.sessionId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'LOGOUT' } });
-      if (rememberToken) await this.rememberDevices.revokeByToken(tx, rememberToken, s.actor.employeeId, 'LOGOUT', now);
+      if (rememberToken) {
+        const dev = await this.rememberDevices.revokeByToken(tx, rememberToken, s.actor.employeeId, 'LOGOUT', now);
+        if (dev) await this.revokeRestoredSessions(tx, dev.employeeId, dev.familyId, now); // câu 3: phiên khác khôi phục từ thiết bị này
+      }
       await tx.auditLog.create({ data: { actorType: 'USER', actorId: s.actor.employeeId, action: 'auth.logout', entityType: 'employee', entityId: s.actor.employeeId, summary: 'Đăng xuất', requestId: rid(requestId) } });
     });
   }

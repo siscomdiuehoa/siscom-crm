@@ -495,7 +495,9 @@ describe('QA lần 3b Important-A', () => {
     await e.svc.revokeAllRememberDevices(S1);
     jest.setSystemTime(new Date(Date.now() + 60_000));
     expect((await e.svc.restoreRemembered({ ...ctx, token: tok })).kind).toBe('INVALID');
-    expect(e.sessionRevokes).toEqual([{ employeeId: 'e1', reason: 'REMEMBER_REPLAY', issuedBefore: revokedAt }]);
+    // Từ câu 3 (2026-11-01), revoke-all còn thu hồi phiên đã khôi phục (REMEMBER_DEVICE_REVOKED) — kiểm riêng ở khối "Câu 3"; ở đây chỉ xét REPLAY.
+    expect(e.sessionRevokes.filter((x) => x.reason === 'REMEMBER_REPLAY')).toEqual([{ employeeId: 'e1', reason: 'REMEMBER_REPLAY', issuedBefore: revokedAt }]);
+    expect(e.sessionRevokes.filter((x) => x.reason !== 'REMEMBER_REPLAY').map((x) => x.reason)).toEqual(['REMEMBER_DEVICE_REVOKED']);
   });
   it('gửi lại token cũ lần nữa => mốc vẫn là thời điểm family bị thu hồi (phiên đăng nhập lại sau đó an toàn); không audit lặp', async () => {
     const e = build();
@@ -538,5 +540,77 @@ describe('QA lần 3c Minor-1', () => {
     const rep = e.audits.filter((a) => a.action === 'auth.remember_replay');
     expect(rep).toHaveLength(2);
     expect(rep[1].changes).toEqual({ sessions: 0, familyAlreadyRevoked: true });
+  });
+});
+
+// Owner duyệt 2026-11-01 (Remember Me câu 3): thu hồi thiết bị => thu hồi luôn phiên THƯỜNG đang mở được KHÔI PHỤC từ thiết bị đó.
+// Phiên khôi phục ghi auth_session.remember_family_id = family của thiết bị; phiên đăng nhập bằng mật khẩu để NULL (không bị đụng).
+describe('Câu 3 — thu hồi thiết bị kéo theo phiên đã khôi phục từ thiết bị đó', () => {
+  const sessCalls = (e: Env) => (e.prisma.authSession.updateMany as jest.Mock).mock.calls.map((c) => c[0] as { where: Record<string, unknown>; data: Record<string, unknown> });
+  it('restore: phiên mới ghi rememberFamilyId = family của thiết bị', async () => {
+    const e = build();
+    const tok = await seedDevice(e);
+    const fam = e.rows[0].familyId;
+    const r = await e.svc.restoreRemembered({ ...ctx, token: tok });
+    expect(r.kind).toBe('OK');
+    expect(e.sessions.at(-1)).toMatchObject({ rememberFamilyId: fam, employeeId: 'e1' });
+  });
+  it('thu hồi MỘT thiết bị (của mình): thu hồi phiên có rememberFamilyId = family đó, lý do REMEMBER_DEVICE_REVOKED; nhật ký ghi số phiên', async () => {
+    const e = build();
+    await seedDevice(e);
+    const fam = e.rows[0].familyId;
+    expect(await e.svc.revokeRememberDevice(S1, fam, 'r1')).toBe(true);
+    const c = sessCalls(e).find((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED');
+    expect(c).toBeDefined();
+    expect(c!.where).toEqual({ employeeId: 'e1', rememberFamilyId: fam, revokedAt: null });
+    expect(e.audits.find((a) => a.action === 'auth.remember_revoked')?.changes).toMatchObject({ sessions: expect.any(Number) });
+  });
+  it('thiết bị của người khác / không tồn tại => KHÔNG thu hồi phiên nào', async () => {
+    const e = build({ emps: [
+      { id: 'e1', status: 'ACTIVE', deletedAt: null, credential: { status: 'ACTIVE', mustChangePassword: false, tokenVersion: 3 }, roles: ['sale'] },
+      { id: 'e2', status: 'ACTIVE', deletedAt: null, credential: { status: 'ACTIVE', mustChangePassword: false, tokenVersion: 3 }, roles: ['admin'] }] });
+    await seedDevice(e, { employeeId: 'e2' });
+    expect(await e.svc.revokeRememberDevice(S1, e.rows[0].familyId, 'r1')).toBe(false);
+    expect(sessCalls(e).some((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED')).toBe(false);
+  });
+  it('thu hồi MỌI thiết bị: thu hồi mọi phiên khôi phục (rememberFamilyId khác NULL) của chính mình, không đụng phiên mật khẩu', async () => {
+    const e = build();
+    await seedDevice(e); await seedDevice(e);
+    await e.svc.revokeAllRememberDevices(S1, 'r1');
+    const c = sessCalls(e).find((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED');
+    expect(c!.where).toEqual({ employeeId: 'e1', rememberFamilyId: { not: null }, revokedAt: null });
+  });
+});
+
+// QA PR #193 Minor: đăng xuất / đăng nhập không tích ghi nhớ trên thiết bị còn cookie cũ cũng thu hồi phiên đã khôi phục từ thiết bị đó
+// (kịch bản: kẻ trộm khôi phục trước, nạn nhân đăng xuất => phiên kẻ trộm phải chết theo).
+describe('Câu 3 (bổ sung) — logout / LOGIN_NO_REMEMBER kéo theo phiên đã khôi phục', () => {
+  const sessCalls = (e: Env) => (e.prisma.authSession.updateMany as jest.Mock).mock.calls.map((c) => c[0] as { where: Record<string, unknown>; data: Record<string, unknown> });
+  it('logout kèm cookie ghi nhớ của chính mình => thu hồi phiên có rememberFamilyId = family đó', async () => {
+    const e = build();
+    const tok = await seedDevice(e); const fam = e.rows[0].familyId;
+    await e.svc.logout(S1, 'r1', tok);
+    expect(sessCalls(e).find((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED')?.where).toEqual({ employeeId: 'e1', rememberFamilyId: fam, revokedAt: null });
+  });
+  it('logout kèm cookie ghi nhớ của NGƯỜI KHÁC => không thu hồi phiên nào theo thiết bị', async () => {
+    const e = build({ emps: [
+      { id: 'e1', status: 'ACTIVE', deletedAt: null, credential: { status: 'ACTIVE', mustChangePassword: false, tokenVersion: 3 }, roles: ['sale'] },
+      { id: 'e2', status: 'ACTIVE', deletedAt: null, credential: { status: 'ACTIVE', mustChangePassword: false, tokenVersion: 3 }, roles: ['admin'] }] });
+    const other = await seedDevice(e, { employeeId: 'e2' });
+    await e.svc.logout(S1, 'r1', other);
+    expect(sessCalls(e).some((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED')).toBe(false);
+  });
+  // Rà soát độc lập 2026-11-01 (Minor 1): nhánh login(LOGIN_NO_REMEMBER) chưa có assertion về thu hồi phiên — bổ sung.
+  it('đăng nhập KHÔNG tích trên thiết bị còn cookie cũ (LOGIN_NO_REMEMBER) => thu hồi phiên có rememberFamilyId = family của cookie đó', async () => {
+    const e = build();
+    const old = await seedDevice(e); const fam = e.rows[0].familyId;
+    const emp = { id: 'e1', code: 'NV-0001', fullName: 'A', status: 'ACTIVE', departmentId: 'd1',
+      credential: { passwordHash: '$argon2id$x', passwordAlgo: 'argon2id', status: 'ACTIVE', lockedUntil: null, failedCount: 0, windowStartedAt: null, lockLevel: 0, mustChangePassword: false, tokenVersion: 3 } };
+    (e.prisma as unknown as Record<string, unknown>).$queryRaw = jest.fn().mockResolvedValue([{ id: 'e1' }]);
+    (e.prisma.employee as unknown as { findUnique: jest.Mock }).findUnique = jest.fn().mockResolvedValue(emp);
+    (e.svc as unknown as { hasher: unknown }).hasher = { verify: jest.fn().mockResolvedValue(true), hash: jest.fn() };
+    await e.svc.login({ login: 'NV-0001', password: PW, source: 's', ip: null, userAgent: null, previousRememberToken: old });
+    expect(e.rows[0].revokeReason).toBe('LOGIN_NO_REMEMBER');
+    expect(sessCalls(e).find((x) => x.data.revokeReason === 'REMEMBER_DEVICE_REVOKED')?.where).toEqual({ employeeId: 'e1', rememberFamilyId: fam, revokedAt: null });
   });
 });

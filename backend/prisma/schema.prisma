@@ -466,6 +466,9 @@ model AuthSession {
   mfaVerifiedAt DateTime? @map("mfa_verified_at") @db.Timestamptz(3)
   ipPrefix      String?   @map("ip_prefix") @db.VarChar(64)
   uaShort       String?   @map("ua_short") @db.VarChar(200)
+  // B1.4 (owner duyet 2026-11-01): phien khoi phuc tu thiet bi ghi nho mang family_id cua thiet bi (NULL = dang nhap bang mat khau).
+  // Thu hoi thiet bi => thu hoi phien co cung remember_family_id. Chi muc rieng phan (WHERE ... revoked_at IS NULL) viet tay trong migration.
+  rememberFamilyId String? @map("remember_family_id") @db.Uuid
 
   employee   Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   replacedBy AuthSession? @relation("SessionRotation", fields: [replacedById], references: [id], onDelete: SetNull)

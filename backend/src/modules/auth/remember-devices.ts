@@ -66,11 +66,12 @@ export class RememberDevices {
   }
 
   // Thu hồi chuỗi của một token. employeeId != null => chỉ khi token thuộc đúng nhân viên đó (logout không thu hồi token của người khác).
-  async revokeByToken(tx: RememberTx, token: string, employeeId: string | null, reason: string, now: Date): Promise<boolean> {
+  // Trả { employeeId, familyId } của thiết bị đã thu hồi (để người gọi thu hồi phiên đã khôi phục từ nó — câu 3), hoặc null.
+  async revokeByToken(tx: RememberTx, token: string, employeeId: string | null, reason: string, now: Date): Promise<{ employeeId: string; familyId: string } | null> {
     const row = await tx.rememberDevice.findUnique({ where: { tokenHash: sha256Hex(token) } });
-    if (!row || (employeeId !== null && row.employeeId !== employeeId)) return false;
+    if (!row || (employeeId !== null && row.employeeId !== employeeId)) return null;
     await this.revokeFamily(tx, row.familyId, reason, now);
-    return true;
+    return { employeeId: row.employeeId, familyId: row.familyId };
   }
 
   // Thu hồi mọi thiết bị của nhân viên; trả số THIẾT BỊ đang hoạt động đã bị thu hồi.
