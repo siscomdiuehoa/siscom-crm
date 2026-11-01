@@ -1,0 +1,97 @@
+{
+  "at": "2026-11-01T04:31:26.625Z",
+  "web": "http://127.0.0.1:4173",
+  "stamp": "MVXC1EA4",
+  "results": [
+    {
+      "id": "A1 crm_admin: bieu mau them khach co o \"Ten nguoi lien he\" (khong co o SDT rieng)",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A2 crm_admin: them khach + nguoi lien he => thong bao thanh cong (khong canh bao)",
+      "status": "PASS",
+      "detail": "Đã thêm khách hàng KH-00006"
+    },
+    {
+      "id": "A3 khach vua tao tim thay qua API",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A4 trang chi tiet hien \"Nguoi lien he: Nguyen Van Lien He · <SDT cong ty> (SĐT công ty)\"",
+      "status": "PASS",
+      "detail": "Người liên hệ Nguyễn Văn Liên Hệ · 028 3822 1234 (S"
+    },
+    {
+      "id": "A5 API: 1 nguoi lien he, isPrimary, phone = SDT cong ty (khong truong SDT moi)",
+      "status": "PASS",
+      "detail": "status=200 n=1"
+    },
+    {
+      "id": "A6 sua: o \"Ten nguoi lien he\" dien san ten hien tai",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A7 sua ten => chi tiet hien ten moi (van SDT cong ty)",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A8 API: dung 1 nguoi chinh (ten moi), ban cu go co chinh",
+      "status": "PASS",
+      "detail": "n=2"
+    },
+    {
+      "id": "S1 sales: tao khach cua minh + nguoi lien he qua bieu mau",
+      "status": "PASS",
+      "detail": "Đã thêm khách hàng KH-00007"
+    },
+    {
+      "id": "S2 sales: chi tiet khach cua minh hien nguoi lien he + SDT cong ty",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "S3 sales: GET contacts khach cua nguoi khac => 404 (khong lo ton tai)",
+      "status": "PASS",
+      "detail": "status=404"
+    },
+    {
+      "id": "S4 sales: POST contacts khach cua nguoi khac => 404",
+      "status": "PASS",
+      "detail": "status=404"
+    },
+    {
+      "id": "K1 accountant: xem chi tiet khach bat ky thay nguoi lien he + SDT cong ty",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K2 accountant: nut \"Sua thong tin\" bi khoa (khong customer.update)",
+      "status": "PASS",
+      "detail": "disabled"
+    },
+    {
+      "id": "K3 accountant: POST contacts => 403",
+      "status": "PASS",
+      "detail": "status=403"
+    },
+    {
+      "id": "T1 technician: GET contacts khach ngoai phong (khong chu so huu) => 404",
+      "status": "PASS",
+      "detail": "status=404"
+    },
+    {
+      "id": "T2 technician: POST contacts => 403 hoac 404 (khong co contact.create)",
+      "status": "PASS",
+      "detail": "status=403"
+    },
+    {
+      "id": "T3 technician: trang chi tiet khong hien ten nguoi lien he cua khach ngoai pham vi",
+      "status": "PASS",
+      "detail": ""
+    }
+  ]
+}

@@ -89,5 +89,8 @@ export function createCustomerApi(config, fetchImpl, options) {
     async get(id) { return fromApiCustomer(await call('GET', '/customers/' + encodeURIComponent(id))); },
     async create(ui, maps) { return fromApiCustomer(await call('POST', '/customers', toApiCustomer(ui, maps, { mode: 'create' }))); },
     async update(id, ui, maps, version) { return fromApiCustomer(await call('PATCH', '/customers/' + encodeURIComponent(id), toApiCustomer(ui, maps, { mode: 'update', version }))); },
+    // B1.4 người liên hệ: API Contact có sẵn (GET/POST /customers/:id/contacts). Server sắp người chính lên đầu; POST isPrimary gỡ cờ người chính cũ.
+    async listContacts(id) { return await call('GET', '/customers/' + encodeURIComponent(id) + '/contacts'); },
+    async createContact(id, body) { return await call('POST', '/customers/' + encodeURIComponent(id) + '/contacts', body); },
   };
 }
