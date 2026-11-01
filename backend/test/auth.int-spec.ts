@@ -854,6 +854,28 @@ describe('B1.4 Remember Me 90 ngày (Issue #177)', () => {
     expect(dead.revokeReason).toBe('REMEMBER_DEVICE_REVOKED');
   });
 
+  // Kịch bản GỘP #191 (RELOGIN) + #193 (câu 3), rà soát độc lập I-1: trình duyệt giữ phiên khôi phục S2 (từ family F) + cookie F (token con),
+  // đăng nhập lại bằng mật khẩu không tích => S2 bị RELOGIN (và có audit), phiên khôi phục khác của F (S1) bị REMEMBER_DEVICE_REVOKED,
+  // family F bị LOGIN_NO_REMEMBER, không lỗi trigger, phiên mới 200.
+  it('GỘP RELOGIN + câu 3: đăng nhập lại trên trình duyệt có phiên khôi phục + cookie ghi nhớ => phiên đó RELOGIN, phiên khôi phục khác REMEMBER_DEVICE_REVOKED', async () => {
+    const tok0 = rmbToken(await loginRemember('sale', true));
+    const r1 = await restore(tok0); expect(r1.status).toBe(200); const s1 = cookieOf(r1); const tok1 = rmbToken(r1);
+    const r2 = await restore(tok1); expect(r2.status).toBe(200); const s2 = cookieOf(r2); const tok2 = rmbToken(r2); const csrf2 = r2.body.data.csrfToken as string;
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s1)).status).toBe(200);
+    const relBefore = await prisma.auditLog.count({ where: { action: 'auth.session_revoked_relogin' } });
+    const u = USERS.find((x) => x.key === 'sale')!;
+    const again = await srv().post('/api/v1/auth/login').set('Origin', ORIGIN).set('Cookie', s2 + '; siscom_rmb=' + tok2).set('X-CSRF-Token', csrf2)
+      .send({ login: u.email, password: u.password, remember: false });
+    expect(again.status).toBe(200); expect(cleared(again)).toBe(true);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', cookieOf(again))).status).toBe(200);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s2)).status).toBe(401);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s1)).status).toBe(401);
+    expect((await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(s2.split('=')[1]) } })).revokeReason).toBe('RELOGIN');
+    expect((await adminPrisma.authSession.findFirstOrThrow({ where: { refreshHash: sha(s1.split('=')[1]) } })).revokeReason).toBe('REMEMBER_DEVICE_REVOKED');
+    expect((await rowOf(tok2))!.revokeReason).toBe('LOGIN_NO_REMEMBER');
+    expect(await prisma.auditLog.count({ where: { action: 'auth.session_revoked_relogin' } })).toBe(relBefore + 1);
+  });
+
   it('nhân viên không còn ACTIVE (khoá/nghỉ việc) => restore 401, thu hồi family (INVALID_STATE), không cấp phiên', async () => {
     // kỹ thuật viên: không giữ vai trò quan trọng (admin cuối cùng bị trigger M1.1 LAST_ADMIN chặn đổi trạng thái — đúng thiết kế).
     const tok = rmbToken(await loginRemember('technician', true));

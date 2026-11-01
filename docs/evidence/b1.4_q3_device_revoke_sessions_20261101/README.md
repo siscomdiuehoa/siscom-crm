@@ -31,4 +31,8 @@ Test: backend unit **554 / 554** (mới 4 ca khối "Câu 3" trong `auth.remembe
 - Note (ghi nhận): phiên đang gọi `DELETE /devices/:id` hoặc `revoke-all` nếu chính nó được khôi phục từ family đó thì bị thu hồi, phản hồi vẫn 200 và cookie `siscom_sid` không bị xoá ⇒ yêu cầu kế tiếp 401 (frontend đã xử lý 401 về màn hình đăng nhập).
 - Note (ghi nhận, việc sau): cột `remember_family_id` chưa nằm trong danh sách cột bất biến của trigger `fn_sess_before_update` — phòng thủ chiều sâu, cần migration riêng.
 
+## Sau rà soát độc lập lần 3 (phiên AI riêng, 2026-11-01): 0 Critical, 1 Important (quy trình CI), 5 Minor, 5 Note
+- I-1 (đã xử lý): CI của PR chạy trước khi PR #191 (RELOGIN) vào `main` ⇒ CI chạy lại trên merge-ref với `main` 0db5deb (5/5) và thêm test tích hợp **kịch bản gộp RELOGIN + câu 3** (trình duyệt giữ phiên khôi phục S2 + cookie ghi nhớ; đăng nhập lại bằng mật khẩu không tích ⇒ S2 `RELOGIN` + audit, phiên khôi phục khác S1 `REMEMBER_DEVICE_REVOKED`, family `LOGIN_NO_REMEMBER`). Test này cần mã RELOGIN của `main`, nên chỉ đạt trên merge-ref CI / cây trộn (đã PASS trên PostgreSQL tạm, 169/169), không đạt khi chạy nhánh này tách rời `main`.
+- M-1..M-5 (ghi nhận, PR bổ sung sau theo quyết định owner): audit cho chủ thiết bị khi người khác đăng nhập trên máy còn cookie; DEVICE_LIMIT không kéo theo phiên; audit thiếu số phiên ở logout/login; guard thứ tự rollback cho `B1.4_REMEMBER_ME_ROLLBACK`; trigger bất biến cho `remember_family_id`.
+
 **Chưa áp** lên database thật, DB demo 55433 hay `siscom_crm_dev`. Áp lên DB nào cũng cần owner duyệt riêng; DB đã tách role: `demo-split -Step migrate` (migrate bằng `siscom_migrator` rồi chạy lại V3 + VERIFY).
