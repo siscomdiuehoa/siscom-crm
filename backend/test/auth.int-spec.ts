@@ -139,18 +139,22 @@ describe('đăng nhập', () => {
   it('RELOGIN: đăng nhập lại (cùng người) khi phiên cũ còn sống => phiên cũ 401, phiên mới 200, có nhật ký thu hồi', async () => {
     const u = USERS[1]; const s = await session('admin');
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(200);
+    const W = { action: 'auth.session_revoked_relogin', actorId: s.me.employeeId as string, entityId: s.me.employeeId as string };
+    const before = await adminPrisma.auditLog.count({ where: W });
     const r = await login(u.email, u.password).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf);
     expect(r.status).toBe(200);
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(401);
     expect((await srv().get('/api/v1/auth/me').set('Cookie', cookieOf(r))).status).toBe(200);
-    expect(await adminPrisma.auditLog.count({ where: { action: 'auth.session_revoked_relogin', actorId: r.body.data.me.employeeId } })).toBeGreaterThan(0);
+    expect(await adminPrisma.auditLog.count({ where: W })).toBe(before + 1); // đúng MỘT dòng nhật ký cho lần này
   });
-  it('RELOGIN: người KHÁC đăng nhập trên cùng trình duyệt (máy dùng chung) => phiên của người trước bị thu hồi', async () => {
+  it('RELOGIN: người KHÁC đăng nhập trên cùng trình duyệt (máy dùng chung) => phiên của người trước bị thu hồi; nhật ký: người thực hiện = người mới, đối tượng = người trước', async () => {
     const s = await session('sale');
     const a = USERS[1];
     const r = await login(a.email, a.password).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf);
     expect(r.status).toBe(200);
     expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(401);
+    const last = await adminPrisma.auditLog.findFirst({ where: { action: 'auth.session_revoked_relogin', entityId: s.me.employeeId as string }, orderBy: { id: 'desc' } });
+    expect(last?.actorId).toBe(r.body.data.me.employeeId);
   });
   it('RELOGIN: đăng nhập SAI mật khẩu khi có phiên sống => 401 và phiên cũ VẪN dùng được', async () => {
     const s = await session('admin');
