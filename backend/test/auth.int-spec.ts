@@ -135,6 +135,29 @@ describe('đăng nhập', () => {
     expect(r.status).toBe(403); expect(r.body.error.code).toBe('CSRF_FAILED');
     expect((await login(u.email, u.password).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf)).status).toBe(200);
   });
+  // Owner duyệt 2026-11-01 (QA bảo mật PR #190 Minor 2): đăng nhập lại thành công trên trình duyệt đang có phiên sống => thu hồi phiên cũ (RELOGIN).
+  it('RELOGIN: đăng nhập lại (cùng người) khi phiên cũ còn sống => phiên cũ 401, phiên mới 200, có nhật ký thu hồi', async () => {
+    const u = USERS[1]; const s = await session('admin');
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(200);
+    const r = await login(u.email, u.password).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf);
+    expect(r.status).toBe(200);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(401);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', cookieOf(r))).status).toBe(200);
+    expect(await adminPrisma.auditLog.count({ where: { action: 'auth.session_revoked_relogin', actorId: r.body.data.me.employeeId } })).toBeGreaterThan(0);
+  });
+  it('RELOGIN: người KHÁC đăng nhập trên cùng trình duyệt (máy dùng chung) => phiên của người trước bị thu hồi', async () => {
+    const s = await session('sale');
+    const a = USERS[1];
+    const r = await login(a.email, a.password).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf);
+    expect(r.status).toBe(200);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(401);
+  });
+  it('RELOGIN: đăng nhập SAI mật khẩu khi có phiên sống => 401 và phiên cũ VẪN dùng được', async () => {
+    const s = await session('admin');
+    const r = await login(USERS[1].email, 'sai-mat-khau-relogin').set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf);
+    expect(r.status).toBe(401);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', s.cookie)).status).toBe(200);
+  });
   it('mã nhân viên NV-xxxx đúng => 200; email khác hoa/thường vẫn đúng', async () => {
     const u = USERS[1];
     expect((await login(codes.admin, u.password)).status).toBe(200);

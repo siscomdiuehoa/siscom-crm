@@ -42,3 +42,20 @@ describe('AuthController — nguồn hạn mức / IP phiên theo req.ip (B1.4 P
     expect(auth.changePassword).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ source: '198.51.100.4', ip: '198.51.100.4' }));
   });
 });
+
+// Owner duyệt 2026-11-01: đăng nhập lại khi trình duyệt đang có phiên CÒN SỐNG => service thu hồi phiên đó (RELOGIN).
+describe('AuthController.login — chuyển phiên còn sống (req.authSession do CsrfOriginGuard tra) xuống service', () => {
+  const result = { sessionToken: newOpaqueToken(), csrfToken: newOpaqueToken(), maxAgeSeconds: 60, me: {} as never };
+  const res = () => ({ setHeader: jest.fn() }) as unknown as Response;
+  const reqWith = (authSession: unknown) => ({ ip: '10.0.0.1', socket: {}, headers: {}, requestId: 'r', authSession }) as unknown as Request & { requestId?: string };
+  it('có phiên sống => previousSession { sessionId, employeeId }; phiên chết/không tra => null', async () => {
+    const auth = { login: jest.fn().mockResolvedValue(result) };
+    const ctl = new AuthController(auth as unknown as AuthService, { cookieSecure: false } as AuthConfig);
+    await ctl.login({ login: 'a@b', password: 'x' }, reqWith({ sessionId: 'sess-old', actor: { employeeId: 'e7', departmentId: null } } as Partial<SessionRequest['authSession']>), res());
+    expect(auth.login).toHaveBeenLastCalledWith(expect.objectContaining({ previousSession: { sessionId: 'sess-old', employeeId: 'e7' } }));
+    for (const s of [null, undefined]) {
+      await ctl.login({ login: 'a@b', password: 'x' }, reqWith(s), res());
+      expect(auth.login).toHaveBeenLastCalledWith(expect.objectContaining({ previousSession: null }));
+    }
+  });
+});

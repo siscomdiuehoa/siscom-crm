@@ -44,11 +44,14 @@ export class AuthController {
   async login(@Body() dto: LoginDto, @Req() req: Request & { requestId?: string }, @Res({ passthrough: true }) res: Response) {
     const addr = clientAddress(req);
     const previous = readRememberCookie(req.headers.cookie);
+    // Phiên CÒN SỐNG của cookie siscom_sid (CsrfOriginGuard đã tra và bắt Origin + X-CSRF-Token); phiên chết/không có => null.
+    const live = (req as SessionRequest).authSession;
     const r = await this.auth.login({
       login: dto.login, password: dto.password,
       source: addr.source, ip: addr.ip,
       userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null, requestId: req.requestId,
       remember: dto.remember === true, previousRememberToken: previous,
+      previousSession: live ? { sessionId: live.sessionId, employeeId: live.actor.employeeId } : null,
     });
     const co = { secure: this.cfg.cookieSecure, maxAgeSeconds: r.maxAgeSeconds };
     const cookies = [buildSessionCookie(r.sessionToken, co), buildCsrfCookie(r.csrfToken, co)];
