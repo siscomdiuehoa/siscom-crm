@@ -14,7 +14,7 @@
 ## Sau QA bảo mật độc lập (0 Critical, 0 Important, 3 Minor)
 - Minor 1 đã sửa: route đăng nhập có Origin lạ bị từ chối **trước** khi tra phiên (không truy vấn DB, không gia hạn idle) — test mới, thấy đỏ trước khi sửa.
 - Minor 2 (đăng nhập lại khi phiên còn sống không thu hồi phiên cũ) và Minor 3 (hai cookie siscom_sid trùng tên => coi như không cookie) có từ trước, PR không đổi; ghi nhận chờ owner.
-- Tài liệu thiết kế  ghi ngoại lệ .
+- Tài liệu thiết kế `docs/B1.4_REMEMBER_ME_90D_DESIGN.md` ghi ngoại lệ `@LoginEndpoint`.
 - CI trên e376dff (trước sửa Minor 1): 5/5 xanh, gồm 2 ca tích hợp mới trên PostgreSQL tạm.
 
 Backend unit toàn bộ: **550 / 550** (sau sửa Minor 1). Không đổi database, migration, API trả về, frontend. Không chạm `siscom_crm_dev` / PostgreSQL 5432.
