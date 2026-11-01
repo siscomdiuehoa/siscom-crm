@@ -227,3 +227,18 @@ test('401 muộn sau khôi phục mà /auth/me cũng 401 => SESSION_EXPIRED th�
   await tick(); await tick(); await tick();
   assert.equal(env.session.getState().error, 'SESSION_EXPIRED');
 });
+
+// QA lần 3b Minor-A: NHIỀU request cũ cùng trả 401 muộn sau khi tự khôi phục => gộp vào MỘT lần kiểm /auth/me, không về "hết hạn".
+test('hai 401 muộn liên tiếp sau khi vừa khôi phục: một lần kiểm /auth/me, vẫn AUTHENTICATED', async () => {
+  const { session, calls } = await authedSession(resp(200, { data: { me: ME, csrfToken: CSRF2 } }));
+  session.handleUnauthorized();
+  await tick(); await tick(); await tick();
+  assert.equal(session.getState().status, 'AUTHENTICATED');
+  const before = calls.filter((c) => c.url.endsWith('/auth/me')).length;
+  session.handleUnauthorized();
+  session.handleUnauthorized();
+  await tick(); await tick(); await tick();
+  assert.equal(session.getState().status, 'AUTHENTICATED');
+  assert.equal(session.getCsrfToken(), CSRF2);
+  assert.equal(calls.filter((c) => c.url.endsWith('/auth/me')).length - before, 1);
+});

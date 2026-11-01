@@ -26,6 +26,7 @@ export function createCookieSession(client, { readCookie, raceDelayMs = 700 } = 
   // khôi phục) => hỏi lại /auth/me một lần (như restore() khi tải trang).
   let lastAutoRestoreAt = -Infinity;
   let lastRestoreOkAt = -Infinity; // QA lần 3 Minor-3: 401 muộn của request gửi bằng cookie cũ ngay sau khi vừa khôi phục
+  let lateCheck = null; // QA lần 3b Minor-A: một lần kiểm /auth/me đang chạy, các 401 muộn khác gộp vào
   const now = () => Date.now();
   const wait = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
   const restoredOk = (r, fromRestore) => { csrf = fromRestore ? r.csrfToken : null; lastRestoreOkAt = now(); authed(r.me); };
@@ -144,12 +145,12 @@ export function createCookieSession(client, { readCookie, raceDelayMs = 700 } = 
       if (state.status === 'ERROR' && state.error === 'SESSION_EXPIRED') return state; // đã xử lý: không huỷ khôi phục đang chạy
       // QA lần 3 Minor-3: vừa khôi phục (< 60 giây) => 401 có thể là request cũ gửi bằng cookie cũ. Hỏi /auth/me trước khi kết luận hết hạn.
       if (state.status === 'AUTHENTICATED' && now() - lastRestoreOkAt < 60_000) {
+        if (lateCheck) return state; // đã có một lần kiểm đang chạy: gộp (nhiều request cũ song song)
         const my = epoch;
-        lastRestoreOkAt = -Infinity; // chỉ một lần kiểm như vậy cho mỗi lần khôi phục
-        Promise.resolve().then(() => client.me()).then(() => { /* phiên mới còn tốt */ }, (e) => {
+        lateCheck = Promise.resolve().then(() => client.me()).then(() => { /* phiên mới còn tốt */ }, (e) => {
           if (my !== epoch || state.status !== 'AUTHENTICATED' || !(e && e.name === 'AuthHttpError' && e.status === 401)) return;
-          epoch++; csrf = null; fail('SESSION_EXPIRED');
-        });
+          epoch++; csrf = null; lastRestoreOkAt = -Infinity; fail('SESSION_EXPIRED');
+        }).then(() => { lateCheck = null; });
         return state;
       }
       epoch++; csrf = null;

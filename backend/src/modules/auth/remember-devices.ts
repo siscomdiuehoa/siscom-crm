@@ -17,14 +17,14 @@ export class RememberDevices {
   async issue(tx: RememberTx, p: IssueParams, token: string = newOpaqueToken()): Promise<Issued> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'remember:' + p.employeeId}))`;
     // QA lần 3 Minor-4: hàng "ma" (token con chèn song song với lệnh thu hồi family) => thu hồi nốt, không tính vào giới hạn.
-    const dead = await this.revokedFamilies(tx, p.employeeId);
-    if (dead.length > 0) {
-      await tx.rememberDevice.updateMany({ where: { employeeId: p.employeeId, familyId: { in: dead }, revokedAt: null }, data: { revokedAt: p.now, revokeReason: 'INVALID_STATE' } });
+    const dead = await this.revokedFamilies(tx, p.employeeId, p.now);
+    if (dead.size > 0) {
+      await tx.rememberDevice.updateMany({ where: { employeeId: p.employeeId, familyId: { in: [...dead] }, revokedAt: null }, data: { revokedAt: p.now, revokeReason: 'FAMILY_REVOKED' } });
     }
     const active = (await tx.rememberDevice.findMany({
       where: { employeeId: p.employeeId, rotatedAt: null, revokedAt: null, absExpiresAt: { gt: p.now } },
       orderBy: { lastUsedAt: 'asc' }, select: { familyId: true },
-    })).filter((r) => !dead.includes(r.familyId));
+    })).filter((r) => !dead.has(r.familyId));
     const excess = active.length - (REMEMBER_MAX_DEVICES - 1);
     if (excess > 0) {
       await tx.rememberDevice.updateMany({ where: { familyId: { in: active.slice(0, excess).map((r) => r.familyId) }, revokedAt: null }, data: { revokedAt: p.now, revokeReason: 'DEVICE_LIMIT' } });
@@ -88,17 +88,27 @@ export class RememberDevices {
     return true;
   }
 
+  // Thời điểm family bị thu hồi LẦN ĐẦU (sớm nhất), null nếu chưa. Sau mốc này không thể tái lập phiên mới từ family (trigger + CAS),
+  // nên mọi phiên kẻ trộm có được từ family đều tạo TRƯỚC mốc (QA lần 3b Important-A).
+  async familyRevokedAt(db: Pick<PrismaClient, 'rememberDevice'>, familyId: string): Promise<Date | null> {
+    const rows = await db.rememberDevice.findMany({ where: { familyId, revokedAt: { not: null } }, select: { revokedAt: true } });
+    let min: Date | null = null;
+    for (const r of rows) if (r.revokedAt !== null && (min === null || r.revokedAt.getTime() < min.getTime())) min = r.revokedAt;
+    return min;
+  }
+
   // Family của nhân viên đã có ít nhất một hàng bị thu hồi (coi như thu hồi cả family; trigger DB cũng chặn xoay vòng tiếp).
-  private async revokedFamilies(db: Pick<PrismaClient, 'rememberDevice'>, employeeId: string): Promise<string[]> {
-    const rows = await db.rememberDevice.findMany({ where: { employeeId, revokedAt: { not: null } }, select: { familyId: true } });
-    return [...new Set(rows.map((r) => r.familyId))];
+  // QA lần 3b Minor-B: chỉ family còn hạn (family hết hạn không còn hàng hoạt động nào cần lọc); Set để tra O(1).
+  private async revokedFamilies(db: Pick<PrismaClient, 'rememberDevice'>, employeeId: string, now: Date): Promise<Set<string>> {
+    const rows = await db.rememberDevice.findMany({ where: { employeeId, revokedAt: { not: null }, absExpiresAt: { gt: now } }, select: { familyId: true } });
+    return new Set(rows.map((r) => r.familyId));
   }
 
   async list(db: Pick<PrismaClient, 'rememberDevice'>, employeeId: string, currentToken: string | null, now: Date) {
     const currentHash = currentToken === null ? null : sha256Hex(currentToken);
-    const dead = await this.revokedFamilies(db, employeeId);
+    const dead = await this.revokedFamilies(db, employeeId, now);
     const rows = (await db.rememberDevice.findMany({ where: { employeeId, rotatedAt: null, revokedAt: null, absExpiresAt: { gt: now } }, orderBy: { lastUsedAt: 'desc' } }))
-      .filter((r) => !dead.includes(r.familyId));
+      .filter((r) => !dead.has(r.familyId));
     return rows.map((r) => ({ id: r.familyId, uaShort: r.uaShort, ipPrefix: r.ipPrefix, issuedAt: r.issuedAt, lastUsedAt: r.lastUsedAt, expiresAt: r.absExpiresAt, current: currentHash !== null && r.tokenHash === currentHash }));
   }
 }

@@ -51,9 +51,13 @@ function build(over: { emps?: Emp[] } = {}) {
     }),
   };
   const employee = { findUnique: jest.fn(async ({ where }: { where: { id: string } }) => emps.find((e) => e.id === where.id) ?? null) };
-  const sessionRevokes: Array<{ employeeId: unknown; reason: unknown }> = [];
+  const sessionRevokes: Array<{ employeeId: unknown; reason: unknown; issuedBefore?: Date }> = [];
   const authSession = { create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => { sessions.push(data); return { id: 'sess-new' }; }),
-    updateMany: jest.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => { sessionRevokes.push({ employeeId: where.employeeId, reason: data.revokeReason }); return { count: 1 }; }) };
+    updateMany: jest.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => { sessionRevokes.push({ employeeId: where.employeeId, reason: data.revokeReason, ...((where.issuedAt as { lte?: Date } | undefined)?.lte ? { issuedBefore: (where.issuedAt as { lte: Date }).lte } : {}) });
+      const lte = (where.issuedAt as { lte?: Date } | undefined)?.lte;
+      const hit = sessions.filter((x) => x.employeeId === where.employeeId && !x.revokedAt && (!lte || (x.issuedAt as Date).getTime() <= lte.getTime()));
+      hit.forEach((x) => { x.revokedAt = data.revokedAt; });
+      return { count: hit.length }; }) };
   const auditLog = { create: jest.fn(async ({ data }: { data: { action: string; actorId?: string; changes?: unknown } }) => { audits.push(data); return {}; }) };
   const employeeCredential = { update: jest.fn(async () => ({})) };
   const $executeRaw = jest.fn(async () => 0);
@@ -419,7 +423,7 @@ describe('QA bảo mật I-1/I-2', () => {
     expect(ok.kind).toBe('OK');
     jest.setSystemTime(new Date(Date.now() + 11_000));
     expect((await e.svc.restoreRemembered({ ...ctx, token: tok })).kind).toBe('INVALID');
-    expect(e.sessionRevokes).toContainEqual({ employeeId: 'e1', reason: 'REMEMBER_REPLAY' });
+    expect(e.sessionRevokes).toEqual([expect.objectContaining({ employeeId: 'e1', reason: 'REMEMBER_REPLAY' })]);
   });
 });
 
@@ -467,5 +471,43 @@ describe('QA lần 3 Minor-4 — family có hàng đã thu hồi', () => {
     expect(active).toHaveLength(REMEMBER_MAX_DEVICES);
     expect(active.some((r) => r.familyId === fam)).toBe(false);
     expect(e.rows.filter((r) => r.revokeReason === 'DEVICE_LIMIT')).toHaveLength(0);
+  });
+});
+
+// QA lần 3b Important-A: token cũ đã xoay vòng + family ĐÃ thu hồi => REPLAY (giữ sửa Important-1) nhưng CHỈ thu hồi phiên tạo TRƯỚC thời điểm
+// family bị thu hồi. Nạn nhân đăng nhập lại sau đó không bị kẻ cầm token cũ đăng xuất lặp lại; không ghi audit lặp khi không thu hồi gì mới.
+describe('QA lần 3b Important-A', () => {
+  it('family chưa thu hồi => thu hồi phiên tạo tới THỜI ĐIỂM HIỆN TẠI', async () => {
+    const e = build();
+    const tok = await seedDevice(e);
+    await e.svc.restoreRemembered({ ...ctx, token: tok });
+    jest.setSystemTime(new Date(Date.now() + 11_000));
+    const at = new Date();
+    expect((await e.svc.restoreRemembered({ ...ctx, token: tok })).kind).toBe('INVALID');
+    expect(e.sessionRevokes).toEqual([{ employeeId: 'e1', reason: 'REMEMBER_REPLAY', issuedBefore: at }]);
+  });
+  it('family ĐÃ thu hồi (vd kẻ trộm revoke-all) => chỉ thu hồi phiên tạo trước mốc thu hồi family', async () => {
+    const e = build();
+    const tok = await seedDevice(e);
+    await e.svc.restoreRemembered({ ...ctx, token: tok });
+    jest.setSystemTime(new Date(Date.now() + 2_000));
+    const revokedAt = new Date();
+    await e.svc.revokeAllRememberDevices(S1);
+    jest.setSystemTime(new Date(Date.now() + 60_000));
+    expect((await e.svc.restoreRemembered({ ...ctx, token: tok })).kind).toBe('INVALID');
+    expect(e.sessionRevokes).toEqual([{ employeeId: 'e1', reason: 'REMEMBER_REPLAY', issuedBefore: revokedAt }]);
+  });
+  it('gửi lại token cũ lần nữa => mốc vẫn là thời điểm family bị thu hồi (phiên đăng nhập lại sau đó an toàn); không audit lặp', async () => {
+    const e = build();
+    const tok = await seedDevice(e);
+    await e.svc.restoreRemembered({ ...ctx, token: tok });
+    jest.setSystemTime(new Date(Date.now() + 11_000));
+    const firstAt = new Date();
+    await e.svc.restoreRemembered({ ...ctx, token: tok });
+    const audits1 = e.audits.filter((a) => a.action === 'auth.remember_replay').length;
+    jest.setSystemTime(new Date(Date.now() + 3_600_000));
+    await e.svc.restoreRemembered({ ...ctx, token: tok });
+    expect(e.sessionRevokes[1]).toEqual({ employeeId: 'e1', reason: 'REMEMBER_REPLAY', issuedBefore: firstAt });
+    expect(e.audits.filter((a) => a.action === 'auth.remember_replay').length).toBe(audits1);
   });
 });
