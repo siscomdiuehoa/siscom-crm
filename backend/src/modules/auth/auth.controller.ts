@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, 
 import type { Request, Response } from 'express';
 import { ActorGuard } from '../../common/auth/actor.guard';
 import { AUTH_CONFIG, AuthConfig } from '../../common/auth/auth.config';
-import { OriginOnly } from '../../common/auth/csrf-origin.guard';
+import { LoginEndpoint, OriginOnly } from '../../common/auth/csrf-origin.guard';
 import { AllowPasswordChangeRequired } from '../../common/auth/password-change-required.guard';
 import { buildRememberCookie, buildRememberCookieClear, readRememberCookie } from '../../common/auth/session/remember-token';
 import type { SessionRequest } from '../../common/auth/session/session-actor.provider';
@@ -40,6 +40,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
+  @LoginEndpoint() // BUG-1: cookie phiên đã chết không chặn đăng nhập lại (phiên còn sống vẫn cần X-CSRF-Token)
   async login(@Body() dto: LoginDto, @Req() req: Request & { requestId?: string }, @Res({ passthrough: true }) res: Response) {
     const addr = clientAddress(req);
     const previous = readRememberCookie(req.headers.cookie);
