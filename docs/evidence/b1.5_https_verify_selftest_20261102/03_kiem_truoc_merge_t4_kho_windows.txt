@@ -1,0 +1,94 @@
+Kiem truoc merge PR #199 (Claude, 2026-11-02): T4 tung chi dua vao kho CA mac dinh cua Node => khong thay CA nam trong kho Windows.
+Node v24.15.0. CHI DOC kho Windows (Get-ChildItem Cert:\...). Khong cai/xoa chung chi, khong sua kho, khong doc .env.
+
+########## 1) Nguyen nhan + truoc/sau tren kho Windows THAT (CA mau co san trong kho Windows, khong co trong kho rieng Node) ##########
+== khong dat NODE_USE_SYSTEM_CA
+NODE_USE_SYSTEM_CA=(khong dat) | kho mac dinh Node: 145 CA (rieng Node: 145)
+CA mau: co trong Cert:\CurrentUser\Root, KHONG co trong kho rieng Node | (an ten chung chi tren may owner) | SHA-256 BB:5D:83:BA:4C:F5:05:9C...
+TRUOC (T4 chi dua vao kho mac dinh Node): Node co tin CA mau? KHONG => T4 cu PASS GIA (CA co trong kho Windows nhung khong bi phat hien)
+SAU  (T4 doc truc tiep kho Windows, so SHA-256): PRESENT => T4 FAIL | CA mkcert (SHA-256 BB:5D:83:BA:4C:F5:05:9C:84:7C:AC:E7:B6:30:13:59:53:CC:11:9D:C5:4F:71:3D:83:69:C1:43:D1:28:1C:57) CO t
+== co dat NODE_USE_SYSTEM_CA=1
+NODE_USE_SYSTEM_CA=1 | kho mac dinh Node: 172 CA (rieng Node: 145)
+CA mau: co trong Cert:\CurrentUser\Root, KHONG co trong kho rieng Node | (an ten chung chi tren may owner) | SHA-256 BB:5D:83:BA:4C:F5:05:9C...
+TRUOC (T4 chi dua vao kho mac dinh Node): Node co tin CA mau? KHONG => T4 cu PASS GIA (CA co trong kho Windows nhung khong bi phat hien)
+SAU  (T4 doc truc tiep kho Windows, so SHA-256): PRESENT => T4 FAIL | CA mkcert (SHA-256 BB:5D:83:BA:4C:F5:05:9C:84:7C:AC:E7:B6:30:13:59:53:CC:11:9D:C5:4F:71:3D:83:69:C1:43:D1:28:1C:57) CO t
+
+########## 2) Kiem thu tu dong: node --test backend/scripts/windows/demo-lan-tls-verify.selftest.mjs ##########
+✔ fixture: hai CA cung ten nhung khac SHA-256
+✔ CA CO trong kho Windows => PRESENT, ok=false, neu ten kho
+✔ CA KHONG co, chi co CA CUNG TEN khac khoa => NOT_PRESENT (so SHA-256, khong so ten)
+✔ loi doc kho (PowerShell thoat ma loi) => ERROR, khong PASS
+✔ qua thoi gian doc kho => ERROR TIMEOUT, khong PASS
+✔ dau ra bi cat (thieu END) => ERROR, khong PASS
+✔ kho doc ra 0 chung chi => ERROR, khong PASS
+✔ khong phai Windows => ERROR, khong PASS
+✔ dau ra PowerShell dung dinh dang => tach dung tung chung chi va kho
+✔ THAT: CA thu KHONG co trong kho Windows => NOT_PRESENT
+✔ THAT: mot CA goc dang co trong kho Windows => PRESENT (khong can cai them gi)
+✔ THAT: duong dan PowerShell sai => READ_ERROR, khong PASS
+✔ THAT: gioi han thoi gian 1 ms => TIMEOUT, khong PASS
+✔ chay truc tiep khong tham so => BLOCKED, ma 2 (khong bao gio thoat 0 im lang)
+✔ chay qua lien ket thu muc (junction/symlink) khong tham so => BLOCKED, ma 2
+ℹ tests 15
+ℹ pass 15
+ℹ fail 0
+
+########## 3) Script day du sau sua voi may chu gia lap (CA thu KHONG co trong kho Windows) ##########
+
+----- SAU | may chu=ok | -u NODE_USE_SYSTEM_CA -----
+[PASS] T4 doi chung: CA mkcert KHONG duoc tin ngoai script (Node tu choi vi loi xac thuc + khong co trong kho CA Windows theo SHA-256) - Node: UNABLE_TO_VERIFY_LEAF_SIGNATURE | Windows: SHA-256 6A:46:66:79:88:BD:86:03... khong trung voi 151 chung chi trong Cer
+[PASS] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; TLSv1.1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; thuc te TLSv1.3
+TONG: PASS=13 FAIL=0 WARN=0
+ma thoat=0
+
+----- SAU | may chu=ok | NODE_USE_SYSTEM_CA=1 -----
+[PASS] T4 doi chung: CA mkcert KHONG duoc tin ngoai script (Node tu choi vi loi xac thuc + khong co trong kho CA Windows theo SHA-256) - Node: UNABLE_TO_VERIFY_LEAF_SIGNATURE | Windows: SHA-256 6A:46:66:79:88:BD:86:03... khong trung voi 151 chung chi trong Cer
+[PASS] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; TLSv1.1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; thuc te TLSv1.3
+TONG: PASS=13 FAIL=0 WARN=0
+ma thoat=0
+
+----- SAU | may chu=ok | NODE_EXTRA_CA_CERTS=rootCA.pem -----
+[FAIL] T4 doi chung: CA mkcert KHONG duoc tin ngoai script (Node tu choi vi loi xac thuc + khong co trong kho CA Windows theo SHA-256) - Node: BAT TAY THANH CONG khi khong co CA - CA mkcert dang duoc Node tin (kho he thong hoac NODE_EXTRA_CA_CERTS)? | Windows:
+[PASS] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; TLSv1.1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; thuc te TLSv1.3
+TONG: PASS=12 FAIL=1 WARN=0
+ma thoat=1
+
+----- SAU | may chu=reset-2nd | NODE_EXTRA_CA_CERTS=rootCA.pem -----
+[FAIL] T4 doi chung: CA mkcert KHONG duoc tin ngoai script (Node tu choi vi loi xac thuc + khong co trong kho CA Windows theo SHA-256) - Node: BAT TAY THANH CONG khi khong co CA - CA mkcert dang duoc Node tin (kho he thong hoac NODE_EXTRA_CA_CERTS)? | Windows:
+[PASS] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; TLSv1.1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; thuc te TLSv1.3
+TONG: PASS=12 FAIL=1 WARN=0
+ma thoat=1
+
+----- SAU | may chu=reset-after-1st  -----
+[FAIL] T4 doi chung: CA mkcert KHONG duoc tin ngoai script (Node tu choi vi loi xac thuc + khong co trong kho CA Windows theo SHA-256) - Node: khong ket luan duoc: ECONNRESET khong phai loi xac thuc chung chi | Windows: SHA-256 6A:46:66:79:88:BD:86:03... khong
+[FAIL] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ECONNRESET; TLSv1.1: ECONNRESET; thuc te TLSv1.3
+TONG: PASS=6 FAIL=6 WARN=1
+ma thoat=1
+
+----- SAU | may chu=no-tls11  -----
+[PASS] T4 doi chung: CA mkcert KHONG duoc tin ngoai script (Node tu choi vi loi xac thuc + khong co trong kho CA Windows theo SHA-256) - Node: UNABLE_TO_VERIFY_LEAF_SIGNATURE | Windows: SHA-256 6A:46:66:79:88:BD:86:03... khong trung voi 151 chung chi trong Cer
+[FAIL] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: CHAP NHAN TLSv1; TLSv1.1: ERR_SSL_UNSUPPORTED_PROTOCOL; thuc te TLSv1.3
+TONG: PASS=12 FAIL=1 WARN=0
+ma thoat=1
+
+########## 4) Thu dot bien (ban sao tam, khong commit) - kiem thu phai DO ##########
+== so TEN (subject) thay vi SHA-256
+ℹ fail 1
+ℹ pass 14
+✖ CA KHONG co, chi co CA CUNG TEN khac khoa => NOT_PRESENT (so SHA-256, khong so ten)
+== coi loi doc kho la dat
+ℹ fail 6
+ℹ pass 9
+✖ THAT: duong dan PowerShell sai => READ_ERROR, khong PASS
+✖ THAT: gioi han thoi gian 1 ms => TIMEOUT, khong PASS
+✖ dau ra bi cat (thieu END) => ERROR, khong PASS
+✖ khong phai Windows => ERROR, khong PASS
+✖ loi doc kho (PowerShell thoat ma loi) => ERROR, khong PASS
+✖ qua thoi gian doc kho => ERROR TIMEOUT, khong PASS
+
+########## 5) QA Codex tren c99d807 (P2): nhan dien isMain sai khi chay qua lien ket => thoat 0 im lang ##########
+TRUOC c99d807 chay truc tiep: ma thoat=2 | dau ra: BLOCKED: --origin phai la https://<IP>:<cong> (vi du https://192.168.1.10:8443)
+TRUOC c99d807 chay qua junction: ma thoat=0 | dau ra: (TRONG - khong kiem gi)
+SAU (tach module) chay truc tiep: ma thoat=2 | dau ra: BLOCKED: --origin phai la https://<IP>:<cong> (vi du https://192.168.1.10:8443)
+SAU (tach module) chay qua junction: ma thoat=2 | dau ra: BLOCKED: --origin phai la https://<IP>:<cong> (vi du https://192.168.1.10:8443)
+Sua: bo isMain; ham doc kho Windows tach sang demo-lan-tls-verify-winstore.mjs, script chinh LUON chay khi goi.
