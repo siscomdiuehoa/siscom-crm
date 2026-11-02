@@ -5,7 +5,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { readWindowsRootStore, checkCaNotInWindowsStore } from './demo-lan-tls-verify.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { readWindowsRootStore, checkCaNotInWindowsStore } from './demo-lan-tls-verify-winstore.mjs';
 
 // Chung chi CONG KHAI nhung truc tiep (repo chan *.pem bang .gitignore). Khoa rieng KHONG nam trong repo.
 const CA = `-----BEGIN CERTIFICATE-----
@@ -129,4 +134,21 @@ test('THAT: duong dan PowerShell sai => READ_ERROR, khong PASS', { skip: !isWin 
 test('THAT: gioi han thoi gian 1 ms => TIMEOUT, khong PASS', { skip: !isWin }, async () => {
   const r = await checkCaNotInWindowsStore(CA, { reader: () => readWindowsRootStore({ timeoutMs: 1 }) });
   assert.equal(r.status, 'ERROR'); assert.match(r.detail, /TIMEOUT/);
+});
+
+// ---- Script chinh LUON chay khi goi truc tiep (QA Codex PR #199: ban co nhan dien isMain thoat 0 im lang khi chay qua symlink) ----
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const runNoArgs = (dir) => spawnSync(process.execPath, [path.join(dir, 'demo-lan-tls-verify.mjs')], { encoding: 'utf8', timeout: 30000 });
+test('chay truc tiep khong tham so => BLOCKED, ma 2 (khong bao gio thoat 0 im lang)', () => {
+  const r = runNoArgs(SCRIPT_DIR);
+  assert.equal(r.status, 2, r.stdout + r.stderr); assert.match(r.stdout, /BLOCKED/);
+});
+test('chay qua lien ket thu muc (junction/symlink) khong tham so => BLOCKED, ma 2', (t) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'siscom-tlsv-'));
+  const link = path.join(tmp, 'lien-ket');
+  try { fs.symlinkSync(SCRIPT_DIR, link, 'junction'); } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); t.skip('khong tao duoc lien ket: ' + e.code); return; }
+  try {
+    const r = runNoArgs(link);
+    assert.equal(r.status, 2, r.stdout + r.stderr); assert.match(r.stdout, /BLOCKED/);
+  } finally { fs.unlinkSync(link); fs.rmSync(tmp, { recursive: true, force: true }); }
 });

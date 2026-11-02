@@ -8,5 +8,5 @@ QA Codex PR #199 (2 Important) - 02_qa_codex_t4_t5_truoc_sau.txt (01_ la ket qua
   SAU: 2 truong hop tren -> T5 FAIL / T4 FAIL, ma 1 | reset keo dai -> T4 FAIL "khong ket luan duoc" | CA da tin -> T4 FAIL | TLS 1.0 -> T5 FAIL | dung -> 13/13, ma 0.
 Kiem truoc merge (Claude) - 03_kiem_truoc_merge_t4_kho_windows.txt: T4 cu chi dua vao kho CA mac dinh cua Node (Node 24 khong dung kho Windows
   neu khong dat NODE_USE_SYSTEM_CA; ke ca khi dat, van bo sot CA mau) => CA co trong kho Windows van PASS GIA. Sau sua: doc truc tiep kho Root Windows
-  (chi doc), so SHA-256 => CA co trong kho -> FAIL; loi doc kho / qua thoi gian -> FAIL; CA cung ten khac khoa -> khong trung. Kiem thu: 13/13.
+  (chi doc), so SHA-256 => CA co trong kho -> FAIL; loi doc kho / qua thoi gian -> FAIL; CA cung ten khac khoa -> khong trung. Kiem thu: 15/15 (ham doc kho o demo-lan-tls-verify-winstore.mjs; script chinh luon chay, ke ca qua lien ket).
 Chua chay voi Caddy + mkcert that (cho owner lam B1.5 buoc 2-3).
