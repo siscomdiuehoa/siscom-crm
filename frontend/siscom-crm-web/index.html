@@ -4,6 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SISCOM CRM</title>
+<!-- B1.5 bước 4: "Thêm vào màn hình chính" (Android: manifest; iPhone/iPad Safari: apple-touch-icon + meta apple-*). Đường dẫn tương đối vì base './'.
+     Cố ý KHÔNG có service worker: không cache phản hồi /api (dữ liệu khách hàng, phiên đăng nhập) trên thiết bị. -->
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f1f5f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="SISCOM CRM">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
 <body class="sg-ambient">
 <div id="root"></div>

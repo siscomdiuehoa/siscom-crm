@@ -1,4 +1,9 @@
 html,body,#root{height:100%}body{overflow:hidden}
+/* B1.5: màn hình đăng nhập / đổi mật khẩu bắt buộc. Cột lưới mặc định "auto" giãn theo nội dung (tối đa max-width 380 của form) nên ở 390 px
+   form tràn 6 px; minmax(0,1fr) giữ form trong bề rộng còn lại (100% - 2 x 16 px). */
+.login-shell{grid-template-columns:minmax(0,1fr);justify-items:center}
+/* Lưới bên trong form cũng vậy: ở 320 px ô mật khẩu + nút "Hiện mật khẩu" (min-content ~340 px) đẩy form tràn; cho cột và ô nhập co về 0. */
+.login-shell form{grid-template-columns:minmax(0,1fr)}.login-shell .sg-control,.login-shell .sg-input{min-width:0}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .dash-2-1{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px;align-items:start}
 .dash-1-1{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
