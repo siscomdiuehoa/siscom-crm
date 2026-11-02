@@ -35,7 +35,9 @@ function Test-HttpsNoVerify([string]$url) {
   # Dung curl.exe cua Windows 10+ (Invoke-WebRequest cua PS 5.1 khong bat tay duoc TLS voi Caddy: "unexpected error on a send").
   $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
   if (Test-Path -LiteralPath $curl) {
-    $code = & $curl -sk -m 5 -o NUL -w '%{http_code}' $url 2>$null
+    $code = & $curl -sk --connect-timeout 2 -m 3 -o NUL -w '%{http_code}' $url 2>$null
+    # curl van in ma HTTP da nhan (vd 200) khi luot truyen LOI (18 bi cat, 28 qua thoi gian...) => chi tin ma HTTP khi curl thoat 0.
+    if ($LASTEXITCODE -ne 0) { return 0 }
     if ($code -match '^\d{3}$') { return [int]$code }; return 0
   }
   $old = [System.Net.ServicePointManager]::ServerCertificateValidationCallback; $oldProto = [System.Net.ServicePointManager]::SecurityProtocol
