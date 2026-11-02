@@ -160,10 +160,11 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
   const ROLE_LABELS = { sales: 'Kinh doanh', crm_admin: 'Quản trị CRM', technician: 'Kỹ thuật', accountant: 'Kế toán', admin: 'Quản trị hệ thống' };
   const sessionUser = me ? { name: me.fullName, role: (me.roles || []).map((r) => ROLE_LABELS[r] || r).join(', ') || 'Chưa có vai trò' } : { name: 'Phiên API', role: 'Xác thực do máy chủ quyết định' };
   const sidebar = (extra) => <Sidebar items={NAV} active={route.page} onSelect={(id) => navigate('/' + id)} logoSrc={logo} user={API_ON ? sessionUser : { name: user.name, role: ROLES[user.role].label }} {...extra} />;
-  const logoutButton = session ? <Button size="sm" variant="secondary" icon="log-out" onClick={() => session.logout()}>Đăng xuất</Button> : null;
+  // B1.5: trên điện thoại (≤ 768 px) nhãn chữ của nút thanh trên cùng ẩn bằng CSS (.sg-tb-label), chỉ còn biểu tượng; aria-label/title giữ tên nút.
+  const logoutButton = session ? <Button size="sm" variant="secondary" icon="log-out" className="sg-tb-btn" aria-label="Đăng xuất" title="Đăng xuất" onClick={() => session.logout()}><span className="sg-tb-label">Đăng xuất</span></Button> : null;
   // PR 8: đổi mật khẩu của chính mình (chế độ API có phiên cookie). Thành công => toast; các thiết bị khác đã bị đăng xuất phía máy chủ.
   const [pwOpen, setPwOpen] = React.useState(false);
-  const changePasswordButton = session ? <Button size="sm" variant="secondary" icon="key-round" onClick={() => setPwOpen(true)}>{CHANGE_PASSWORD_UI_TEXT.title}</Button> : null;
+  const changePasswordButton = session ? <Button size="sm" variant="secondary" icon="key-round" className="sg-tb-btn" aria-label={CHANGE_PASSWORD_UI_TEXT.title} title={CHANGE_PASSWORD_UI_TEXT.title} onClick={() => setPwOpen(true)}><span className="sg-tb-label">{CHANGE_PASSWORD_UI_TEXT.title}</span></Button> : null;
   return (
     <div style={{ display: 'flex', height: '100%' }}>
       {mobile ? (navOpen ? (

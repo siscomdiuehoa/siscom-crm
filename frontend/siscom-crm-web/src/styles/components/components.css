@@ -268,5 +268,7 @@ textarea.sg-input{resize:vertical;min-height:72px}
 .sg-steps__s[data-state="current"]{color:var(--text-1);font-weight:var(--fw-medium)}
 
 /* Responsive */
+/* B1.5: điện thoại rất hẹp (≤ 480 px): ẩn avatar ở thanh trên cùng (tên người dùng đã có ở dải "Đang đăng nhập" và menu bên) để chuông thông báo không bị đẩy ra ngoài. */
+@media (max-width:480px){.sg-topbar__actions .sg-avatar{display:none}}
 @media (max-width:1024px){.sg-topbar .sg-btn--ai .sg-ai-label{display:none}}
-@media (max-width:768px){:root{--page-gutter:16px}.sg-topbar{gap:8px}.sg-search{display:none}.sg-crumbs{display:none}.sg-topbar__title{min-width:0}.sg-modal__head,.sg-modal__body,.sg-modal__foot{padding-left:16px;padding-right:16px}}
+@media (max-width:768px){:root{--page-gutter:16px}.sg-topbar{gap:8px}.sg-topbar__actions{gap:4px;flex-shrink:0}.sg-topbar__actions .sg-tb-label{display:none}.sg-topbar__actions .sg-tb-btn{padding-left:9px;padding-right:9px}.sg-search{display:none}.sg-crumbs{display:none}.sg-topbar__title{min-width:0}.sg-modal__head,.sg-modal__body,.sg-modal__foot{padding-left:16px;padding-right:16px}}
