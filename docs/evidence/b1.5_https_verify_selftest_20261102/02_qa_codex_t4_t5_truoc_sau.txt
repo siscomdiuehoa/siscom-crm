@@ -1,0 +1,55 @@
+QA Codex PR #199 (2 Important): T5 PASS gia khi may chu nhan TLS 1.0 nhung tat rieng TLS 1.1; T4 PASS gia khi ket noi doi chung bi reset/timeout.
+May chu gia lap fake-lan.mjs (127.0.0.1:18443), CA/chung chi THU (khong commit). Node v24.15.0. 2026-11-02T03:30Z
+NODE_EXTRA_CA_CERTS=rootCA.pem mo phong may da tin CA mkcert (vd mkcert -install) => T4 PHAI FAIL.
+
+########## TRUOC SUA (script tai 48bc8dc) ##########
+
+----- TRUOC | may chu=no-tls11  -----
+[PASS] T4 doi chung: khong co CA mkcert => bi tu choi - UNABLE_TO_VERIFY_LEAF_SIGNATURE
+[PASS] T5 doi chung: TLS 1.0/1.1 bi tu choi; giao thuc thuc te >= TLS 1.2 - tu choi (ERR_SSL_INAPPROPRIATE_FALLBACK); thuc te TLSv1.3
+TONG: PASS=13 FAIL=0 WARN=0
+ma thoat=0
+
+----- TRUOC | may chu=reset-2nd | NODE_EXTRA_CA_CERTS=rootCA.pem -----
+[PASS] T4 doi chung: khong co CA mkcert => bi tu choi - ECONNRESET
+[PASS] T5 doi chung: TLS 1.0/1.1 bi tu choi; giao thuc thuc te >= TLS 1.2 - tu choi (ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION); thuc te TLSv1.3
+TONG: PASS=13 FAIL=0 WARN=0
+ma thoat=0
+
+########## SAU SUA ##########
+
+----- SAU | may chu=no-tls11  -----
+[PASS] T4 doi chung: khong co CA mkcert => bi tu choi vi loi xac thuc chung chi - UNABLE_TO_VERIFY_LEAF_SIGNATURE
+[FAIL] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: CHAP NHAN TLSv1; TLSv1.1: ERR_SSL_UNSUPPORTED_PROTOCOL; thuc te TLSv1.3
+TONG: PASS=12 FAIL=1 WARN=0
+ma thoat=1
+
+----- SAU | may chu=reset-2nd | NODE_EXTRA_CA_CERTS=rootCA.pem -----
+[FAIL] T4 doi chung: khong co CA mkcert => bi tu choi vi loi xac thuc chung chi - BAT TAY THANH CONG khi khong co CA - CA mkcert dang nam trong kho tin cay he thong (hoac NODE_EXTRA_CA_CERTS)?
+[PASS] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; TLSv1.1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; thuc te TLSv1.3
+TONG: PASS=12 FAIL=1 WARN=0
+ma thoat=1
+
+----- SAU | may chu=reset-after-1st  -----
+[FAIL] T4 doi chung: khong co CA mkcert => bi tu choi vi loi xac thuc chung chi - khong ket luan duoc: ECONNRESET khong phai loi xac thuc chung chi
+[FAIL] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ECONNRESET; TLSv1.1: ECONNRESET; thuc te TLSv1.3
+TONG: PASS=6 FAIL=6 WARN=1
+ma thoat=1
+
+----- SAU | may chu=ok  -----
+[PASS] T4 doi chung: khong co CA mkcert => bi tu choi vi loi xac thuc chung chi - UNABLE_TO_VERIFY_LEAF_SIGNATURE
+[PASS] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; TLSv1.1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; thuc te TLSv1.3
+TONG: PASS=13 FAIL=0 WARN=0
+ma thoat=0
+
+----- SAU | may chu=ok | NODE_EXTRA_CA_CERTS=rootCA.pem -----
+[FAIL] T4 doi chung: khong co CA mkcert => bi tu choi vi loi xac thuc chung chi - BAT TAY THANH CONG khi khong co CA - CA mkcert dang nam trong kho tin cay he thong (hoac NODE_EXTRA_CA_CERTS)?
+[PASS] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; TLSv1.1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; thuc te TLSv1.3
+TONG: PASS=12 FAIL=1 WARN=0
+ma thoat=1
+
+----- SAU | may chu=tls10  -----
+[PASS] T4 doi chung: khong co CA mkcert => bi tu choi vi loi xac thuc chung chi - UNABLE_TO_VERIFY_LEAF_SIGNATURE
+[FAIL] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: CHAP NHAN TLSv1; TLSv1.1: CHAP NHAN TLSv1.1; thuc te TLSv1.3
+TONG: PASS=12 FAIL=1 WARN=0
+ma thoat=1

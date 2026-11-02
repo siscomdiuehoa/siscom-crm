@@ -69,12 +69,24 @@ rec('T2 SAN cua chung chi chua dung ' + want, sans.split(/,\s*/).includes(want) 
 const daysLeft = Math.floor((new Date(leaf.valid_to) - Date.now()) / 86400000);
 rec('T3 chung chi con han >= 7 ngay', daysLeft >= 7 ? 'PASS' : 'FAIL', 'het han ' + leaf.valid_to + ' (' + daysLeft + ' ngay)');
 // T4 - doi chung: KHONG co CA mkcert => phai bi tu choi (chung minh xac thuc co hieu luc va CA KHONG nam trong kho tin cay chung).
-const t4 = await handshake({});
-rec('T4 doi chung: khong co CA mkcert => bi tu choi', !t4.ok ? 'PASS' : 'FAIL', t4.ok ? 'BAT TAY THANH CONG khi khong co CA - CA mkcert dang nam trong kho tin cay he thong?' : String(t4.code));
-// T5 - doi chung: ep TLS <= 1.1 => phai bi tu choi; giao thuc thuc te >= 1.2.
-// SECLEVEL=0 chi o PHIA THU (client) de chinh client khong tu chan TLS 1.0/1.1 (OpenSSL 3) - neu khong, ca nay se "dat" gia.
-const t5 = await handshake({ ca: [caPem], minVersion: 'TLSv1', maxVersion: 'TLSv1.1', ciphers: 'DEFAULT@SECLEVEL=0' });
-rec('T5 doi chung: TLS 1.0/1.1 bi tu choi; giao thuc thuc te >= TLS 1.2', !t5.ok && /^TLSv1\.[23]$/.test(t1.protocol) ? 'PASS' : 'FAIL', t5.ok ? 'chap nhan ' + t5.protocol : 'tu choi (' + t5.code + '); thuc te ' + t1.protocol);
+// Doi chung CHI dat khi bi tu choi DUNG LY DO. Loi mang (reset/timeout/tu choi ket noi) KHONG chung minh gi => thu lai, van loi => FAIL
+// "khong ket luan duoc" (QA Codex PR #199: ECONNRESET o T4, ERR_SSL_INAPPROPRIATE_FALLBACK o T5 tung bi tinh PASS gia).
+const CERT_REJECT = new Set(['UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_GET_ISSUER_CERT', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'CERT_UNTRUSTED']);
+const VERSION_REJECT = /PROTOCOL_VERSION|UNSUPPORTED_PROTOCOL|WRONG_VERSION_NUMBER|VERSION_TOO_LOW/;
+const NETWORK = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'TIMEOUT', 'ECONNABORTED', 'EHOSTUNREACH']);
+async function handshakeRetry(opts) { let r; for (let i = 0; i < 3; i++) { r = await handshake(opts); if (r.ok || !NETWORK.has(r.code)) return r; } return r; }
+// T4 - doi chung: KHONG co CA mkcert => phai bi tu choi VI LOI XAC THUC CHUNG CHI (chung minh xac thuc co hieu luc va CA KHONG nam trong kho tin cay chung).
+const t4 = await handshakeRetry({});
+if (t4.ok) rec('T4 doi chung: khong co CA mkcert => bi tu choi vi loi xac thuc chung chi', 'FAIL', 'BAT TAY THANH CONG khi khong co CA - CA mkcert dang nam trong kho tin cay he thong (hoac NODE_EXTRA_CA_CERTS)?');
+else rec('T4 doi chung: khong co CA mkcert => bi tu choi vi loi xac thuc chung chi', CERT_REJECT.has(t4.code) ? 'PASS' : 'FAIL', CERT_REJECT.has(t4.code) ? t4.code : 'khong ket luan duoc: ' + t4.code + ' khong phai loi xac thuc chung chi');
+// T5 - doi chung: thu RIENG TLS 1.0 va TLS 1.1 (minVersion = maxVersion moi luot); moi luot phai bi tu choi vi LOI PHIEN BAN; thuc te >= 1.2.
+// SECLEVEL=0 chi o PHIA THU (client) de chinh client khong tu chan TLS 1.0/1.1 (OpenSSL 3); client khong thu duoc (NO_PROTOCOLS_AVAILABLE...) => FAIL, khong PASS.
+const t5 = [];
+for (const v of ['TLSv1', 'TLSv1.1']) {
+  const r = await handshakeRetry({ ca: [caPem], minVersion: v, maxVersion: v, ciphers: 'DEFAULT@SECLEVEL=0' });
+  t5.push({ v, ok: !r.ok && VERSION_REJECT.test(String(r.code)), detail: r.ok ? 'CHAP NHAN ' + r.protocol : String(r.code) });
+}
+rec('T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2', t5.every((x) => x.ok) && /^TLSv1\.[23]$/.test(t1.protocol) ? 'PASS' : 'FAIL', t5.map((x) => x.v + ': ' + x.detail).join('; ') + '; thuc te ' + t1.protocol);
 const spki = crypto.createHash('sha256').update(new crypto.X509Certificate(leaf.raw).publicKey.export({ type: 'spki', format: 'der' })).digest('base64');
 console.log('SPKI sha256 (base64) cua chung chi may chu: ' + spki);
 
