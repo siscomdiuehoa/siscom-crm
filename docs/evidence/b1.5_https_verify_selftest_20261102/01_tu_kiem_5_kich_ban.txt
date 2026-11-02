@@ -1,0 +1,90 @@
+Tu kiem demo-lan-tls-verify.mjs tren MAY CHU GIA LAP (fake-lan.mjs, 127.0.0.1:18443) voi CA/chung chi THU tao bang openssl trong thu muc nhap (khong commit khoa). 2026-11-02T02:00Z, node v24.15.0
+
+===== may chu=ok | --ca=rootCA.pem =====
+Kiem https://127.0.0.1:18443 voi CA rootCA.pem (chi tin CA nay; xac thuc TLS bat)
+[PASS] T1 TLS hop le voi DUNG CA mkcert (rejectUnauthorized, kiem SAN) - TLSv1.3 TLS_AES_256_GCM_SHA384 ALPN=http/1.1
+[PASS] T2 SAN cua chung chi chua dung IP Address:127.0.0.1 - IP Address:127.0.0.1
+[PASS] T3 chung chi con han >= 7 ngay - het han Nov 22 01:59:02 2026 GMT (19 ngay)
+[PASS] T4 doi chung: khong co CA mkcert => bi tu choi - UNABLE_TO_VERIFY_LEAF_SIGNATURE
+[PASS] T5 doi chung: TLS 1.0/1.1 bi tu choi; giao thuc thuc te >= TLS 1.2 - tu choi (ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION); thuc te TLSv1.3
+[PASS] T6 GET / => 200 HTML (giao dien qua proxy) - status=200
+[PASS] T7 GET /api/v1/health => 200 (backend qua proxy) - status=200
+[PASS] T8 PWA manifest qua HTTPS - application/manifest+json
+[PASS] T9 POST /auth/login voi Origin la => 403 CSRF_FAILED - status=403 code=CSRF_FAILED
+[PASS] T10 POST /auth/login voi Origin dung => qua lop Origin (400 validation, khong 403) - status=400 code=VALIDATION_FAILED
+[PASS] T11 http:// (khong TLS) tren cong 18443 khong tra giao dien - dong ket noi
+[PASS] T12 cong 18999 KHONG mo tren 127.0.0.1 - ECONNREFUSED
+[PASS] T12 cong 19001 KHONG mo tren 127.0.0.1 - ECONNREFUSED
+[INFO] Strict-Transport-Security (backend): (khong co)
+TONG: PASS=13 FAIL=0 WARN=0
+GIOI HAN: script kiem tu CHINH may tinh. Dien thoai tin CA va mo duoc trang phai kiem tren dien thoai that (checklist muc 10).
+ma thoat=0
+
+===== may chu=ok | --ca=wrong/rootCA.pem =====
+Kiem https://127.0.0.1:18443 voi CA wrong/rootCA.pem (chi tin CA nay; xac thuc TLS bat)
+BLOCKED: khong bat tay TLS duoc voi CA da cho (UNABLE_TO_VERIFY_LEAF_SIGNATURE). Kiem Caddy dang chay (-Step start), dung IP/cong, dung rootCA.pem.
+ma thoat=2
+
+===== may chu=tls10 | --ca=rootCA.pem =====
+Kiem https://127.0.0.1:18443 voi CA rootCA.pem (chi tin CA nay; xac thuc TLS bat)
+[PASS] T1 TLS hop le voi DUNG CA mkcert (rejectUnauthorized, kiem SAN) - TLSv1.3 TLS_AES_256_GCM_SHA384 ALPN=http/1.1
+[PASS] T2 SAN cua chung chi chua dung IP Address:127.0.0.1 - IP Address:127.0.0.1
+[PASS] T3 chung chi con han >= 7 ngay - het han Nov 22 01:59:02 2026 GMT (19 ngay)
+[PASS] T4 doi chung: khong co CA mkcert => bi tu choi - UNABLE_TO_VERIFY_LEAF_SIGNATURE
+[FAIL] T5 doi chung: TLS 1.0/1.1 bi tu choi; giao thuc thuc te >= TLS 1.2 - chap nhan TLSv1.1
+[PASS] T6 GET / => 200 HTML (giao dien qua proxy) - status=200
+[PASS] T7 GET /api/v1/health => 200 (backend qua proxy) - status=200
+[PASS] T8 PWA manifest qua HTTPS - application/manifest+json
+[PASS] T9 POST /auth/login voi Origin la => 403 CSRF_FAILED - status=403 code=CSRF_FAILED
+[PASS] T10 POST /auth/login voi Origin dung => qua lop Origin (400 validation, khong 403) - status=400 code=VALIDATION_FAILED
+[PASS] T11 http:// (khong TLS) tren cong 18443 khong tra giao dien - dong ket noi
+[PASS] T12 cong 18999 KHONG mo tren 127.0.0.1 - ECONNREFUSED
+[PASS] T12 cong 19001 KHONG mo tren 127.0.0.1 - ECONNREFUSED
+[INFO] Strict-Transport-Security (backend): (khong co)
+TONG: PASS=12 FAIL=1 WARN=0
+GIOI HAN: script kiem tu CHINH may tinh. Dien thoai tin CA va mo duoc trang phai kiem tren dien thoai that (checklist muc 10).
+ma thoat=1
+
+===== may chu=csrf-lenient | --ca=rootCA.pem =====
+Kiem https://127.0.0.1:18443 voi CA rootCA.pem (chi tin CA nay; xac thuc TLS bat)
+[PASS] T1 TLS hop le voi DUNG CA mkcert (rejectUnauthorized, kiem SAN) - TLSv1.3 TLS_AES_256_GCM_SHA384 ALPN=http/1.1
+[PASS] T2 SAN cua chung chi chua dung IP Address:127.0.0.1 - IP Address:127.0.0.1
+[PASS] T3 chung chi con han >= 7 ngay - het han Nov 22 01:59:02 2026 GMT (19 ngay)
+[PASS] T4 doi chung: khong co CA mkcert => bi tu choi - UNABLE_TO_VERIFY_LEAF_SIGNATURE
+[PASS] T5 doi chung: TLS 1.0/1.1 bi tu choi; giao thuc thuc te >= TLS 1.2 - tu choi (ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION); thuc te TLSv1.3
+[PASS] T6 GET / => 200 HTML (giao dien qua proxy) - status=200
+[PASS] T7 GET /api/v1/health => 200 (backend qua proxy) - status=200
+[PASS] T8 PWA manifest qua HTTPS - application/manifest+json
+[FAIL] T9 POST /auth/login voi Origin la => 403 CSRF_FAILED - status=400 code=VALIDATION_FAILED
+[PASS] T10 POST /auth/login voi Origin dung => qua lop Origin (400 validation, khong 403) - status=400 code=VALIDATION_FAILED
+[PASS] T11 http:// (khong TLS) tren cong 18443 khong tra giao dien - dong ket noi
+[PASS] T12 cong 18999 KHONG mo tren 127.0.0.1 - ECONNREFUSED
+[PASS] T12 cong 19001 KHONG mo tren 127.0.0.1 - ECONNREFUSED
+[INFO] Strict-Transport-Security (backend): (khong co)
+TONG: PASS=12 FAIL=1 WARN=0
+GIOI HAN: script kiem tu CHINH may tinh. Dien thoai tin CA va mo duoc trang phai kiem tren dien thoai that (checklist muc 10).
+ma thoat=1
+
+===== may chu=open-port | --ca=rootCA.pem =====
+Kiem https://127.0.0.1:18443 voi CA rootCA.pem (chi tin CA nay; xac thuc TLS bat)
+[PASS] T1 TLS hop le voi DUNG CA mkcert (rejectUnauthorized, kiem SAN) - TLSv1.3 TLS_AES_256_GCM_SHA384 ALPN=http/1.1
+[PASS] T2 SAN cua chung chi chua dung IP Address:127.0.0.1 - IP Address:127.0.0.1
+[PASS] T3 chung chi con han >= 7 ngay - het han Nov 22 01:59:02 2026 GMT (19 ngay)
+[PASS] T4 doi chung: khong co CA mkcert => bi tu choi - UNABLE_TO_VERIFY_LEAF_SIGNATURE
+[PASS] T5 doi chung: TLS 1.0/1.1 bi tu choi; giao thuc thuc te >= TLS 1.2 - tu choi (ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION); thuc te TLSv1.3
+[PASS] T6 GET / => 200 HTML (giao dien qua proxy) - status=200
+[PASS] T7 GET /api/v1/health => 200 (backend qua proxy) - status=200
+[PASS] T8 PWA manifest qua HTTPS - application/manifest+json
+[PASS] T9 POST /auth/login voi Origin la => 403 CSRF_FAILED - status=403 code=CSRF_FAILED
+[PASS] T10 POST /auth/login voi Origin dung => qua lop Origin (400 validation, khong 403) - status=400 code=VALIDATION_FAILED
+[PASS] T11 http:// (khong TLS) tren cong 18443 khong tra giao dien - dong ket noi
+[FAIL] T12 cong 18999 KHONG mo tren 127.0.0.1 - open
+[PASS] T12 cong 19001 KHONG mo tren 127.0.0.1 - ECONNREFUSED
+[INFO] Strict-Transport-Security (backend): (khong co)
+TONG: PASS=12 FAIL=1 WARN=0
+GIOI HAN: script kiem tu CHINH may tinh. Dien thoai tin CA va mo duoc trang phai kiem tren dien thoai that (checklist muc 10).
+ma thoat=1
+
+===== --ca la file khoa (ten chua 'key') =====
+BLOCKED: --ca khong duoc la file khoa (ten co chu "key"). Chi dung rootCA.pem.
+ma thoat=2
