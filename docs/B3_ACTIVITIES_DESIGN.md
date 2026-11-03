@@ -101,7 +101,8 @@ Một transaction; guard tên DB thử + từ chối 2 baseline; tiền kiểm (
 ## 4. Quyền DB tối thiểu cho `siscom_app` (thay đổi baseline — PR riêng, anh duyệt mới chạy)
 - **Chỉ**: `GRANT INSERT, UPDATE ON public.activity TO siscom_app;` — **không** DELETE (xoá mềm = UPDATE), không bảng nào khác, không cột nào khác. Sequence `activity_code_seq` đã nằm trong `GRANT USAGE, SELECT ON ALL SEQUENCES`. Hàm `fn_next_activity_code()` chạy qua DEFAULT cột (không REVOKE EXECUTE với PUBLIC) — VERIFY E7 bổ sung kiểm EXECUTE cho chắc.
 - Cách làm: file **`B1.3_S1_APP_GRANTS_V4.sql.txt`** (V3 + 1 dòng; idempotent "revoke all rồi grant lại"; phần "Tóm tắt" cuối file: `bang_app_INSERT` 4→5, `bang_app_UPDATE` 3→4), V3 giữ làm đường rollback; ghi chú "V3 là nguồn sự thật duy nhất" (header V3, `B1.4_P3C_S3_AUTH_ROLE_DESIGN.md` §7.1) trỏ sang V4.
-- `VERIFY.sql.txt` (từng dòng): **B1** nhãn + mảng ghi thêm `activity` (vẫn đòi NOT DELETE/TRUNCATE); **B1b** nhãn + bỏ `activity` khỏi danh sách cấm; **E5** gộp thêm probe `UPDATE public.activity SET status = status WHERE false` vào nhãn hiện có (giữ nguyên số đếm) hoặc tách `E5b` (⇒ `PASS|74`) — **chọn: gộp, giữ `PASS|73`**; **E7** nhãn "4 hàm" → "5 hàm", `count(DISTINCT) = 5` thêm `fn_next_activity_code`. `backend/test/db-roles.int-spec.ts:129–130` bỏ `'activity'` khỏi `forbidden`, thêm ca dương (INSERT/UPDATE `WHERE false` OK; DELETE ⇒ 42501).
+- `VERIFY.sql.txt` (từng dòng): **B1** nhãn + mảng ghi thêm `activity` (vẫn đòi NOT DELETE/TRUNCATE); **B1b** nhãn + bỏ `activity` khỏi danh sách cấm; **E5** gộp thêm probe `UPDATE public.activity SET status = status WHERE false` vào nhãn hiện có (giữ nguyên số đếm) hoặc tách `E5b` (⇒ `PASS|74`) — **chọn: gộp, giữ `PASS|73`**; **E7** nhãn "4 hàm" → "5 hàm", `count(DISTINCT) = 5` thêm `fn_next_activity_code`. `backend/test/db-roles.int-spec.ts:129–130` bỏ `'activity'` khỏi `forbidden`, thêm ca dương (INSERT/UPDATE `WHERE false` OK; DELETE ⇒ 42501); sửa tiêu đề ca "P3b I-4" và nhãn B1b cho nhất quán.
+- **Ngoài CI, các chỗ khác còn trỏ V3 (đưa vào A3; riêng script Windows vào A9):** `backend/scripts/windows/demo-split.ps1` chạy V3 hai lần ở bước split và "BẮT BUỘC chạy lại V3" sau `migrate deploy` — **nếu không đổi sang V4, lần chạy `demo-split -Step migrate` kế tiếp sẽ thu hồi quyền ghi `activity`** (A9 phải dùng V4); thông điệp trong `backend/src/cli/db-role-check.ts`, `test/helpers/test-db.ts`, header 2 file rollback Remember Me, `DB_SECURITY.md`, `VPS_LINUX_NOTES.md`, `.env.example`, `B1.3_S1_VERIFY_AUTH.sql.txt`, `B1.3_S1_AUTH_ROLE.sql.txt` — đổi tham chiếu hoặc ghi "V3 đã được V4 thay thế".
 - **CI đang hardcode V3 (phải sửa cùng PR A3, nếu không VERIFY B1 đỏ):** `scripts/ci/pg-temp-db.sh` — `split` và `auth` chạy V4 thay V3; case `grants` thêm `v4`, `wantapp=f` và kiểm `siscom_auth` áp cho cả v3 **và** v4; `.github/workflows/ci.yml` dòng 182, 189, 211 (`grants v3` + VERIFY `res app`) đổi sang `v4`; diễn tập rollback quyền thành **v1 fail → v2 fail → v3 fail (B1 — đúng kỳ vọng rollback) → v4 PASS**. Con số VERIFY ghi vào docs/evidence, **không sửa** kết quả nghiệm thu lịch sử (chỉ ghi chú như #192).
 - Rủi ro: `siscom_app` bị chiếm ⇒ có thể ghi/sửa mọi dòng `activity` (không xoá cứng, không chạm bảng khác, `code`/`customer_id` bất biến nhờ trigger, audit append-only). Mức chấp nhận: ngang với `customer`/`contact` hiện nay.
 
@@ -113,7 +114,7 @@ Mã quyền mới (nhóm `BIZ` theo `fn_auth_perm_class`): `activity.read`, `act
 |---|---|---|---|---|---|
 | `activity.read` | ALL | OWN | DEPARTMENT | ALL | + phụ trách luôn đọc được việc của mình |
 | `activity.create` | ALL | OWN | DEPARTMENT | – | technician ghi khảo sát/ghi chú trong phòng (**đề xuất; anh có thể chọn "–"**) |
-| `activity.update` | ALL | OWN | DEPARTMENT* | – | *technician chỉ sửa hoạt động **mình tạo hoặc được giao**; người phụ trách luôn đổi được trạng thái việc của mình |
+| `activity.update` | ALL | OWN | DEPARTMENT* | – | *technician chỉ sửa hoạt động **mình tạo hoặc được giao**; người phụ trách ngoài phạm vi chỉ được **GET + complete** (không PATCH/reopen/huỷ) |
 | `activity.delete` (xoá mềm) | ALL | OWN* | – | – | *sale chỉ xoá hoạt động **mình tạo**; admin xoá bất kỳ; không ai xoá cứng |
 | `lookup.read` | ALL | ALL | ALL | ALL | (đã có) |
 
@@ -142,6 +143,7 @@ Mã: `Permission` union (`common/auth/actor.ts`), `KNOWN` (`session-actor.provid
 | GET | `/activities/:id/history` | `activity.read` theo chủ khách (**không** mở cho phụ trách ngoài phạm vi) | các dòng `audit_log` `entity_type='activity'` của id này (đã che nội dung) |
 | GET | `/activities/assignee-candidates?customerId=` | `activity.create` | ứng viên người phụ trách: admin = mọi nhân viên ACTIVE; sale/technician = nhân viên ACTIVE **cùng phòng** (endpoint riêng — `owner-candidates` với sale chỉ trả chính mình) |
 
+Thứ tự khai báo route: `assignee-candidates` và `reminders/summary` **trước** `:id` (như ghi chú `owner-candidates` trong `customers.controller.ts`); tập route của controller mới ghim trong `static-guards.spec.ts`.
 DTO (class-validator, `whitelist`+`forbidNonWhitelisted`): `type` ∈ 6 giá trị; `title` ≤200 (Trim); `content` 1–4000; `outcome` ≤2000; `occurredAt` ISO (mặc định now, không quá +1 ngày trừ MEETING/TASK); `contactId` uuid (phải thuộc khách — kiểm service 400 `ACTIVITY_CONTACT_MISMATCH`, trigger DB là lớp 2); `performedById` uuid (mặc định actor; phải là nhân viên ACTIVE; sale chỉ được giao cho người **cùng phòng** — tránh "giao việc" chéo phòng; admin tự do); `dueAt` (bắt buộc TASK), `remindAt ≤ dueAt`; `status` chỉ qua `/complete`, `/reopen` hoặc `PATCH {status:'CANCELLED'}`.
 Lỗi: `ACTIVITY_NOT_FOUND` 404, `ACTIVITY_VERSION_CONFLICT` 409, `ACTIVITY_NOT_OPEN` 409, `ACTIVITY_CONTACT_MISMATCH` 400, `ACTIVITY_ASSIGNEE_INVALID` 400, `CUSTOMER_DELETED` 409, `CONSTRAINT_CONFLICT` 409 (23514/23503), `ACTIVITY_BUSY` 409 (lock timeout). `mapPrismaError` thêm tên ràng buộc activity.
 Ghi: transaction `inTx` (lock 5 s / statement 15 s), `SELECT … FOR UPDATE` khách (tạo) hoặc hoạt động (sửa), `updateMany({where:{id, version, deletedAt:null}})` như `customer`.
@@ -188,7 +190,7 @@ B3.1 chỉ **trong ứng dụng**: `reminders/summary` cho chuông; trang "Công
 | **A6** backend-tasks | `/activities` danh sách, `reminders/summary`, PATCH, complete/reopen/cancel, DELETE mềm, `history` | sau A5 |
 | **A7** fe-timeline | tab Hoạt động + drawer Ghi nhận (PC + bottom sheet), `dtVN`, miniDom tests | sau A5 (có thể song song A6 với mock) |
 | **A8** fe-tasks | trang Công việc của tôi, chuông, mobile polish, Chrome harness S10, HTTPS LAN | sau A6, A7 |
-| **A9** demo | áp A2/A3/A4 lên DB demo 55433 (sao lưu trước), seed hoạt động giả, checklist §11, chạy Chrome | **anh duyệt riêng từng bước DB** |
+| **A9** demo | `demo-split.ps1` dùng V4 (bước split và sau migrate); áp A2/A3/A4 lên DB demo 55433 (sao lưu trước), seed hoạt động giả, checklist §11, chạy Chrome | **anh duyệt riêng từng bước DB** |
 Ước lượng: A2–A4 ~2–3 ngày làm + rà soát; A5–A6 ~3–4 ngày; A7–A8 ~3–4 ngày; A9 ~1 ngày. Mỗi PR: rà soát độc lập trước khi trình merge.
 
 ## 11. Rủi ro & đánh giá ảnh hưởng baseline
@@ -197,7 +199,7 @@ B3.1 chỉ **trong ứng dụng**: `reminders/summary` cho chuông; trang "Công
 | Đổi baseline quyền DB (V3→V4, VERIFY 73→N) | Trung bình (quy trình) | PR riêng, chỉ 1 dòng GRANT, V3 là rollback, diễn tập v4→v3→v4 trong CI, ghi số mới không sửa lịch sử |
 | `ALTER TYPE … ADD VALUE` không rollback trực tiếp | Thấp–TB | rollback tạo lại kiểu; từ chối khi còn TASK chưa xoá mềm; thử trên PG tạm trong CI |
 | Lộ nội dung chăm sóc qua `audit_log`/`history` | TB | che `title/content/outcome`; guard khoá nhạy cảm của `DbAuditPort`; `history` chỉ cho người đọc được hoạt động |
-| Giao việc chéo phòng / leo thang qua `performed_by` | TB | kiểm người phụ trách ACTIVE + cùng phòng (trừ admin); phụ trách chỉ được **đọc/đổi trạng thái**, không sửa nội dung/xoá nếu ngoài phạm vi |
+| Giao việc chéo phòng / leo thang qua `performed_by` | TB | kiểm người phụ trách ACTIVE + cùng phòng (trừ admin); phụ trách ngoài phạm vi chỉ được **GET + complete** — không PATCH, không xoá, không history |
 | Rò tồn tại khách qua 403/404 | Thấp | giữ quy tắc 404 ngoài phạm vi đọc như `customers` |
 | Hiệu năng timeline/danh sách việc | Thấp | chỉ mục riêng phần (12, 13), phân trang ≤100, `MAX_OFFSET_WINDOW` |
 | Cấp quyền cho DB đã bootstrap sai luồng | TB | chỉ qua yêu cầu 2 người; script idempotent + REMOVE; diễn tập PG tạm |
@@ -205,7 +207,8 @@ B3.1 chỉ **trong ứng dụng**: `reminders/summary` cho chuông; trang "Công
 | Dữ liệu cũ trong `activity` (nếu có) | Thấp | chỉ thêm cột có DEFAULT/NULL; không UPDATE hàng loạt; dòng cũ coi là `DONE` |
 
 ## 11b. Rà soát độc lập thiết kế (03/11/2026, agent đọc đối chiếu mã thật)
-Kết quả lần 1: **NOT READY** — 1 Critical (enum `ADD VALUE` dùng ngay trong cùng migration ⇒ `55P04`), 6 Important (rollback với dòng TASK đã xoá mềm; POST gắn `customer.update` làm technician luôn 403; CI còn hardcode V3 ở `split/auth` và `ci.yml` 182/189/211; luật phụ trách chưa giới hạn dữ liệu lộ; guard audit thiếu `content/outcome`; luồng cấp quyền 2 người thiếu "mỗi dòng một yêu cầu" + INSERT `permission` trước + REMOVE theo thứ tự), 3 Minor (quy ước trạng thái TASK/MEETING; mẫu trigger; `#/activities?due=`/`owner-candidates`). **Tất cả đã sửa trong bản này** (mục 3.2, 3.3, 4, 5, 6, 8, 10). Đã xác minh đúng: chỉ mục riêng phần không gây lệch `migrate diff`; CSRF/Origin là guard toàn cục; 4 chỗ mã quyền; FE nhận key mới tự động; quy ước PATCH+version/`{data}`/404/409; không service worker; 390/320 px.
+Kết quả lần 1: **NOT READY** — 1 Critical (enum `ADD VALUE` dùng ngay trong cùng migration ⇒ `55P04`), 6 Important (rollback với dòng TASK đã xoá mềm; POST gắn `customer.update` làm technician luôn 403; CI còn hardcode V3 ở `split/auth` và `ci.yml` 182/189/211; luật phụ trách chưa giới hạn dữ liệu lộ; guard audit thiếu `content/outcome`; luồng cấp quyền 2 người thiếu "mỗi dòng một yêu cầu" + INSERT `permission` trước + REMOVE theo thứ tự), 3 Minor (quy ước trạng thái TASK/MEETING; mẫu trigger; `#/activities?due=`/`owner-candidates`). **Tất cả đã sửa trong bản này** (mục 3.2, 3.3, 4, 5, 6, 8, 10).
+Lần 2 (xác nhận 8/8 đã sửa, **READY WITH NOTES**): thêm 1 Important (danh sách chỗ trỏ V3 còn thiếu `demo-split.ps1` và tài liệu/script khác — đã bổ sung §4, A3/A9) + 3 Minor (thống nhất câu chữ luật phụ trách §5/§11; thứ tự route; tiêu đề test P3b I-4) — đã sửa. Đã xác minh đúng: chỉ mục riêng phần không gây lệch `migrate diff`; CSRF/Origin là guard toàn cục; 4 chỗ mã quyền; FE nhận key mới tự động; quy ước PATCH+version/`{data}`/404/409; không service worker; 390/320 px.
 
 ## 12. Quyết định cần anh chốt trước khi làm A2
 1. Ma trận quyền mục 5 — đặc biệt **technician được `activity.create`/`update` DEPARTMENT** (đề xuất: có) và **accountant chỉ đọc** (đề xuất: có).
