@@ -23,6 +23,9 @@ Thực hiện theo `docs/B1.5_PHONE_HTTPS_GUIDE.md` mục **G** và `docs/B1.5_W
 - Harness trong repo (`tests/browser/sessionRolesChrome.mjs`) cố ý chỉ cho host `127.0.0.1` (`--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`). Bộ HTTPS chạy bằng **bản sao ngoài repo** chỉ đổi: địa chỉ `https://192.168.1.10:8443`, luật phân giải thêm đúng `EXCLUDE 192.168.1.10` (mọi host khác vẫn chặn), cờ SPKI, và assertion `Secure` cho cookie. Tiến trình Node của harness chỉ tin thêm `rootCA.pem` (chứng chỉ công khai) qua `NODE_EXTRA_CA_CERTS`.
 - Kết luận TLS dựa trên **bước 7 + điện thoại thật**; bộ Chrome chỉ chứng minh **hành vi ứng dụng** qua HTTPS.
 
+## Điện thoại thật
+- 2026-11-03: owner xác nhận **điện thoại vào được** `https://192.168.1.10:8443` qua Wi-Fi nội bộ sau khi cài CA (owner tự thực hiện; Claude không thao tác trên điện thoại). Chi tiết checklist mục 10 (loại máy/hệ điều hành, "Thêm vào màn hình chính", đăng nhập trong ứng dụng màn hình chính) owner bổ sung khi làm xong.
+
 ## Còn lại (owner)
 - Cài `rootCA.pem` lên iPhone/Android, mở `https://192.168.1.10:8443`, làm checklist `docs/B1.5_OWNER_ACCEPTANCE_CHECKLIST.md` mục 10 (điện thoại thật, PWA "Thêm vào màn hình chính") và mục 1–7.
 - Kết thúc buổi thử: đóng 3 cửa sổ demo, `Disable-NetFirewallRule -DisplayName "SISCOM demo LAN 8443"` (Administrator).
