@@ -1,0 +1,20 @@
+Kiem https://192.168.1.10:8443 voi CA D:\SISCOM-CRM-demo-pg\private\lan-certs\CA\rootCA.pem (chi tin CA nay; xac thuc TLS bat)
+[PASS] T1 TLS hop le voi DUNG CA mkcert (rejectUnauthorized, kiem SAN) - TLSv1.3 TLS_AES_128_GCM_SHA256 ALPN=h2
+[PASS] T2 SAN cua chung chi chua dung IP Address:192.168.1.10 - IP Address:192.168.1.10
+[PASS] T3 chung chi con han >= 7 ngay - het han Feb  1 15:58:58 2029 GMT (821 ngay)
+[PASS] T4 doi chung: CA mkcert KHONG duoc tin ngoai script (Node tu choi vi loi xac thuc + khong co trong kho CA Windows theo SHA-256) - Node: UNABLE_TO_VERIFY_LEAF_SIGNATURE | Windows: SHA-256 D8:00:68:73:0A:43:18:B4... khong trung voi 111 chung chi trong Cert:\CurrentUser\Root, Cert:\LocalMachine\Root, Cert:\LocalMachine\AuthRoot
+[PASS] T5 doi chung: TLS 1.0 va TLS 1.1 (thu rieng) deu bi tu choi vi loi phien ban; thuc te >= TLS 1.2 - TLSv1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; TLSv1.1: ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION; thuc te TLSv1.3
+SPKI sha256 (base64) cua chung chi may chu: rRt0ebipnpmUbI/xSa34k987xHJhUhwScxAfWVLIFr0=
+[PASS] T6 GET / => 200 HTML (giao dien qua proxy) - status=200
+[PASS] T7 GET /api/v1/health => 200 (backend qua proxy) - status=200
+[PASS] T8 PWA manifest qua HTTPS - application/manifest+json
+[PASS] T9 POST /auth/login voi Origin la => 403 CSRF_FAILED - status=403 code=CSRF_FAILED
+[PASS] T10 POST /auth/login voi Origin dung => qua lop Origin (400 validation, khong 403) - status=400 code=VALIDATION_FAILED
+[PASS] T11 http:// (khong TLS) tren cong 8443 khong tra giao dien - HTTP/1.0 400 Bad Request
+[PASS] T12 cong 3100 KHONG mo tren 192.168.1.10 - ECONNREFUSED
+[PASS] T12 cong 4173 KHONG mo tren 192.168.1.10 - ECONNREFUSED
+[PASS] T12 cong 55433 KHONG mo tren 192.168.1.10 - ECONNREFUSED
+[PASS] T12 cong 5432 KHONG mo tren 192.168.1.10 - ECONNREFUSED
+[INFO] Strict-Transport-Security (backend): max-age=31536000; includeSubDomains
+TONG: PASS=15 FAIL=0 WARN=0
+GIOI HAN: script kiem tu CHINH may tinh. Dien thoai tin CA va mo duoc trang phai kiem tren dien thoai that (checklist muc 10).
