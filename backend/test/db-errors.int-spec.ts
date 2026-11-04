@@ -81,9 +81,11 @@ describe('18. ánh xạ lỗi DB thật', () => {
     await prisma.contact.create({ data: { customerId: c.id, fullName: 'Chính 1', phone: '0903123456', isPrimary: true } });
     await expectMapped(prisma.contact.create({ data: { customerId: c.id, fullName: 'Chính 2', phone: '0903123456', isPrimary: true } }), 'CONTACT_PRIMARY_CONFLICT');
   });
-  it('CHECK (liên hệ không có SĐT lẫn email) -> CONSTRAINT_CONFLICT', async () => {
+  it('04/11/2026 (PR #203): liên hệ chỉ có họ tên (không SĐT/email) hợp lệ; họ tên rỗng -> CHECK -> CONSTRAINT_CONFLICT', async () => {
     const c = await makeCustomer(prisma, fx);
-    await expectMapped(prisma.contact.create({ data: { customerId: c.id, fullName: 'Không liên lạc' } }), 'CONSTRAINT_CONFLICT');
+    const ok = await prisma.contact.create({ data: { customerId: c.id, fullName: 'Chỉ họ tên' } });
+    expect(ok).toMatchObject({ phone: null, email: null });
+    await expectMapped(prisma.contact.create({ data: { customerId: c.id, fullName: '   ' } }), 'CONSTRAINT_CONFLICT');
   });
   it('lock_timeout (55P03) -> CUSTOMER_BUSY', async () => {
     const c = await makeCustomer(prisma, fx);
