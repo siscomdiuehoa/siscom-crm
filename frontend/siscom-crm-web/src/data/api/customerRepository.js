@@ -105,8 +105,7 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
     async create(ui) {
       sent = false;
       try {
-        if (!ui || blank(ui.name)) throw new AdapterError('Vui lòng nhập tên công ty', 'name');
-        if (blank(ui.phone)) throw new AdapterError('Vui lòng nhập số điện thoại', 'phone');
+        if (!ui || blank(ui.name)) throw new AdapterError('Vui lòng nhập tên công ty', 'name'); // 04/11/2026: phone optional
         const maps = needsLookups(ui) ? await api.getLookupMaps() : {};
         sent = false; // lookups is a read; until POST goes out, AdapterError = invalid input (e.g. unknown label)
         return await api.create(ui, maps);
@@ -123,8 +122,7 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
       sent = false;
       try {
         checkId(id);
-        if (!ui || blank(ui.name)) throw new AdapterError('Vui lòng nhập tên công ty', 'name');
-        if (blank(ui.phone)) throw new AdapterError('Vui lòng nhập số điện thoại', 'phone');
+        if (!ui || blank(ui.name)) throw new AdapterError('Vui lòng nhập tên công ty', 'name'); // 04/11/2026: phone optional (blank = clear)
         if (!Number.isInteger(version) || version < 1) throw new AdapterError('Thiếu version (khoá lạc quan) để cập nhật.', 'version');
         const maps = needsLookups(ui) ? await api.getLookupMaps() : {};
         sent = false;

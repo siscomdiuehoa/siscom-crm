@@ -57,6 +57,12 @@ describe('18. ánh xạ lỗi DB thật', () => {
   it('CHECK (điện thoại rỗng) -> CONSTRAINT_CONFLICT', async () => {
     await expectMapped(prisma.customer.create({ data: { ...base(), phone: '   ' } }), 'CONSTRAINT_CONFLICT');
   });
+  it('04/11/2026: CHECK (không có phone nhưng có phone_e164) -> CONSTRAINT_CONFLICT; phone NULL hợp lệ', async () => {
+    await expectMapped(prisma.customer.create({ data: { ...base(), phone: null, phoneE164: '+84903123456' } }), 'CONSTRAINT_CONFLICT');
+    await expectMapped(prisma.customer.create({ data: { ...base(), phone: '' } }), 'CONSTRAINT_CONFLICT');
+    const ok = await prisma.customer.create({ data: { ...base(), phone: null, phoneE164: null } });
+    expect(ok.phone).toBeNull();
+  });
   it('CHECK (MST sai định dạng) -> CONSTRAINT_CONFLICT', async () => {
     await expectMapped(prisma.customer.create({ data: { ...base(), taxId: '123' } }), 'CONSTRAINT_CONFLICT');
   });

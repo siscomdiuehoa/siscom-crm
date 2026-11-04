@@ -149,6 +149,7 @@ jobs:
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh unsplit
           # B1.4 cau 3: rollback migration moi nhat TRUOC (nguoc thu tu ap)
+          bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_PHONE_OPTIONAL_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_ROLLBACK.sql.txt run app
@@ -177,6 +178,7 @@ jobs:
       - name: B1.4 Remember Me - rollback (migrator) => V3 => VERIFY PASS; migrate deploy (migrator) => VERIFY FAIL B1f (quyen mac dinh) => V3 => PASS app + auth + cau truc
         run: |
           set -euo pipefail
+          bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_PHONE_OPTIONAL_ROLLBACK.sql.txt run migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK.sql.txt run migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_ROLLBACK.sql.txt run migrator
           bash scripts/ci/pg-temp-db.sh grants v3

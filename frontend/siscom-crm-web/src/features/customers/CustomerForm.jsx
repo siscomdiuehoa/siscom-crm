@@ -57,7 +57,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   // QA M-4: tên người liên hệ mới mang SĐT công ty; SĐT cũ sai định dạng (được giữ nguyên khi sửa) sẽ bị server từ chối SAU khi khách đã lưu => báo ngay tại ô.
   const cName = String(f.contactName || '').trim();
   const cChanged = !!cName && cName !== (hasContact ? String(ctS.item.fullName || '').trim() : '');
-  const cErr = !showContact ? '' : contactNameError(f.contactName) || (cChanged && !U.isPhone(f.phone) ? 'Số điện thoại công ty chưa hợp lệ nên chưa lưu được người liên hệ; sửa ô Điện thoại.' : '');
+  const cErr = !showContact ? '' : contactNameError(f.contactName) || (cChanged && !String(f.phone || '').trim() ? 'Người liên hệ dùng số điện thoại công ty: nhập ô Điện thoại, hoặc để trống tên người liên hệ.' : cChanged && !U.isPhone(f.phone) ? 'Số điện thoại công ty chưa hợp lệ nên chưa lưu được người liên hệ; sửa ô Điện thoại.' : '');
   const errs = { ...validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial), ...(apiOn ? lookupFormErrors(lk, f) : {}), ...(cErr ? { contactName: cErr } : {}) };
   const err = (k) => (tried && errs[k]) || (srvErr && srvErr.fieldErrors[k]) || '';
   const dirty = JSON.stringify(f) !== JSON.stringify(start);
@@ -123,7 +123,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
           <Section title="Địa chỉ & liên hệ" icon="map-pin">
             <div style={{ gridColumn: '1 / -1' }}><Input label="Địa chỉ" placeholder="Số nhà, đường, phường/xã" value={f.address} onChange={set('address')} error={err('address')} /></div>
             <Select label="Tỉnh / Thành phố" placeholder="Chưa chọn" value={f.city} onChange={set('city')} {...L('city', D.CITIES, true)} error={err('city')} />
-            <Input label="Điện thoại" required icon="phone" placeholder="028 3822 1234 hoặc +82 2 1234 5678" inputMode="tel" value={f.phone} onChange={set('phone')} error={err('phone')} />
+            <Input label="Điện thoại" icon="phone" placeholder="028 3822 1234 hoặc +82 2 1234 5678" inputMode="tel" value={f.phone} onChange={set('phone')} error={err('phone')} />
             <Input label="Email" icon="mail" placeholder="lienhe@congty.vn" type="email" value={f.email} onChange={set('email')} error={err('email')} />
             <Input label="Website" icon="globe" placeholder="congty.vn" value={f.website} onChange={set('website')} error={err('website')} />
           </Section>

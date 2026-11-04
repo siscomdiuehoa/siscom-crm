@@ -97,10 +97,10 @@ test('cờ BẬT create: chỉ name+phone → không cần gọi /lookups', asyn
   await repo.create({ name: 'Công ty A', phone: '0901234567' });
   assert.equal(f.calls.length, 1); assert.equal(f.calls[0].init.method, 'POST');
 });
-test('cờ BẬT create: thiếu tên/điện thoại → validation, không gọi mạng', async () => {
+test('cờ BẬT create: thiếu tên → validation, không gọi mạng (04/11/2026: điện thoại không bắt buộc)', async () => {
   const repo = createCustomerRepository({ env: ON, fetchImpl: throwingFetch, local: {} });
   await assert.rejects(() => repo.create({ name: '  ', phone: '0901234567' }), (e) => e.kind === 'validation' && e.field === 'name');
-  await assert.rejects(() => repo.create({ name: 'A', phone: '' }), (e) => e.kind === 'validation' && e.field === 'phone');
+  await assert.rejects(() => repo.create({ name: '  ', phone: '' }), (e) => e.kind === 'validation' && e.field === 'name');
   await assert.rejects(() => repo.create(null), (e) => e.kind === 'validation');
 });
 test('cờ BẬT create: nhãn demo lạ → validation có field, KHÔNG POST, không đoán mã', async () => {

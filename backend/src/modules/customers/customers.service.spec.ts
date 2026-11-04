@@ -157,6 +157,30 @@ describe('create', () => {
   });
 });
 
+describe('create — số điện thoại không bắt buộc (04/11/2026)', () => {
+  const ready = () => {
+    const e = build();
+    e.lookupItem.findMany.mockResolvedValue(lookups);
+    e.customer.create.mockResolvedValue({ id: ID, code: 'KH-00001' });
+    e.customer.findUniqueOrThrow.mockResolvedValue(row({ phone: null, phoneE164: null }));
+    return e;
+  };
+  it('không gửi / rỗng / null / toàn khoảng trắng: lưu phone NULL và phone_e164 NULL, không tạo số giả', async () => {
+    for (const phone of [undefined, '', null, '   ']) {
+      const e = ready();
+      const r = await e.svc.create(ctx, { name: 'Công ty TNHH ABC', ...(phone === undefined ? {} : { phone }) } as never);
+      expect(e.customer.create.mock.calls[0][0].data).toMatchObject({ phone: null, phoneE164: null });
+      expect(r.phone).toBeNull();
+    }
+  });
+  it('có số: vẫn kiểm định dạng (sai -> 400, không mở transaction)', async () => {
+    const e = ready();
+    const x = await err(e.svc.create(ctx, { name: 'Công ty TNHH ABC', phone: '123' } as never));
+    expect(x.code).toBe('VALIDATION_FAILED');
+    expect(e.prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
 describe('update', () => {
   const ready = (cur = row(), scopes: Scopes = ALL) => {
     const e = build(scopes);
@@ -230,6 +254,24 @@ describe('update', () => {
     expect(a.customer.updateMany.mock.calls[0][0].data).not.toHaveProperty('phone');
     const b = ready(legacy);
     expect((await err(b.svc.update(ctx, ID, { version: 1, phone: '12' } as never))).code).toBe('VALIDATION_FAILED');
+  });
+  it('04/11/2026: khách chưa có số -> cập nhật thêm số sau (kiểm định dạng, tính phone_e164)', async () => {
+    const e = ready(row({ phone: null, phoneE164: null }));
+    await e.svc.update(ctx, ID, { version: 1, phone: '0903 123 456' } as never);
+    expect(e.customer.updateMany.mock.calls[0][0].data).toMatchObject({ phone: '0903 123 456', phoneE164: '+84903123456' });
+    const bad = ready(row({ phone: null, phoneE164: null }));
+    expect((await err(bad.svc.update(ctx, ID, { version: 1, phone: '123' } as never))).code).toBe('VALIDATION_FAILED');
+    expect(bad.customer.updateMany).not.toHaveBeenCalled();
+  });
+  it('04/11/2026: xoá số (null / rỗng) -> phone NULL và phone_e164 NULL; không gửi phone -> giữ nguyên', async () => {
+    for (const phone of [null, '', '  ']) {
+      const e = ready();
+      await e.svc.update(ctx, ID, { version: 1, phone } as never);
+      expect(e.customer.updateMany.mock.calls[0][0].data).toMatchObject({ phone: null, phoneE164: null });
+    }
+    const keep = ready();
+    await keep.svc.update(ctx, ID, { version: 1, note: 'x' } as never);
+    expect(keep.customer.updateMany.mock.calls[0][0].data).not.toHaveProperty('phone');
   });
   it('đổi SĐT hợp lệ cập nhật cả phone_e164', async () => {
     const e = ready();

@@ -74,7 +74,8 @@ describe('Customer API — có danh tính giả (CHỈ trong test)', () => {
     const res = await call(app, 'post', '/api/v1/customers', {});
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_FAILED');
-    expect(res.body.details).toEqual(expect.arrayContaining(['Vui lòng nhập tên công ty', 'Vui lòng nhập số điện thoại']));
+    expect(res.body.details).toEqual(expect.arrayContaining(['Vui lòng nhập tên công ty']));
+    expect(res.body.details).not.toContain('Vui lòng nhập số điện thoại'); // 04/11/2026: SĐT không bắt buộc
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
   it.each(['id', 'code', 'version', 'isDemo', 'revenueVnd'])('POST kèm trường lạ "%s" -> 400', async (k) => {

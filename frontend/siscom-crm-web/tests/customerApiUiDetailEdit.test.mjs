@@ -81,10 +81,10 @@ test('update thành công: PATCH theo UUID với version đã tải, KHÔNG gử
   assert.equal(s.detail.customer.version, 3); assert.equal(s.detail.customer.name, 'Công ty A mới'); assert.equal(s.list.items[0].name, 'Công ty A mới');
 });
 
-test('update: thiếu tên/điện thoại/version bị chặn, không gọi PATCH; dữ liệu cũ giữ nguyên', async () => {
+test('update: thiếu tên/version bị chặn (04/11/2026: điện thoại không bắt buộc), không gọi PATCH; dữ liệu cũ giữ nguyên', async () => {
   const f = okServer(); const c = createCustomerApiUi({ env: ON, fetchImpl: f });
   await c.loadDetail(ID); const before = c.getState().detail.customer; f.calls.length = 0;
-  for (const [input, version, field] of [[{ name: ' ', phone: '1' }, 2, 'name'], [{ name: 'A', phone: '' }, 2, 'phone'], [{ name: 'A', phone: '1' }, undefined, 'version']]) {
+  for (const [input, version, field] of [[{ name: ' ', phone: '1' }, 2, 'name'], [{ name: ' ', phone: '' }, 2, 'name'], [{ name: 'A', phone: '1' }, undefined, 'version']]) {
     const r = await c.update(ID, input, version);
     assert.equal(r.ok, false); assert.equal(r.error.kind, 'validation'); assert.ok(r.error.fieldErrors[field]);
     assert.equal(c.getState().update.status, 'error');
