@@ -211,6 +211,14 @@ test('owner 04/11/2026 (PR #203): thêm mới KHÔNG có SĐT công ty + tên ng
   } finally { await m.unmount(); }
 });
 
+test('owner 04/11/2026 (PR #203, E1): phụ đề form Thêm khách hàng không còn ghi Điện thoại là bắt buộc', async () => {
+  const f = server(); const m = await mountNew(f);
+  try {
+    assert.match(text(m.container), /Chỉ tên công ty là bắt buộc\. Số điện thoại có thể bổ sung sau\./);
+    assert.doesNotMatch(text(m.container), /Điện thoại là bắt buộc/);
+  } finally { await m.unmount(); }
+});
+
 test('QA M-4: SĐT công ty cũ không hợp lệ + nhập tên người liên hệ mới => lỗi ngay tại ô, không PATCH/POST', async () => {
   const f = server({ cust: apiCust({ phone: '12345' }), contacts: () => [] }); const m = await mountDetail(f);
   try {

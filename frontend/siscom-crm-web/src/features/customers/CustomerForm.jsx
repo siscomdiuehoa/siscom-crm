@@ -98,7 +98,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
       <aside role="dialog" aria-modal="true" aria-label={isNew ? 'Thêm khách hàng' : 'Sửa thông tin khách hàng'} className="sg-solid" style={{ position: 'relative', width: 'min(640px,100%)', height: '100%', display: 'flex', flexDirection: 'column', borderRadius: '20px 0 0 20px', boxShadow: 'var(--shadow-lg)', animation: 'sg-toast-in var(--dur-slow) var(--ease-out)' }}>
         <header style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '20px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
           <span className="sg-kpi__icon"><Icon name={isNew ? 'user-plus' : 'pencil'} size={18} /></span>
-          <div style={{ flex: 1, minWidth: 0 }}><h2 style={{ margin: 0, font: 'var(--type-h3)' }}>{isNew ? 'Thêm khách hàng' : 'Sửa thông tin khách hàng'}</h2><p style={{ margin: '2px 0 0', font: 'var(--type-sm)', color: 'var(--text-2)' }}>{isNew ? 'Chỉ Tên công ty và Điện thoại là bắt buộc.' : (apiOn ? customerDisplayCode(initial) : initial.id) + ' · ' + initial.short}</p></div>
+          <div style={{ flex: 1, minWidth: 0 }}><h2 style={{ margin: 0, font: 'var(--type-h3)' }}>{isNew ? 'Thêm khách hàng' : 'Sửa thông tin khách hàng'}</h2><p style={{ margin: '2px 0 0', font: 'var(--type-sm)', color: 'var(--text-2)' }}>{isNew ? 'Chỉ tên công ty là bắt buộc. Số điện thoại có thể bổ sung sau.' : (apiOn ? customerDisplayCode(initial) : initial.id) + ' · ' + initial.short}</p></div>
           <IconButton icon="x" label="Đóng" size="sm" onClick={close} />
         </header>
         <div className="sg-scroll" style={{ flex: 1, overflow: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 28 }}>
