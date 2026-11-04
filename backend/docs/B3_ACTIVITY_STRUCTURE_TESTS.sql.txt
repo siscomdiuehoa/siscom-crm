@@ -80,7 +80,7 @@ UPDATE activity SET status = 'OPEN' WHERE id = 'b3000000-0000-4000-8000-00000000
 SELECT pg_temp.expect_err('S14 #11 khong doi customer_id cua hoat dong (trg_activity_customer_fixed)', $q$ UPDATE activity SET customer_id = 'b3000000-0000-4000-8000-000000000032' WHERE id = 'b3000000-0000-4000-8000-000000000051' $q$, '23001');
 SELECT pg_temp.expect_err('S15 trigger B1.2 trg_activity_contact van bat lien he khac khach', $q$ UPDATE activity SET contact_id = 'b3000000-0000-4000-8000-000000000042' WHERE id = 'b3000000-0000-4000-8000-000000000052' $q$, '23503');
 SELECT pg_temp.expect_err('S16 trigger B1.2 trg_activity_code_fixed van cam doi ma', $q$ UPDATE activity SET code = 'TT-999999' WHERE id = 'b3000000-0000-4000-8000-000000000051' $q$, '23001');
-SELECT pg_temp.expect_true('S17 chi muc rieng phan idx_activity_open_due, idx_activity_customer_active ton tai (co WHERE); chi muc cu con', $q$ (SELECT count(*) = 2 AND bool_and(pg_get_indexdef(c.oid) ILIKE '%WHERE%') FROM pg_class c WHERE c.relkind = 'i' AND c.relname IN ('idx_activity_open_due', 'idx_activity_customer_active')) AND to_regclass('public.activity_customer_id_occurred_at_idx') IS NOT NULL $q$);
+SELECT pg_temp.expect_true('S17 chi muc rieng phan dung cot + vi tu: idx_activity_open_due (performed_by, due_at) WHERE status=OPEN AND deleted_at IS NULL; idx_activity_customer_active (customer_id, occurred_at DESC) WHERE deleted_at IS NULL; chi muc cu con', $q$ (pg_get_indexdef('public.idx_activity_open_due'::regclass) LIKE '%USING btree (performed_by, due_at) WHERE ((status = %OPEN%::activity_status) AND (deleted_at IS NULL))') AND (pg_get_indexdef('public.idx_activity_customer_active'::regclass) LIKE '%USING btree (customer_id, occurred_at DESC) WHERE (deleted_at IS NULL)') AND to_regclass('public.activity_customer_id_occurred_at_idx') IS NOT NULL $q$);
 
 -- 4. activity_access (#18)
 INSERT INTO activity_access (id, activity_id, employee_id, granted_by, expires_at) VALUES
@@ -100,6 +100,7 @@ SELECT pg_temp.expect_true('S23b sau thu hoi dong cu, cap lai cung cap duoc (1 d
 SELECT pg_temp.expect_err('S24 khong doi employee_id/activity_id/granted_by/created_at/expires_at (append-only)', $q$ UPDATE activity_access SET employee_id = 'b3000000-0000-4000-8000-000000000021' WHERE id = 'b3000000-0000-4000-8000-000000000063' $q$, '23001');
 SELECT pg_temp.expect_err('S24b khong gia han expires_at (doi han = thu hoi + cap lai)', $q$ UPDATE activity_access SET expires_at = expires_at + interval '1 day' WHERE id = 'b3000000-0000-4000-8000-000000000063' $q$, '23001');
 SELECT pg_temp.expect_err('S25 dong da thu hoi khong sua lai (ke ca ly do)', $q$ UPDATE activity_access SET revoke_reason = 'MANUAL' WHERE id = 'b3000000-0000-4000-8000-000000000061' $q$, '23001');
+SELECT pg_temp.expect_err('S26b FK ON DELETE RESTRICT (23001 restrict_violation): xoa hoat dong con quyen theo viec bi chan', $q$ DELETE FROM activity WHERE id = 'b3000000-0000-4000-8000-000000000052' $q$, '23001');
 SELECT pg_temp.expect_err('S26 nhan vien khong ton tai bi tu choi (FK)', $q$ INSERT INTO activity_access (activity_id, employee_id, granted_by, expires_at) VALUES ('b3000000-0000-4000-8000-000000000051', gen_random_uuid(), 'b3000000-0000-4000-8000-000000000021', now() + interval '1 day') $q$, '23503');
 
 -- 5. activity_transfer_request (#19)

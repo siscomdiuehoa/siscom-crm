@@ -209,6 +209,8 @@ jobs:
           out="$(bash scripts/ci/pg-sql-check.sh docs/B3_ROLLBACK_REFUSE_COLS_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (B3_ROLLBACK_REFUSE_COLS_TEST)'; exit 1; } || true
           echo "$out" | grep -E 'TU CHOI: con [0-9]+ dong activity co gia tri o cot moi' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (B3_ROLLBACK_REFUSE_COLS_TEST)'; exit 1; }
           echo 'DAT (RED mong doi): B3_ROLLBACK_REFUSE_COLS_TEST.sql.txt - rollback tu choi khi cot moi co gia tri'
+          # B3 A2: sau 2 ca tu choi, trang thai DB con nguyen (seed 5 loai cu + cau truc B3 van PASS - thiet ke §3.3f(3))
+          bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_SEED_OLDTYPES_CHECK.sql.txt res migrator
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
           MIGRATE_DATABASE_URL: ${{ env.TEST_MIGRATE_DATABASE_URL }}
