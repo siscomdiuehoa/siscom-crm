@@ -35,6 +35,18 @@ test('API create không có số: POST không chứa phone (không tạo số gi
     assert.equal(c.phone, '');
   }
 });
+test('owner 04/11/2026 (PR #203): đặt người liên hệ chính khi khách CHƯA có số => POST chỉ có họ tên; có số thì gửi kèm', async () => {
+  for (const companyPhone of ['', null, undefined, '   ']) {
+    const f = mockFetch(() => res(201, { data: { id: 'c1', code: 'LH-000001', fullName: 'Nguyễn A', isPrimary: true, phone: null, email: null } }));
+    const c = await createCustomerRepository({ env: ON, fetchImpl: f, local: {} }).setPrimaryContact(ID, ' Nguyễn A ', companyPhone);
+    assert.equal(f.calls[0].init.method, 'POST');
+    assert.deepEqual(JSON.parse(f.calls[0].init.body), { fullName: 'Nguyễn A', isPrimary: true });
+    assert.equal(c.fullName, 'Nguyễn A');
+  }
+  const g = mockFetch(() => res(201, { data: { id: 'c1', code: 'LH-000001', fullName: 'Nguyễn A', isPrimary: true } }));
+  await createCustomerRepository({ env: ON, fetchImpl: g, local: {} }).setPrimaryContact(ID, 'Nguyễn A', ' 0903 123 456 ');
+  assert.deepEqual(JSON.parse(g.calls[0].init.body), { fullName: 'Nguyễn A', isPrimary: true, phone: '0903 123 456' });
+});
 test('API update: thêm số sau gửi số đã trim; xoá số gửi phone null', async () => {
   const add = mockFetch(() => res(200, { data: apiCust({ phone: '0903 123 456', phoneE164: '+84903123456', version: 2 }) }));
   const c = await createCustomerRepository({ env: ON, fetchImpl: add, local: {} }).update(ID, { name: 'Công ty Không SĐT', phone: ' 0903 123 456 ' }, 1);

@@ -1,0 +1,17 @@
+-- SISCOM CRM - PR #203: BAI TAI HIEN (RED mong doi) - CUSTOMER_PHONE_OPTIONAL_ROLLBACK PHAI TU CHOI khi da co khach hang
+-- khong co so dien thoai (khong tu dien so gia). Chay SAU khi CONTACT_REACH_OPTIONAL_ROLLBACK da chay (thu tu rollback nguoc).
+-- CHI CHAY TREN DB TAM CUA CI (siscom_crm_test_*). Mo transaction ngoai, chen du lieu thu roi goi rollback (\ir): rollback RAISE "TU CHOI: con ..."
+-- => psql thoat khac 0, transaction ngoai bi huy: KHONG con du lieu thu va KHONG co gi bi rollback. CI kiem thong bao TU CHOI.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_test_[0-9]{8}_[0-9]{6}$' THEN RAISE EXCEPTION 'TU CHOI CHAY BAI THU: % khong phai DB tam CI.', current_database(); END IF;
+END $$;
+BEGIN;
+INSERT INTO lookup_item (id, type, code, label_vi) VALUES
+ ('f2030000-0000-4000-8000-000000000021', 'customer_tier', 'ZZ_PR203_RC_TIER', 'PR203 hang thu'),
+ ('f2030000-0000-4000-8000-000000000022', 'customer_status', 'ZZ_PR203_RC_STATUS', 'PR203 trang thai thu');
+INSERT INTO customer (id, name, tier_id, status_id, is_demo) VALUES ('f2032000-0000-4000-8000-000000000002', 'PR203 Khach khong so', 'f2030000-0000-4000-8000-000000000021', 'f2030000-0000-4000-8000-000000000022', true);
+\ir CUSTOMER_PHONE_OPTIONAL_ROLLBACK.sql.txt
+SELECT 'KHONG DAT: rollback KHONG tu choi' AS loi;

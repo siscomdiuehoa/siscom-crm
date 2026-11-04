@@ -3,7 +3,7 @@ import { IsEmailB1 } from '../validators/vn-email';
 import { IsVnPhone } from '../validators/vn-phone';
 import { SkipIfBlank, Trim } from './dto-helpers';
 
-// Phải có ít nhất một trong phone/email (CHECK ck_contact_reach) — kiểm tiếp ở service.
+// 04/11/2026 (owner, PR #203): chỉ họ tên bắt buộc; phone/email KHÔNG bắt buộc (bỏ CHECK ck_contact_reach). Có giá trị thì vẫn kiểm định dạng.
 export class CreateContactDto {
   @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập họ tên người liên hệ' }) @MaxLength(200)
   fullName!: string;

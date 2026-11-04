@@ -57,7 +57,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   // QA M-4: tên người liên hệ mới mang SĐT công ty; SĐT cũ sai định dạng (được giữ nguyên khi sửa) sẽ bị server từ chối SAU khi khách đã lưu => báo ngay tại ô.
   const cName = String(f.contactName || '').trim();
   const cChanged = !!cName && cName !== (hasContact ? String(ctS.item.fullName || '').trim() : '');
-  const cErr = !showContact ? '' : contactNameError(f.contactName) || (cChanged && !String(f.phone || '').trim() ? 'Người liên hệ dùng số điện thoại công ty: nhập ô Điện thoại, hoặc để trống tên người liên hệ.' : cChanged && !U.isPhone(f.phone) ? 'Số điện thoại công ty chưa hợp lệ nên chưa lưu được người liên hệ; sửa ô Điện thoại.' : '');
+  const cErr = !showContact ? '' : contactNameError(f.contactName) || (cChanged && String(f.phone || '').trim() && !U.isPhone(f.phone) ? 'Số điện thoại công ty chưa hợp lệ nên chưa lưu được người liên hệ; sửa ô Điện thoại.' : '');
   const errs = { ...validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial), ...(apiOn ? lookupFormErrors(lk, f) : {}), ...(cErr ? { contactName: cErr } : {}) };
   const err = (k) => (tried && errs[k]) || (srvErr && srvErr.fieldErrors[k]) || '';
   const dirty = JSON.stringify(f) !== JSON.stringify(start);
@@ -117,7 +117,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
             // Owner (2026-11-01): mục Người liên hệ đặt ngay sau Thông tin doanh nghiệp, trước Địa chỉ & liên hệ.
             <Section title="Người liên hệ" icon="contact">
               <div style={{ gridColumn: '1 / -1' }}><Input label="Tên người liên hệ" placeholder="Nguyễn Văn A" value={f.contactName} onChange={set('contactName')} maxLength={CONTACT_NAME_MAX} error={err('contactName')}
-                hint={'Mỗi khách hàng một người liên hệ; dùng số điện thoại công ty (mục Địa chỉ & liên hệ).' + (hasContact ? ' Để trống = giữ người liên hệ hiện tại.' : '')} /></div>
+                hint={'Mỗi khách hàng một người liên hệ; nếu có số điện thoại công ty (mục Địa chỉ & liên hệ) thì dùng số đó, không có số vẫn lưu được tên.' + (hasContact ? ' Để trống = giữ người liên hệ hiện tại.' : '')} /></div>
             </Section>
           ) : null}
           <Section title="Địa chỉ & liên hệ" icon="map-pin">

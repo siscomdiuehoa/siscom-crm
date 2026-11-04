@@ -119,10 +119,10 @@ describe('Customer API — có danh tính giả (CHỈ trong test)', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ items: [], page: 1, pageSize: 20, total: 0, totalPages: 0 });
   });
-  it('liên hệ: POST thiếu họ tên / không có SĐT-email / trường lạ -> 400', async () => {
+  it('liên hệ: POST thiếu họ tên / SĐT sai định dạng / trường lạ -> 400 (04/11/2026: không có SĐT-email là hợp lệ)', async () => {
     const url = '/api/v1/customers/' + ID + '/contacts';
     expect((await call(app, 'post', url, {})).status).toBe(400);
-    expect((await call(app, 'post', url, { fullName: 'A' })).status).toBe(400);
+    expect((await call(app, 'post', url, { fullName: 'A', phone: '123' })).status).toBe(400);
     expect((await call(app, 'post', url, { fullName: 'A', phone: '0903123456', customerId: ID })).status).toBe(400);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });

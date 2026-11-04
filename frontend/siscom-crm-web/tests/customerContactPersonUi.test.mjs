@@ -197,6 +197,20 @@ test('QA I-1: không có contact.read => nút Sửa không phải chờ người
   try { assert.equal(buttonByText(m.container, /Sửa thông tin/).disabled, false); } finally { await m.unmount(); }
 });
 
+test('owner 04/11/2026 (PR #203): thêm mới KHÔNG có SĐT công ty + tên người liên hệ => lưu được; POST contacts chỉ có họ tên, không số giả', async () => {
+  const f = server({ cust: apiCust({ phone: null }) }); const m = await mountNew(f);
+  try {
+    await act_(() => type(inputByLabel(m.container, /^Tên công ty/), 'Công ty A'));
+    await act_(() => type(inputByLabel(m.container, /^Tên người liên hệ/), 'Trần Thị B'));
+    await act_(() => click(buttonByText(m.container, /Thêm khách hàng/)));
+    const posts = f.calls.filter((c) => c.method === 'POST');
+    assert.deepEqual(posts.map((c) => c.p.replace('/api/v1', '')), ['/customers', '/customers/' + ID + '/contacts']);
+    assert.equal('phone' in posts[0].body, false);
+    assert.deepEqual(f.contactPosts()[0].body, { fullName: 'Trần Thị B', isPrimary: true });
+    assert.equal(m.toasts.at(-1).tone, 'success');
+  } finally { await m.unmount(); }
+});
+
 test('QA M-4: SĐT công ty cũ không hợp lệ + nhập tên người liên hệ mới => lỗi ngay tại ô, không PATCH/POST', async () => {
   const f = server({ cust: apiCust({ phone: '12345' }), contacts: () => [] }); const m = await mountDetail(f);
   try {

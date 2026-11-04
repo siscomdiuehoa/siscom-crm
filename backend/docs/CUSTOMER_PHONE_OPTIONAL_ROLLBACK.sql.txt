@@ -3,6 +3,7 @@
 -- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu.
 -- THU TU ROLLBACK:
 --   (1) trien khai lai backend BAN TRUOC thay doi nay (ban cu doi phone NOT NULL);
+--   (1b) CONTACT_REACH_OPTIONAL_ROLLBACK.sql.txt TRUOC (migration moi hon, cung PR #203);
 --   (2) file nay, bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach):
 --       psql -X -v ON_ERROR_STOP=1 -d <db thu> -f CUSTOMER_PHONE_OPTIONAL_ROLLBACK.sql.txt
 -- MOT transaction. TU CHOI neu con BAT KY khach hang nao (ke ca da xoa mem) khong co so dien thoai: KHONG tu dien so gia;
@@ -17,6 +18,9 @@ DO $$ BEGIN
   IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
      OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
     RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+  IF EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261104000100_contact_reach_optional') THEN
+    RAISE EXCEPTION 'TU CHOI: rollback 20261104000100_contact_reach_optional TRUOC (CONTACT_REACH_OPTIONAL_ROLLBACK.sql.txt).';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_customer_phone_e164' AND conrelid = 'public.customer'::regclass) THEN
     RAISE EXCEPTION 'Chua ap 20261104000000_customer_phone_optional (khong co ck_customer_phone_e164). Khong co gi de rollback.';
