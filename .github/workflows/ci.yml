@@ -144,11 +144,14 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_STRUCTURE_TESTS.sql.txt ok app
           # B1.4 Remember Me: rang buoc 90 ngay, bat bien, thu hoi theo token_version (chu so huu, tu ROLLBACK)
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt res migrator
+          # B3 A2: 7 CHECK, trigger, chi muc rieng phan, 2 bang moi (chu so huu; S34: siscom_app van CHI SELECT cho toi A3)
+          bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_STRUCTURE_TESTS.sql.txt res migrator
       - name: Dien tap rollback day du (S1 -> M1.3 -> M1.2 -> M1.1 -> M1), migrate deploy lai (siscom_app), tach role lai, verify
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh unsplit
-          # B1.4 cau 3: rollback migration moi nhat TRUOC (nguoc thu tu ap)
+          # B1.4 cau 3: rollback migration moi nhat TRUOC (nguoc thu tu ap). B3 A2 (2 migration, 1 file rollback) moi nhat => dau chuoi
+          bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_TASKS_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_ROLLBACK.sql.txt run app
@@ -177,8 +180,14 @@ jobs:
       - name: B1.4 Remember Me - rollback (migrator) => V3 => VERIFY PASS; migrate deploy (migrator) => VERIFY FAIL B1f (quyen mac dinh) => V3 => PASS app + auth + cau truc
         run: |
           set -euo pipefail
+          # B3 A2: rollback S2 (ca 2 migration) -> gia lap S1 (chi migration 1 + dong _prisma_migrations checksum gia) -> rollback S1 (thiet ke §3.3a, B2)
+          bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_TASKS_ROLLBACK.sql.txt run migrator
+          bash scripts/ci/pg-sql-check.sh docs/B3_S1_STATE_TEST.sql.txt run migrator
+          bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_TASKS_ROLLBACK.sql.txt run migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK.sql.txt run migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_ROLLBACK.sql.txt run migrator
+          # B3 A2: seed 5 loai hoat dong CU truoc khi migrate deploy ap lai => chung minh tuong thich nguoc voi DB co du lieu (kiem sau deploy)
+          bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_SEED_OLDTYPES_TEST.sql.txt run migrator
           bash scripts/ci/pg-temp-db.sh grants v3
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           npx prisma migrate deploy
@@ -190,6 +199,16 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt res migrator
+          # B3 A2: dong cu sau migrate (DONE/version 1/cot moi NULL, khong UPDATE hang loat) + cau truc sau ap lai
+          bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_SEED_OLDTYPES_CHECK.sql.txt res migrator
+          bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_STRUCTURE_TESTS.sql.txt res migrator
+          # B3 A2: rollback PHAI TU CHOI khi con TASK (ke ca xoa mem) / cot moi co gia tri - khong tu xoa du lieu (RED mong doi; transaction ngoai huy => khong de lai du lieu thu)
+          out="$(bash scripts/ci/pg-sql-check.sh docs/B3_ROLLBACK_REFUSE_TASK_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (B3_ROLLBACK_REFUSE_TASK_TEST)'; exit 1; } || true
+          echo "$out" | grep -E 'TU CHOI: con [0-9]+ dong activity type=TASK' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (B3_ROLLBACK_REFUSE_TASK_TEST)'; exit 1; }
+          echo 'DAT (RED mong doi): B3_ROLLBACK_REFUSE_TASK_TEST.sql.txt - rollback tu choi khi con TASK'
+          out="$(bash scripts/ci/pg-sql-check.sh docs/B3_ROLLBACK_REFUSE_COLS_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (B3_ROLLBACK_REFUSE_COLS_TEST)'; exit 1; } || true
+          echo "$out" | grep -E 'TU CHOI: con [0-9]+ dong activity co gia tri o cot moi' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (B3_ROLLBACK_REFUSE_COLS_TEST)'; exit 1; }
+          echo 'DAT (RED mong doi): B3_ROLLBACK_REFUSE_COLS_TEST.sql.txt - rollback tu choi khi cot moi co gia tri'
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
           MIGRATE_DATABASE_URL: ${{ env.TEST_MIGRATE_DATABASE_URL }}

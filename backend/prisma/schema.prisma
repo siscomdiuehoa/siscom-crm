@@ -30,8 +30,41 @@ enum ActivityType {
   MEETING
   SITE_SURVEY
   NOTE
+  TASK
 
   @@map("activity_type")
+}
+
+// ───────── B3 A2 (20261105000100_b3_activity_tasks) ─────────
+enum ActivityStatus {
+  OPEN
+  DONE
+  CANCELLED
+
+  @@map("activity_status")
+}
+
+enum ActivityAccessRevokeReason {
+  REASSIGNED
+  COMPLETED
+  CANCELLED
+  DELETED
+  CUSTOMER_DELETED
+  EXPIRED
+  ROLE_LOST
+  DUE_CHANGED
+  MANUAL
+
+  @@map("activity_access_revoke_reason")
+}
+
+enum ActivityTransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+
+  @@map("activity_transfer_status")
 }
 
 enum AssignmentRole {
@@ -148,6 +181,14 @@ model Employee {
   activitiesCreated  Activity[] @relation("ActivityCreatedBy")
   activitiesUpdated  Activity[] @relation("ActivityUpdatedBy")
   activitiesDeleted  Activity[] @relation("ActivityDeletedBy")
+  // B3 A2
+  activitiesCompleted      Activity[]                @relation("ActivityCompletedBy")
+  activityAccesses         ActivityAccess[]          @relation("ActivityAccessEmployee")
+  activityAccessesGranted  ActivityAccess[]          @relation("ActivityAccessGrantedBy")
+  activityAccessesRevoked  ActivityAccess[]          @relation("ActivityAccessRevokedBy")
+  activityTransfersFrom    ActivityTransferRequest[] @relation("ActivityTransferFrom")
+  activityTransfersTo      ActivityTransferRequest[] @relation("ActivityTransferTo")
+  activityTransfersDecided ActivityTransferRequest[] @relation("ActivityTransferDecidedBy")
   assignments        CustomerAssignment[] @relation("AssignmentEmployee")
   assignmentsMade    CustomerAssignment[] @relation("AssignmentAssignedBy")
   auditEntries       AuditLog[]
@@ -329,6 +370,14 @@ model Activity {
   nextActionAt  DateTime?    @map("next_action_at") @db.Timestamptz(3)
   performedById String?      @map("performed_by") @db.Uuid
   isDemo        Boolean      @default(false) @map("is_demo")
+  // B3 A2 (cong them; CHECK/trigger/chi muc rieng phan nam trong SQL migration)
+  title         String?        @db.VarChar(200)
+  dueAt         DateTime?      @map("due_at") @db.Timestamptz(3)
+  remindAt      DateTime?      @map("remind_at") @db.Timestamptz(3)
+  status        ActivityStatus @default(DONE)
+  completedAt   DateTime?      @map("completed_at") @db.Timestamptz(3)
+  completedById String?        @map("completed_by") @db.Uuid
+  version       Int            @default(1)
 
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   createdById String?   @map("created_by") @db.Uuid
@@ -343,12 +392,56 @@ model Activity {
   createdBy   Employee? @relation("ActivityCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   updatedBy   Employee? @relation("ActivityUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
   deletedBy   Employee? @relation("ActivityDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+  completedBy Employee? @relation("ActivityCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  accesses         ActivityAccess[]
+  transferRequests ActivityTransferRequest[]
 
   @@index([customerId, occurredAt(sort: Desc)])
   @@index([nextActionAt])
   @@index([performedById])
   @@index([contactId])
   @@map("activity")
+}
+
+// B3 A2 §5.4 — quyen theo cong viec (append-only tru cot thu hoi; chi muc rieng phan trong SQL)
+model ActivityAccess {
+  id           String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  activityId   String                      @map("activity_id") @db.Uuid
+  employeeId   String                      @map("employee_id") @db.Uuid
+  grantedById  String                      @map("granted_by") @db.Uuid
+  createdAt    DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt    DateTime                    @map("expires_at") @db.Timestamptz(3)
+  revokedAt    DateTime?                   @map("revoked_at") @db.Timestamptz(3)
+  revokedById  String?                     @map("revoked_by") @db.Uuid
+  revokeReason ActivityAccessRevokeReason? @map("revoke_reason")
+
+  activity  Activity  @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  employee  Employee  @relation("ActivityAccessEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  grantedBy Employee  @relation("ActivityAccessGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
+  revokedBy Employee? @relation("ActivityAccessRevokedBy", fields: [revokedById], references: [id], onDelete: Restrict)
+
+  @@map("activity_access")
+}
+
+// B3 A2 §5.5 — de xuat chuyen viec co duyet (nguoi de xuat = fromEmployee; 1 PENDING/viec - unique rieng phan trong SQL)
+model ActivityTransferRequest {
+  id             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  activityId     String                 @map("activity_id") @db.Uuid
+  fromEmployeeId String                 @map("from_employee_id") @db.Uuid
+  toEmployeeId   String                 @map("to_employee_id") @db.Uuid
+  reason         String                 @db.VarChar(200)
+  status         ActivityTransferStatus @default(PENDING)
+  decidedById    String?                @map("decided_by") @db.Uuid
+  decidedAt      DateTime?              @map("decided_at") @db.Timestamptz(3)
+  decisionNote   String?                @map("decision_note") @db.VarChar(200)
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  activity     Activity  @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  fromEmployee Employee  @relation("ActivityTransferFrom", fields: [fromEmployeeId], references: [id], onDelete: Restrict)
+  toEmployee   Employee  @relation("ActivityTransferTo", fields: [toEmployeeId], references: [id], onDelete: Restrict)
+  decidedBy    Employee? @relation("ActivityTransferDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@map("activity_transfer_request")
 }
 
 // ───────── Phan cong (lich su). Partial unique "1 OWNER dang hieu luc / khach hang" o HAND_SQL ─────────
