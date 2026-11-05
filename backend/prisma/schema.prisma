@@ -276,7 +276,7 @@ model Customer {
   tierId      String  @map("tier_id") @db.Uuid
   statusId    String  @map("status_id") @db.Uuid
   address     String?
-  phone       String  @db.VarChar(40)
+  phone       String? @db.VarChar(40) // 04/11/2026: khong bat buoc; NULL = chua co so (CHECK cam chuoi rong)
   phoneE164   String? @map("phone_e164") @db.VarChar(20)
   email       String? @db.VarChar(254)
   website     String? @db.VarChar(255)

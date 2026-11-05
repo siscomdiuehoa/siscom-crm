@@ -27,9 +27,14 @@ test('toApiCustomer(create): chỉ name + phone bắt buộc, trường rỗng b
   const body = toApiCustomer({ name: '  Công ty A  ', phone: ' 0901234567 ', short: '', taxId: '', industry: '', tier: '', status: '', source: '', address: '', city: '', email: '', website: '', note: '', owner: '' }, maps);
   assert.deepEqual(body, { name: 'Công ty A', phone: '0901234567' });
 });
-test('toApiCustomer: thiếu name hoặc phone => AdapterError có field', () => {
+test('toApiCustomer: thiếu name => AdapterError có field; 04/11/2026 thiếu phone KHÔNG lỗi (create bỏ trường, update gửi null)', () => {
   assert.throws(() => toApiCustomer({ name: ' ', phone: '0901234567' }, maps), (e) => e instanceof AdapterError && e.field === 'name');
-  assert.throws(() => toApiCustomer({ name: 'Công ty A', phone: '' }, maps), (e) => e instanceof AdapterError && e.field === 'phone');
+  for (const phone of ['', '   ', null, undefined]) {
+    assert.deepEqual(toApiCustomer({ name: 'Công ty A', phone }, maps), { name: 'Công ty A' });
+    const u = toApiCustomer({ name: 'Công ty A', phone }, maps, { mode: 'update', version: 3 });
+    assert.equal(u.phone, null); assert.equal(u.version, 3);
+  }
+  assert.equal(toApiCustomer({ name: 'Công ty A', phone: ' 0903 123 456 ' }, maps, { mode: 'update', version: 1 }).phone, '0903 123 456');
 });
 test('toApiCustomer: nhãn -> mã lookup, short->shortName, city->province; không gửi owner (nhãn)/id/code; ownerId (PR 7) gửi khi chọn', () => {
   const body = toApiCustomer({ id: 'KH-1', code: 'KH-1', name: 'Công ty A', phone: '0901234567', short: 'A', tier: 'VIP', status: 'Đang giao dịch', industry: 'Bất động sản', source: 'Giới thiệu', city: 'TP. Hồ Chí Minh', owner: 'Trần Minh Khoa', ownerId: 'e1', revenue: 5, tags: [' t ', ''] }, maps);

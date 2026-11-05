@@ -4,7 +4,7 @@ interface OwnerRow { id: string; code: string; fullName: string; departmentId: s
 // Cấu trúc tối thiểu mà mapper cần (kết quả Prisma với include bên dưới gán được vào đây).
 export interface CustomerRow {
   id: string; code: string; name: string; shortName: string | null; taxId: string | null;
-  address: string | null; phone: string; phoneE164: string | null; email: string | null; website: string | null;
+  address: string | null; phone: string | null; phoneE164: string | null; email: string | null; website: string | null;
   note: string | null; tags: string[]; revenueVnd: bigint; revenueBasis: string; version: number;
   createdAt: Date; updatedAt: Date; deletedAt: Date | null; restoredAt: Date | null; ownerId: string | null;
   tier: LookupRow; status: LookupRow; industry: LookupRow | null; source: LookupRow | null; province: LookupRow | null;

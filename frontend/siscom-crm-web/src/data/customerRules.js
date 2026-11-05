@@ -1,12 +1,12 @@
 // Single source of truth for customer validation/normalisation. Used by the Form, the Repository (mutations.js) and CSV Import.
-// Required: name + phone ONLY. Everything else is optional; if filled it must be well-formed. Blank MST is never a duplicate.
+// Required: name ONLY (04/11/2026 owner: phone is optional - never invent a number). Everything else is optional; if filled it must be well-formed. Blank MST is never a duplicate.
 import * as U from './util.js';
 import { storage } from './repository/storage.js';
 import { APP_DATA } from './demoData.js';
 
 export const BASE_DEFAULTS = { tier: 'Tiềm năng', status: 'Tiềm năng' };
 export const DEFAULTS_KEY = 'siscom-crm-customer-defaults';
-export const REQUIRED_FIELDS = ['name', 'phone'];
+export const REQUIRED_FIELDS = ['name'];
 export const MSG = {
   name: 'Vui lòng nhập tên công ty', nameShort: 'Tên công ty quá ngắn', phone: 'Vui lòng nhập số điện thoại',
   phoneFmt: 'Số điện thoại chưa hợp lệ: số Việt Nam gồm 10–11 chữ số (bắt đầu 0 hoặc +84); số quốc tế dạng +<mã nước><số>',
@@ -32,7 +32,7 @@ export function validateCustomer(c, opts = {}) {
   const { customers = [], selfId, original } = opts; const e = {};
   const same = (k) => !!original && s(original[k]) === s(c[k]);
   if (!s(c.name)) e.name = MSG.name; else if (s(c.name).length < 2) e.name = MSG.nameShort;
-  if (!s(c.phone)) e.phone = MSG.phone; else if (!U.isPhone(c.phone) && !same('phone')) e.phone = MSG.phoneFmt;
+  if (s(c.phone) && !U.isPhone(c.phone) && !same('phone')) e.phone = MSG.phoneFmt; // blank = no number (allowed)
   const tax = s(c.taxId);
   if (tax) {
     if (!U.isTax(tax)) { if (!same('taxId')) e.taxId = MSG.taxFmt; }

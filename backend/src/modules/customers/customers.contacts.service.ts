@@ -53,7 +53,7 @@ export class ContactsService {
     const email = blank(dto.email);
     const errs: string[] = [];
     if (!fullName) errs.push('Vui lòng nhập họ tên người liên hệ');
-    if (!phone && !email) errs.push('Cần ít nhất một trong số điện thoại hoặc email.');
+    // 04/11/2026: không còn bắt buộc phone/email — không tạo số/email giả.
     if (phone && !isVnPhone(phone)) errs.push(PHONE_MESSAGE);
     if (email && !isEmailB1(email)) errs.push(EMAIL_MESSAGE);
     if (errs.length) throw customerErrors.validation(errs);

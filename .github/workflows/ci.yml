@@ -152,6 +152,15 @@ jobs:
           bash scripts/ci/pg-temp-db.sh unsplit
           # B1.4 cau 3: rollback migration moi nhat TRUOC (nguoc thu tu ap). B3 A2 (2 migration, 1 file rollback) moi nhat => dau chuoi
           bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_TASKS_ROLLBACK.sql.txt run app
+          # PR #203 (04/11/2026): rollback 2 migration moi nhat TRUOC (contact roi customer); moi rollback phai TU CHOI khi co du lieu khong so
+          out="$(bash scripts/ci/pg-sql-check.sh docs/CONTACT_ROLLBACK_REFUSE_TEST.sql.txt run app 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (CONTACT_ROLLBACK_REFUSE_TEST.sql.txt)'; exit 1; } || true
+          echo "$out" | grep -E 'TU CHOI: con [0-9]+ nguoi lien he khong co so dien thoai lan email' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (CONTACT_ROLLBACK_REFUSE_TEST.sql.txt)'; exit 1; }
+          echo 'DAT (RED mong doi): CONTACT_ROLLBACK_REFUSE_TEST.sql.txt - rollback tu choi, khong dien gia tri gia'
+          bash scripts/ci/pg-sql-check.sh docs/CONTACT_REACH_OPTIONAL_ROLLBACK.sql.txt run app
+          out="$(bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_ROLLBACK_REFUSE_TEST.sql.txt run app 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (CUSTOMER_ROLLBACK_REFUSE_TEST.sql.txt)'; exit 1; } || true
+          echo "$out" | grep -E 'TU CHOI: con [0-9]+ khach hang khong co so dien thoai' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (CUSTOMER_ROLLBACK_REFUSE_TEST.sql.txt)'; exit 1; }
+          echo 'DAT (RED mong doi): CUSTOMER_ROLLBACK_REFUSE_TEST.sql.txt - rollback tu choi, khong dien gia tri gia'
+          bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_PHONE_OPTIONAL_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_ROLLBACK.sql.txt run app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_ROLLBACK.sql.txt run app
@@ -162,6 +171,7 @@ jobs:
           npx prisma migrate deploy
           npx prisma migrate status
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+          bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_PHONE_OPTIONAL_STRUCTURE_TESTS.sql.txt res app
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
@@ -184,6 +194,15 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_TASKS_ROLLBACK.sql.txt run migrator
           bash scripts/ci/pg-sql-check.sh docs/B3_S1_STATE_TEST.sql.txt run migrator
           bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_TASKS_ROLLBACK.sql.txt run migrator
+          # PR #203 (04/11/2026): rollback 2 migration moi nhat TRUOC (contact roi customer); moi rollback phai TU CHOI khi co du lieu khong so
+          out="$(bash scripts/ci/pg-sql-check.sh docs/CONTACT_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (CONTACT_ROLLBACK_REFUSE_TEST.sql.txt)'; exit 1; } || true
+          echo "$out" | grep -E 'TU CHOI: con [0-9]+ nguoi lien he khong co so dien thoai lan email' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (CONTACT_ROLLBACK_REFUSE_TEST.sql.txt)'; exit 1; }
+          echo 'DAT (RED mong doi): CONTACT_ROLLBACK_REFUSE_TEST.sql.txt - rollback tu choi, khong dien gia tri gia'
+          bash scripts/ci/pg-sql-check.sh docs/CONTACT_REACH_OPTIONAL_ROLLBACK.sql.txt run migrator
+          out="$(bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (CUSTOMER_ROLLBACK_REFUSE_TEST.sql.txt)'; exit 1; } || true
+          echo "$out" | grep -E 'TU CHOI: con [0-9]+ khach hang khong co so dien thoai' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (CUSTOMER_ROLLBACK_REFUSE_TEST.sql.txt)'; exit 1; }
+          echo 'DAT (RED mong doi): CUSTOMER_ROLLBACK_REFUSE_TEST.sql.txt - rollback tu choi, khong dien gia tri gia'
+          bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_PHONE_OPTIONAL_ROLLBACK.sql.txt run migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK.sql.txt run migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_ROLLBACK.sql.txt run migrator
           # B3 A2: seed 5 loai hoat dong CU truoc khi migrate deploy ap lai => chung minh tuong thich nguoc voi DB co du lieu (kiem sau deploy)
@@ -211,6 +230,7 @@ jobs:
           echo 'DAT (RED mong doi): B3_ROLLBACK_REFUSE_COLS_TEST.sql.txt - rollback tu choi khi cot moi co gia tri'
           # B3 A2: sau 2 ca tu choi, trang thai DB con nguyen (seed 5 loai cu + cau truc B3 van PASS - thiet ke §3.3f(3))
           bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_SEED_OLDTYPES_CHECK.sql.txt res migrator
+          bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_PHONE_OPTIONAL_STRUCTURE_TESTS.sql.txt res migrator
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
           MIGRATE_DATABASE_URL: ${{ env.TEST_MIGRATE_DATABASE_URL }}
@@ -271,7 +291,7 @@ jobs:
       - name: Test offline FE (R01 adapter + M02 XSS + S02 cau noi auth + PR4 phien cookie + PR7 nhan vien phu trach + D.0 ngay gio VN; node --test, khong Chrome, khong DB)
         run: |
           set -euo pipefail
-          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs tests/ownerCandidates.test.mjs tests/changePassword.test.mjs tests/dateVN.test.mjs tests/rememberMe.test.mjs tests/customerContactPerson.test.mjs tests/mobilePwa.test.mjs"
+          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs tests/ownerCandidates.test.mjs tests/changePassword.test.mjs tests/dateVN.test.mjs tests/rememberMe.test.mjs tests/customerContactPerson.test.mjs tests/mobilePwa.test.mjs tests/customerPhoneOptional.test.mjs"
           # node --test coi duong dan khong ton tai nhu glob rong va van thoat 0 -> bat buoc kiem tra ton tai.
           for f in $FILES; do test -f "$f" || { echo "THIEU file test: $f"; exit 1; }; done
           node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=node-tests-junit.xml $FILES

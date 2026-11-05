@@ -57,6 +57,12 @@ describe('18. ánh xạ lỗi DB thật', () => {
   it('CHECK (điện thoại rỗng) -> CONSTRAINT_CONFLICT', async () => {
     await expectMapped(prisma.customer.create({ data: { ...base(), phone: '   ' } }), 'CONSTRAINT_CONFLICT');
   });
+  it('04/11/2026: CHECK (không có phone nhưng có phone_e164) -> CONSTRAINT_CONFLICT; phone NULL hợp lệ', async () => {
+    await expectMapped(prisma.customer.create({ data: { ...base(), phone: null, phoneE164: '+84903123456' } }), 'CONSTRAINT_CONFLICT');
+    await expectMapped(prisma.customer.create({ data: { ...base(), phone: '' } }), 'CONSTRAINT_CONFLICT');
+    const ok = await prisma.customer.create({ data: { ...base(), phone: null, phoneE164: null } });
+    expect(ok.phone).toBeNull();
+  });
   it('CHECK (MST sai định dạng) -> CONSTRAINT_CONFLICT', async () => {
     await expectMapped(prisma.customer.create({ data: { ...base(), taxId: '123' } }), 'CONSTRAINT_CONFLICT');
   });
@@ -75,9 +81,11 @@ describe('18. ánh xạ lỗi DB thật', () => {
     await prisma.contact.create({ data: { customerId: c.id, fullName: 'Chính 1', phone: '0903123456', isPrimary: true } });
     await expectMapped(prisma.contact.create({ data: { customerId: c.id, fullName: 'Chính 2', phone: '0903123456', isPrimary: true } }), 'CONTACT_PRIMARY_CONFLICT');
   });
-  it('CHECK (liên hệ không có SĐT lẫn email) -> CONSTRAINT_CONFLICT', async () => {
+  it('04/11/2026 (PR #203): liên hệ chỉ có họ tên (không SĐT/email) hợp lệ; họ tên rỗng -> CHECK -> CONSTRAINT_CONFLICT', async () => {
     const c = await makeCustomer(prisma, fx);
-    await expectMapped(prisma.contact.create({ data: { customerId: c.id, fullName: 'Không liên lạc' } }), 'CONSTRAINT_CONFLICT');
+    const ok = await prisma.contact.create({ data: { customerId: c.id, fullName: 'Chỉ họ tên' } });
+    expect(ok).toMatchObject({ phone: null, email: null });
+    await expectMapped(prisma.contact.create({ data: { customerId: c.id, fullName: '   ' } }), 'CONSTRAINT_CONFLICT');
   });
   it('lock_timeout (55P03) -> CUSTOMER_BUSY', async () => {
     const c = await makeCustomer(prisma, fx);

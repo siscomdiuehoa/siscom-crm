@@ -57,7 +57,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
   // QA M-4: tên người liên hệ mới mang SĐT công ty; SĐT cũ sai định dạng (được giữ nguyên khi sửa) sẽ bị server từ chối SAU khi khách đã lưu => báo ngay tại ô.
   const cName = String(f.contactName || '').trim();
   const cChanged = !!cName && cName !== (hasContact ? String(ctS.item.fullName || '').trim() : '');
-  const cErr = !showContact ? '' : contactNameError(f.contactName) || (cChanged && !U.isPhone(f.phone) ? 'Số điện thoại công ty chưa hợp lệ nên chưa lưu được người liên hệ; sửa ô Điện thoại.' : '');
+  const cErr = !showContact ? '' : contactNameError(f.contactName) || (cChanged && String(f.phone || '').trim() && !U.isPhone(f.phone) ? 'Số điện thoại công ty chưa hợp lệ nên chưa lưu được người liên hệ; sửa ô Điện thoại.' : '');
   const errs = { ...validate(f, isNew, known, initial && (apiOn ? initial.code : initial.id), initial), ...(apiOn ? lookupFormErrors(lk, f) : {}), ...(cErr ? { contactName: cErr } : {}) };
   const err = (k) => (tried && errs[k]) || (srvErr && srvErr.fieldErrors[k]) || '';
   const dirty = JSON.stringify(f) !== JSON.stringify(start);
@@ -98,7 +98,7 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
       <aside role="dialog" aria-modal="true" aria-label={isNew ? 'Thêm khách hàng' : 'Sửa thông tin khách hàng'} className="sg-solid" style={{ position: 'relative', width: 'min(640px,100%)', height: '100%', display: 'flex', flexDirection: 'column', borderRadius: '20px 0 0 20px', boxShadow: 'var(--shadow-lg)', animation: 'sg-toast-in var(--dur-slow) var(--ease-out)' }}>
         <header style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '20px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
           <span className="sg-kpi__icon"><Icon name={isNew ? 'user-plus' : 'pencil'} size={18} /></span>
-          <div style={{ flex: 1, minWidth: 0 }}><h2 style={{ margin: 0, font: 'var(--type-h3)' }}>{isNew ? 'Thêm khách hàng' : 'Sửa thông tin khách hàng'}</h2><p style={{ margin: '2px 0 0', font: 'var(--type-sm)', color: 'var(--text-2)' }}>{isNew ? 'Chỉ Tên công ty và Điện thoại là bắt buộc.' : (apiOn ? customerDisplayCode(initial) : initial.id) + ' · ' + initial.short}</p></div>
+          <div style={{ flex: 1, minWidth: 0 }}><h2 style={{ margin: 0, font: 'var(--type-h3)' }}>{isNew ? 'Thêm khách hàng' : 'Sửa thông tin khách hàng'}</h2><p style={{ margin: '2px 0 0', font: 'var(--type-sm)', color: 'var(--text-2)' }}>{isNew ? 'Chỉ tên công ty là bắt buộc. Số điện thoại có thể bổ sung sau.' : (apiOn ? customerDisplayCode(initial) : initial.id) + ' · ' + initial.short}</p></div>
           <IconButton icon="x" label="Đóng" size="sm" onClick={close} />
         </header>
         <div className="sg-scroll" style={{ flex: 1, overflow: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -117,13 +117,13 @@ export function CustomerFormDrawer({ open, initial, onClose, onSaved, ui }) {
             // Owner (2026-11-01): mục Người liên hệ đặt ngay sau Thông tin doanh nghiệp, trước Địa chỉ & liên hệ.
             <Section title="Người liên hệ" icon="contact">
               <div style={{ gridColumn: '1 / -1' }}><Input label="Tên người liên hệ" placeholder="Nguyễn Văn A" value={f.contactName} onChange={set('contactName')} maxLength={CONTACT_NAME_MAX} error={err('contactName')}
-                hint={'Mỗi khách hàng một người liên hệ; dùng số điện thoại công ty (mục Địa chỉ & liên hệ).' + (hasContact ? ' Để trống = giữ người liên hệ hiện tại.' : '')} /></div>
+                hint={'Mỗi khách hàng một người liên hệ; nếu có số điện thoại công ty (mục Địa chỉ & liên hệ) thì dùng số đó, không có số vẫn lưu được tên.' + (hasContact ? ' Để trống = giữ người liên hệ hiện tại.' : '')} /></div>
             </Section>
           ) : null}
           <Section title="Địa chỉ & liên hệ" icon="map-pin">
             <div style={{ gridColumn: '1 / -1' }}><Input label="Địa chỉ" placeholder="Số nhà, đường, phường/xã" value={f.address} onChange={set('address')} error={err('address')} /></div>
             <Select label="Tỉnh / Thành phố" placeholder="Chưa chọn" value={f.city} onChange={set('city')} {...L('city', D.CITIES, true)} error={err('city')} />
-            <Input label="Điện thoại" required icon="phone" placeholder="028 3822 1234 hoặc +82 2 1234 5678" inputMode="tel" value={f.phone} onChange={set('phone')} error={err('phone')} />
+            <Input label="Điện thoại" icon="phone" placeholder="028 3822 1234 hoặc +82 2 1234 5678" inputMode="tel" value={f.phone} onChange={set('phone')} error={err('phone')} />
             <Input label="Email" icon="mail" placeholder="lienhe@congty.vn" type="email" value={f.email} onChange={set('email')} error={err('email')} />
             <Input label="Website" icon="globe" placeholder="congty.vn" value={f.website} onChange={set('website')} error={err('website')} />
           </Section>

@@ -105,8 +105,7 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
     async create(ui) {
       sent = false;
       try {
-        if (!ui || blank(ui.name)) throw new AdapterError('Vui lòng nhập tên công ty', 'name');
-        if (blank(ui.phone)) throw new AdapterError('Vui lòng nhập số điện thoại', 'phone');
+        if (!ui || blank(ui.name)) throw new AdapterError('Vui lòng nhập tên công ty', 'name'); // 04/11/2026: phone optional
         const maps = needsLookups(ui) ? await api.getLookupMaps() : {};
         sent = false; // lookups is a read; until POST goes out, AdapterError = invalid input (e.g. unknown label)
         return await api.create(ui, maps);
@@ -123,8 +122,7 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
       sent = false;
       try {
         checkId(id);
-        if (!ui || blank(ui.name)) throw new AdapterError('Vui lòng nhập tên công ty', 'name');
-        if (blank(ui.phone)) throw new AdapterError('Vui lòng nhập số điện thoại', 'phone');
+        if (!ui || blank(ui.name)) throw new AdapterError('Vui lòng nhập tên công ty', 'name'); // 04/11/2026: phone optional (blank = clear)
         if (!Number.isInteger(version) || version < 1) throw new AdapterError('Thiếu version (khoá lạc quan) để cập nhật.', 'version');
         const maps = needsLookups(ui) ? await api.getLookupMaps() : {};
         sent = false;
@@ -141,14 +139,15 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
         return d.items;
       } catch (err) { throw classify(err); }
     },
-    // Đặt người liên hệ CHÍNH (POST isPrimary:true). Không có trường SĐT riêng: dùng SĐT công ty (thoả ck_contact_reach của bảng contact).
+    // Đặt người liên hệ CHÍNH (POST isPrimary:true). Không có trường SĐT riêng: có SĐT công ty thì gửi kèm; 04/11/2026: không có số vẫn lưu được tên (không tạo số giả).
     async setPrimaryContact(id, fullName, companyPhone) {
       sent = false;
       try {
         checkId(id);
         if (blank(fullName)) throw new AdapterError('Vui lòng nhập họ tên người liên hệ', 'contactName');
-        if (blank(companyPhone)) throw new AdapterError('Khách hàng chưa có số điện thoại công ty', 'phone');
-        const c = await api.createContact(id, { fullName: String(fullName).trim(), isPrimary: true, phone: String(companyPhone).trim() });
+        const body = { fullName: String(fullName).trim(), isPrimary: true };
+        if (!blank(companyPhone)) body.phone = String(companyPhone).trim();
+        const c = await api.createContact(id, body);
         if (!c || typeof c.fullName !== 'string') throw malformed('người liên hệ');
         return c;
       } catch (err) { throw classify(err); }

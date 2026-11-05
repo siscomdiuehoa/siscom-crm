@@ -133,6 +133,6 @@ test('phân biệt: dữ liệu thiếu (tên) -> kind "validation" phía client
   const f = mockFetch(THROTTLED);
   const repo = createCustomerRepository({ env: ON, fetchImpl: f });
   await assert.rejects(() => repo.create({ name: '', phone: '0901234567' }), (e) => e.kind === 'validation' && e.field === 'name' && e.status === undefined);
-  await assert.rejects(() => repo.update(ID, { name: 'B', phone: '' }, 1), (e) => e.kind === 'validation' && e.field === 'phone');
+  await assert.rejects(() => repo.update(ID, { name: ' ', phone: '' }, 1), (e) => e.kind === 'validation' && e.field === 'name'); // 04/11/2026: phone không bắt buộc
   assert.equal(f.calls.length, 0);
 });

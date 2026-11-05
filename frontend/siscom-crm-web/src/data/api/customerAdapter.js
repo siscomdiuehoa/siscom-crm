@@ -37,18 +37,19 @@ function code(ui, field, maps) {
   return c;
 }
 
-// mode 'create' -> body for POST /customers: empty optionals are OMITTED. Requires name + phone.
+// mode 'create' -> body for POST /customers: empty optionals (phone included, 04/11/2026) are OMITTED. Requires name only.
 // mode 'update' -> body for PATCH /customers/:id: empty optionals are sent as null (= clear); `version` (optimistic lock) is required.
 export function toApiCustomer(ui, maps, opts = {}) {
   const mode = opts.mode || 'create';
   if (!ui) throw new AdapterError('Thiếu dữ liệu khách hàng.');
   const name = s(ui.name); const phone = s(ui.phone);
   if (!name) throw new AdapterError('Vui lòng nhập tên công ty', 'name');
-  if (!phone) throw new AdapterError('Vui lòng nhập số điện thoại', 'phone');
-  const body = { name, phone };
+  const body = { name };
+  if (phone) body.phone = phone; // no number = omitted (create) / null = clear (update, below); never a placeholder
   if (mode === 'update') {
     if (!Number.isInteger(opts.version) || opts.version < 1) throw new AdapterError('Thiếu version (khoá lạc quan) để cập nhật.', 'version');
     body.version = opts.version;
+    if (!phone) body.phone = null;
   } else if (mode !== 'create') throw new AdapterError('mode không hợp lệ: ' + mode);
   const optional = { shortName: s(ui.short), taxId: s(ui.taxId), address: s(ui.address), email: s(ui.email), website: s(ui.website), note: s(ui.note),
     industry: code(ui, 'industry', maps), source: code(ui, 'source', maps), province: code(ui, 'city', maps) };

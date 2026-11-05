@@ -29,9 +29,14 @@ describe('Contact API', () => {
     expect((await a().get(C + c2.id + '/contacts')).body.data.items).toEqual([]);
     expect((await a().post(C + c2.id + '/contacts', { fullName: 'A', phone: '0903123456', customerId: c1.id })).status).toBe(400);
   });
-  it('phải có SĐT hoặc email; định dạng sai bị từ chối; không có họ tên bị từ chối', async () => {
+  it('04/11/2026: chỉ họ tên là đủ (SĐT/email không bắt buộc); định dạng sai bị từ chối; không có họ tên bị từ chối', async () => {
     const c = await makeCustomer(prisma, fx);
-    for (const b of [{ fullName: 'A' }, { fullName: 'A', phone: '123' }, { fullName: 'A', email: 'x@' }, { phone: '0903123456' }]) expect((await a().post(C + c.id + '/contacts', b)).status).toBe(400);
+    for (const b of [{ fullName: 'A', phone: '123' }, { fullName: 'A', email: 'x@' }, { phone: '0903123456' }]) expect((await a().post(C + c.id + '/contacts', b)).status).toBe(400);
+    for (const b of [{ fullName: 'Chỉ họ tên' }, { fullName: 'Rỗng hết', phone: '', email: '' }]) {
+      const r = await a().post(C + c.id + '/contacts', b);
+      expect(r.status).toBe(201);
+      expect(r.body.data).toMatchObject({ phone: null, email: null });
+    }
     expect((await a().post(C + c.id + '/contacts', { fullName: 'Chỉ email', email: 'a@b.vn' })).status).toBe(201);
   });
   it('liên hệ chính mới thay liên hệ chính cũ trong cùng transaction: luôn đúng một liên hệ chính', async () => {

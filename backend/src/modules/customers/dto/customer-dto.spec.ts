@@ -13,9 +13,10 @@ const ok = { name: 'Công ty ABC', phone: '0903 123 456' };
 
 describe('CreateCustomerDto', () => {
   it('chỉ Tên + Điện thoại là hợp lệ (các trường khác tuỳ chọn)', async () => expect(await check(CreateCustomerDto, ok)).toEqual([]));
-  it('thiếu tên / thiếu điện thoại', async () => {
+  it('thiếu tên bị từ chối; 04/11/2026: thiếu điện thoại HỢP LỆ (số điện thoại không bắt buộc)', async () => {
     expect(await check(CreateCustomerDto, { phone: '0903123456' })).toContain('Vui lòng nhập tên công ty');
-    expect(await check(CreateCustomerDto, { name: 'Công ty A' })).toContain('Vui lòng nhập số điện thoại');
+    expect(await check(CreateCustomerDto, { name: 'Công ty A' })).toEqual([]);
+    for (const phone of ['', null, '   ']) expect(await check(CreateCustomerDto, { name: 'Công ty A', phone })).toEqual([]);
     expect(await check(CreateCustomerDto, { name: '   ', phone: '0903123456' })).toContain('Vui lòng nhập tên công ty');
   });
   it('tên quá ngắn; điện thoại sai / quốc tế', async () => {
@@ -54,11 +55,15 @@ describe('UpdateCustomerDto', () => {
     expect((await check(UpdateCustomerDto, { note: 'x' })).length).toBeGreaterThan(0);
     expect(await check(UpdateCustomerDto, { version: 1 })).toEqual([]);
   });
-  it('name/phone/tier/status không được rỗng hoặc null', async () => {
-    for (const k of ['name', 'phone', 'tier', 'status']) {
+  it('name/tier/status không được rỗng hoặc null', async () => {
+    for (const k of ['name', 'tier', 'status']) {
       expect((await check(UpdateCustomerDto, { version: 1, [k]: '' })).length).toBeGreaterThan(0);
       expect((await check(UpdateCustomerDto, { version: 1, [k]: null })).length).toBeGreaterThan(0);
     }
+  });
+  it('04/11/2026: phone có thể xoá bằng null/rỗng; có số thì định dạng kiểm ở service (DTO chỉ giới hạn độ dài)', async () => {
+    for (const phone of ['', null, '   ', '0903123456']) expect(await check(UpdateCustomerDto, { version: 1, phone })).toEqual([]);
+    expect((await check(UpdateCustomerDto, { version: 1, phone: '0'.repeat(41) })).length).toBeGreaterThan(0);
   });
   it('trường tuỳ chọn có thể xoá bằng null hoặc rỗng', async () => {
     expect(await check(UpdateCustomerDto, { version: 2, industry: '', source: null, taxId: '', email: null, address: '' })).toEqual([]);
