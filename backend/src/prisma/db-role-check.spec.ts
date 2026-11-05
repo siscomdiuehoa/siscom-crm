@@ -129,18 +129,18 @@ describe('enforceDbRoleAtStartup', () => {
 describe('assessDbRole — hai pool (P3c)', () => {
   const base: DbRoleFacts = { user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
     ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true };
-  it('pool app, đã tách pool auth: còn quyền xác thực (auth_session / password_hash / chpw) => vi phạm (V3 chưa áp)', () => {
+  it('pool app, đã tách pool auth: còn quyền xác thực (auth_session / password_hash / chpw) => vi phạm (V4 chưa áp)', () => {
     const r = assessDbRole({ ...base, hasAuthGrants: true }, 'production', { pool: 'app', authSeparate: true });
     expect(r.leastPrivilege).toBe(false);
-    expect(r.problems.join(' ')).toContain('APP_GRANTS_V3');
+    expect(r.problems.join(' ')).toContain('APP_GRANTS_V4');
   });
   it('pool app, CHƯA tách pool auth (dev): quyền xác thực là bình thường, không vi phạm', () => {
     expect(assessDbRole({ ...base, hasAuthGrants: true }, 'development', { pool: 'app', authSeparate: false }).leastPrivilege).toBe(true);
   });
-  it('pool app sau V3: không quyền xác thực, có ghi nghiệp vụ => tối thiểu', () => {
+  it('pool app sau V4 (V3 trước đó): không quyền xác thực, có ghi nghiệp vụ => tối thiểu', () => {
     expect(assessDbRole(base, 'production', { pool: 'app', authSeparate: true }).leastPrivilege).toBe(true);
   });
-  it('pool auth: thiếu quyền xác thực => vi phạm (AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc V3 chưa áp)', () => {
+  it('pool auth: thiếu quyền xác thực => vi phạm (AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc V4 chưa áp)', () => {
     const r = assessDbRole({ ...base, user: 'siscom_auth', hasAuthGrants: false, canWriteBusiness: false }, 'production', { pool: 'auth', authSeparate: true });
     expect(r.leastPrivilege).toBe(false);
     expect(r.problems.join(' ')).toContain('xác thực');

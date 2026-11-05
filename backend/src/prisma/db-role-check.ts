@@ -23,7 +23,7 @@ export interface DbRoleFacts {
   isMemberOfOtherRoles: boolean;
   // B1.4 P3c: "quyền xác thực" = bất kỳ quyền nào trên auth_session (SELECT/INSERT/UPDATE/DELETE), SELECT password_hash hoặc
   // INSERT/UPDATE/DELETE employee_credential, hoặc EXECUTE fn_auth_api_change_own_password (QA M-8/N-5). Pool nghiệp vụ (siscom_app)
-  // sau APP_GRANTS_V3 KHÔNG được có; pool auth (siscom_auth) PHẢI có (SELECT auth_session là đủ để "có").
+  // sau APP_GRANTS_V4 (B3 A3; V3 trước đó) KHÔNG được có; pool auth (siscom_auth) PHẢI có (SELECT auth_session là đủ để "có").
   hasAuthGrants: boolean;
   // B1.4 P3c: INSERT customer — pool auth không được ghi nghiệp vụ (phát hiện hai URL đổi chỗ).
   canWriteBusiness: boolean;
@@ -93,8 +93,8 @@ export function dbRoleFactsFromRow(row: Record<string, unknown>): DbRoleFacts {
 
 export function assessDbRole(f: DbRoleFacts, nodeEnv: string | undefined, pool: DbRolePool = APP_SHARED): DbRoleAssessment {
   const problems: string[] = [];
-  if (pool.pool === 'app' && pool.authSeparate && f.hasAuthGrants) problems.push('tài khoản "' + f.user + '" (pool nghiệp vụ) còn quyền xác thực (auth_session / password_hash / fn_auth_api_change_own_password) dù đã tách pool auth — chạy B1.3_S1_APP_GRANTS_V3.sql.txt');
-  if (pool.pool === 'auth' && !f.hasAuthGrants) problems.push('tài khoản "' + f.user + '" (pool auth) KHÔNG có quyền xác thực — AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc B1.3_S1_APP_GRANTS_V3.sql.txt chưa áp');
+  if (pool.pool === 'app' && pool.authSeparate && f.hasAuthGrants) problems.push('tài khoản "' + f.user + '" (pool nghiệp vụ) còn quyền xác thực (auth_session / password_hash / fn_auth_api_change_own_password) dù đã tách pool auth — chạy B1.3_S1_APP_GRANTS_V4.sql.txt (B3 A3; V3 là bản rollback)');
+  if (pool.pool === 'auth' && !f.hasAuthGrants) problems.push('tài khoản "' + f.user + '" (pool auth) KHÔNG có quyền xác thực — AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc B1.3_S1_APP_GRANTS_V4.sql.txt chưa áp');
   if (pool.pool === 'auth' && f.canWriteBusiness) problems.push('tài khoản "' + f.user + '" (pool auth) ghi được bảng nghiệp vụ (customer) — AUTH_DATABASE_URL và DATABASE_URL đổi chỗ?');
   if (f.isDbOwner) problems.push('tài khoản "' + f.user + '" là chủ sở hữu database (có thể tắt trigger, sửa nhật ký) — mô hình cũ B1.1, chưa tách role S1');
   if (f.isSuperuser) problems.push('tài khoản "' + f.user + '" là superuser');
