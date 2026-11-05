@@ -85,6 +85,22 @@ describe('POST tạo hoạt động', () => {
     expect((await post('salesA', cA.id, { type: 'CALL', content: 'x', occurredAt: inDays(2) })).status).toBe(400);
     expect((await post('salesA', cA.id, { type: 'MEETING', content: 'Hẹn', occurredAt: inDays(5), dueAt: inDays(5) })).status).toBe(201);
   });
+  it('rà soát #209 I-1: chuỗi ISO lạ (tuần, ngày-trong-năm, dạng gọn, năm mở rộng, chỉ giờ) và năm vô lý => 400, KHÔNG 500, không tạo gì', async () => {
+    const before = await prisma.activity.count({ where: { customerId: cA.id } });
+    for (const bad of ['2026-W45-3T10:00Z', '2026-310T10:00Z', '20261105T100000Z', '+2026-11-05T10:00Z', '2026-11-05T10Z', '9999-12-31T23:59:59-12:00', '1999-12-31T00:00:00Z']) {
+      const r = await post('salesA', cA.id, { type: 'TASK', content: 'Nội dung nhạy cảm', dueAt: bad });
+      expect({ bad, status: r.status }).toEqual({ bad, status: 400 });
+      const m = await post('salesA', cA.id, { type: 'CALL', content: 'x', occurredAt: bad });
+      expect({ bad, status: m.status }).toEqual({ bad, status: 400 });
+    }
+    expect(await prisma.activity.count({ where: { customerId: cA.id } })).toBe(before);
+    expect((await post('salesA', cA.id, { type: 'TASK', content: 'ok', dueAt: '2026-12-01T10:00:00.123+07:00' })).status).toBe(201);
+  });
+  it('rà soát #209 M-4: performedById = CHÍNH MÌNH (kể cả viết hoa) không cần activity.assign => 201, người phụ trách là mình', async () => {
+    const r = await post('techB', cA.id, { type: 'NOTE', content: 'x', performedById: fx.empB.toUpperCase() });
+    expect(r.status).toBe(201);
+    expect(r.body.data.performedBy.id).toBe(fx.empB);
+  });
   it('DTO: loại lạ, nội dung rỗng, trường lạ (status, customerId) => 400', async () => {
     for (const b of [{ type: 'SMS', content: 'x' }, { type: 'NOTE', content: '   ' }, { type: 'NOTE', content: 'x', status: 'OPEN' }, { type: 'NOTE', content: 'x', customerId: cB.id }]) {
       expect((await post('all', cA.id, b)).status).toBe(400);
@@ -109,6 +125,26 @@ describe('POST tạo hoạt động', () => {
     const r = await post('all', d.id, { type: 'NOTE', content: 'x' });
     expect(r.status).toBe(409);
     expect(r.body.error.code).toBe('CUSTOMER_DELETED');
+  });
+  it('rà soát #209 M-8: khách KHÔNG có chủ — kỹ thuật 404, sales 404, crm_admin 201', async () => {
+    const orphan = await makeCustomer(prisma, fx, { ownerId: null });
+    expect((await post('techB', orphan.id, { type: 'NOTE', content: 'x' })).status).toBe(404);
+    expect((await post('salesA', orphan.id, { type: 'CALL', content: 'x' })).status).toBe(404);
+    expect((await post('all', orphan.id, { type: 'CALL', content: 'x' })).status).toBe(201);
+  });
+  it('rà soát #209 M-8: một người NHIỀU vai trò (create OWN + create_tech DEPARTMENT): khách mình CALL 201; khách cùng phòng NOTE 201, CALL 403 TYPE_NOT_ALLOWED', async () => {
+    expect((await post('salesTech', cA.id, { type: 'CALL', content: 'x' })).status).toBe(201);
+    expect((await post('salesTech', cB.id, { type: 'NOTE', content: 'x' })).status).toBe(201);
+    const r = await post('salesTech', cB.id, { type: 'CALL', content: 'x' });
+    expect(r.status).toBe(403);
+    expect(r.body.error.code).toBe('ACTIVITY_TYPE_NOT_ALLOWED');
+  });
+  it('rà soát #209 M-8: liên hệ ĐÃ XOÁ MỀM của đúng khách => 400 ACTIVITY_CONTACT_MISMATCH', async () => {
+    const ct = await makeContact(prisma, cA.id, 'LH xoá ' + uniq());
+    await prisma.contact.update({ where: { id: ct.id }, data: { deletedAt: new Date(), deletedById: fx.empA } });
+    const r = await post('all', cA.id, { type: 'CALL', content: 'x', contactId: ct.id });
+    expect(r.status).toBe(400);
+    expect(r.body.error.code).toBe('ACTIVITY_CONTACT_MISMATCH');
   });
   it('người liên hệ phải thuộc ĐÚNG khách (kiểm ở service trước trigger DB) => 400 ACTIVITY_CONTACT_MISMATCH; đúng khách => trả contact', async () => {
     const other = await makeContact(prisma, cB.id, 'LH khách B ' + uniq());
@@ -144,6 +180,20 @@ describe('giao việc ngay khi tạo (performedById ≠ người tạo)', () => 
   });
   it('kỹ thuật không có activity.assign => 403 khi giao cho người khác', async () => {
     expect((await post('techB', cA.id, { type: 'TASK', content: 'x', dueAt: inDays(2), performedById: fx.empA })).status).toBe(403);
+  });
+  it('rà soát #209 M-8: người nhận có customer.read nhưng KHÔNG có activity.read => 400 NO_ACCESS', async () => {
+    const e = await makeEmployee({ fullName: 'NV chỉ đọc khách ' + uniq(), departmentId: fx.d1 });
+    t.access.scopes.set(e.id, { 'customer.read': 'DEPARTMENT' });
+    const r = await post('all', cA.id, { type: 'TASK', content: 'x', dueAt: inDays(2), performedById: e.id });
+    expect(r.status).toBe(400);
+    expect(r.body.error.code).toBe('ACTIVITY_ASSIGNEE_NO_ACCESS');
+  });
+  it('rà soát #209 M-8: người giao KHÔNG có phòng ban (giao OWN) => giao người khác 400 INVALID; ứng viên chỉ chính mình', async () => {
+    const r = await post('salesNoDept', cA.id, { type: 'TASK', content: 'x', dueAt: inDays(2), performedById: fx.empB });
+    expect(r.status).toBe(400);
+    expect(r.body.error.code).toBe('ACTIVITY_ASSIGNEE_INVALID');
+    const c = await a('salesNoDept').get(CAND + cA.id);
+    expect(c.body.data.items.map((i: { id: string }) => i.id)).toEqual([fx.empA]);
   });
   it('người nhận không tồn tại / đã nghỉ việc => 400 ACTIVITY_ASSIGNEE_INVALID', async () => {
     const gone = await makeEmployee({ fullName: 'NV nghỉ ' + uniq(), departmentId: fx.d1, status: 'RESIGNED' });
@@ -185,9 +235,15 @@ describe('GET timeline', () => {
     expect((await list('all', cT.id, '?from=2026-11-05&to=2026-11-01')).status).toBe(400);
     expect((await list('all', cT.id, '?from=2026-02-30')).status).toBe(400);
   });
-  it('sortBy=dueAt: có hạn trước, không hạn sau', async () => {
-    const r = await list('all', cT.id, '?sortBy=dueAt&sortOrder=asc');
-    expect(r.body.data.items[0].type).toBe('TASK');
+  it('sortBy=dueAt: có hạn trước, KHÔNG hạn xếp sau (cả asc lẫn desc)', async () => {
+    for (const o of ['asc', 'desc']) {
+      const items = (await list('all', cT.id, '?sortBy=dueAt&sortOrder=' + o)).body.data.items as { type: string; dueAt: string | null }[];
+      expect(items[0].type).toBe('TASK');
+      expect(items.slice(1).every((i) => i.dueAt === null)).toBe(true);
+    }
+  });
+  it('includeDeleted=true trên khách CHƯA xoá: không đổi kết quả (vô hại)', async () => {
+    expect((await list('all', cT.id, '?includeDeleted=true')).body.data.total).toBe(3);
   });
   it('phạm vi: sales chủ khách 200; kỹ thuật cùng phòng 200; kỹ thuật phòng khác 404; kế toán 200; pageSize > 100 => 400', async () => {
     expect((await list('salesA', cT.id)).status).toBe(200);
@@ -205,9 +261,12 @@ describe('GET timeline', () => {
     expect(ok.body.data.total).toBe(1);
     expect((await list('acctA', d.id, '?includeDeleted=true')).status).toBe(404);
   });
-  it('người chỉ có quyền theo việc (activity_access §5.4) KHÔNG xem được timeline của khách => 404', async () => {
+  // Rà soát #209 M-7: techC vốn không đọc được cA (khác phòng) — ca này là CHỐT CHỐNG HỒI QUY cho A6: thêm vị từ quyền theo việc vào chi tiết
+  // việc KHÔNG được làm mở timeline khách (thiết kế §5.4 "không bao giờ áp vào truy vấn khách/timeline").
+  it('chống hồi quy A6: có dòng activity_access còn hiệu lực vẫn KHÔNG xem được timeline của khách => 404', async () => {
     const act = await prisma.activity.create({ data: { customerId: cA.id, type: 'TASK', content: 'việc ngoài', status: 'OPEN', dueAt: new Date(Date.now() + 86400000), occurredAt: new Date(), isDemo: true } });
     await prisma.$executeRaw`INSERT INTO activity_access (activity_id, employee_id, granted_by, expires_at) VALUES (${act.id}::uuid, ${fx.empC}::uuid, ${fx.empA}::uuid, now() + interval '1 day')`;
+    expect(await prisma.activityAccess.count({ where: { activityId: act.id, employeeId: fx.empC, revokedAt: null } })).toBe(1);
     expect((await list('techC', cA.id)).status).toBe(404);
   });
 });

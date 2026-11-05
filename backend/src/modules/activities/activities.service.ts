@@ -20,6 +20,16 @@ const ownerInfo = (r: { ownerId: string | null; owner: { departmentId: string | 
 const MAX_OFFSET_WINDOW = 100000;
 const CANDIDATES_MAX = 500;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Rà soát #209 I-1: khoảng năm hợp lý cho mốc nghiệp vụ (chặn 9999, 0001...). Ngoài khoảng / không đọc được => 400, không bao giờ 500.
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
+function parseInstant(v: string | undefined, field: string, errs: string[]): Date | null {
+  if (v === undefined) return null;
+  const d = new Date(v);
+  const y = d.getUTCFullYear();
+  if (Number.isNaN(d.getTime()) || y < MIN_YEAR || y > MAX_YEAR) { errs.push(field + ' không phải thời điểm hợp lệ (năm ' + MIN_YEAR + '–' + MAX_YEAR + ').'); return null; }
+  return d;
+}
 
 // B3 A5 (docs/B3_ACTIVITIES_DESIGN.md §5, §6): timeline theo khách, tạo hoạt động, ứng viên người phụ trách NỘI BỘ.
 // Quy tắc: không có quyền => 403; khách ngoài phạm vi đọc => 404 (không lộ tồn tại); trong phạm vi đọc nhưng thiếu phạm vi ghi => 403.
@@ -89,22 +99,27 @@ export class ActivitiesService {
     const isTask = dto.type === 'TASK';
     const now = new Date();
     const errs: string[] = [];
-    const due = dto.dueAt !== undefined ? new Date(dto.dueAt) : null;
-    const remind = dto.remindAt !== undefined ? new Date(dto.remindAt) : null;
+    const due = parseInstant(dto.dueAt, 'dueAt', errs);
+    const remind = parseInstant(dto.remindAt, 'remindAt', errs);
     let occurredAt = now;
     if (isTask) {
       if (dto.occurredAt !== undefined) errs.push('Công việc (TASK) không nhận occurredAt — máy chủ đặt bằng thời điểm tạo.');
-      if (!due) errs.push('Công việc (TASK) phải có hạn (dueAt).');
+      if (!due && dto.dueAt === undefined) errs.push('Công việc (TASK) phải có hạn (dueAt).');
     } else if (dto.occurredAt !== undefined) {
-      occurredAt = new Date(dto.occurredAt);
-      if (dto.type !== 'MEETING' && occurredAt.getTime() > now.getTime() + DAY_MS) errs.push('Thời điểm diễn ra không được quá 1 ngày sau hiện tại (trừ lịch hẹn MEETING).');
+      const at = parseInstant(dto.occurredAt, 'occurredAt', errs);
+      if (at) {
+        occurredAt = at;
+        if (dto.type !== 'MEETING' && occurredAt.getTime() > now.getTime() + DAY_MS) errs.push('Thời điểm diễn ra không được quá 1 ngày sau hiện tại (trừ lịch hẹn MEETING).');
+      }
     }
     if (due && remind && remind.getTime() > due.getTime()) errs.push('Thời điểm nhắc phải không sau hạn.');
     if (errs.length) throw activityErrors.validation(errs);
     const title = dto.title ? dto.title : null;
     const outcome = dto.outcome ? dto.outcome : null;
-    const performedById = dto.performedById ?? actor.employeeId;
-    const assigningOther = performedById !== actor.employeeId;
+    // Rà soát #209 M-4: UUID so sánh không phân biệt hoa/thường (IsUUID nhận chữ hoa) — chuẩn hoá chữ thường như PostgreSQL trả về.
+    const performedById = (dto.performedById ?? actor.employeeId).toLowerCase();
+    const assigningOther = performedById !== actor.employeeId.toLowerCase();
+    const contactId = dto.contactId ? dto.contactId.toLowerCase() : null;
 
     try {
       return await this.prisma.$transaction(async (tx: Tx) => {
@@ -125,15 +140,15 @@ export class ActivitiesService {
           if (!tech) throw activityErrors.forbidden();
           if (!TECH_TYPES.includes(dto.type)) throw activityErrors.typeNotAllowed();
         }
-        if (dto.contactId) {
-          const ct = await tx.contact.findFirst({ where: { id: dto.contactId, customerId, deletedAt: null }, select: { id: true } });
+        if (contactId) {
+          const ct = await tx.contact.findFirst({ where: { id: contactId, customerId, deletedAt: null }, select: { id: true } });
           if (!ct) throw activityErrors.contactMismatch();
         }
         if (assigningOther) await this.assertAssignee(tx, actor, owner, performedById);
 
         const row = await tx.activity.create({
           data: {
-            customerId, contactId: dto.contactId ?? null, type: dto.type, title, content: dto.content, outcome,
+            customerId, contactId, type: dto.type, title, content: dto.content, outcome,
             occurredAt, dueAt: due, remindAt: remind, status: isTask ? 'OPEN' : 'DONE', performedById,
             createdById: actor.employeeId, updatedById: actor.employeeId,
           },
@@ -192,12 +207,14 @@ export class ActivitiesService {
     if (!inScope(actor, assignScope, owner)) throw activityErrors.forbidden();
     const where: Prisma.EmployeeWhereInput = { status: 'ACTIVE', deletedAt: null,
       ...(assignScope === 'ALL' ? {} : actor.departmentId ? { departmentId: actor.departmentId } : { id: actor.employeeId }) };
+    // Rà soát #209 M-3: lọc "đọc được khách" TRƯỚC rồi mới cắt CANDIDATES_MAX (không bỏ sót người đủ điều kiện khi công ty > 500 người).
     const rows = await this.prisma.employee.findMany({
       where, select: { id: true, code: true, fullName: true, department: { select: { code: true } } },
-      orderBy: [{ fullName: 'asc' }, { code: 'asc' }], take: CANDIDATES_MAX,
+      orderBy: [{ fullName: 'asc' }, { code: 'asc' }],
     });
     const acc = await this.access.load(this.prisma, rows.map((r) => r.id));
     const items = rows.filter((r) => { const a = acc.get(r.id); return !!a && a.active && readsCustomer(a, owner); })
+      .slice(0, CANDIDATES_MAX)
       .map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
     return { items };
   }

@@ -47,6 +47,9 @@ export class TestActorProvider implements ActorProvider {
       techB: { actor: { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { ...TECH } },
       techC: { actor: { employeeId: fx.empC, departmentId: fx.d2 }, scopes: { ...TECH } },
       acctA: { actor: { ...a }, scopes: { ...ACCT } },
+      // Rà soát PR #209 M-8: người giao KHÔNG có phòng ban; một người NHIỀU vai trò (sales + kỹ thuật, phạm vi rộng nhất thắng).
+      salesNoDept: { actor: { employeeId: fx.empA, departmentId: null }, scopes: { ...SALES } },
+      salesTech: { actor: { ...a }, scopes: { ...SALES, 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'activity.read': 'DEPARTMENT', 'activity.create_tech': 'DEPARTMENT', 'activity.update_own': 'DEPARTMENT' } },
     };
   }
   async resolve(req: Request): Promise<Actor | null> {
