@@ -55,6 +55,13 @@ describe('buildAuditRow', () => {
       expect(thrown(() => buildAuditRow({ ...base(), changes: { [k]: [null, 'giá trị thô'] } }))).toMatchObject({ reason: 'UNREDACTED' });
     }
   });
+  // B3 A5 (thiết kế §6 "Audit"): nội dung chăm sóc khách / lý do xoá / ghi chú duyệt là dữ liệu nhạy cảm — lớp DB tự chặn nếu service sơ suất.
+  it('B3 A5: content, outcome, reason, decisionNote là khoá nhạy cảm (chỉ được mang "(đã thay đổi)")', () => {
+    for (const k of ['content', 'outcome', 'reason', 'decisionNote']) {
+      expect(thrown(() => buildAuditRow({ ...base(), changes: { [k]: [null, 'nội dung thô'] } }))).toMatchObject({ reason: 'UNREDACTED' });
+      expect(() => buildAuditRow({ ...base(), changes: { [k]: AUDIT_REDACTED_TEXT } })).not.toThrow();
+    }
+  });
   it('khoá nhạy cảm lồng bên trong cũng bị kiểm', () => {
     expect(thrown(() => buildAuditRow({ ...base(), changes: { contact: { email: 'a@b.vn' } } }))).toMatchObject({ reason: 'UNREDACTED' });
     expect(thrown(() => buildAuditRow({ ...base(), changes: { list: [{ note: 'x' }] } }))).toMatchObject({ reason: 'UNREDACTED' });

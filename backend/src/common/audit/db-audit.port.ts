@@ -7,7 +7,9 @@ import type { AuditEntry, AuditPort } from './audit.port';
 // ghi lỗi => ném lỗi => giao dịch nghiệp vụ rollback (không có dữ liệu thay đổi mà thiếu nhật ký). Hợp đồng AuditPort giữ nguyên.
 export const AUDIT_REDACTED_TEXT = '(đã thay đổi)';
 // Lưới an toàn (D-S6): việc che trường nhạy cảm do nơi gọi làm; đây là chốt chặn cuối. Khoá nhạy cảm chỉ được mang giá trị "(đã thay đổi)".
-const SENSITIVE_KEYS = new Set(['phone', 'phoneE164', 'email', 'address', 'note', 'fullName', 'title', 'password', 'passwordHash', 'token', 'refreshToken', 'secret']);
+// B3 A5: + content, outcome (nội dung/kết quả hoạt động chăm sóc), reason (lý do xoá), decisionNote (ghi chú duyệt chuyển việc).
+const SENSITIVE_KEYS = new Set(['phone', 'phoneE164', 'email', 'address', 'note', 'fullName', 'title', 'password', 'passwordHash', 'token', 'refreshToken', 'secret',
+  'content', 'outcome', 'reason', 'decisionNote']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NAME_RE = /^[a-z][a-z0-9_.-]{0,39}$/;
 const MAX_SUMMARY = 1000;

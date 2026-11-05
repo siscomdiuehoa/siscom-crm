@@ -5,6 +5,10 @@ import request from 'supertest';
 import { AUDIT_PORT, AuditEntry, AuditPort } from '../../src/common/audit/audit.port';
 import { ACTOR_PROVIDER, Actor, ActorProvider, Permission, Scope } from '../../src/common/auth/actor';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
+import type { Prisma } from '../../src/generated/prisma/client';
+import type { EmployeeAccess } from '../../src/common/auth/scope-merge';
+import { DbEmployeeAccess, EMPLOYEE_ACCESS } from '../../src/modules/activities/activities.employee-access';
+import { ActivitiesModule } from '../../src/modules/activities/activities.module';
 import { ACTIVE_LINKS_CHECKER, ActiveLinksChecker } from '../../src/modules/customers/customers.deletion-guard';
 import { CustomersModule } from '../../src/modules/customers/customers.module';
 import { LookupsModule } from '../../src/modules/lookups/lookups.module';
@@ -18,6 +22,12 @@ const ALL_PERMS: Permission[] = ['customer.read', 'customer.create', 'customer.u
   // B3 A4
   'activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request'];
 const uniform = (s: Scope): Partial<Record<Permission, Scope>> => Object.fromEntries(ALL_PERMS.map((p) => [p, s]));
+// B3 A5: phạm vi theo vai trò thật (bootstrap.ts BIZ) — dùng cho preset và cho người được giao việc (TestEmployeeAccess).
+export const SALES: Partial<Record<Permission, Scope>> = { 'customer.read': 'OWN', 'customer.create': 'OWN', 'customer.update': 'OWN', 'contact.read': 'OWN', 'contact.create': 'OWN', 'lookup.read': 'ALL',
+  'activity.read': 'OWN', 'activity.create': 'OWN', 'activity.update': 'OWN', 'activity.assign': 'OWN', 'activity.assign_external': 'OWN' };
+export const TECH: Partial<Record<Permission, Scope>> = { 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'lookup.read': 'ALL',
+  'activity.read': 'DEPARTMENT', 'activity.create_tech': 'DEPARTMENT', 'activity.update_own': 'DEPARTMENT', 'activity.transfer_request': 'DEPARTMENT' };
+export const ACCT: Partial<Record<Permission, Scope>> = { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL', 'activity.read': 'ALL' };
 
 export class TestActorProvider implements ActorProvider {
   readonly presets: Record<string, { actor: Actor; scopes: Partial<Record<Permission, Scope>> }>;
@@ -32,6 +42,14 @@ export class TestActorProvider implements ActorProvider {
       createReadOwn: { actor: { ...a }, scopes: { 'customer.create': 'ALL', 'customer.read': 'OWN', 'customer.update': 'ALL', 'lookup.read': 'ALL' } },
       readonly: { actor: { ...a }, scopes: { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL' } },
       none: { actor: { ...a }, scopes: {} },
+      // B3 A5 — giống ma trận thật §5 (sales/technician/accountant), để kiểm hoạt động theo vai trò:
+      salesA: { actor: { ...a }, scopes: { ...SALES } },
+      techB: { actor: { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { ...TECH } },
+      techC: { actor: { employeeId: fx.empC, departmentId: fx.d2 }, scopes: { ...TECH } },
+      acctA: { actor: { ...a }, scopes: { ...ACCT } },
+      // Rà soát PR #209 M-8: người giao KHÔNG có phòng ban; một người NHIỀU vai trò (sales + kỹ thuật, phạm vi rộng nhất thắng).
+      salesNoDept: { actor: { employeeId: fx.empA, departmentId: null }, scopes: { ...SALES } },
+      salesTech: { actor: { ...a }, scopes: { ...SALES, 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'activity.read': 'DEPARTMENT', 'activity.create_tech': 'DEPARTMENT', 'activity.update_own': 'DEPARTMENT' } },
     };
   }
   async resolve(req: Request): Promise<Actor | null> {
@@ -55,10 +73,24 @@ export class TestLinksChecker implements ActiveLinksChecker {
   async check(): Promise<{ verified: boolean; unchecked: string[] }> { return { verified: true, unchecked: [] }; }
 }
 
-export interface TestApp { app: INestApplication; audit: RecordingAuditPort }
+// B3 A5 — CHỈ TRONG TEST: phạm vi của NGƯỜI ĐƯỢC GIAO lấy từ bảng do test đặt (DB thử có thể đã đóng bootstrap => không chèn vai trò thật).
+// Trạng thái/phòng ban vẫn đọc từ DB thật (DbEmployeeAccess). Người không có trong bảng => phạm vi lấy từ vai trò thật trong DB (thường rỗng).
+// Đường đọc vai trò THẬT được kiểm bằng phiên đăng nhập thật ở auth.int-spec (bootstrap cấp ma trận BIZ).
+export class TestEmployeeAccess extends DbEmployeeAccess {
+  readonly scopes = new Map<string, Partial<Record<Permission, Scope>>>();
+  async load(db: Pick<Prisma.TransactionClient, 'employee'>, ids: readonly string[]): Promise<Map<string, EmployeeAccess>> {
+    const m = await super.load(db, ids);
+    for (const [id, v] of m) { const o = this.scopes.get(id); if (o) m.set(id, { ...v, scopes: Object.freeze({ ...o }) }); }
+    return m;
+  }
+}
+
+export interface TestApp { app: INestApplication; audit: RecordingAuditPort; access: TestEmployeeAccess }
 export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verifiedLinks?: boolean; denyAll?: boolean } = {}): Promise<TestApp> {
   const audit = new RecordingAuditPort();
-  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(AUDIT_PORT).useValue(audit);
+  const access = new TestEmployeeAccess();
+  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule, ActivitiesModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(AUDIT_PORT).useValue(audit)
+    .overrideProvider(EMPLOYEE_ACCESS).useValue(access);
   if (!opts.denyAll) b = b.overrideProvider(ACTOR_PROVIDER).useValue(new TestActorProvider(fx));
   if (opts.verifiedLinks) b = b.overrideProvider(ACTIVE_LINKS_CHECKER).useValue(new TestLinksChecker());
   const mod = await b.compile();
@@ -71,7 +103,7 @@ export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verif
   // Lắng nghe sẵn cổng tạm 127.0.0.1: nếu không, supertest gọi server.listen(0) cho MỖI yêu cầu trên cùng http.Server chưa lắng nghe;
   // nhiều yêu cầu song song cộng dồn listener 'listening'/'close' -> MaxListenersExceededWarning. app.close() đóng server này.
   await app.listen(0, '127.0.0.1');
-  return { app, audit };
+  return { app, audit, access };
 }
 
 export function as(app: INestApplication, who?: string) {
