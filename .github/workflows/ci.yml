@@ -270,7 +270,7 @@ jobs:
       - name: Test offline FE (R01 adapter + M02 XSS + S02 cau noi auth + PR4 phien cookie + PR7 nhan vien phu trach + D.0 ngay gio VN; node --test, khong Chrome, khong DB)
         run: |
           set -euo pipefail
-          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs tests/ownerCandidates.test.mjs tests/changePassword.test.mjs tests/dateVN.test.mjs tests/rememberMe.test.mjs tests/customerContactPerson.test.mjs tests/mobilePwa.test.mjs tests/customerPhoneOptional.test.mjs"
+          FILES="tests/customerAdapter.test.mjs tests/xssIsolation.test.mjs tests/customerAuthBridge.test.mjs tests/customerApiAuthHeader.test.mjs tests/cookieSession.test.mjs tests/customerApiClientSession.test.mjs tests/rootSelector.test.mjs tests/ownerCandidates.test.mjs tests/changePassword.test.mjs tests/dateVN.test.mjs tests/rememberMe.test.mjs tests/customerContactPerson.test.mjs tests/mobilePwa.test.mjs tests/customerPhoneOptional.test.mjs tests/apiModeListEditAction.test.mjs"
           # node --test coi duong dan khong ton tai nhu glob rong va van thoat 0 -> bat buoc kiem tra ton tai.
           for f in $FILES; do test -f "$f" || { echo "THIEU file test: $f"; exit 1; }; done
           node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=node-tests-junit.xml $FILES
