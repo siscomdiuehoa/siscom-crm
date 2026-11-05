@@ -1,0 +1,43 @@
+-- SISCOM CRM - ROLLBACK 20261104000100_contact_reach_optional (nguoi lien he khong bat buoc so dien thoai/email). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\CONTACT_REACH_OPTIONAL_ROLLBACK.sql.txt (file moi; noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu.
+-- THU TU ROLLBACK (nguoc thu tu ap):
+--   (1) trien khai lai backend BAN TRUOC thay doi nay;
+--   (2) file nay (migration moi nhat) bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach);
+--   (3) roi moi den CUSTOMER_PHONE_OPTIONAL_ROLLBACK.sql.txt.
+--       psql -X -v ON_ERROR_STOP=1 -d <db thu> -f CONTACT_REACH_OPTIONAL_ROLLBACK.sql.txt
+-- MOT transaction. TU CHOI neu con BAT KY nguoi lien he nao (ke ca da xoa mem) khong co ca so dien thoai lan email:
+--   KHONG tu dien so/email gia; xu ly tay truoc roi chay lai.
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261104000100_contact_reach_optional')
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_contact_reach' AND conrelid = 'public.contact'::regclass) THEN
+    RAISE EXCEPTION 'Chua ap 20261104000100_contact_reach_optional (hoac ck_contact_reach con ton tai). Khong co gi de rollback.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.contact WHERE btrim(coalesce(phone, '')) = '' AND btrim(coalesce(email, '')) = '') THEN
+    RAISE EXCEPTION 'TU CHOI: con % nguoi lien he khong co so dien thoai lan email (ke ca da xoa mem). Nhap thong tin that truoc, KHONG dien gia.',
+      (SELECT count(*) FROM public.contact WHERE btrim(coalesce(phone, '')) = '' AND btrim(coalesce(email, '')) = '');
+  END IF;
+END $$;
+
+ALTER TABLE public.contact ADD CONSTRAINT ck_contact_reach CHECK (btrim(coalesce(phone, '')) <> '' OR btrim(coalesce(email, '')) <> '');
+COMMENT ON COLUMN public.contact.phone IS NULL;
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261104000100_contact_reach_optional';
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_contact_reach' AND conrelid = 'public.contact'::regclass)
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261104000100_contact_reach_optional') THEN
+    RAISE EXCEPTION 'Rollback chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK 20261104000100_contact_reach_optional XONG' AS ket_qua;

@@ -24,7 +24,7 @@ function ContactModal({ open, initial, customerId, onClose, ui }) {
   React.useEffect(() => { setF(initial ? { ...initial } : blank); setTried(false); }, [open, initial]);
   const e = {};
   if (!f.name.trim()) e.name = 'Vui lòng nhập họ tên';
-  if (!f.phone.trim() && !f.email.trim()) e.phone = 'Nhập ít nhất điện thoại hoặc email';
+  // 04/11/2026: chỉ họ tên bắt buộc; SĐT/email có nhập thì kiểm định dạng.
   if (f.phone.trim() && !U.isPhone(f.phone)) e.phone = 'Số điện thoại chưa hợp lệ';
   if (f.email.trim() && !U.isEmail(f.email)) e.email = 'Email chưa đúng định dạng';
   const save = () => { setTried(true); if (Object.keys(e).length) return; if (!ui.api.saveContact({ ...f, id: f.id || uid('LH'), customerId }).ok) return; ui.toast({ tone: 'success', title: initial ? 'Đã cập nhật người liên hệ' : 'Đã thêm người liên hệ', message: f.name }); onClose(); };

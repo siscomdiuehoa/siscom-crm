@@ -105,9 +105,9 @@ export class CustomersService {
     return out;
   }
 
-  private checkFormats(f: { phone?: string; taxId?: string | null; email?: string | null; website?: string | null }, stored?: { phone: string; email: string | null; website: string | null }): void {
+  private checkFormats(f: { phone?: string | null; taxId?: string | null; email?: string | null; website?: string | null }, stored?: { phone: string | null; email: string | null; website: string | null }): void {
     const errs: string[] = [];
-    if (f.phone !== undefined && !(stored && stored.phone === f.phone) && !isVnPhone(f.phone)) errs.push(PHONE_MESSAGE);
+    if (f.phone && !(stored && stored.phone === f.phone) && !isVnPhone(f.phone)) errs.push(PHONE_MESSAGE);
     if (f.taxId && !isTaxId(f.taxId)) errs.push(TAX_MESSAGE);
     if (f.email && !(stored && stored.email === f.email) && !isEmailB1(f.email)) errs.push(EMAIL_MESSAGE);
     if (f.website && !(stored && stored.website === f.website) && !isWebsite(f.website)) errs.push(WEBSITE_MESSAGE);
@@ -244,7 +244,7 @@ export class CustomersService {
     const wantOwner = ownerIdForCreate(actor, scope, blank(dto.ownerId));
     const ownerReason = blank(dto.ownerReason) ?? null;
     const name = dto.name.trim();
-    const phone = dto.phone.trim();
+    const phone = blank(dto.phone) ?? null; // 04/11/2026: không bắt buộc; không tạo số giả
     if (name.length < 2) throw customerErrors.validation(['Tên công ty quá ngắn']);
     const taxId = blank(dto.taxId) ?? null;
     const email = blank(dto.email) ?? null;
@@ -258,7 +258,7 @@ export class CustomersService {
       if (wantOwner) { const cand = await loadOwnerCandidate(tx, wantOwner); assertOwnerInScope(actor, scope, cand); ownerId = cand.id; }
       const shortName = blank(dto.shortName) ?? deriveShortName(name);
       const data = {
-        name, shortName, taxId, phone, phoneE164: normalizePhoneE164(phone), email, website,
+        name, shortName, taxId, phone, phoneE164: phone ? normalizePhoneE164(phone) : null, email, website,
         address: blank(dto.address) ?? null, note: blank(dto.note) ?? null, tags: dto.tags ?? [],
         tierId: ids.tier as string, statusId: ids.status as string,
         industryId: ids.industry ?? null, sourceId: ids.source ?? null, provinceId: ids.province ?? null,
@@ -288,11 +288,11 @@ export class CustomersService {
       const before: Record<string, unknown> = { name: cur.name, shortName: cur.shortName, taxId: cur.taxId, phone: cur.phone, phoneE164: cur.phoneE164, email: cur.email, website: cur.website, address: cur.address, note: cur.note, tags: cur.tags, tier: cur.tier.code, status: cur.status.code, industry: cur.industry?.code ?? null, source: cur.source?.code ?? null, province: cur.province?.code ?? null, ownerId: cur.ownerId };
       const name = dto.name === undefined ? undefined : dto.name.trim();
       if (name !== undefined) { if (name.length < 2) throw customerErrors.validation(['Tên công ty quá ngắn']); data.name = name; after.name = name; }
-      const phone = dto.phone === undefined ? undefined : dto.phone.trim();
+      const phone = blank(dto.phone); // undefined = giữ nguyên; null = xoá số
       const email = blank(dto.email);
       const website = blank(dto.website);
       this.checkFormats({ phone, taxId: typeof taxIn === 'string' ? taxIn : null, email: email ?? null, website: website ?? null }, { phone: cur.phone, email: cur.email, website: cur.website });
-      if (phone !== undefined && phone !== cur.phone) { data.phone = phone; data.phoneE164 = normalizePhoneE164(phone); after.phone = phone; after.phoneE164 = data.phoneE164; }
+      if (phone !== undefined && phone !== cur.phone) { data.phone = phone; data.phoneE164 = phone ? normalizePhoneE164(phone) : null; after.phone = phone; after.phoneE164 = data.phoneE164; }
       if (taxIn !== undefined && taxIn !== cur.taxId) { data.taxId = taxIn; after.taxId = taxIn; }
       if (email !== undefined && email !== cur.email) { data.email = email; after.email = email; }
       if (website !== undefined && website !== cur.website) { data.website = website; after.website = website; }

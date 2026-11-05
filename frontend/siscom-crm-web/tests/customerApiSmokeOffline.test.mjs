@@ -191,7 +191,7 @@ test('SMOKE 5xx rồi bấm thử lại thủ công (reload) thành công; lỗi
 test('SMOKE tính toàn vẹn đầu vào: UUID sai / thiếu tên / thiếu version bị chặn TRƯỚC khi gửi (không request)', () => guarded(async () => {
   const f = mockServer(); const c = createCustomerApiUi({ env: ON, fetchImpl: f });
   await c.loadDetail('not-a-uuid'); assert.equal(c.getState().detail.error.kind, 'validation');
-  assert.equal((await c.submit({ name: '', phone: '1' })).error.kind, 'validation'); assert.equal((await c.submit({ name: 'A', phone: '' })).error.kind, 'validation');
+  assert.equal((await c.submit({ name: '', phone: '1' })).error.kind, 'validation'); assert.equal((await c.submit({ name: '', phone: '' })).error.kind, 'validation'); // 04/11/2026: chỉ tên bắt buộc
   assert.equal((await c.update(uid(5), { name: 'A', phone: '1' }, undefined)).error.kind, 'validation');
   assert.equal(f.calls.length, 0);
 }));

@@ -114,11 +114,10 @@ test('cờ BẬT update: trường tuỳ chọn để trống → null (xoá); t
   for (const k of ['shortName', 'taxId', 'address', 'email', 'website', 'note', 'industry', 'source', 'province']) assert.equal(body[k], null, k);
   assert.equal('tier' in body, false); assert.equal('status' in body, false);
 });
-test('cờ BẬT update: thiếu tên/điện thoại/version/uuid hợp lệ → validation, không gọi mạng', async () => {
+test('cờ BẬT update: thiếu tên/version/uuid hợp lệ → validation, không gọi mạng (04/11/2026: điện thoại không bắt buộc)', async () => {
   const repo = createCustomerRepository({ env: ON, fetchImpl: throwingFetch, local: {} });
   const ok = { name: 'A', phone: '1' };
   await assert.rejects(() => repo.update(ID, { ...ok, name: '  ' }, 1), (e) => e.kind === 'validation' && e.field === 'name');
-  await assert.rejects(() => repo.update(ID, { ...ok, phone: '' }, 1), (e) => e.kind === 'validation' && e.field === 'phone');
   await assert.rejects(() => repo.update(ID, null, 1), (e) => e.kind === 'validation');
   for (const v of [undefined, null, 0, -1, 1.5, '2']) await assert.rejects(() => repo.update(ID, ok, v), (e) => e.kind === 'validation' && e.field === 'version', String(v));
   for (const id of ['KH-00007', '', undefined]) await assert.rejects(() => repo.update(id, ok, 1), (e) => e.kind === 'validation' && e.field === 'id');

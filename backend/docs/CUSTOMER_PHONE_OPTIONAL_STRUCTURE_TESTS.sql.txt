@@ -1,0 +1,77 @@
+-- SISCOM CRM - PR #203 (20261104000000_customer_phone_optional + 20261104000100_contact_reach_optional): KIEM CAU TRUC / RANG BUOC o tang DB.
+-- CHI CHAY TREN BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) bang CHU SO HUU BANG (siscom_app khi chua tach role; siscom_migrator sau tach role).
+-- Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu; sequence ma khach/lien he van tang).
+-- In "PASS|n" va (neu co) "FAIL|n". Ky vong: khong co FAIL.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_customer_phone_e164' AND conrelid = 'public.customer'::regclass) THEN
+    RAISE EXCEPTION 'Chua ap migration 20261104000000_customer_phone_optional.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_contact_reach' AND conrelid = 'public.contact'::regclass) THEN
+    RAISE EXCEPTION 'Chua ap migration 20261104000100_contact_reach_optional.';
+  END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text) ON COMMIT DROP;
+CREATE FUNCTION pg_temp.expect_err(p_label text, p_sql text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+    RAISE EXCEPTION 'pr203_undo' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN raise_exception THEN INSERT INTO res VALUES (false, p_label || CASE WHEN SQLERRM = 'pr203_undo' THEN ' [CHAY DUOC]' ELSE ' [' || SQLERRM || ']' END);
+    WHEN OTHERS THEN INSERT INTO res VALUES (SQLSTATE = p_state, p_label || CASE WHEN SQLSTATE = p_state THEN '' ELSE ' [' || SQLSTATE || ' thay vi ' || p_state || ']' END);
+  END;
+END $$;
+CREATE FUNCTION pg_temp.expect_ok(p_label text, p_sql text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE p_sql;
+  INSERT INTO res VALUES (true, p_label);
+EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQLSTATE || ' ' || SQLERRM || ']');
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_sql text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v boolean;
+BEGIN
+  EXECUTE 'SELECT (' || p_sql || ')' INTO v;
+  INSERT INTO res VALUES (coalesce(v, false), p_label);
+EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQLSTATE || ']');
+END $$;
+
+-- Danh muc thu (tong hop, chi ton tai trong transaction nay)
+INSERT INTO lookup_item (id, type, code, label_vi) VALUES
+ ('f2030000-0000-4000-8000-000000000001', 'customer_tier', 'ZZ_PR203_TIER', 'PR203 hang thu'),
+ ('f2030000-0000-4000-8000-000000000002', 'customer_status', 'ZZ_PR203_STATUS', 'PR203 trang thai thu');
+
+-- 1. Khach hang: so dien thoai khong bat buoc, nhung khong luu chuoi rong / phone_e164 mo coi
+SELECT pg_temp.expect_true('P01 customer.phone cho phep NULL', $q$ (SELECT is_nullable = 'YES' FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'customer' AND column_name = 'phone') $q$);
+SELECT pg_temp.expect_ok('P02 khach KHONG co so (phone NULL, phone_e164 NULL) chen duoc', $q$ INSERT INTO customer (id, name, tier_id, status_id, is_demo) VALUES ('f2031000-0000-4000-8000-000000000001', 'PR203 khong so', 'f2030000-0000-4000-8000-000000000001', 'f2030000-0000-4000-8000-000000000002', true) $q$);
+SELECT pg_temp.expect_ok('P03 hai khach cung khong co so (khong unique tren phone)', $q$ INSERT INTO customer (id, name, tier_id, status_id, is_demo) VALUES ('f2031000-0000-4000-8000-000000000002', 'PR203 khong so 2', 'f2030000-0000-4000-8000-000000000001', 'f2030000-0000-4000-8000-000000000002', true) $q$);
+SELECT pg_temp.expect_err('P04 phone chuoi rong bi tu choi (khong luu so gia)', $q$ INSERT INTO customer (name, tier_id, status_id, is_demo, phone) VALUES ('PR203 rong', 'f2030000-0000-4000-8000-000000000001', 'f2030000-0000-4000-8000-000000000002', true, '') $q$, '23514');
+SELECT pg_temp.expect_err('P05 phone toan khoang trang bi tu choi', $q$ INSERT INTO customer (name, tier_id, status_id, is_demo, phone) VALUES ('PR203 trang', 'f2030000-0000-4000-8000-000000000001', 'f2030000-0000-4000-8000-000000000002', true, '   ') $q$, '23514');
+SELECT pg_temp.expect_err('P06 phone NULL nhung co phone_e164 bi tu choi', $q$ INSERT INTO customer (name, tier_id, status_id, is_demo, phone_e164) VALUES ('PR203 mo coi', 'f2030000-0000-4000-8000-000000000001', 'f2030000-0000-4000-8000-000000000002', true, '+84903123456') $q$, '23514');
+SELECT pg_temp.expect_ok('P07 them so sau (UPDATE phone + phone_e164)', $q$ UPDATE customer SET phone = '0903 123 456', phone_e164 = '+84903123456' WHERE id = 'f2031000-0000-4000-8000-000000000001' $q$);
+SELECT pg_temp.expect_err('P08 xoa so nhung giu phone_e164 bi tu choi', $q$ UPDATE customer SET phone = NULL WHERE id = 'f2031000-0000-4000-8000-000000000001' $q$, '23514');
+SELECT pg_temp.expect_ok('P09 xoa so (phone + phone_e164 cung NULL)', $q$ UPDATE customer SET phone = NULL, phone_e164 = NULL WHERE id = 'f2031000-0000-4000-8000-000000000001' $q$);
+SELECT pg_temp.expect_true('P10 ck_customer_phone va ck_customer_phone_e164 ton tai, da VALIDATED', $q$ (SELECT count(*) = 2 AND bool_and(convalidated) FROM pg_constraint WHERE conrelid = 'public.customer'::regclass AND conname IN ('ck_customer_phone', 'ck_customer_phone_e164')) $q$);
+
+-- 2. Nguoi lien he: chi can ho ten
+SELECT pg_temp.expect_ok('C01 nguoi lien he chi co ho ten (khong phone/email) chen duoc', $q$ INSERT INTO contact (customer_id, full_name, is_primary) VALUES ('f2031000-0000-4000-8000-000000000002', 'PR203 Chi ho ten', true) $q$);
+SELECT pg_temp.expect_err('C02 ho ten rong van bi tu choi (ck_contact_name)', $q$ INSERT INTO contact (customer_id, full_name) VALUES ('f2031000-0000-4000-8000-000000000002', '   ') $q$, '23514');
+SELECT pg_temp.expect_true('C03 ck_contact_reach da bo', $q$ NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.contact'::regclass AND conname = 'ck_contact_reach') $q$);
+SELECT pg_temp.expect_err('C04 lien he chinh thu 2 cua cung khach van bi chan (uq_contact_primary_active giu nguyen)', $q$ INSERT INTO contact (customer_id, full_name, is_primary) VALUES ('f2031000-0000-4000-8000-000000000002', 'PR203 Chinh 2', true) $q$, '23505');
+
+-- 3. Doi tuong
+SELECT pg_temp.expect_true('O01 hai migration da ghi nhan trong _prisma_migrations', $q$ (SELECT count(*) = 2 FROM public._prisma_migrations WHERE migration_name IN ('20261104000000_customer_phone_optional', '20261104000100_contact_reach_optional') AND finished_at IS NOT NULL AND rolled_back_at IS NULL) $q$);
+SELECT pg_temp.expect_true('O02 COMMENT cot customer.phone / contact.phone da dat', $q$ col_description('public.customer'::regclass, (SELECT attnum FROM pg_attribute WHERE attrelid = 'public.customer'::regclass AND attname = 'phone')::int) IS NOT NULL AND col_description('public.contact'::regclass, (SELECT attnum FROM pg_attribute WHERE attrelid = 'public.contact'::regclass AND attname = 'phone')::int) IS NOT NULL $q$);
+
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
+SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+ROLLBACK;

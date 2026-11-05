@@ -1,6 +1,6 @@
 // Run: node --test tests/   (Node >= 18, no dependencies). Injected fetch only; no network, no DB, no storage.
 // B1.4 Người liên hệ (một người / khách hàng doanh nghiệp): dùng API Contact có sẵn (GET/POST /customers/:id/contacts), không trường SĐT mới:
-// người liên hệ chính mang SĐT công ty (ràng buộc ck_contact_reach), trang chi tiết hiển thị SĐT công ty.
+// người liên hệ chính mang SĐT công ty nếu có (ck_contact_reach đã bỏ ở PR #203 — SĐT/email không bắt buộc), trang chi tiết hiển thị SĐT công ty khi có.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCustomerApiUi, formToCustomerInput, pickPrimaryContact, contactNameError, CONTACT_NAME_MAX } from '../src/features/customers/customerApiUi.js';

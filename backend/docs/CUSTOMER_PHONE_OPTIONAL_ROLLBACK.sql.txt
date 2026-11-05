@@ -1,0 +1,49 @@
+-- SISCOM CRM - ROLLBACK 20261104000000_customer_phone_optional (so dien thoai khach hang khong bat buoc). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\CUSTOMER_PHONE_OPTIONAL_ROLLBACK.sql.txt (file moi; noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu.
+-- THU TU ROLLBACK:
+--   (1) trien khai lai backend BAN TRUOC thay doi nay (ban cu doi phone NOT NULL);
+--   (1b) CONTACT_REACH_OPTIONAL_ROLLBACK.sql.txt TRUOC (migration moi hon, cung PR #203);
+--   (2) file nay, bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach):
+--       psql -X -v ON_ERROR_STOP=1 -d <db thu> -f CUSTOMER_PHONE_OPTIONAL_ROLLBACK.sql.txt
+-- MOT transaction. TU CHOI neu con BAT KY khach hang nao (ke ca da xoa mem) khong co so dien thoai: KHONG tu dien so gia;
+--   xu ly tay truoc (nhap so that cho khach do) roi chay lai.
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+  IF EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261104000100_contact_reach_optional') THEN
+    RAISE EXCEPTION 'TU CHOI: rollback 20261104000100_contact_reach_optional TRUOC (CONTACT_REACH_OPTIONAL_ROLLBACK.sql.txt).';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_customer_phone_e164' AND conrelid = 'public.customer'::regclass) THEN
+    RAISE EXCEPTION 'Chua ap 20261104000000_customer_phone_optional (khong co ck_customer_phone_e164). Khong co gi de rollback.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.customer WHERE phone IS NULL) THEN
+    RAISE EXCEPTION 'TU CHOI: con % khach hang khong co so dien thoai (ke ca da xoa mem). Nhap so that truoc, KHONG dien so gia.',
+      (SELECT count(*) FROM public.customer WHERE phone IS NULL);
+  END IF;
+END $$;
+
+ALTER TABLE public.customer DROP CONSTRAINT ck_customer_phone_e164;
+ALTER TABLE public.customer DROP CONSTRAINT ck_customer_phone;
+ALTER TABLE public.customer ADD CONSTRAINT ck_customer_phone CHECK (btrim(phone) <> '');
+ALTER TABLE public.customer ALTER COLUMN phone SET NOT NULL;
+COMMENT ON COLUMN public.customer.phone IS NULL;
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261104000000_customer_phone_optional';
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_customer_phone_e164' AND conrelid = 'public.customer'::regclass)
+     OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'customer' AND column_name = 'phone' AND is_nullable = 'YES')
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261104000000_customer_phone_optional') THEN
+    RAISE EXCEPTION 'Rollback chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK 20261104000000_customer_phone_optional XONG' AS ket_qua;

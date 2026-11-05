@@ -72,8 +72,15 @@ describe('ContactsService.create', () => {
     expect(e.tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(e.contact.updateMany.mock.invocationCallOrder[0]);
     expect(e.prisma.$transaction).toHaveBeenCalledTimes(1);
   });
-  it('phải có SĐT hoặc email; định dạng sai bị từ chối; không mở transaction', async () => {
-    for (const body of [{ fullName: 'A' }, { fullName: 'A', phone: '', email: '' }, { fullName: 'A', phone: '123' }, { fullName: 'A', email: 'x@' }, { fullName: '  ', phone: '0903123456' }]) {
+  it('04/11/2026: chỉ có họ tên (không SĐT/email) hợp lệ -> phone/email NULL, không tạo giá trị giả', async () => {
+    for (const body of [{ fullName: 'A' }, { fullName: 'A', phone: '', email: '' }, { fullName: 'A', phone: null, email: '   ' }]) {
+      const e = ready();
+      await e.svc.create(ctx, CID, body as never);
+      expect(e.contact.create.mock.calls[0][0].data).toMatchObject({ fullName: 'A', phone: null, email: null });
+    }
+  });
+  it('định dạng sai / thiếu họ tên bị từ chối; không mở transaction', async () => {
+    for (const body of [{ fullName: 'A', phone: '123' }, { fullName: 'A', email: 'x@' }, { fullName: '  ', phone: '0903123456' }]) {
       const e = ready();
       expect((await err(e.svc.create(ctx, CID, body as never))).code).toBe('VALIDATION_FAILED');
       expect(e.prisma.$transaction).not.toHaveBeenCalled();

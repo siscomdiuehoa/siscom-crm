@@ -11,8 +11,9 @@ export class CreateCustomerDto {
   @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập tên công ty' }) @MinLength(2, { message: 'Tên công ty quá ngắn' }) @MaxLength(300)
   name!: string;
 
-  @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập số điện thoại' }) @MaxLength(40) @IsVnPhone()
-  phone!: string;
+  // 04/11/2026 (owner): số điện thoại KHÔNG bắt buộc. Trống/null => không lưu số (không tạo số giả); có số => kiểm định dạng như cũ.
+  @SkipIfBlank() @Trim() @IsString() @MaxLength(40) @IsVnPhone()
+  phone?: string | null;
 
   @SkipIfBlank() @Trim() @IsUUID(undefined, { message: 'ownerId phải là uuid của nhân viên' })
   ownerId?: string | null;

@@ -34,9 +34,22 @@ describe('thêm khách hàng', () => {
     expect(row?.isDemo).toBe(false);
     expect(t.audit.entries.at(-1)).toMatchObject({ action: 'customer.create', entityCode: d.code, actorEmployeeId: fx.empA });
   });
-  it('2-3. thiếu tên / thiếu điện thoại -> 400', async () => {
+  it('2. thiếu tên -> 400', async () => {
     expect((await a().post(URL, { phone: '0903123456' })).status).toBe(400);
-    expect((await a().post(URL, { name: 'Công ty Thiếu SĐT ' + uniq() })).status).toBe(400);
+  });
+  it('3. 04/11/2026: không có số điện thoại -> 201, phone NULL, phone_e164 NULL (không tạo số giả)', async () => {
+    for (const extra of [{}, { phone: '' }, { phone: null }, { phone: '   ' }]) {
+      const res = await a().post(URL, { name: 'Công ty Không SĐT ' + uniq(), ...extra });
+      expect(res.status).toBe(201);
+      expect(res.body.data).toMatchObject({ phone: null, phoneE164: null });
+      const row = await prisma.customer.findUnique({ where: { id: res.body.data.id } });
+      expect(row).toMatchObject({ phone: null, phoneE164: null });
+    }
+    // hai khách cùng không có số: không bị coi là trùng nhau
+    expect((await a().post(URL, { name: 'Công ty Không SĐT A ' + uniq() })).status).toBe(201);
+    expect((await a().post(URL, { name: 'Công ty Không SĐT B ' + uniq() })).status).toBe(201);
+    // có số thì vẫn kiểm định dạng
+    expect((await a().post(URL, { name: 'Công ty SĐT sai ' + uniq(), phone: '123' })).status).toBe(400);
   });
   it('4. để trống MST: nhiều khách không MST đều tạo được', async () => {
     for (let i = 0; i < 3; i++) expect((await a().post(URL, { name: 'Công ty không MST ' + uniq(), phone: '0903123456', taxId: '' })).status).toBe(201);
@@ -95,7 +108,23 @@ describe('sửa khách hàng', () => {
     const r = await a().patch(URL + '/' + c.id, { version: 1, address: '' });
     expect(r.body.data.address).toBeNull();
     expect((await a().patch(URL + '/' + c.id, { version: 2, name: '' })).status).toBe(400);
-    expect((await a().patch(URL + '/' + c.id, { version: 2, phone: null })).status).toBe(400);
+    // 04/11/2026: phone KHÔNG bắt buộc => null xoá số (phone + phone_e164 = NULL)
+    const cleared = await a().patch(URL + '/' + c.id, { version: 2, phone: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.data).toMatchObject({ phone: null, phoneE164: null, version: 3 });
+  });
+  it('04/11/2026: khách chưa có số -> cập nhật thêm số sau; số sai -> 400; xoá bằng rỗng', async () => {
+    const c = (await a().post(URL, { name: 'Công ty thêm SĐT sau ' + uniq() })).body.data;
+    expect(c.phone).toBeNull();
+    expect((await a().patch(URL + '/' + c.id, { version: 1, phone: '123' })).status).toBe(400);
+    const r = await a().patch(URL + '/' + c.id, { version: 1, phone: '0903 123 456' });
+    expect(r.status).toBe(200);
+    expect(r.body.data).toMatchObject({ phone: '0903 123 456', phoneE164: '+84903123456', version: 2 });
+    const kept = await a().patch(URL + '/' + c.id, { version: 2, note: 'không đụng số' });
+    expect(kept.body.data.phone).toBe('0903 123 456');
+    const e = await a().patch(URL + '/' + c.id, { version: 3, phone: '' });
+    expect(e.status).toBe(200);
+    expect(e.body.data).toMatchObject({ phone: null, phoneE164: null });
   });
   it('12. không cho sửa id / mã / các trường cấm -> 400', async () => {
     const c = await make();

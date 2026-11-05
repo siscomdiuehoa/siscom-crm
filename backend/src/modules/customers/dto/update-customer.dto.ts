@@ -19,8 +19,9 @@ export class UpdateCustomerDto {
   @SkipIfUndefined() @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập tên công ty' }) @MinLength(2, { message: 'Tên công ty quá ngắn' }) @MaxLength(300)
   name?: string;
 
-  @SkipIfUndefined() @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập số điện thoại' }) @MaxLength(40)
-  phone?: string;
+  // 04/11/2026: không gửi = giữ nguyên; null/'' = xoá số (khách chưa có số); có số => định dạng kiểm ở service.
+  @SkipIfBlank() @Trim() @IsString() @MaxLength(40)
+  phone?: string | null;
 
   @SkipIfUndefined() @Trim() @IsString() @IsNotEmpty({ message: 'Phân hạng không được để trống' }) @Matches(CODE_RE, { message: CODE_MESSAGE }) @MaxLength(60)
   tier?: string;
