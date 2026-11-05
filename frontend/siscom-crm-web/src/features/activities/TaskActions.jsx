@@ -8,6 +8,8 @@ import { taskActions, ACTION_LABEL, ACTION_ICON, validateTransfer } from './task
 const has = (ui, p) => typeof ui.can === 'function' && !!ui.can(p);
 const cid = (a) => a.customerId || (a.customer && a.customer.id);
 const ACTION_TEXT = { create: 'Tạo', update: 'Sửa', assign: 'Giao việc', complete: 'Hoàn thành', reopen: 'Mở lại', cancel: 'Huỷ', delete: 'Xoá', transfer_request: 'Đề xuất chuyển', transfer_approve: 'Duyệt chuyển', transfer_reject: 'Từ chối chuyển', access_revoke: 'Thu hồi quyền theo việc' };
+const FIELD_TEXT = { type: 'Loại', title: 'Tiêu đề', content: 'Nội dung', outcome: 'Kết quả', status: 'Trạng thái', dueAt: 'Hạn', remindAt: 'Nhắc lúc', occurredAt: 'Thời điểm', contactId: 'Người liên hệ', customerId: 'Khách hàng', performedById: 'Phụ trách', completedAt: 'Hoàn thành lúc', deletedAt: 'Xoá' };
+const fieldText = (k) => FIELD_TEXT[k] || k;
 const actionText = (k) => ACTION_TEXT[String(k).replace(/^activity\./, '').replace(/\./g, '_')] || String(k);
 
 // Ứng viên (giao lại / đề xuất chuyển). external = người ngoài phạm vi khách (cần assign_external). Đọc tại chỗ, không lưu state chung.
@@ -80,7 +82,7 @@ function Dialog({ kind, a, ui, onClose }) {
               : <ul className="sg-feed" style={{ margin: 0 }}>{hist.items.map((h, i) => (
                 <li key={i} className="sg-feed__item"><span className="sg-feed__icon"><Icon name="history" size={14} /></span>
                   <div style={{ minWidth: 0, flex: 1 }}><p className="sg-feed__text" style={{ margin: 0 }}><b>{actionText(h.action)}</b>{h.actor ? ' · ' + h.actor.fullName + ' (' + h.actor.code + ')' : ''}</p>
-                    <div className="sg-feed__meta"><span>{U.dtVN(h.occurredAt)}</span>{h.changes && typeof h.changes === 'object' && Object.keys(h.changes).length ? <span>{'Trường: ' + Object.keys(h.changes).join(', ')}</span> : null}</div></div></li>))}</ul>
+                    <div className="sg-feed__meta"><span>{U.dtVN(h.occurredAt)}</span>{h.changes && typeof h.changes === 'object' && Object.keys(h.changes).length ? <span>{'Trường: ' + Object.keys(h.changes).map(fieldText).join(', ')}</span> : null}</div></div></li>))}</ul>
         ) : null}
       </div>
     </Modal>

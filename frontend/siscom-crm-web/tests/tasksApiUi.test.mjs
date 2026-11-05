@@ -170,7 +170,7 @@ test('kế toán (chỉ đọc): thấy việc, không có nút thao tác nào n
   try {
     assert.equal(buttonByText(m.container, /^Hoàn thành$/), undefined);
     await menuItem(m.container, /^Lịch sử/);
-    assert.match(text(modal(m.container)), /Hoàn thành · Nhân viên kinh doanh/);
+    assert.match(text(modal(m.container)), /Hoàn thành · Nhân viên kinh doanh/); assert.match(text(modal(m.container)), /Trường: Trạng thái/);
   } finally { await m.unmount(); }
 });
 
