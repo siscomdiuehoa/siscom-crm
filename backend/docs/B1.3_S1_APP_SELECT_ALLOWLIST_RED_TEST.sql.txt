@@ -1,0 +1,22 @@
+-- SISCOM CRM - B3 A3: BAI TAI HIEN (RED mong doi) cho B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt.
+-- Mo phong mot migration TUONG LAI tao bang NHAY CAM (siscom_migrator tao => quyen mac dinh cap SELECT cho siscom_app NGAY):
+--   (1) chua quyet dinh => ALLOWLIST phai FAIL dung ten bang; (2) them REVOKE tuong minh (cach sua dung cho bang nhay cam) => ALLOWLIST PASS.
+-- CHI CHAY TREN DB TAM CUA CI (siscom_crm_test_*) bang siscom_migrator. Toan bo trong 1 transaction, ROLLBACK cuoi: bang thu KHONG con lai.
+-- CI chay bang pg-sql-check.sh ... fail migrator, roi grep ten bang thu trong dong FAIL va dong "PASS|2" cua lan (2).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_test_[0-9]{8}_[0-9]{6}$' THEN RAISE EXCEPTION 'TU CHOI CHAY BAI THU: % khong phai DB tam CI.', current_database(); END IF;
+  IF current_user <> 'siscom_migrator' THEN RAISE EXCEPTION 'Phai chay bang siscom_migrator (quyen mac dinh gan voi role tao bang).'; END IF;
+END $$;
+BEGIN;
+CREATE TABLE public.zz_b3_probe_bang_nhay_cam (id int PRIMARY KEY, token_hash text NOT NULL);
+SELECT 'mo phong: app doc duoc bang moi ngay sau CREATE = ' || has_any_column_privilege('siscom_app', 'public.zz_b3_probe_bang_nhay_cam', 'SELECT')::text AS quyen_mac_dinh;
+\echo '--- (1) bang moi CHUA quyet dinh => ALLOWLIST phai FAIL'
+\ir B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt
+REVOKE ALL ON public.zz_b3_probe_bang_nhay_cam FROM siscom_app;
+\echo '--- (2) sau REVOKE tuong minh (cach xu ly bang nhay cam) => ALLOWLIST PASS'
+\ir B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt
+ROLLBACK;
+SELECT 'bang thu con ton tai sau ROLLBACK = ' || (to_regclass('public.zz_b3_probe_bang_nhay_cam') IS NOT NULL)::text AS kiem_don_dep;

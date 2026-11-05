@@ -154,6 +154,9 @@ GRANT USAGE, SELECT ON SEQUENCE public.audit_log_id_seq TO siscom_auth;  -- QA M
 -- 5. Ham dac quyen: DUY NHAT doi mat khau cua chinh minh, CHI pool auth. Cac fn_auth_api_* khac da REVOKE FROM PUBLIC trong M1.2 va buoc 0.
 GRANT EXECUTE ON FUNCTION public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb) TO siscom_auth;
 -- 6. I3: quyen mac dinh cho doi tuong migrator tao SAU nay (thu mac dinh V1 roi dat lai CHI DOC)
+--    B3 A3 (ra soat doc lap 05/11/2026): GIU NGUYEN nhu V2/V3 (doi = sua baseline da nghiem thu + buoc RED B1f cua CI). He qua: bang moi
+--    app DOC DUOC ngay (khong ghi). Chot FAIL-CLOSED o CI: B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt - bang app doc duoc phai nam trong danh sach
+--    tuong minh; bang nhay cam moi => REVOKE tai day + muc VERIFY. Ham moi: PUBLIC EXECUTE mac dinh, nhung VERIFY C6 chan moi SECURITY DEFINER.
 ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE ALL ON TABLES FROM siscom_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE ALL ON SEQUENCES FROM siscom_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public GRANT SELECT ON TABLES TO siscom_app;

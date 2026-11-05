@@ -1,0 +1,44 @@
+-- SISCOM CRM - B3 A3 (ra soat doc lap 05/11/2026): CHOT CHAN QUYEN MAC DINH - siscom_app CHI duoc SELECT cac bang trong DANH SACH CHO PHEP duoi day.
+-- Dich: D:\SISCOM-CRM\backend\docs\B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt (file moi). CHI DOC catalog. Chay bang psql -f (bat ky role; kiem quyen cua 'siscom_app').
+-- VI SAO: APP_GRANTS_V2/V3/V4 muc 6 dat ALTER DEFAULT PRIVILEGES ... GRANT SELECT ON TABLES TO siscom_app => moi bang siscom_migrator tao SAU NAY
+--   (ke ca bang chua du lieu nhay cam: token, hash, khoa...) app DOC DUOC NGAY ma khong ai quyet dinh. VERIFY chi bat bang co muc kiem rieng (vd B1f).
+--   File nay bien quyen mac dinh thanh FAIL-CLOSED o CI: bang moi app doc duoc ma KHONG co trong danh sach => FAIL. Nguoi them bang phai, trong CUNG PR:
+--   (a) bang nghiep vu => them ten vao danh sach duoi day (quyet dinh tuong minh, nguoi review thay), HOAC
+--   (b) bang nhay cam / xac thuc => them REVOKE tuong minh vao APP_GRANTS (mau remember_device) + muc kiem trong VERIFY.
+-- KHONG doi quyen mac dinh (doi = sua baseline V2/V3 da nghiem thu va buoc RED B1f cua CI - can owner duyet rieng).
+-- In "PASS|n" / "FAIL|n" (pg-sql-check.sh mode res). Bai RED chung minh: B1.3_S1_APP_SELECT_ALLOWLIST_RED_TEST.sql.txt.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+END $$;
+CREATE TEMP TABLE b3_al_res (ok boolean, label text);
+CREATE TEMP TABLE b3_al_allow (t text PRIMARY KEY);
+-- DANH SACH CHO PHEP (16 bang, sau B3 A2 + V4). Bang KHONG duoc co o day: auth_session, employee_credential, remember_device,
+--   privileged_change_request, password_reset_token (du lieu xac thuc / dac quyen - VERIFY B1d/B1e/B1f kiem rieng).
+INSERT INTO b3_al_allow (t) VALUES
+ ('_prisma_migrations'), ('activity'), ('activity_access'), ('activity_transfer_request'), ('app_meta'), ('audit_log'),
+ ('contact'), ('customer'), ('customer_assignment'), ('department'), ('employee'), ('employee_role'),
+ ('lookup_item'), ('permission'), ('role'), ('role_permission');
+
+-- AL1: moi quan he (bang/view/matview/foreign/partition) trong public ma app SELECT duoc (ke ca theo cot) PHAI nam trong danh sach
+INSERT INTO b3_al_res SELECT count(*) = 0,
+  'AL1 siscom_app chi SELECT duoc bang trong danh sach cho phep' || CASE WHEN count(*) > 0 THEN ' [ngoai danh sach: ' || string_agg(c.relname, ', ' ORDER BY c.relname) || ']' ELSE '' END
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+    AND has_any_column_privilege('siscom_app', c.oid, 'SELECT')
+    AND c.relname NOT IN (SELECT t FROM b3_al_allow);
+-- AL2: bang trong danh sach DANG TON TAI thi app phai doc duoc (danh sach khong "chet"; bang chua co - vd sau rollback B3 - bo qua)
+INSERT INTO b3_al_res SELECT count(*) = 0,
+  'AL2 bang trong danh sach (dang ton tai) app doc duoc' || CASE WHEN count(*) > 0 THEN ' [khong doc duoc: ' || string_agg(a.t, ', ' ORDER BY a.t) || ']' ELSE '' END
+  FROM b3_al_allow a WHERE to_regclass('public.' || a.t) IS NOT NULL AND NOT has_any_column_privilege('siscom_app', ('public.' || a.t)::regclass, 'SELECT');
+
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM b3_al_res ORDER BY label;
+SELECT 'PASS|' || count(*) FROM b3_al_res WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM b3_al_res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+DROP TABLE b3_al_res;
+DROP TABLE b3_al_allow;

@@ -124,6 +124,14 @@ jobs:
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          # B3 A3 (ra soat doc lap): quyen mac dinh cap SELECT bang moi cho app => chot FAIL-CLOSED: app chi doc bang trong danh sach cho phep
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt res app
+          # RED mong doi: bang nhay cam mo phong (migrator tao) => ALLOWLIST FAIL dung ten bang; REVOKE tuong minh => PASS; ROLLBACK, khong de lai
+          out="$(bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_APP_SELECT_ALLOWLIST_RED_TEST.sql.txt fail migrator 2>&1)" || { echo "$out" | tail -20; echo 'KHONG DAT: ALLOWLIST_RED_TEST'; exit 1; }
+          echo "$out" | grep -E 'ngoai danh sach: zz_b3_probe_bang_nhay_cam' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: ALLOWLIST khong bat bang nhay cam moi'; exit 1; }
+          echo "$out" | grep -E '^PASS\|2$' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: sau REVOKE tuong minh ALLOWLIST khong PASS'; exit 1; }
+          echo "$out" | grep -E 'bang thu con ton tai sau ROLLBACK = false' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: bang thu con lai'; exit 1; }
+          echo 'DAT (RED mong doi): bang nhay cam moi bi ALLOWLIST bat; REVOKE tuong minh => PASS; khong de lai bang thu'
       - name: Sau S1 - migrate status + diff bang siscom_migrator (MIGRATE_DATABASE_URL, prisma.config.ts uu tien) va bang siscom_app (chi doc)
         run: |
           set -euo pipefail
@@ -218,6 +226,7 @@ jobs:
           bash scripts/ci/pg-temp-db.sh grants v4
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt res migrator
           # B3 A2: dong cu sau migrate (DONE/version 1/cot moi NULL, khong UPDATE hang loat) + cau truc sau ap lai
           bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_SEED_OLDTYPES_CHECK.sql.txt res migrator
