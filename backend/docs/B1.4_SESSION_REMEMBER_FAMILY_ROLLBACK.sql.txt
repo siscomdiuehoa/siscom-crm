@@ -5,7 +5,7 @@
 --   (1) trien khai lai backend BAN TRUOC thay doi nay (ban moi GHI cot remember_family_id khi khoi phuc phien; ban cu khong biet cot nay);
 --   (2) file nay, bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach):
 --       psql -X -v ON_ERROR_STOP=1 -d <db thu> -f B1.4_SESSION_REMEMBER_FAMILY_ROLLBACK.sql.txt
---   (3) (DB da tach role) chay lai B1.3_S1_APP_GRANTS_V3.sql.txt + VERIFY / VERIFY_AUTH.
+--   (3) (DB da tach role) chay lai B1.3_S1_APP_GRANTS_V4.sql.txt (V3 truoc B3 A3) + VERIFY / VERIFY_AUTH.
 -- MOT transaction: xoa chi muc -> xoa cot -> xoa dong _prisma_migrations. KHONG xoa phien nao; chi mat lien ket phien <-> thiet bi
 --   (sau rollback, thu hoi thiet bi khong con keo theo phien da khoi phuc - nhu truoc thay doi).
 \set ON_ERROR_STOP on

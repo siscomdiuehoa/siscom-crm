@@ -125,9 +125,9 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
     } finally { await m.prisma.$disconnect(); }
   });
 
-  it('P3b I-4: không có quyền GHI nào (kể cả theo cột) trên bảng RBAC/nền; một GRANT UPDATE (cột) bị has_table_privilege bỏ sót nhưng has_any_column_privilege bắt được', async () => {
+  it('P3b I-4: không có quyền GHI nào (kể cả theo cột) trên bảng RBAC/nền; một GRANT UPDATE (cột) bị has_table_privilege bỏ sót nhưng has_any_column_privilege bắt được (B3 A3: activity chuyển sang ca dương bên dưới)', async () => {
     const forbidden = ['employee_role', 'role_permission', 'role', 'permission', 'privileged_change_request', 'password_reset_token', 'app_meta',
-      'employee', 'department', 'lookup_item', 'activity', '_prisma_migrations'];
+      'employee', 'department', 'lookup_item', '_prisma_migrations'];
     const r = await prisma.$queryRaw<{ t: string; w: boolean }[]>`
       SELECT t, (has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT') OR has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE')) AS w
       FROM unnest(${forbidden}::text[]) AS t`;
@@ -142,6 +142,20 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
         "SELECT has_table_privilege('siscom_app', 'public.employee', 'UPDATE') AS tbl, has_any_column_privilege('siscom_app', 'public.employee', 'UPDATE') AS anycol")).rows[0];
       expect(g).toEqual({ tbl: false, anycol: true });
     } finally { await c.query('ROLLBACK'); await c.end(); }
+  });
+
+  it('B3 A3 (APP_GRANTS_V4): app INSERT/UPDATE được activity, activity_access, activity_transfer_request (WHERE false) nhưng DELETE bị 42501; không có quyền DELETE/TRUNCATE ở catalog', async () => {
+    const tables = ['activity', 'activity_access', 'activity_transfer_request'];
+    const r = await prisma.$queryRaw<{ t: string; ins: boolean; upd: boolean; del: boolean; trunc: boolean }[]>`
+      SELECT t, has_table_privilege('siscom_app', 'public.' || t, 'INSERT') AS ins, has_table_privilege('siscom_app', 'public.' || t, 'UPDATE') AS upd,
+             has_table_privilege('siscom_app', 'public.' || t, 'DELETE') AS del, has_table_privilege('siscom_app', 'public.' || t, 'TRUNCATE') AS trunc
+      FROM unnest(${tables}::text[]) AS t`;
+    expect(r).toEqual(tables.map((t) => ({ t, ins: true, upd: true, del: false, trunc: false })));
+    // Câu ghi thật của backend chạy được (WHERE false => không đổi dữ liệu); DELETE bị từ chối ở tầng DB dù code có lỗi.
+    await prisma.$executeRawUnsafe("UPDATE public.activity SET status = status, version = version WHERE false");
+    await prisma.$executeRawUnsafe("UPDATE public.activity_access SET revoked_at = revoked_at WHERE false");
+    await prisma.$executeRawUnsafe("UPDATE public.activity_transfer_request SET status = status WHERE false");
+    for (const t of tables) expect({ t, code: await appTry('DELETE FROM public.' + t + ' WHERE false') }).toEqual({ t, code: '42501' });
   });
 
   it('siscom_app không tự nâng quyền: GRANT cho chính mình (PostgreSQL chỉ WARNING, không lỗi) KHÔNG có hiệu lực; đổi chủ sở hữu/role/SET ROLE bị 42501', async () => {
@@ -207,7 +221,7 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
   });
 });
 
-// B1.4 P3c — pool xác thực siscom_auth (TEST_AUTH_DATABASE_URL, CI sau APP_GRANTS_V3). Chứng minh S3 đóng ở tầng DB:
+// B1.4 P3c — pool xác thực siscom_auth (TEST_AUTH_DATABASE_URL, CI sau APP_GRANTS_V4 — V3 từ B3 A3). Chứng minh S3 đóng ở tầng DB:
 //   pool nghiệp vụ không tự tạo phiên, không đọc hash, không gọi hàm đổi mật khẩu; pool auth làm được đúng các việc đó và không gì khác.
 const authDb = process.env.TEST_AUTH_DATABASE_URL ? authTestDatabase() : null;
 const dAuth = authDb?.separate && admin?.split ? describe : describe.skip;
@@ -232,7 +246,7 @@ dAuth('B1.4 P3c — pool xác thực siscom_auth tách khỏi siscom_app', () =>
       'UPDATE public.auth_session SET revoked_at = revoked_at WHERE false',
       'UPDATE public.employee_credential SET failed_count = failed_count, locked_until = locked_until WHERE false',
       "SELECT public.fn_auth_api_change_own_password(gen_random_uuid(), 1, 'x', 'argon2id', '{}'::jsonb)",
-      // B1.4 Remember Me: token ghi nhớ 90 ngày chỉ thuộc pool auth (V3) — app không đọc/chèn/sửa/xoá.
+      // B1.4 Remember Me: token ghi nhớ 90 ngày chỉ thuộc pool auth (V3/V4) — app không đọc/chèn/sửa/xoá.
       'SELECT token_hash FROM public.remember_device WHERE false',
       "INSERT INTO public.remember_device (employee_id, family_id, token_hash, token_version, password_auth_at, abs_expires_at) SELECT gen_random_uuid(), gen_random_uuid(), 'x', 1, now(), now() WHERE false",
       'UPDATE public.remember_device SET revoked_at = revoked_at WHERE false',

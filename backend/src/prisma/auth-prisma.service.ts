@@ -7,7 +7,7 @@ import { DEFAULT_RETRY, enforceDbRoleAtStartup, fetchDbRoleFacts } from './db-ro
 import { pgPoolConfig } from './pg-config';
 
 // B1.4 P3c: POOL XAC THUC rieng (role siscom_auth, AUTH_DATABASE_URL) cho dang nhap / phien / doi mat khau / me. Pool nghiep vu
-// (PrismaService, siscom_app) sau APP_GRANTS_V3 khong con doc hash, tao phien hay goi ham doi mat khau => dong S3.
+// (PrismaService, siscom_app) sau APP_GRANTS_V4 (V3 truoc B3 A3) khong con doc hash, tao phien hay goi ham doi mat khau => dong S3.
 // Khong co AUTH_DATABASE_URL (development/test, may Windows chua tach): dung lai DATABASE_URL (separate=false) - production thi tu choi.
 // Khong goi $connect() luc khoi dong (nhu PrismaService); moi phien TimeZone=UTC (D.0).
 @Injectable()

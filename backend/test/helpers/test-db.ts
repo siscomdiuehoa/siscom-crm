@@ -79,7 +79,7 @@ export async function caught(p: Promise<unknown>): Promise<unknown> {
   throw new Error('Mong đợi lỗi nhưng không có lỗi');
 }
 
-// B1.4 P3c: POOL XÁC THỰC (siscom_auth) qua TEST_AUTH_DATABASE_URL — CI sau khi áp APP_GRANTS_V3; không có => rơi về URL ứng dụng
+// B1.4 P3c: POOL XÁC THỰC (siscom_auth) qua TEST_AUTH_DATABASE_URL — CI sau khi áp APP_GRANTS_V4 (V3 trước B3 A3); không có => rơi về URL ứng dụng
 // (máy Windows chưa tách; AuthPrismaService cũng rơi về DATABASE_URL khi không có AUTH_DATABASE_URL). Cùng host 127.0.0.1, cùng DB thử.
 export function authTestDatabase(): { url: string; name: string; separate: boolean } {
   const app = testDatabase();
