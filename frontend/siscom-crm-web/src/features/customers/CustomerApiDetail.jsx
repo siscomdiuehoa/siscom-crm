@@ -102,7 +102,7 @@ export default function CustomerApiDetail({ ui, id }) {
           <Button icon="pencil" disabled={!canEdit} onClick={() => canEdit && setEdit(true)}>Sửa thông tin</Button>
         </div>
       </section>
-      {canReadActivity ? <Tabs variant="line" value={tab} onChange={setTab} items={[{ id: 'info', label: 'Thông tin', icon: 'building-2' }, { id: 'activities', label: 'Hoạt động', icon: 'list-checks', count: actCount }].concat(canReadContact ? [{ id: 'contacts', label: 'Người liên hệ', icon: 'contact' }] : [])} /> : null}
+      {canReadActivity ? <Tabs variant="line" value={tab} onChange={setTab} items={[{ id: 'info', label: 'Thông tin', icon: 'building-2' }, { id: 'activities', label: 'Hoạt động', icon: 'list-checks', count: actCount }].concat(canReadContact ? [{ id: 'contacts', label: 'Người liên hệ', icon: 'contact' }] : []).map((t) => (ui.mobile ? { ...t, icon: undefined, label: t.id === 'contacts' ? 'Liên hệ' : t.label } : t))} /> : null}
       {canReadActivity && tab === 'activities' ? <ActivitiesPanel ui={ui} customerId={id} /> : null}
       {canReadActivity && tab === 'contacts' && canReadContact ? <ContactsPanel ui={ui} id={id} /> : null}
       {!canReadActivity || tab === 'info' ? <section className="sg-card sg-solid" style={{ padding: '16px 20px 8px' }}>

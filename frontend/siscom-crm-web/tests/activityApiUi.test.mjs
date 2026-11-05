@@ -244,3 +244,14 @@ test('đóng drawer khi đã nhập => hỏi xác nhận (ui.confirm); chưa nh�
     assert.equal(m.confirms.length, 1); assert.ok(dialog(m.container));
   } finally { await m.unmount(); }
 });
+
+test('điện thoại (ui.mobile): hàng tab không biểu tượng, nhãn ngắn để vừa 320 px; PC giữ biểu tượng', async () => {
+  const icons = (m) => findAll(m.container, (e) => e.attributes.role === 'tab').map((t) => findAll(t, (i) => i.tagName === 'I').length);
+  const f = server(); const pc = await mount(f, SALES);
+  try { assert.deepEqual(icons(pc), [1, 1, 1]); } finally { await pc.unmount(); }
+  const mob = await mount(server(), SALES, { mobile: true });
+  try {
+    assert.deepEqual(icons(mob), [0, 0, 0]);
+    assert.deepEqual(findAll(mob.container, (e) => e.attributes.role === 'tab').map((t) => text(t)), ['Thông tin', 'Hoạt động1', 'Liên hệ']); // 320 px: nhãn ngắn
+  } finally { await mob.unmount(); }
+});
