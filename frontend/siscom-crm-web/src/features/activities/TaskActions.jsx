@@ -114,11 +114,12 @@ export function TaskActions({ ui, a, size = 'sm' }) {
       {primary ? <Button size={size} variant={primary === 'complete' ? 'primary' : 'secondary'} icon={ACTION_ICON[primary]} onClick={() => start(primary)}>{ACTION_LABEL[primary]}</Button> : null}
       {rest.length ? <IconButton icon="ellipsis" label="Thao tác khác" size="sm" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)} /> : null}
       {menu ? (
-        <div className="sg-menu sg-glass-strong" role="menu" style={{ right: 0, left: 'auto', top: '100%', minWidth: 190, zIndex: 30 }}>
+        <div className="sg-menu sg-glass-strong" role="menu" style={{ right: 0, left: 'auto', top: '100%', minWidth: 190, zIndex: 30, textAlign: 'left', whiteSpace: 'normal' }}>
           {rest.map((k) => <div key={k} role="menuitem" className="sg-menu__item" onClick={() => start(k)} style={k === 'delete' ? { color: 'var(--error-text)' } : undefined}><Icon name={ACTION_ICON[k]} size={15} /><span>{ACTION_LABEL[k]}</span></div>)}
         </div>
       ) : null}
-      {open ? <Dialog kind={open} a={a} ui={ui} onClose={() => setOpen(null)} /> : null}
+      {/* Hộp thoại có thể nằm trong ô bảng (canh phải, nowrap): đặt lại để không thừa hưởng. */}
+      {open ? <div style={{ textAlign: 'left', whiteSpace: 'normal' }}><Dialog kind={open} a={a} ui={ui} onClose={() => setOpen(null)} /></div> : null}
     </span>
   );
 }
