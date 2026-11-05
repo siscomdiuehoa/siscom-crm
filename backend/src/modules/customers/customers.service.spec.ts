@@ -26,7 +26,7 @@ function build(scopes: Scopes = ALL, links: { check: () => Promise<{ verified: b
   const prisma = { customer, lookupItem, employee, $transaction: jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx)) };
   const actors = { resolve: jest.fn(), scopeFor: jest.fn((_a: Actor, p: Permission) => scopes[p] ?? null) };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const svc = new CustomersService(prisma as never, actors as never, audit as never, links as never);
+  const svc = new CustomersService(prisma as never, actors as never, audit as never, links as never, { onCustomerSoftDeleted: jest.fn() } as never);
   return { svc, customer, lookupItem, employee, customerAssignment, tx, prisma, audit };
 }
 async function err(p: Promise<unknown>): Promise<DomainException> {

@@ -1,12 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client';
 import { Actor, ACTOR_PROVIDER, ActorProvider, Permission, RequestCtx, Scope } from '../../common/auth/actor';
-import { inScope, OwnerInfo } from '../../common/auth/scope';
+import { inScope } from '../../common/auth/scope';
 import { AUDIT_REDACTED_TEXT } from '../../common/audit/db-audit.port';
 import { AUDIT_PORT, AuditPort } from '../../common/audit/audit.port';
 import { DomainException } from '../../common/errors/domain.exception';
 import { mapPrismaError } from '../../common/errors/prisma-error.mapper';
 import { PrismaService } from '../../prisma/prisma.service';
+import { grantAccess, hasTechAuthority, ownerInfo, planAssignment, readsCustomer } from './activities.access';
 import { EMPLOYEE_ACCESS, EmployeeAccessReader } from './activities.employee-access';
 import { activityErrors } from './activities.errors';
 import { ACTIVITY_SELECT, ActivityRow, toActivity } from './activities.mapper';
@@ -16,7 +17,6 @@ import type { QueryTimelineDto } from './dto/query-activities.dto';
 
 type Tx = Prisma.TransactionClient;
 const CUSTOMER_PICK = { id: true, code: true, deletedAt: true, ownerId: true, owner: { select: { departmentId: true } } } as const;
-const ownerInfo = (r: { ownerId: string | null; owner: { departmentId: string | null } | null }): OwnerInfo => ({ ownerId: r.ownerId, ownerDepartmentId: r.owner ? r.owner.departmentId : null });
 const MAX_OFFSET_WINDOW = 100000;
 const CANDIDATES_MAX = 500;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -144,7 +144,10 @@ export class ActivitiesService {
           const ct = await tx.contact.findFirst({ where: { id: contactId, customerId, deletedAt: null }, select: { id: true } });
           if (!ct) throw activityErrors.contactMismatch();
         }
-        if (assigningOther) await this.assertAssignee(tx, actor, owner, performedById);
+        // A6 (§5.4): external=true cho phép giao TASK cho người KHÔNG đọc được khách bằng quyền theo việc; không gửi => đúng quy tắc A5.
+        const kind = assigningOther
+          ? planAssignment(actor, (p) => this.scope(actor, p), owner, (await this.access.load(tx, [performedById])).get(performedById), { external: dto.external === true, openTask: isTask })
+          : null;
 
         const row = await tx.activity.create({
           data: {
@@ -174,6 +177,9 @@ export class ActivitiesService {
             actorEmployeeId: actor.employeeId, requestId: ctx.requestId,
           });
         }
+        if (kind === 'EXTERNAL') {
+          await grantAccess({ tx, audit: this.audit, actorId: actor.employeeId, requestId: ctx.requestId, activity: { id: row.id, code: row.code, type: row.type } }, performedById);
+        }
         return toActivity(row);
       }, { maxWait: 5000, timeout: 20000 });
     } catch (e) {
@@ -184,19 +190,9 @@ export class ActivitiesService {
     }
   }
 
-  // Người nhận: tồn tại + ACTIVE; cùng phòng với người giao (phạm vi activity.assign = ALL: mọi phòng); ĐỌC ĐƯỢC khách (customer.read ∧
-  // activity.read của CHÍNH người nhận theo vai trò trong DB). Người giao phải có activity.assign trong phạm vi khách.
-  private async assertAssignee(tx: Tx, actor: Actor, owner: OwnerInfo, assigneeId: string): Promise<void> {
-    const assignScope = this.scope(actor, 'activity.assign');
-    if (!inScope(actor, assignScope, owner)) throw activityErrors.forbidden('Không có quyền giao việc cho người khác trên khách hàng này.');
-    const a = (await this.access.load(tx, [assigneeId])).get(assigneeId);
-    if (!a || !a.active) throw activityErrors.assigneeInvalid();
-    if (assignScope !== 'ALL' && (actor.departmentId === null || a.departmentId !== actor.departmentId)) throw activityErrors.assigneeInvalid();
-    if (!readsCustomer(a, owner)) throw activityErrors.assigneeNoAccess();
-  }
-
   // Ứng viên NỘI BỘ: ACTIVE, chưa xoá; cùng phòng với người gọi (phạm vi activity.assign = ALL: mọi phòng); ĐỌC ĐƯỢC khách.
-  async assigneeCandidates(ctx: RequestCtx, customerId: string) {
+  async assigneeCandidates(ctx: RequestCtx, customerId: string, external = false) {
+    if (external) return this.externalCandidates(ctx, customerId);
     const { actor } = ctx;
     const assignScope = this.need(actor, 'activity.assign');
     const custRead = this.need(actor, 'customer.read');
@@ -218,9 +214,29 @@ export class ActivitiesService {
       .map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
     return { items };
   }
-}
 
-function readsCustomer(a: { id: string; departmentId: string | null; scopes: Readonly<Partial<Record<Permission, Scope>>> }, owner: OwnerInfo): boolean {
-  const who: Actor = { employeeId: a.id, departmentId: a.departmentId };
-  return inScope(who, a.scopes['customer.read'] ?? null, owner) && inScope(who, a.scopes['activity.read'] ?? null, owner);
+  // A6 (§6, §5.4): ứng viên NGOÀI phạm vi (external=true) — ACTIVE, có thẩm quyền kỹ thuật (activity.update_own), mọi phòng, và KHÔNG đọc
+  // được khách (người đọc được là ứng viên nội bộ). Người gọi cần activity.assign ∧ activity.assign_external trong phạm vi khách.
+  // Chỉ trả id, code, fullName, departmentCode.
+  private async externalCandidates(ctx: RequestCtx, customerId: string) {
+    const { actor } = ctx;
+    const extScope = this.need(actor, 'activity.assign_external');
+    const assignScope = this.need(actor, 'activity.assign');
+    const custRead = this.need(actor, 'customer.read');
+    const cust = await this.prisma.customer.findFirst({ where: { id: customerId, deletedAt: null }, select: CUSTOMER_PICK });
+    if (!cust) throw activityErrors.customerNotFound();
+    const owner = ownerInfo(cust);
+    if (!inScope(actor, custRead, owner)) throw activityErrors.customerNotFound();
+    if (!inScope(actor, assignScope, owner) || !inScope(actor, extScope, owner)) throw activityErrors.forbidden();
+    const rows = await this.prisma.employee.findMany({
+      where: { status: 'ACTIVE', deletedAt: null, id: { not: actor.employeeId } },
+      select: { id: true, code: true, fullName: true, department: { select: { code: true } } },
+      orderBy: [{ fullName: 'asc' }, { code: 'asc' }],
+    });
+    const acc = await this.access.load(this.prisma, rows.map((r) => r.id));
+    const items = rows.filter((r) => { const a = acc.get(r.id); return hasTechAuthority(a) && !readsCustomer(a!, owner); })
+      .slice(0, CANDIDATES_MAX)
+      .map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
+    return { items };
+  }
 }

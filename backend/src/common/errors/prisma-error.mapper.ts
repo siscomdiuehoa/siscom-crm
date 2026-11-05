@@ -44,6 +44,8 @@ export function mapPrismaError(e: unknown): DomainException | null {
     const c = constraintText(e);
     if (/uq_customer_tax_id_active|tax_id/i.test(c)) return new DomainException(409, 'CUSTOMER_DUPLICATE_TAX_ID', 'Mã số thuế đã được dùng bởi một khách hàng khác.');
     if (/uq_contact_primary_active/i.test(c)) return new DomainException(409, 'CONTACT_PRIMARY_CONFLICT', 'Khách hàng đã có người liên hệ chính khác.');
+    // B3 A6 (rà soát #209 M-9): tên ràng buộc riêng của hoạt động.
+    if (/uq_activity_transfer_pending/i.test(c)) return new DomainException(409, 'ACTIVITY_TRANSFER_PENDING', 'Công việc đã có một đề xuất chuyển đang chờ duyệt.');
     return new DomainException(409, 'CONSTRAINT_CONFLICT', 'Dữ liệu xung đột với bản ghi đã có.');
   }
   if (pc === 'P2003' || pc === 'P2004' || st === '23503' || st === '23514' || st === '23001') return new DomainException(409, 'CONSTRAINT_CONFLICT', 'Dữ liệu vi phạm ràng buộc của hệ thống.');

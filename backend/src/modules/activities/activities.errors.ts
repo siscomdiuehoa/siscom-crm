@@ -12,4 +12,17 @@ export const activityErrors = {
   assigneeInvalid: () => new DomainException(400, 'ACTIVITY_ASSIGNEE_INVALID', 'Người phụ trách không hợp lệ: không tồn tại, không còn làm việc hoặc khác phòng ban.', { field: 'performedById' }),
   assigneeNoAccess: () => new DomainException(400, 'ACTIVITY_ASSIGNEE_NO_ACCESS', 'Người này chưa có quyền xem khách hàng.', { field: 'performedById' }),
   busy: () => new DomainException(409, 'ACTIVITY_BUSY', 'Bản ghi đang được xử lý bởi thao tác khác. Vui lòng thử lại.'),
+  // B3 A6 (§6): vòng đời việc, quyền theo việc (§5.4), đề xuất chuyển (§5.5).
+  notFound: () => new DomainException(404, 'ACTIVITY_NOT_FOUND', 'Không tìm thấy hoạt động.'),
+  versionConflict: (currentVersion: number) => new DomainException(409, 'ACTIVITY_VERSION_CONFLICT', 'Hoạt động đã được người khác cập nhật. Vui lòng tải lại.', { currentVersion }),
+  notOpen: () => new DomainException(409, 'ACTIVITY_NOT_OPEN', 'Công việc không ở trạng thái đang mở.'),
+  alreadyOpen: () => new DomainException(409, 'ACTIVITY_ALREADY_OPEN', 'Công việc đang mở, không cần mở lại.'),
+  notTask: () => new DomainException(409, 'ACTIVITY_NOT_TASK', 'Thao tác này chỉ áp dụng cho công việc (TASK).'),
+  externalNotAllowed: () => new DomainException(400, 'ACTIVITY_EXTERNAL_NOT_ALLOWED', 'Chỉ giao được công việc đang mở cho người có thẩm quyền kỹ thuật ở phòng khác.', { field: 'performedById' }),
+  transferPending: () => new DomainException(409, 'ACTIVITY_TRANSFER_PENDING', 'Công việc đã có một đề xuất chuyển đang chờ duyệt.'),
+  transferNotAllowed: (message = 'Không có quyền với đề xuất chuyển việc này.') => new DomainException(403, 'ACTIVITY_TRANSFER_NOT_ALLOWED', message),
+  transferNotPending: () => new DomainException(409, 'ACTIVITY_TRANSFER_NOT_PENDING', 'Đề xuất chuyển việc không còn chờ duyệt.'),
+  transferNotFound: () => new DomainException(404, 'ACTIVITY_TRANSFER_NOT_FOUND', 'Không tìm thấy đề xuất chuyển việc.'),
+  transferTargetInvalid: () => new DomainException(400, 'ACTIVITY_ASSIGNEE_INVALID', 'Người nhận đề xuất không hợp lệ: phải đang làm việc, cùng phòng với bạn và có thẩm quyền kỹ thuật.', { field: 'toEmployeeId' }),
+  constraint: () => new DomainException(409, 'CONSTRAINT_CONFLICT', 'Dữ liệu vi phạm ràng buộc của hệ thống.'),
 };

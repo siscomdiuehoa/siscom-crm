@@ -285,12 +285,12 @@ describe('GET assignee-candidates (nội bộ)', () => {
     expect(ids).not.toContain(fx.empC);
     expect((await a('all').get(CAND + cC.id)).body.data.items.map((i: { id: string }) => i.id)).toContain(fx.empC);
   });
-  it('không có activity.assign => 403; khách ngoài phạm vi đọc => 404; thiếu/sai customerId => 400; external=true (A6) => 400', async () => {
+  it('không có activity.assign => 403; khách ngoài phạm vi đọc => 404; thiếu/sai customerId => 400; external lạ => 400 (external=true: A6, xem activities.tasks.int-spec)', async () => {
     expect((await a('techB').get(CAND + cA.id)).status).toBe(403);
     expect((await a('salesA').get(CAND + cB.id)).status).toBe(404);
     expect((await a('all').get('/api/v1/activities/assignee-candidates')).status).toBe(400);
     expect((await a('all').get(CAND + 'abc')).status).toBe(400);
-    expect((await a('all').get(CAND + cA.id + '&external=true')).status).toBe(400);
+    expect((await a('all').get(CAND + cA.id + '&external=yes')).status).toBe(400);
   });
 });
 
