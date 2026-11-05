@@ -14,7 +14,7 @@ export interface BootstrapUser { key: BootstrapRoleCode; email: string; fullName
 export interface BootstrapResult { closed: boolean; employees: Array<{ key: BootstrapRoleCode; code: string; email: string; role: string }> }
 
 type Scope = 'ALL' | 'DEPARTMENT' | 'OWN';
-const BIZ: Record<string, Partial<Record<Exclude<BootstrapRoleCode, 'sysadmin'>, Scope>>> = {
+export const BIZ: Record<string, Partial<Record<Exclude<BootstrapRoleCode, 'sysadmin'>, Scope>>> = {
   'customer.read':    { admin: 'ALL', sale: 'OWN', technician: 'DEPARTMENT', accountant: 'ALL' },
   'customer.create':  { admin: 'ALL', sale: 'OWN' },
   'customer.update':  { admin: 'ALL', sale: 'OWN' },
@@ -23,12 +23,23 @@ const BIZ: Record<string, Partial<Record<Exclude<BootstrapRoleCode, 'sysadmin'>,
   'contact.read':     { admin: 'ALL', sale: 'OWN', technician: 'DEPARTMENT', accountant: 'ALL' },
   'contact.create':   { admin: 'ALL', sale: 'OWN' },
   'lookup.read':      { admin: 'ALL', sale: 'ALL', technician: 'ALL', accountant: 'ALL' },
+  // B3 A4 — ma trận §5 thiết kế B3 v5.3 (OWNER_DECISION 03-04/11/2026): 9 mã, 16 dòng (crm_admin 6, sales 5, technician 4, accountant 1).
+  // DB đã bootstrap (demo/thật) KHÔNG lấy từ đây: cấp qua yêu cầu 2 người bằng docs/B3_ACTIVITY_PERMISSIONS.sql.txt (unit test giữ 2 nguồn khớp nhau).
+  'activity.read':             { admin: 'ALL', sale: 'OWN', technician: 'DEPARTMENT', accountant: 'ALL' },
+  'activity.create':           { admin: 'ALL', sale: 'OWN' },
+  'activity.create_tech':      { technician: 'DEPARTMENT' },
+  'activity.update':           { admin: 'ALL', sale: 'OWN' },
+  'activity.update_own':       { technician: 'DEPARTMENT' },
+  'activity.assign':           { admin: 'ALL', sale: 'OWN' },
+  'activity.delete':           { admin: 'ALL' },
+  'activity.assign_external':  { admin: 'ALL', sale: 'OWN' },
+  'activity.transfer_request': { technician: 'DEPARTMENT' },
 };
 // Quyền hệ thống của M1: sysadmin (mã vai trò `admin`) = nhóm REQUEST; crm_admin = APPROVE (access.approve) + đọc.
 const SYS_ADMIN = ['employee.read', 'employee.manage', 'role.read', 'role.manage', 'auth.credential.manage', 'auth.reset.request', 'access.request', 'audit.read'];
 const SYS_CRM_ADMIN = ['employee.read', 'role.read', 'access.approve', 'audit.read'];
 // Mã vai trò trong DB: `admin` là vai trò kỹ thuật của M1 (SoD: không được giữ quyền BIZ); ADMIN của ma trận V2 là `crm_admin`.
-const ROLE_CODE: Record<BootstrapRoleCode, string> = { sysadmin: 'admin', admin: 'crm_admin', sale: 'sales', technician: 'technician', accountant: 'accountant' };
+export const ROLE_CODE: Record<BootstrapRoleCode, string> = { sysadmin: 'admin', admin: 'crm_admin', sale: 'sales', technician: 'technician', accountant: 'accountant' };
 const ROLE_NAME: Record<string, string> = { admin: 'Quản trị hệ thống (kỹ thuật)', crm_admin: 'Quản trị CRM', sales: 'Kinh doanh', technician: 'Kỹ thuật', accountant: 'Kế toán' };
 
 export const MIN_BOOTSTRAP_PASSWORD = 12;

@@ -149,6 +149,8 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_CONSTRAINT_TESTS.sql.txt res migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_1_CONSTRAINT_TESTS.sql.txt res migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_2_CONSTRAINT_TESTS.sql.txt res migrator
+          # B3 A4: script cap 9 ma quyen activity.* qua yeu cau 2 nguoi (ADD idempotent, SoD admin, REMOVE) - cung tien de M1.2 (RBAC rong, bootstrap mo)
+          bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_PERMISSIONS_TEST.sql.txt res migrator
           bash scripts/ci/pg-sql-check.sh docs/B1.3_M1_3_STRUCTURE_TESTS.sql.txt ok app
           # B1.4 Remember Me: rang buoc 90 ngay, bat bien, thu hoi theo token_version (chu so huu, tu ROLLBACK)
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt res migrator

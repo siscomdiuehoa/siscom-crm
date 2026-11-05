@@ -14,7 +14,9 @@ import type { Fixtures } from './fixtures';
 
 // ───── CHỈ TỒN TẠI TRONG TEST (không bao giờ import từ src) ─────
 export const ACTOR_HEADER = 'x-test-actor';
-const ALL_PERMS: Permission[] = ['customer.read', 'customer.create', 'customer.update', 'customer.delete', 'customer.restore', 'contact.read', 'contact.create', 'lookup.read'];
+const ALL_PERMS: Permission[] = ['customer.read', 'customer.create', 'customer.update', 'customer.delete', 'customer.restore', 'contact.read', 'contact.create', 'lookup.read',
+  // B3 A4
+  'activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request'];
 const uniform = (s: Scope): Partial<Record<Permission, Scope>> => Object.fromEntries(ALL_PERMS.map((p) => [p, s]));
 
 export class TestActorProvider implements ActorProvider {
