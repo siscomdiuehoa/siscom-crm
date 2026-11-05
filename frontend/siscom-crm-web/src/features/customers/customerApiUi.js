@@ -2,6 +2,7 @@
 //   flag OFF -> createCustomerApiUi() returns null: the app keeps its original localStorage code path and NOTHING here (nor fetch) is touched.
 //   flag ON  -> returns a controller over the async repository. Every failure is surfaced; nothing is ever written to localStorage and there is no fallback.
 import { createCustomerRepository, CustomerRepoError } from '../../data/api/customerRepository.js';
+import { createActivitiesController } from '../activities/activitiesUi.js';
 
 // Backend DTO field -> UI form field (details strings from class-validator start with the property name, e.g. "phone must be ...").
 const BACKEND_TO_UI = { name: 'name', phone: 'phone', shortName: 'short', taxId: 'taxId', email: 'email', website: 'website', address: 'address', note: 'note', industry: 'industry', source: 'source', province: 'city', tier: 'tier', status: 'status' };
@@ -313,5 +314,8 @@ export function createCustomerApiController(repo) {
 // session (tùy chọn): phiên cookie (createCookieSession); chỉ chuyển tiếp xuống repository.
 export function createCustomerApiUi({ env, fetchImpl, auth, session } = {}) {
   if (!env || env.VITE_CRM_API_ENABLED !== 'true') return null;
-  return createCustomerApiController(createCustomerRepository({ env, fetchImpl, auth, session }));
+  const repo = createCustomerRepository({ env, fetchImpl, auth, session });
+  const ctl = createCustomerApiController(repo);
+  ctl.activities = createActivitiesController(repo, describeRepoError); // B3 A7: tab Hoạt động dùng chung repository/phiên
+  return ctl;
 }
