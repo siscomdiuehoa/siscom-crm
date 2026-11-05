@@ -4,6 +4,9 @@ import { AuthPrismaService } from '../../../prisma/auth-prisma.service';
 import { AUTH_CONFIG, AuthConfig } from '../auth.config';
 import type { Actor, ActorProvider, Permission, Scope } from '../actor';
 import { readSessionCookie, sha256Hex } from './session-token';
+import { mergeScopes, ROLE_GRANTS_SELECT } from '../scope-merge';
+// B3 A5: KNOWN/RANK chuyển sang scope-merge.ts (hàm thuần dùng chung với effectiveAccessOf). Giữ re-export để mã/test cũ không đổi import.
+export { KNOWN } from '../scope-merge';
 
 // Danh tính từ PHIÊN SERVER-SIDE (cookie siscom_sid -> auth_session). Nguồn duy nhất của actor; không đọc bất kỳ header danh tính nào.
 // Fail-closed: thiếu/sai cookie, phiên thu hồi/hết hạn, nhân viên không ACTIVE/đã xoá mềm, credential không ACTIVE => null (401).
@@ -19,11 +22,6 @@ export interface ResolvedSession {
 }
 export type SessionRequest = Request & { authSession?: ResolvedSession | null; requestId?: string };
 
-const RANK: Record<Scope, number> = { OWN: 1, DEPARTMENT: 2, ALL: 3 };
-const SCOPES = new Set<string>(['ALL', 'DEPARTMENT', 'OWN']);
-export const KNOWN: ReadonlySet<string> = new Set<Permission>(['customer.read', 'customer.create', 'customer.update', 'customer.delete', 'customer.restore', 'contact.read', 'contact.create', 'lookup.read',
-  // B3 A4
-  'activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request']);
 const TOUCH_EVERY_MS = 60_000;
 
 @Injectable()
@@ -58,28 +56,17 @@ export class SessionActorProvider implements ActorProvider {
       select: {
         id: true, employeeId: true, csrfHash: true, revokedAt: true, idleExpiresAt: true, absExpiresAt: true, lastUsedAt: true,
         employee: { select: { status: true, deletedAt: true, departmentId: true, credential: { select: { status: true, mustChangePassword: true } },
-          roles: { select: { role: { select: { code: true, isConfirmed: true, permissions: { select: { scope: true, permission: { select: { code: true } } } } } } } } } },
+          roles: { select: ROLE_GRANTS_SELECT } } },
       },
     });
     if (!s || s.revokedAt !== null || s.idleExpiresAt <= now || s.absExpiresAt <= now) return null;
     const e = s.employee;
     if (e.status !== 'ACTIVE' || e.deletedAt !== null || e.credential?.status !== 'ACTIVE') return null;
 
-    const scopes: Partial<Record<Permission, Scope>> = {};
-    const roles: string[] = [];
-    for (const er of e.roles) {
-      if (!er.role.isConfirmed) continue;
-      roles.push(er.role.code);
-      for (const rp of er.role.permissions) {
-        const code = rp.permission.code;
-        const sc = String(rp.scope);
-        if (!KNOWN.has(code) || !SCOPES.has(sc)) continue;
-        const p = code as Permission; const next = sc as Scope; const cur = scopes[p];
-        if (cur === undefined || RANK[next] > RANK[cur]) scopes[p] = next;
-      }
-    }
+    // B3 A5: cùng một hàm thuần với effectiveAccessOf (người khác) — hai nơi không thể lệch nhau.
+    const { roles, scopes } = mergeScopes(e.roles);
     const actor: Actor = { employeeId: s.employeeId, departmentId: e.departmentId };
-    this.perms.set(actor, Object.freeze({ ...scopes }));
+    this.perms.set(actor, scopes);
 
     if (now.getTime() - s.lastUsedAt.getTime() >= TOUCH_EVERY_MS) {
       const idle = new Date(now.getTime() + this.cfg.sessionIdleMinutes * 60_000);
@@ -90,6 +77,6 @@ export class SessionActorProvider implements ActorProvider {
         this.log.warn('Không gia hạn được phiên: ' + (err instanceof Error ? err.message : 'lỗi'));
       }
     }
-    return { sessionId: s.id, csrfHash: s.csrfHash, actor, roles: Object.freeze(roles.sort()), scopes: this.perms.get(actor)!, mustChangePassword: e.credential.mustChangePassword === true };
+    return { sessionId: s.id, csrfHash: s.csrfHash, actor, roles: Object.freeze([...roles]), scopes: this.perms.get(actor)!, mustChangePassword: e.credential.mustChangePassword === true };
   }
 }
