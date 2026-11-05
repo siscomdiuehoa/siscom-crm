@@ -10,7 +10,7 @@
 #   create:  tao role ung dung siscom_app (NOSUPERUSER) va role chu so huu siscom_migrator (NOSUPERUSER, B1.4 P3) voi mat khau ngau nhien,
 #            tao DB siscom_crm_test_<YYYYMMDD_HHMMSS> OWNER siscom_app (MO HINH CU B1.1 - de tai hien S1 truoc khi tach), ghi TEST_DB_NAME,
 #            TEST_DATABASE_URL (app) va TEST_MIGRATE_DATABASE_URL (migrator), ca hai da mask, vao $GITHUB_ENV.
-#   split:   TACH ROLE S1 tren DB tam: docs/B1.3_S1_ROLE_SPLIT.sql.txt (superuser cua container), AUTH_ROLE, roi APP_GRANTS_V3 (migrator, P3c).
+#   split:   TACH ROLE S1 tren DB tam: docs/B1.3_S1_ROLE_SPLIT.sql.txt (superuser cua container), AUTH_ROLE, roi APP_GRANTS_V4 (B3 A3) (migrator, P3c).
 #   grants v1|v2: dien tap rollback quyen P3b (V1 = B1.3_S1_APP_GRANTS.sql.txt, chi de rollback; V2 = toi thieu) + tu kiem bieu thuc
 #            "quyen rong kieu V1" cua src/prisma/db-role-check.ts bang chinh role app (v1 => true, v2 => false; sai => thoat 1).
 #   unsplit: ROLLBACK S1: docs/B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt (superuser) => siscom_app lai la chu so huu (de dien tap rollback M1.x).

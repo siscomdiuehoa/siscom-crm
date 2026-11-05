@@ -167,7 +167,7 @@ COMMIT;
 -- UPDATE=4 (customer, contact, customer_assignment, activity) + 2 khi co bang B3 = 6; DELETE=0, cot_credential=0,
 -- ham_api=0, sequence_UPDATE=0, auth_session_SELECT=f. auth: INSERT=2 (auth_session, audit_log), UPDATE=2, cot_credential=7, ham_api=1, customer_SELECT=f.
 -- B1.4: khi co remember_device => auth INSERT=3, UPDATE=3 (them remember_device); app khong quyen nao tren remember_device.
--- has_any_column_privilege: tinh ca quyen theo cot (I-4) => bang_app_UPDATE gom employee_credential (7 cot) => 5.
+-- has_any_column_privilege: tinh ca quyen theo cot (I-4). (Chu thich cu tu V2 "gom employee_credential => 5" khong con dung tu P3c; V4: app UPDATE 4 bang, 6 khi co bang B3.)
 SELECT 'bang_app_INSERT (phai 5; co bang B3: 7)' AS muc, count(*)::text AS gia_tri FROM pg_tables t WHERE t.schemaname = 'public'
   AND has_any_column_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'INSERT')
 UNION ALL SELECT 'bang_app_UPDATE (phai 4; co bang B3: 6)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'

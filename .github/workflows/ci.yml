@@ -212,7 +212,7 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           npx prisma migrate deploy
           npx prisma migrate status
-          out="$(bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app 2>&1)" && { echo "$out" | tail -5; echo 'KHONG DAT: VERIFY phai FAIL (B1f) truoc khi chay lai V3'; exit 1; } || true
+          out="$(bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app 2>&1)" && { echo "$out" | tail -5; echo 'KHONG DAT: VERIFY phai FAIL (B1f) truoc khi chay lai V4'; exit 1; } || true
           echo "$out" | grep -E '^B1f .*KHONG DAT' || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay B1f bi bat'; exit 1; }
           echo 'DAT (RED mong doi): bang moi nhan SELECT mac dinh cho siscom_app => VERIFY bat B1f'
           bash scripts/ci/pg-temp-db.sh grants v4
@@ -261,7 +261,7 @@ jobs:
           bash scripts/ci/pg-temp-db.sh grants v4
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
-      - name: B1.4 P3c - dien tap rollback role auth (V2 => AUTH_ROLE_ROLLBACK voi canary3 cung cluster) roi tach lai (AUTH_ROLE + V3) => PASS app + auth
+      - name: B1.4 P3c - dien tap rollback role auth (V2 => AUTH_ROLE_ROLLBACK voi canary3 cung cluster) roi tach lai (AUTH_ROLE + V4) => PASS app + auth
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh grants v2
