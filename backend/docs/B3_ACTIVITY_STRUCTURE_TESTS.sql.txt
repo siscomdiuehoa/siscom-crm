@@ -1,0 +1,125 @@
+-- SISCOM CRM - B3 A2 (20261105000000_b3_activity_type_task + 20261105000100_b3_activity_tasks): KIEM CAU TRUC / RANG BUOC / TRIGGER / CHI MUC o tang DB.
+-- Dich: D:\SISCOM-CRM\backend\docs\B3_ACTIVITY_STRUCTURE_TESTS.sql.txt (file moi; duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI CHAY TREN BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) bang CHU SO HUU BANG (siscom_migrator sau tach role).
+-- Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu; sequence ma TT-/KH-/NV- van tang - chap nhan).
+-- Pham vi: thiet ke docs/B3_ACTIVITIES_DESIGN.md §3.2 #7-#20 (7 CHECK, trigger #11, chi muc #12-#13, enum TASK, bang #18-#19, enum #20) + S34 quyen
+--   siscom_app (A2: van CHI SELECT - A3 moi mo ghi va se doi ky vong S34).
+-- In "PASS|n" va (neu co) "FAIL|n". Ky vong: khong co FAIL.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF to_regclass('public.activity_access') IS NULL THEN RAISE EXCEPTION 'Chua ap migration 20261105000100_b3_activity_tasks.'; END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text) ON COMMIT DROP;
+CREATE FUNCTION pg_temp.expect_err(p_label text, p_sql text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+    RAISE EXCEPTION 'b3_undo' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN raise_exception THEN INSERT INTO res VALUES (false, p_label || CASE WHEN SQLERRM = 'b3_undo' THEN ' [CHAY DUOC]' ELSE ' [' || SQLERRM || ']' END);
+    WHEN OTHERS THEN INSERT INTO res VALUES (SQLSTATE = p_state, p_label || CASE WHEN SQLSTATE = p_state THEN '' ELSE ' [' || SQLSTATE || ' thay vi ' || p_state || ']' END);
+  END;
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_sql text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v boolean;
+BEGIN
+  EXECUTE 'SELECT (' || p_sql || ')' INTO v;
+  INSERT INTO res VALUES (coalesce(v, false), p_label);
+EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQLSTATE || ']');
+END $$;
+
+-- Du lieu thu (tong hop, is_demo): 2 danh muc, 2 nhan vien, 2 khach, 2 lien he (moi khach 1), 1 hoat dong kieu cu (CALL), 1 cong viec (TASK OPEN).
+INSERT INTO lookup_item (id, type, code, label_vi) VALUES
+ ('b3000000-0000-4000-8000-000000000011', 'customer_tier',   'ZZ_B3_TIER',   'B3 hang thu'),
+ ('b3000000-0000-4000-8000-000000000012', 'customer_status', 'ZZ_B3_STATUS', 'B3 trang thai thu');
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('b3000000-0000-4000-8000-000000000021', 'B3 NV 1', 'b3.nv1@example.invalid', 'ACTIVE', true),
+ ('b3000000-0000-4000-8000-000000000022', 'B3 NV 2', 'b3.nv2@example.invalid', 'ACTIVE', true);
+INSERT INTO customer (id, name, phone, tier_id, status_id, is_demo) VALUES
+ ('b3000000-0000-4000-8000-000000000031', 'B3 Khach 1', '0903000001', 'b3000000-0000-4000-8000-000000000011', 'b3000000-0000-4000-8000-000000000012', true),
+ ('b3000000-0000-4000-8000-000000000032', 'B3 Khach 2', '0903000002', 'b3000000-0000-4000-8000-000000000011', 'b3000000-0000-4000-8000-000000000012', true);
+INSERT INTO contact (id, customer_id, full_name, phone, is_demo) VALUES
+ ('b3000000-0000-4000-8000-000000000041', 'b3000000-0000-4000-8000-000000000031', 'B3 Lien he K1', '0903000011', true),
+ ('b3000000-0000-4000-8000-000000000042', 'b3000000-0000-4000-8000-000000000032', 'B3 Lien he K2', '0903000012', true);
+-- Hoat dong kieu cu: CHI cot cu (nhu backend ban truoc B3 ghi) => tuong thich nguoc
+INSERT INTO activity (id, customer_id, contact_id, type, occurred_at, content, performed_by, is_demo) VALUES
+ ('b3000000-0000-4000-8000-000000000051', 'b3000000-0000-4000-8000-000000000031', NULL, 'CALL', now() - interval '1 day', 'B3 cuoc goi thu', 'b3000000-0000-4000-8000-000000000021', true);
+
+-- 1. Enum + tuong thich nguoc
+SELECT pg_temp.expect_true('S01 enum activity_type co TASK (6 gia tri), activity_status 3 gia tri, 2 enum moi ton tai', $q$ (SELECT count(*) = 6 AND bool_or(enumlabel = 'TASK') FROM pg_enum WHERE enumtypid = 'public.activity_type'::regtype) AND (SELECT count(*) = 3 FROM pg_enum WHERE enumtypid = 'public.activity_status'::regtype) AND (SELECT count(*) = 9 FROM pg_enum WHERE enumtypid = 'public.activity_access_revoke_reason'::regtype) AND (SELECT count(*) = 4 FROM pg_enum WHERE enumtypid = 'public.activity_transfer_status'::regtype) $q$);
+SELECT pg_temp.expect_true('S02 dong kieu cu (chi cot cu) chen duoc: status DONE, version 1, title/due_at/remind_at/completed_* NULL', $q$ (SELECT status = 'DONE' AND version = 1 AND title IS NULL AND due_at IS NULL AND remind_at IS NULL AND completed_at IS NULL AND completed_by IS NULL FROM activity WHERE id = 'b3000000-0000-4000-8000-000000000051') $q$);
+
+-- 2. CHECK #7-#10, #15-#17 (23514)
+SELECT pg_temp.expect_err('S03 #7 TASK thieu due_at bi tu choi', $q$ INSERT INTO activity (customer_id, type, occurred_at, content, status, performed_by, is_demo) VALUES ('b3000000-0000-4000-8000-000000000031', 'TASK', now(), 'B3 task', 'OPEN', 'b3000000-0000-4000-8000-000000000021', true) $q$, '23514');
+SELECT pg_temp.expect_err('S04 #8 TASK DONE khong co completed_at bi tu choi', $q$ INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, is_demo) VALUES ('b3000000-0000-4000-8000-000000000031', 'TASK', now(), 'B3 task', 'DONE', now() + interval '1 day', true) $q$, '23514');
+SELECT pg_temp.expect_err('S05 #9 remind_at sau due_at bi tu choi', $q$ INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, remind_at, is_demo) VALUES ('b3000000-0000-4000-8000-000000000031', 'TASK', now(), 'B3 task', 'OPEN', now() + interval '1 day', now() + interval '2 days', true) $q$, '23514');
+SELECT pg_temp.expect_err('S06 #10 title chi khoang trang bi tu choi', $q$ INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, title, is_demo) VALUES ('b3000000-0000-4000-8000-000000000031', 'TASK', now(), 'B3 task', 'OPEN', now() + interval '1 day', '   ', true) $q$, '23514');
+SELECT pg_temp.expect_err('S07 #15 loai khac TASK (CALL) khong duoc OPEN', $q$ INSERT INTO activity (customer_id, type, occurred_at, content, status, is_demo) VALUES ('b3000000-0000-4000-8000-000000000031', 'CALL', now(), 'B3 goi', 'OPEN', true) $q$, '23514');
+SELECT pg_temp.expect_err('S08 #16 loai khac TASK (CALL) khong duoc co completed_at/by', $q$ INSERT INTO activity (customer_id, type, occurred_at, content, completed_at, completed_by, is_demo) VALUES ('b3000000-0000-4000-8000-000000000031', 'CALL', now(), 'B3 goi', now(), 'b3000000-0000-4000-8000-000000000021', true) $q$, '23514');
+SELECT pg_temp.expect_err('S09 #16 TASK OPEN khong duoc co completed_at/by', $q$ INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, completed_at, completed_by, is_demo) VALUES ('b3000000-0000-4000-8000-000000000031', 'TASK', now(), 'B3 task', 'OPEN', now() + interval '1 day', now(), 'b3000000-0000-4000-8000-000000000021', true) $q$, '23514');
+SELECT pg_temp.expect_err('S10 #17 completed_at ma khong co completed_by bi tu choi', $q$ INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, completed_at, is_demo) VALUES ('b3000000-0000-4000-8000-000000000031', 'TASK', now(), 'B3 task', 'DONE', now() + interval '1 day', now(), true) $q$, '23514');
+INSERT INTO activity (id, customer_id, contact_id, type, occurred_at, content, title, status, due_at, remind_at, performed_by, is_demo) VALUES
+ ('b3000000-0000-4000-8000-000000000052', 'b3000000-0000-4000-8000-000000000031', 'b3000000-0000-4000-8000-000000000041', 'TASK', now(), 'B3 cong viec thu', 'Khao sat', 'OPEN', now() + interval '3 days', now() + interval '2 days', 'b3000000-0000-4000-8000-000000000021', true);
+SELECT pg_temp.expect_true('S11 TASK OPEN hop le (co due_at, remind_at <= due_at, title) chen duoc', $q$ (SELECT status = 'OPEN' AND version = 1 FROM activity WHERE id = 'b3000000-0000-4000-8000-000000000052') $q$);
+UPDATE activity SET status = 'DONE', completed_at = now(), completed_by = 'b3000000-0000-4000-8000-000000000021', version = version + 1 WHERE id = 'b3000000-0000-4000-8000-000000000052';
+SELECT pg_temp.expect_true('S12 TASK OPEN -> DONE kem completed_at/by duoc', $q$ (SELECT status = 'DONE' AND completed_at IS NOT NULL AND version = 2 FROM activity WHERE id = 'b3000000-0000-4000-8000-000000000052') $q$);
+SELECT pg_temp.expect_err('S13 #16 DONE -> CANCELLED ma giu completed_at/by bi tu choi (phai xoa moc)', $q$ UPDATE activity SET status = 'CANCELLED' WHERE id = 'b3000000-0000-4000-8000-000000000052' $q$, '23514');
+UPDATE activity SET status = 'CANCELLED', completed_at = NULL, completed_by = NULL WHERE id = 'b3000000-0000-4000-8000-000000000052';
+SELECT pg_temp.expect_true('S13b CANCELLED kem xoa completed_at/by duoc', $q$ (SELECT status = 'CANCELLED' AND completed_at IS NULL AND completed_by IS NULL FROM activity WHERE id = 'b3000000-0000-4000-8000-000000000052') $q$);
+UPDATE activity SET status = 'OPEN' WHERE id = 'b3000000-0000-4000-8000-000000000052';
+
+-- 3. Trigger #11 (moi) + trigger B1.2 (giu nguyen)
+SELECT pg_temp.expect_err('S14 #11 khong doi customer_id cua hoat dong (trg_activity_customer_fixed)', $q$ UPDATE activity SET customer_id = 'b3000000-0000-4000-8000-000000000032' WHERE id = 'b3000000-0000-4000-8000-000000000051' $q$, '23001');
+SELECT pg_temp.expect_err('S15 trigger B1.2 trg_activity_contact van bat lien he khac khach', $q$ UPDATE activity SET contact_id = 'b3000000-0000-4000-8000-000000000042' WHERE id = 'b3000000-0000-4000-8000-000000000052' $q$, '23503');
+SELECT pg_temp.expect_err('S16 trigger B1.2 trg_activity_code_fixed van cam doi ma', $q$ UPDATE activity SET code = 'TT-999999' WHERE id = 'b3000000-0000-4000-8000-000000000051' $q$, '23001');
+SELECT pg_temp.expect_true('S17 chi muc rieng phan dung cot + vi tu: idx_activity_open_due (performed_by, due_at) WHERE status=OPEN AND deleted_at IS NULL; idx_activity_customer_active (customer_id, occurred_at DESC) WHERE deleted_at IS NULL; chi muc cu con', $q$ (pg_get_indexdef('public.idx_activity_open_due'::regclass) LIKE '%USING btree (performed_by, due_at) WHERE ((status = %OPEN%::activity_status) AND (deleted_at IS NULL))') AND (pg_get_indexdef('public.idx_activity_customer_active'::regclass) LIKE '%USING btree (customer_id, occurred_at DESC) WHERE (deleted_at IS NULL)') AND to_regclass('public.activity_customer_id_occurred_at_idx') IS NOT NULL $q$);
+
+-- 4. activity_access (#18)
+INSERT INTO activity_access (id, activity_id, employee_id, granted_by, expires_at) VALUES
+ ('b3000000-0000-4000-8000-000000000061', 'b3000000-0000-4000-8000-000000000052', 'b3000000-0000-4000-8000-000000000022', 'b3000000-0000-4000-8000-000000000021', now() + interval '7 days');
+SELECT pg_temp.expect_true('S18 quyen theo viec hop le (han +7 ngay) chen duoc; created_at = now() (sai so <2ms do TIMESTAMPTZ(3))', $q$ (SELECT revoked_at IS NULL AND abs(extract(epoch FROM created_at - now())) < 0.002 FROM activity_access WHERE id = 'b3000000-0000-4000-8000-000000000061') $q$);
+SELECT pg_temp.expect_err('S19 expires_at <= created_at bi tu choi', $q$ INSERT INTO activity_access (activity_id, employee_id, granted_by, expires_at) VALUES ('b3000000-0000-4000-8000-000000000051', 'b3000000-0000-4000-8000-000000000022', 'b3000000-0000-4000-8000-000000000021', now() - interval '1 hour') $q$, '23514');
+SELECT pg_temp.expect_err('S20 expires_at > created_at + 720 gio bi tu choi', $q$ INSERT INTO activity_access (activity_id, employee_id, granted_by, expires_at) VALUES ('b3000000-0000-4000-8000-000000000051', 'b3000000-0000-4000-8000-000000000022', 'b3000000-0000-4000-8000-000000000021', now() + interval '720 hours' + interval '1 second') $q$, '23514');
+INSERT INTO activity_access (id, activity_id, employee_id, granted_by, created_at, expires_at) VALUES
+ ('b3000000-0000-4000-8000-000000000062', 'b3000000-0000-4000-8000-000000000051', 'b3000000-0000-4000-8000-000000000022', 'b3000000-0000-4000-8000-000000000021', now() - interval '10 days', now() + interval '1 day');
+SELECT pg_temp.expect_true('S21 created_at ghi tay o qua khu bi trigger ep ve now()', $q$ (SELECT abs(extract(epoch FROM created_at - now())) < 0.002 FROM activity_access WHERE id = 'b3000000-0000-4000-8000-000000000062') $q$);
+SELECT pg_temp.expect_err('S22 revoked_at thieu revoked_by/revoke_reason bi tu choi', $q$ UPDATE activity_access SET revoked_at = now() WHERE id = 'b3000000-0000-4000-8000-000000000062' $q$, '23514');
+SELECT pg_temp.expect_err('S23 trung cap (activity, employee) con hieu luc bi tu choi (unique rieng phan)', $q$ INSERT INTO activity_access (activity_id, employee_id, granted_by, expires_at) VALUES ('b3000000-0000-4000-8000-000000000052', 'b3000000-0000-4000-8000-000000000022', 'b3000000-0000-4000-8000-000000000021', now() + interval '1 day') $q$, '23505');
+UPDATE activity_access SET revoked_at = now(), revoked_by = 'b3000000-0000-4000-8000-000000000021', revoke_reason = 'DUE_CHANGED' WHERE id = 'b3000000-0000-4000-8000-000000000061';
+INSERT INTO activity_access (id, activity_id, employee_id, granted_by, expires_at) VALUES
+ ('b3000000-0000-4000-8000-000000000063', 'b3000000-0000-4000-8000-000000000052', 'b3000000-0000-4000-8000-000000000022', 'b3000000-0000-4000-8000-000000000021', now() + interval '1 day');
+SELECT pg_temp.expect_true('S23b sau thu hoi dong cu, cap lai cung cap duoc (1 dong hieu luc)', $q$ (SELECT count(*) FILTER (WHERE revoked_at IS NULL) = 1 AND count(*) = 2 FROM activity_access WHERE activity_id = 'b3000000-0000-4000-8000-000000000052' AND employee_id = 'b3000000-0000-4000-8000-000000000022') $q$);
+SELECT pg_temp.expect_err('S24 khong doi employee_id/activity_id/granted_by/created_at/expires_at (append-only)', $q$ UPDATE activity_access SET employee_id = 'b3000000-0000-4000-8000-000000000021' WHERE id = 'b3000000-0000-4000-8000-000000000063' $q$, '23001');
+SELECT pg_temp.expect_err('S24b khong gia han expires_at (doi han = thu hoi + cap lai)', $q$ UPDATE activity_access SET expires_at = expires_at + interval '1 day' WHERE id = 'b3000000-0000-4000-8000-000000000063' $q$, '23001');
+SELECT pg_temp.expect_err('S25 dong da thu hoi khong sua lai (ke ca ly do)', $q$ UPDATE activity_access SET revoke_reason = 'MANUAL' WHERE id = 'b3000000-0000-4000-8000-000000000061' $q$, '23001');
+SELECT pg_temp.expect_err('S26b FK ON DELETE RESTRICT (23001 restrict_violation): xoa hoat dong con quyen theo viec bi chan', $q$ DELETE FROM activity WHERE id = 'b3000000-0000-4000-8000-000000000052' $q$, '23001');
+SELECT pg_temp.expect_err('S26 nhan vien khong ton tai bi tu choi (FK)', $q$ INSERT INTO activity_access (activity_id, employee_id, granted_by, expires_at) VALUES ('b3000000-0000-4000-8000-000000000051', gen_random_uuid(), 'b3000000-0000-4000-8000-000000000021', now() + interval '1 day') $q$, '23503');
+
+-- 5. activity_transfer_request (#19)
+SELECT pg_temp.expect_err('S27 from = to bi tu choi', $q$ INSERT INTO activity_transfer_request (activity_id, from_employee_id, to_employee_id, reason) VALUES ('b3000000-0000-4000-8000-000000000052', 'b3000000-0000-4000-8000-000000000021', 'b3000000-0000-4000-8000-000000000021', 'ban') $q$, '23514');
+INSERT INTO activity_transfer_request (id, activity_id, from_employee_id, to_employee_id, reason) VALUES
+ ('b3000000-0000-4000-8000-000000000071', 'b3000000-0000-4000-8000-000000000052', 'b3000000-0000-4000-8000-000000000021', 'b3000000-0000-4000-8000-000000000022', 'B3 ban viec');
+SELECT pg_temp.expect_err('S28 moi viec toi da 1 de xuat PENDING (unique rieng phan)', $q$ INSERT INTO activity_transfer_request (activity_id, from_employee_id, to_employee_id, reason) VALUES ('b3000000-0000-4000-8000-000000000052', 'b3000000-0000-4000-8000-000000000022', 'b3000000-0000-4000-8000-000000000021', 'trung') $q$, '23505');
+SELECT pg_temp.expect_err('S29 APPROVED thieu decided_at/decided_by bi tu choi', $q$ UPDATE activity_transfer_request SET status = 'APPROVED' WHERE id = 'b3000000-0000-4000-8000-000000000071' $q$, '23514');
+SELECT pg_temp.expect_err('S32 khong doi reason/from/to/activity cua de xuat', $q$ UPDATE activity_transfer_request SET reason = 'khac' WHERE id = 'b3000000-0000-4000-8000-000000000071' $q$, '23001');
+UPDATE activity_transfer_request SET status = 'APPROVED', decided_at = now(), decided_by = 'b3000000-0000-4000-8000-000000000021', decision_note = 'dong y' WHERE id = 'b3000000-0000-4000-8000-000000000071';
+SELECT pg_temp.expect_true('S30 PENDING -> APPROVED kem decided_at/by duoc', $q$ (SELECT status = 'APPROVED' AND decided_at IS NOT NULL FROM activity_transfer_request WHERE id = 'b3000000-0000-4000-8000-000000000071') $q$);
+SELECT pg_temp.expect_err('S31 de xuat da quyet dinh khong doi lai (APPROVED -> PENDING)', $q$ UPDATE activity_transfer_request SET status = 'PENDING', decided_at = NULL, decided_by = NULL WHERE id = 'b3000000-0000-4000-8000-000000000071' $q$, '23001');
+SELECT pg_temp.expect_err('S31b de xuat da quyet dinh khong sua ghi chu', $q$ UPDATE activity_transfer_request SET decision_note = 'sua' WHERE id = 'b3000000-0000-4000-8000-000000000071' $q$, '23001');
+SELECT pg_temp.expect_err('S33 reason rong bi tu choi', $q$ INSERT INTO activity_transfer_request (activity_id, from_employee_id, to_employee_id, reason) VALUES ('b3000000-0000-4000-8000-000000000051', 'b3000000-0000-4000-8000-000000000021', 'b3000000-0000-4000-8000-000000000022', '  ') $q$, '23514');
+
+-- 6. Quyen (A2: siscom_app van CHI SELECT; A3 se doi ky vong nay)
+SELECT pg_temp.expect_true('S34 siscom_app khong co INSERT/UPDATE/DELETE tren activity, activity_access, activity_transfer_request; co SELECT 2 bang moi', $q$ (SELECT bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT') AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE')) FROM unnest(ARRAY['activity', 'activity_access', 'activity_transfer_request']) AS t) AND has_table_privilege('siscom_app', 'public.activity_access', 'SELECT') AND has_table_privilege('siscom_app', 'public.activity_transfer_request', 'SELECT') $q$);
+
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
+SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+ROLLBACK;

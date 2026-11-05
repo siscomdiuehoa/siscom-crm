@@ -1,0 +1,136 @@
+-- SISCOM CRM - ROLLBACK B3 A2 (20261105000000_b3_activity_type_task + 20261105000100_b3_activity_tasks). VIET SAN, KHONG TU CHAY.
+-- Dich: D:\SISCOM-CRM\backend\docs\B3_ACTIVITY_TASKS_ROLLBACK.sql.txt (file moi; noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/production: CAM, tru khi co phe duyet RIENG bang van ban + sao luu.
+-- Thiet ke: docs/B3_ACTIVITIES_DESIGN.md §3.3 (a)-(f).
+-- THU TU ROLLBACK:
+--   (1) trien khai lai backend BAN TRUOC B3 (ban cu khong biet cot/bang moi);
+--   (2) file nay, bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi 1 chay sau unsplit):
+--       psql -X -v ON_ERROR_STOP=1 -d <db thu> -f B3_ACTIVITY_TASKS_ROLLBACK.sql.txt
+--       (khong kiem vai tro tuong minh: DROP/ALTER tu that bai 42501 neu khong phai chu so huu => transaction huy, khong do dang);
+--   (3) (DB da tach role) chay lai B1.3_S1_APP_GRANTS_V3.sql.txt (V4 tu A3) + VERIFY / VERIFY_AUTH.
+-- MOT transaction. HAI TRANG THAI: S1 = chi migration 1 da ap (enum co TASK, chua co cot) => chi tao lai enum + xoa dong _prisma_migrations;
+--   S2 = ca 2 da ap => go bang/enum/CHECK/chi muc/trigger/ham/cot roi tao lai enum. S0 (chua ap) va S3 (co cot ma enum thieu TASK) => tu choi.
+-- KHONG BAO GIO tu xoa/sua du lieu. TU CHOI khi: (1) con dong activity type='TASK' (ke ca da xoa mem); (2) activity_access / activity_transfer_request
+--   con dong (ke ca da thu hoi/da quyet dinh); (3) con dong activity co gia tri o cot sap go (title/due_at/remind_at/completed_at/completed_by)
+--   hoac status <> 'DONE'. Xu ly tay TRUOC (anh duyet rieng, tren ban sao, ghi evidence): xuat \copy CSV cac dong do + 2 bang moi; doi TASK -> NOTE
+--   bang UPDATE tuong minh co ghi audit_log (actor_type='MIGRATION'); dat NULL cot moi; roi chay lai file nay. Khong co co "ep buoc".
+-- Dong _prisma_migrations cua ca 2 ten bi xoa KHONG loc finished_at (dong that bai cua migration 2 cung bi xoa) => migrate deploy ap lai tu dau.
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+END $$;
+
+-- (a) Nhan dien trang thai + (b) tu choi de khong mat du lieu. Ket qua ghi vao bang tam de cac khoi sau doc lai.
+CREATE TEMP TABLE b3_rb_state (has_task boolean, has_cols boolean) ON COMMIT DROP;
+DO $$
+DECLARE v_task boolean; v_cols boolean; n bigint;
+BEGIN
+  v_task := EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = 'public.activity_type'::regtype AND enumlabel = 'TASK');
+  v_cols := to_regclass('public.activity_access') IS NOT NULL
+         OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity' AND column_name = 'status');
+  IF NOT v_task AND NOT v_cols THEN
+    RAISE EXCEPTION 'Chua ap migration B3 (enum khong co TASK, khong co cot moi). Khong co gi de rollback.';
+  END IF;
+  IF NOT v_task AND v_cols THEN
+    RAISE EXCEPTION 'TU CHOI: trang thai khong nhat quan (co cot/bang moi nhung enum activity_type thieu TASK) - xu ly tay.';
+  END IF;
+  -- (b)1: con TASK (ke ca xoa mem) => doi kieu cot se that bai; khong tu doi/xoa
+  SELECT count(*) INTO n FROM public.activity WHERE type::text = 'TASK';
+  IF n > 0 THEN
+    RAISE EXCEPTION 'TU CHOI: con % dong activity type=TASK (ke ca da xoa mem) - xuat CSV, doi sang NOTE co audit bang tay, khong tu xoa.', n;
+  END IF;
+  IF v_cols THEN
+    -- (b)2: 2 bang moi con dong (ke ca da thu hoi / da quyet dinh)
+    SELECT (SELECT count(*) FROM public.activity_access) + (SELECT count(*) FROM public.activity_transfer_request) INTO n;
+    IF n > 0 THEN
+      RAISE EXCEPTION 'TU CHOI: con % dong trong activity_access/activity_transfer_request - xuat luu truoc, khong tu xoa.', n;
+    END IF;
+    -- (b)3: gia tri o cot sap go (DROP COLUMN se mat) hoac status khac DONE
+    EXECUTE 'SELECT count(*) FROM public.activity WHERE title IS NOT NULL OR due_at IS NOT NULL OR remind_at IS NOT NULL OR completed_at IS NOT NULL OR completed_by IS NOT NULL OR status::text <> ''DONE''' INTO n;
+    IF n > 0 THEN
+      RAISE EXCEPTION 'TU CHOI: con % dong activity co gia tri o cot moi (title/due_at/remind_at/completed_*/status) - xuat CSV va dat NULL bang tay truoc, khong tu xoa.', n;
+    END IF;
+  END IF;
+  INSERT INTO b3_rb_state VALUES (v_task, v_cols);
+  RAISE NOTICE 'B3 rollback: trang thai % ', CASE WHEN v_cols THEN 'S2 (ca 2 migration)' ELSE 'S1 (chi migration 1)' END;
+END $$;
+
+-- (c) Go (chi S2; IF EXISTS de trang thai sua tay nua chung khong dung giua duong - hau kiem (e) moi ket luan "sach")
+DO $$ BEGIN
+  IF (SELECT has_cols FROM b3_rb_state) THEN
+    DROP TABLE IF EXISTS public.activity_transfer_request;
+    DROP TABLE IF EXISTS public.activity_access;
+    DROP FUNCTION IF EXISTS public.fn_activity_transfer_state();
+    DROP FUNCTION IF EXISTS public.fn_activity_access_append_only();
+    DROP FUNCTION IF EXISTS public.fn_activity_access_created_at();
+    DROP TYPE IF EXISTS public.activity_transfer_status;
+    DROP TYPE IF EXISTS public.activity_access_revoke_reason;
+    ALTER TABLE public.activity
+      DROP CONSTRAINT IF EXISTS ck_activity_task_due,
+      DROP CONSTRAINT IF EXISTS ck_activity_done,
+      DROP CONSTRAINT IF EXISTS ck_activity_remind,
+      DROP CONSTRAINT IF EXISTS ck_activity_title,
+      DROP CONSTRAINT IF EXISTS ck_activity_status_type,
+      DROP CONSTRAINT IF EXISTS ck_activity_completed,
+      DROP CONSTRAINT IF EXISTS ck_activity_completed_pair;
+    DROP INDEX IF EXISTS public.idx_activity_open_due;
+    DROP INDEX IF EXISTS public.idx_activity_customer_active;
+    DROP TRIGGER IF EXISTS trg_activity_customer_fixed ON public.activity;
+    DROP FUNCTION IF EXISTS public.fn_activity_customer_fixed();
+    ALTER TABLE public.activity
+      DROP COLUMN IF EXISTS completed_by,
+      DROP COLUMN IF EXISTS completed_at,
+      DROP COLUMN IF EXISTS remind_at,
+      DROP COLUMN IF EXISTS due_at,
+      DROP COLUMN IF EXISTS title,
+      DROP COLUMN IF EXISTS status,
+      DROP COLUMN IF EXISTS version;
+    DROP TYPE IF EXISTS public.activity_status;
+  END IF;
+END $$;
+
+-- (d) Tao lai enum 5 gia tri (S1 va S2; PostgreSQL khong co DROP VALUE). Cot activity.type khong DEFAULT, chi cot nay dung enum; CHECK tham chieu 'TASK' da go o (c).
+ALTER TYPE public.activity_type RENAME TO activity_type_old;
+CREATE TYPE public.activity_type AS ENUM ('CALL', 'EMAIL', 'MEETING', 'SITE_SURVEY', 'NOTE');
+ALTER TABLE public.activity ALTER COLUMN type TYPE public.activity_type USING type::text::public.activity_type;
+DROP TYPE public.activity_type_old;
+
+-- (e) Xoa dong _prisma_migrations (ca 2 ten, khong loc finished_at) + hau kiem
+DELETE FROM public._prisma_migrations WHERE migration_name IN ('20261105000000_b3_activity_type_task', '20261105000100_b3_activity_tasks');
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = 'public.activity_type'::regtype AND enumlabel = 'TASK')
+     OR (SELECT count(*) FROM pg_enum WHERE enumtypid = 'public.activity_type'::regtype) <> 5
+     OR to_regtype('public.activity_status') IS NOT NULL
+     OR to_regtype('public.activity_access_revoke_reason') IS NOT NULL
+     OR to_regtype('public.activity_transfer_status') IS NOT NULL
+     OR to_regtype('public.activity_type_old') IS NOT NULL
+     OR to_regclass('public.activity_access') IS NOT NULL
+     OR to_regclass('public.activity_transfer_request') IS NOT NULL
+     OR to_regclass('public.idx_activity_open_due') IS NOT NULL
+     OR to_regclass('public.idx_activity_customer_active') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity'
+                AND column_name IN ('status', 'title', 'due_at', 'remind_at', 'completed_at', 'completed_by', 'version'))
+     OR to_regproc('public.fn_activity_customer_fixed') IS NOT NULL
+     OR to_regproc('public.fn_activity_access_created_at') IS NOT NULL
+     OR to_regproc('public.fn_activity_access_append_only') IS NOT NULL
+     OR to_regproc('public.fn_activity_transfer_state') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_activity_customer_fixed')
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name IN ('20261105000000_b3_activity_type_task', '20261105000100_b3_activity_tasks'))
+     -- doi tuong B1.2 phai con nguyen
+     OR to_regproc('public.fn_check_activity_contact') IS NULL
+     OR to_regproc('public.fn_next_activity_code') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_activity_contact')
+     OR to_regclass('public.activity_customer_id_occurred_at_idx') IS NULL THEN
+    RAISE EXCEPTION 'Rollback chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK B3 (20261105000000_b3_activity_type_task + 20261105000100_b3_activity_tasks) XONG' AS ket_qua;

@@ -1,0 +1,21 @@
+-- SISCOM CRM - B3 A2: KIEM SAU MIGRATE tren DB da co seed 5 loai cu (B3_ACTIVITY_SEED_OLDTYPES_TEST.sql.txt chay truoc migration B3).
+-- Chi doc. In "PASS|n" / "FAIL|n" (chay bang pg-sql-check.sh ... res migrator). CHI DB TAM CI.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_test_[0-9]{8}_[0-9]{6}$' THEN RAISE EXCEPTION 'TU CHOI: % khong phai DB tam CI.', current_database(); END IF;
+  IF to_regclass('public.activity_access') IS NULL THEN RAISE EXCEPTION 'Chua ap migration 20261105000100_b3_activity_tasks.'; END IF;
+  IF (SELECT count(*) FROM activity WHERE id::text LIKE 'b3300000-%') <> 5 THEN RAISE EXCEPTION 'Chua co seed 5 loai cu (B3_ACTIVITY_SEED_OLDTYPES_TEST).'; END IF;
+END $$;
+CREATE TEMP TABLE res (ok boolean, label text);
+INSERT INTO res SELECT count(*) = 5 AND count(DISTINCT type) = 5, 'C1 5 dong seed con nguyen, du 5 loai cu' FROM activity WHERE id::text LIKE 'b3300000-%';
+INSERT INTO res SELECT bool_and(status = 'DONE' AND version = 1), 'C2 dong cu nhan status DONE (DEFAULT), version 1' FROM activity WHERE id::text LIKE 'b3300000-%';
+INSERT INTO res SELECT bool_and(title IS NULL AND due_at IS NULL AND remind_at IS NULL AND completed_at IS NULL AND completed_by IS NULL), 'C3 cot moi NULL (khong backfill)' FROM activity WHERE id::text LIKE 'b3300000-%';
+INSERT INTO res SELECT content = 'B3 seed goi' AND outcome = 'da bat may' AND next_action_at IS NOT NULL AND contact_id IS NOT NULL AND performed_by IS NOT NULL, 'C4 gia tri cot cu khong doi (CALL)' FROM activity WHERE id = 'b3300000-0000-4000-8000-000000000051';
+INSERT INTO res SELECT deleted_at IS NOT NULL AND deleted_by IS NOT NULL AND status = 'DONE', 'C5 dong da xoa mem giu nguyen, van DONE' FROM activity WHERE id = 'b3300000-0000-4000-8000-000000000055';
+INSERT INTO res SELECT NOT EXISTS (SELECT 1 FROM activity WHERE id::text LIKE 'b3300000-%' AND updated_at > created_at + interval '1 second'), 'C6 updated_at khong bi dong (khong UPDATE hang loat)';
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
+SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+DROP TABLE res;

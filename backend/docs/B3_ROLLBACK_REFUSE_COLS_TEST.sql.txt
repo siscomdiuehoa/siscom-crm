@@ -1,0 +1,21 @@
+-- SISCOM CRM - B3 A2: BAI TAI HIEN (RED mong doi) - B3_ACTIVITY_TASKS_ROLLBACK PHAI TU CHOI khi dong KHONG phai TASK co gia tri o cot moi
+--   (vi du MEETING co due_at/remind_at/title): DROP COLUMN se lam mat gia tri do => khong tu xoa.
+-- CHI CHAY TREN DB TAM CUA CI (siscom_crm_test_*), bang chu so huu bang. Mo transaction ngoai, chen du lieu thu roi goi rollback (\ir):
+--   rollback RAISE "TU CHOI: con 1 dong activity co gia tri o cot moi ..." => psql thoat khac 0, transaction ngoai bi huy: KHONG con du lieu thu.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_test_[0-9]{8}_[0-9]{6}$' THEN RAISE EXCEPTION 'TU CHOI CHAY BAI THU: % khong phai DB tam CI.', current_database(); END IF;
+  IF to_regclass('public.activity_access') IS NULL THEN RAISE EXCEPTION 'Chua ap migration 20261105000100_b3_activity_tasks.'; END IF;
+END $$;
+BEGIN;
+INSERT INTO lookup_item (id, type, code, label_vi) VALUES
+ ('b3200000-0000-4000-8000-000000000011', 'customer_tier',   'ZZ_B3_RC_TIER',   'B3 RC hang thu'),
+ ('b3200000-0000-4000-8000-000000000012', 'customer_status', 'ZZ_B3_RC_STATUS', 'B3 RC trang thai thu');
+INSERT INTO customer (id, name, phone, tier_id, status_id, is_demo) VALUES ('b3200000-0000-4000-8000-000000000031', 'B3 RC Khach', '0903200001', 'b3200000-0000-4000-8000-000000000011', 'b3200000-0000-4000-8000-000000000012', true);
+-- MEETING (loai cu) nhung co due_at + title: khong phai TASK, van khong duoc rollback
+INSERT INTO activity (customer_id, type, occurred_at, content, title, due_at, remind_at, is_demo)
+ VALUES ('b3200000-0000-4000-8000-000000000031', 'MEETING', now(), 'B3 RC hop co hen', 'Hop ky thuat', now() + interval '2 days', now() + interval '1 day', true);
+\ir B3_ACTIVITY_TASKS_ROLLBACK.sql.txt
+SELECT 'KHONG DAT: rollback KHONG tu choi khi cot moi co gia tri' AS loi;

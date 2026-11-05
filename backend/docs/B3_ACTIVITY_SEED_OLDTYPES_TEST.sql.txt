@@ -1,0 +1,30 @@
+-- SISCOM CRM - B3 A2: SEED DU LIEU THU "5 loai hoat dong cu" (CALL, EMAIL, MEETING, SITE_SURVEY, NOTE) TRUOC khi ap 2 migration B3
+--   => chung minh migration tuong thich nguoc voi DB co du lieu (status DEFAULT 'DONE', version 1, cot moi NULL; khong UPDATE hang loat).
+-- CHI CHAY TREN DB TAM CUA CI (siscom_crm_test_*), bang chu so huu bang, O TRANG THAI CHUA CO B3 (sau B3 rollback trong chuoi 2 cua ci.yml).
+-- Du lieu is_demo=true, id co dinh b3300000-*; GIU LAI trong DB tam (CI huy DB khi xong). Kiem sau migrate: B3_ACTIVITY_SEED_OLDTYPES_CHECK.sql.txt.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_test_[0-9]{8}_[0-9]{6}$' THEN RAISE EXCEPTION 'TU CHOI CHAY SEED: % khong phai DB tam CI.', current_database(); END IF;
+  IF to_regclass('public.activity_access') IS NOT NULL OR EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = 'public.activity_type'::regtype AND enumlabel = 'TASK') THEN
+    RAISE EXCEPTION 'Seed 5 loai cu phai chay TRUOC migration B3 (DB dang co B3).';
+  END IF;
+END $$;
+BEGIN;
+INSERT INTO lookup_item (id, type, code, label_vi) VALUES
+ ('b3300000-0000-4000-8000-000000000011', 'customer_tier',   'ZZ_B3_SEED_TIER',   'B3 seed hang thu'),
+ ('b3300000-0000-4000-8000-000000000012', 'customer_status', 'ZZ_B3_SEED_STATUS', 'B3 seed trang thai thu')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES ('b3300000-0000-4000-8000-000000000021', 'B3 seed NV', 'b3.seed@example.invalid', 'ACTIVE', true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO customer (id, name, phone, tier_id, status_id, is_demo) VALUES ('b3300000-0000-4000-8000-000000000031', 'B3 seed Khach', '0903300001', 'b3300000-0000-4000-8000-000000000011', 'b3300000-0000-4000-8000-000000000012', true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO contact (id, customer_id, full_name, phone, is_demo) VALUES ('b3300000-0000-4000-8000-000000000041', 'b3300000-0000-4000-8000-000000000031', 'B3 seed Lien he', '0903300011', true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO activity (id, customer_id, contact_id, type, occurred_at, content, outcome, next_action_at, performed_by, deleted_at, deleted_by, is_demo) VALUES
+ ('b3300000-0000-4000-8000-000000000051', 'b3300000-0000-4000-8000-000000000031', 'b3300000-0000-4000-8000-000000000041', 'CALL',        now() - interval '5 days', 'B3 seed goi',      'da bat may', now() + interval '1 day', 'b3300000-0000-4000-8000-000000000021', NULL, NULL, true),
+ ('b3300000-0000-4000-8000-000000000052', 'b3300000-0000-4000-8000-000000000031', NULL,                                   'EMAIL',       now() - interval '4 days', 'B3 seed email',    NULL,         NULL,                     'b3300000-0000-4000-8000-000000000021', NULL, NULL, true),
+ ('b3300000-0000-4000-8000-000000000053', 'b3300000-0000-4000-8000-000000000031', 'b3300000-0000-4000-8000-000000000041', 'MEETING',     now() - interval '3 days', 'B3 seed hop',      'thong nhat', NULL,                     NULL,                                   NULL, NULL, true),
+ ('b3300000-0000-4000-8000-000000000054', 'b3300000-0000-4000-8000-000000000031', NULL,                                   'SITE_SURVEY', now() - interval '2 days', 'B3 seed khao sat', NULL,         NULL,                     'b3300000-0000-4000-8000-000000000021', NULL, NULL, true),
+ ('b3300000-0000-4000-8000-000000000055', 'b3300000-0000-4000-8000-000000000031', NULL,                                   'NOTE',        now() - interval '1 day', 'B3 seed ghi chu da xoa mem', NULL, NULL,                'b3300000-0000-4000-8000-000000000021', now(), 'b3300000-0000-4000-8000-000000000021', true)
+ON CONFLICT (id) DO NOTHING;
+COMMIT;
+SELECT 'SEED 5 loai cu XONG: ' || count(*) || ' dong activity b3300000-*' AS ket_qua FROM activity WHERE id::text LIKE 'b3300000-%';

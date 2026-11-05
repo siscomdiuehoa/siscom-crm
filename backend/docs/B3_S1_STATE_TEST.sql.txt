@@ -1,0 +1,21 @@
+-- SISCOM CRM - B3 A2: GIA LAP TRANG THAI S1 "chi migration 20261105000000_b3_activity_type_task da ap" (migration 2 chua chay / that bai)
+--   de dien tap duong rollback S1 cua B3_ACTIVITY_TASKS_ROLLBACK.sql.txt (thiet ke §3.3a, ra soat v5.2 B2).
+-- CHI CHAY TREN DB TAM CUA CI (siscom_crm_test_*), bang chu so huu bang, O TRANG THAI CHUA CO B3 (ngay sau B3 rollback). Sau file nay:
+--   chay lai B3_ACTIVITY_TASKS_ROLLBACK (phai bao S1, tao lai enum 5 gia tri, xoa dong _prisma_migrations) roi `prisma migrate deploy` ap lai du 2.
+-- Dong _prisma_migrations ghi checksum GIA (64 so 0): rollback S1 xoa dong nay ngay sau; neu rollback khong xoa, migrate deploy se bao
+--   checksum lech (P3008/P3018) => CI do, dung y (chung minh rollback S1 that su don sach).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_test_[0-9]{8}_[0-9]{6}$' THEN RAISE EXCEPTION 'TU CHOI: % khong phai DB tam CI.', current_database(); END IF;
+  IF to_regclass('public.activity_access') IS NOT NULL OR EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = 'public.activity_type'::regtype AND enumlabel = 'TASK') THEN
+    RAISE EXCEPTION 'Gia lap S1 phai chay o trang thai CHUA co B3.';
+  END IF;
+END $$;
+ALTER TYPE "activity_type" ADD VALUE IF NOT EXISTS 'TASK';
+INSERT INTO public._prisma_migrations (id, checksum, finished_at, migration_name, logs, rolled_back_at, started_at, applied_steps_count)
+ VALUES (gen_random_uuid()::text, repeat('0', 64), now(), '20261105000000_b3_activity_type_task', NULL, NULL, now(), 1);
+SELECT 'S1 GIA LAP XONG: enum co TASK=' || EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = 'public.activity_type'::regtype AND enumlabel = 'TASK')
+    || ', cot status=' || EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity' AND column_name = 'status')
+    || ', dong _prisma_migrations=' || (SELECT count(*) FROM public._prisma_migrations WHERE migration_name LIKE '20261105%') AS ket_qua;

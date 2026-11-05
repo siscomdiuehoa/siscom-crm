@@ -1,0 +1,15 @@
+-- SISCOM CRM - B3 A2: TRUY VAN CHI DOC truoc khi ap 2 migration B3 len DB demo (A9, anh duyet rieng) hoac ban sao thu.
+-- Thiet ke docs/B3_ACTIVITIES_DESIGN.md §3.2 (tuong thich nguoc & kiem du lieu hien co). KHONG ghi gi. Ghi ket qua vao evidence.
+-- Chay: psql -X -v ON_ERROR_STOP=1 -d <db> -f B3_PREFLIGHT_READONLY.sql.txt (bat ky role doc duoc activity).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SET default_transaction_read_only = on;
+SELECT current_database() AS db, current_user AS chay_bang, now() AS luc;
+SELECT 'enum activity_type' AS muc, string_agg(enumlabel, ',' ORDER BY enumsortorder) AS gia_tri, (bool_or(enumlabel = 'TASK'))::text AS da_co_task FROM pg_enum WHERE enumtypid = 'public.activity_type'::regtype;
+SELECT 'cot moi da co?' AS muc, string_agg(column_name, ',' ORDER BY column_name) AS cot FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity' AND column_name IN ('status', 'title', 'due_at', 'remind_at', 'completed_at', 'completed_by', 'version');
+SELECT 'bang moi da co?' AS muc, to_regclass('public.activity_access') IS NOT NULL AS activity_access, to_regclass('public.activity_transfer_request') IS NOT NULL AS activity_transfer_request;
+SELECT 'activity theo type' AS muc, type::text AS type, count(*) AS so_dong, count(*) FILTER (WHERE deleted_at IS NOT NULL) AS da_xoa_mem FROM activity GROUP BY type ORDER BY type;
+SELECT 'activity tong' AS muc, count(*) AS so_dong, count(*) FILTER (WHERE deleted_at IS NOT NULL) AS da_xoa_mem, count(*) FILTER (WHERE next_action_at IS NOT NULL) AS co_next_action, count(*) FILTER (WHERE performed_by IS NULL) AS performed_by_null, count(*) FILTER (WHERE contact_id IS NOT NULL) AS co_contact FROM activity;
+SELECT 'contact sai khach (phai 0)' AS muc, count(*) AS so_dong FROM activity a JOIN contact c ON c.id = a.contact_id WHERE c.customer_id <> a.customer_id;
+SELECT 'migration B3 trong _prisma_migrations' AS muc, migration_name, finished_at IS NOT NULL AS xong FROM _prisma_migrations WHERE migration_name LIKE '20261105%' ORDER BY migration_name;
