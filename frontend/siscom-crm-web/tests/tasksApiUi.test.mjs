@@ -217,3 +217,17 @@ test('drawer Ghi nhận (admin có assign_external): bật "Giao cho người ph
     assert.deepEqual(w.body, { type: 'TASK', content: 'Khảo sát mặt bằng', dueAt: '2026-12-01T09:00:00+07:00', performedById: 'e2', external: true });
   } finally { await m.unmount(); }
 });
+
+test('thẻ việc: hoàn thành xong mà quyền theo việc kết thúc (đọc lại 404) => báo đã xong, không hiện lỗi đỏ', async () => {
+  let n = 0;
+  const f = server({ get: (p) => (p === '/activities/t1' ? (++n === 1 ? res(200, { data: task({ access: 'TASK', accessExpiresAt: future }) }) : res(404, { error: { code: 'ACTIVITY_NOT_FOUND', message: 'Không tìm thấy hoạt động.' } })) : null) });
+  const m = await mount(f, TECH_TASK, (ui) => React.createElement(TaskView, { ui, id: 't1' }));
+  try {
+    await doAct(() => click(buttonByText(m.container, /^Hoàn thành$/)));
+    await doAct(() => click(findAll(modal(m.container), (e) => e.tagName === 'BUTTON' && text(e) === 'Hoàn thành')[0]));
+    assert.equal(f.writes()[0].p, '/activities/t1/complete');
+    const t = text(m.container);
+    assert.match(t, /Việc đã được cập nhật; quyền theo việc của bạn đã kết thúc/);
+    assert.equal(findAll(m.container, (e) => e.attributes.role === 'alert').length, 0);
+  } finally { await m.unmount(); }
+});

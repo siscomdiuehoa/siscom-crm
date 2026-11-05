@@ -149,13 +149,15 @@ export function TaskView({ ui, id }) {
   const [st, setSt] = React.useState({ status: 'loading', a: null, card: null, error: null });
   const load = React.useCallback(async () => {
     const r = await tasks.get(id);
-    if (!r.ok) { setSt({ status: 'error', a: null, card: null, error: r.error }); return; }
+    // Người chỉ có quyền theo việc: hoàn thành/được giao lại => quyền kết thúc, đọc lại trả 404. Đó là kết quả đúng, không phải lỗi.
+    if (!r.ok) { setSt((prev) => (prev.a && prev.a.access === 'TASK' && r.error.kind === 'not_found' ? { status: 'gone', a: prev.a, card: null, error: null } : { status: 'error', a: null, card: null, error: r.error })); return; }
     const card = r.data.access === 'TASK' ? await tasks.workCard(id) : null;
     setSt({ status: 'ready', a: r.data, card: card && card.ok ? card.data : null, error: null });
   }, [tasks, id]);
   React.useEffect(() => { load(); }, [load, s.summary.data]); // đọc lại sau mỗi thao tác (chuông đổi)
   const back = <div><Button variant="ghost" size="sm" icon="arrow-left" onClick={() => ui.navigate('/activities')}>Công việc</Button></div>;
   if (st.status === 'loading') return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>{back}<div role="status" className="sg-card sg-solid" style={{ padding: 20 }}>Đang tải công việc…</div></div>;
+  if (st.status === 'gone') return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>{back}<div role="status" className="sg-card sg-solid" style={{ padding: 20, display: 'flex', gap: 10, alignItems: 'center' }}><Icon name="circle-check" size={18} color="var(--success)" />{(st.a.code ? st.a.code + ': ' : '') + 'Việc đã được cập nhật; quyền theo việc của bạn đã kết thúc.'}</div></div>;
   if (st.status === 'error') return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>{back}<ApiErrorBox error={st.error} onRetry={load} /></div>;
   const a = st.a; const c = st.card ? st.card.customer : a.customer; const now = Date.now();
   const row = (icon, label, v) => (v ? <div style={{ display: 'grid', gridTemplateColumns: '20px 110px minmax(0,1fr)', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-subtle)', font: 'var(--type-sm)' }}><Icon name={icon} size={15} color="var(--text-3)" /><span style={{ color: 'var(--text-3)' }}>{label}</span><span style={{ overflowWrap: 'anywhere', whiteSpace: 'pre-line' }}>{v}</span></div> : null);
