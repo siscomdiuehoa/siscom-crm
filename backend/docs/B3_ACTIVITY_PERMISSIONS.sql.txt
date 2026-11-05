@@ -101,11 +101,11 @@ BEGIN
 END $$;
 
 -- 3. Tom tat (ky vong: 9 ma; crm_admin 6, sales 5, technician 4, accountant 1 = 16; admin 0)
-SELECT 'ma_activity (phai 9)' AS muc, count(*)::text AS gia_tri FROM public.permission WHERE code LIKE 'activity.%'
+SELECT 'ma_activity (phai 9)' AS muc, count(*)::text AS gia_tri FROM public.permission WHERE code = ANY (ARRAY['activity.read','activity.create','activity.create_tech','activity.update','activity.update_own','activity.assign','activity.delete','activity.assign_external','activity.transfer_request'])
 UNION ALL SELECT 'dong_' || r.code || ' (phai ' || CASE r.code WHEN 'crm_admin' THEN 6 WHEN 'sales' THEN 5 WHEN 'technician' THEN 4 WHEN 'accountant' THEN 1 ELSE 0 END || ')', count(p.id)::text
-  FROM public.role r LEFT JOIN public.role_permission rp ON rp.role_id = r.id LEFT JOIN public.permission p ON p.id = rp.permission_id AND p.code LIKE 'activity.%'
+  FROM public.role r LEFT JOIN public.role_permission rp ON rp.role_id = r.id LEFT JOIN public.permission p ON p.id = rp.permission_id AND p.code = ANY (ARRAY['activity.read','activity.create','activity.create_tech','activity.update','activity.update_own','activity.assign','activity.delete','activity.assign_external','activity.transfer_request'])
   WHERE r.code IN ('admin', 'crm_admin', 'sales', 'technician', 'accountant') GROUP BY r.code
-UNION ALL SELECT 'tong_dong_activity (phai 16)', count(*)::text FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id WHERE p.code LIKE 'activity.%';
+UNION ALL SELECT 'tong_dong_activity (phai 16)', count(*)::text FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id WHERE p.code = ANY (ARRAY['activity.read','activity.create','activity.create_tech','activity.update','activity.update_own','activity.assign','activity.delete','activity.assign_external','activity.transfer_request']);
 \if :{?b3_nested}
 \else
 COMMIT;

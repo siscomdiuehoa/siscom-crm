@@ -22,11 +22,15 @@ function bizRowsByDbRole(): Record<string, Record<string, string>> {
   return out;
 }
 
-function scriptRows(): Record<string, Record<string, string>> {
-  const sql = readFileSync(join(__dirname, '..', '..', '..', 'docs', 'B3_ACTIVITY_PERMISSIONS.sql.txt'), 'utf8');
+const docFile = (name: string) => readFileSync(join(__dirname, '..', '..', '..', 'docs', name), 'utf8');
+
+// Trả về ma trận + số tuple thô (phát hiện tuple trùng — object key sẽ ghi đè nên đếm riêng).
+function scriptRows(name = 'B3_ACTIVITY_PERMISSIONS.sql.txt'): { rows: Record<string, Record<string, string>>; tuples: number } {
+  const sql = docFile(name);
   const out: Record<string, Record<string, string>> = {};
-  for (const m of sql.matchAll(/\('(crm_admin|sales|technician|accountant)',\s*'(activity\.[a-z_]+)',\s*'(ALL|DEPARTMENT|OWN)'\)/g)) (out[m[1]] ??= {})[m[2]] = m[3];
-  return out;
+  let tuples = 0;
+  for (const m of sql.matchAll(/\('(crm_admin|sales|technician|accountant)',\s*'(activity\.[a-z_]+)',\s*'(ALL|DEPARTMENT|OWN)'\)/g)) { (out[m[1]] ??= {})[m[2]] = m[3]; tuples++; }
+  return { rows: out, tuples };
 }
 
 describe('B3 A4 — mã quyền activity.* nhất quán', () => {
@@ -45,8 +49,22 @@ describe('B3 A4 — mã quyền activity.* nhất quán', () => {
     expect(rows['admin']).toBeUndefined();
     for (const p of ACTIVITY_PERMISSIONS) expect(Object.keys(BIZ)).toContain(p);
   });
-  it('script 2 người cho DB đã bootstrap (docs/B3_ACTIVITY_PERMISSIONS.sql.txt) có đúng 16 dòng trùng BIZ', () => {
-    const rows = scriptRows();
+  it('script 2 người cho DB đã bootstrap (docs/B3_ACTIVITY_PERMISSIONS.sql.txt) có đúng 16 dòng trùng BIZ, không tuple trùng', () => {
+    const { rows, tuples } = scriptRows();
     expect(rows).toEqual(bizRowsByDbRole());
+    expect(tuples).toBe(16);
+  });
+  it('rollback (B3_ACTIVITY_PERMISSIONS_REMOVE.sql.txt) chỉ nhắm ĐÚNG 9 mã A4 (danh sách tường minh, không LIKE) và ma trận "ngoài dự kiến" trùng BIZ', () => {
+    const sql = docFile('B3_ACTIVITY_PERMISSIONS_REMOVE.sql.txt');
+    const m = sql.match(/set_config\('b3\.codes',\s*'([^']+)'/);
+    expect(m).not.toBeNull();
+    expect(new Set(m![1].split(','))).toEqual(new Set(ACTIVITY_PERMISSIONS));
+    // Mọi câu lệnh chọn/xoá phải theo danh sách b3.codes; LIKE 'activity.%' chỉ được dùng ở câu THÔNG BÁO mã giữ nguyên (code <> ALL(...)).
+    const likeLines = sql.split(/\r?\n/).filter((l) => /LIKE 'activity\.%'/.test(l) && !l.trimStart().startsWith('--'));
+    expect(likeLines).toHaveLength(1);
+    expect(likeLines[0]).toMatch(/<> ALL \(string_to_array\(current_setting\('b3\.codes'\)/);
+    const { rows, tuples } = scriptRows('B3_ACTIVITY_PERMISSIONS_REMOVE.sql.txt');
+    expect(rows).toEqual(bizRowsByDbRole());
+    expect(tuples).toBe(16);
   });
 });

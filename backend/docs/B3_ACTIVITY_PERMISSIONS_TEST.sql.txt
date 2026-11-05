@@ -2,8 +2,9 @@
 -- Dich: D:\SISCOM-CRM\backend\docs\B3_ACTIVITY_PERMISSIONS_TEST.sql.txt (file moi, 05/11/2026). Mau: B1.3_M1_2_CONSTRAINT_TESTS.sql.txt.
 -- CHI CHAY TREN BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) bang chu so huu (siscom_migrator sau tach role), TRUOC bootstrap:
 --   tien dieu kien RBAC rong + chua co auth_bootstrap_done (nhu M1.2). Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu).
--- Kich ban: seed admin (REQUEST) + crm_admin (APPROVE) co credential, 4 vai tro BIZ, dong bootstrap -> \ir ADD -> kiem 9 ma / 16 dong / scope
---   / audit -> \ir ADD lan 2 (idempotent: khong them yeu cau) -> \ir REMOVE -> kiem sach. In "PASS|n" / "FAIL|n".
+-- Kich ban: seed admin (REQUEST) + crm_admin (APPROVE) co credential, 4 vai tro BIZ + 1 vai tro ngoai ma tran, dong bootstrap -> \ir ADD -> kiem 9 ma
+--   / 16 dong / scope / audit -> \ir ADD lan 2 (idempotent) -> SoD -> cap 2 quyen KHONG thuoc A4 -> REMOVE phai TU CHOI khi ma A4 bi cap ngoai
+--   ma tran (trong SAVEPOINT) -> REMOVE binh thuong: chi go 9 ma A4, moi quyen khac giong het truoc. In "PASS|n" / "FAIL|n".
 \set ON_ERROR_STOP on
 \pset pager off
 SET client_encoding TO 'UTF8';
@@ -31,13 +32,15 @@ EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQL
 END $$;
 
 -- Seed toi thieu: quyen he thong, 5 vai tro that (ma nhu bootstrap.ts ROLE_CODE), 2 nguoi co credential, dong bootstrap
-INSERT INTO permission (id, code) VALUES ('b3400000-0000-4000-8000-000000000001', 'access.approve'), ('b3400000-0000-4000-8000-000000000002', 'access.request');
+INSERT INTO permission (id, code) VALUES ('b3400000-0000-4000-8000-000000000001', 'access.approve'), ('b3400000-0000-4000-8000-000000000002', 'access.request'),
+ ('b3400000-0000-4000-8000-000000000003', 'customer.read'), ('b3400000-0000-4000-8000-000000000004', 'activity.xuat_ngoai_a4');
 INSERT INTO role (id, code, name, is_system, is_confirmed) VALUES
  ('b3401000-0000-4000-8000-000000000001', 'admin',      'B34 sysadmin',   true, true),
  ('b3401000-0000-4000-8000-000000000002', 'crm_admin',  'B34 crm_admin',  true, true),
  ('b3401000-0000-4000-8000-000000000003', 'sales',      'B34 sales',      true, true),
  ('b3401000-0000-4000-8000-000000000004', 'technician', 'B34 technician', true, true),
- ('b3401000-0000-4000-8000-000000000005', 'accountant', 'B34 accountant', true, true);
+ ('b3401000-0000-4000-8000-000000000005', 'accountant', 'B34 accountant', true, true),
+ ('b3401000-0000-4000-8000-000000000006', 'director',   'B34 vai tro ngoai ma tran A4', false, true);
 INSERT INTO role_permission (role_id, permission_id, scope) VALUES
  ('b3401000-0000-4000-8000-000000000001', 'b3400000-0000-4000-8000-000000000002', 'ALL'),
  ('b3401000-0000-4000-8000-000000000002', 'b3400000-0000-4000-8000-000000000001', 'ALL');
@@ -59,7 +62,7 @@ CREATE TEMP TABLE b3_base ON COMMIT DROP AS SELECT (SELECT count(*) FROM privile
 \set b3_sysadmin b3402000-0000-4000-8000-000000000001
 \set b3_approver b3402000-0000-4000-8000-000000000002
 \ir B3_ACTIVITY_PERMISSIONS.sql.txt
-SELECT pg_temp.expect_true('T02 9 ma activity.* co trong permission', $q$ (SELECT count(*) = 9 FROM permission WHERE code LIKE 'activity.%') $q$);
+SELECT pg_temp.expect_true('T02 du 9 ma A4 trong permission (+1 ma activity.* khong thuoc A4 cua seed)', $q$ (SELECT count(*) = 9 FROM permission WHERE code IN ('activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request')) AND (SELECT count(*) = 10 FROM permission WHERE code LIKE 'activity.%') $q$);
 SELECT pg_temp.expect_true('T03 16 dong role_permission activity.*', $q$ (SELECT count(*) = 16 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code LIKE 'activity.%') $q$);
 SELECT pg_temp.expect_true('T04 crm_admin 6 / sales 5 / technician 4 / accountant 1 / admin 0', $q$ (SELECT array_agg(n ORDER BY c) = ARRAY[1, 0, 6, 5, 4]::bigint[] FROM (SELECT r.code AS c, count(p.id) AS n FROM role r LEFT JOIN role_permission rp ON rp.role_id = r.id LEFT JOIN permission p ON p.id = rp.permission_id AND p.code LIKE 'activity.%' WHERE r.code IN ('admin','crm_admin','sales','technician','accountant') GROUP BY r.code) s) $q$);
 SELECT pg_temp.expect_true('T05 scope dung ma tran §5 (crm_admin ALL; sales OWN; technician DEPARTMENT; accountant ALL)', $q$ NOT EXISTS (SELECT 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id JOIN role r ON r.id = rp.role_id WHERE p.code LIKE 'activity.%' AND rp.scope::text <> CASE r.code WHEN 'crm_admin' THEN 'ALL' WHEN 'sales' THEN 'OWN' WHEN 'technician' THEN 'DEPARTMENT' WHEN 'accountant' THEN 'ALL' END) $q$);
@@ -82,10 +85,39 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE;
 END $$;
 SELECT pg_temp.expect_true('T10 SoD: cap activity.read cho admin (sysadmin) qua API bi tu choi (23514/42501), khong de lai dong', $q$ (pg_temp.sod_try() IN ('23514', '42501')) AND NOT EXISTS (SELECT 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE rp.role_id = 'b3401000-0000-4000-8000-000000000001' AND p.code LIKE 'activity.%') $q$);
--- 4. REMOVE
+-- 3b. Quyen KHONG thuoc A4 (ra soat doc lap 05/11): 1 ma activity.* khac + 1 ma customer.* cap qua dung luong 2 nguoi => REMOVE phai GIU NGUYEN
+CREATE FUNCTION pg_temp.cap(p_role uuid, p_code text, p_scope text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_req uuid;
+BEGIN
+  v_req := fn_auth_api_request_create('b3402000-0000-4000-8000-000000000001', 'ROLE_PERMISSION_CHANGE', NULL, p_role,
+             jsonb_build_object('op', 'ADD', 'permissionId', (SELECT id FROM permission WHERE code = p_code), 'scope', p_scope, 't', p_code), 60);
+  PERFORM fn_auth_api_request_decide('b3402000-0000-4000-8000-000000000002', v_req, true);
+  PERFORM fn_auth_api_role_permission_change('b3402000-0000-4000-8000-000000000001', v_req);
+END $$;
+SELECT pg_temp.cap('b3401000-0000-4000-8000-000000000003', 'customer.read', 'OWN');
+SELECT pg_temp.cap('b3401000-0000-4000-8000-000000000004', 'activity.xuat_ngoai_a4', 'DEPARTMENT');
+CREATE TEMP TABLE b3_keep ON COMMIT DROP AS
+  SELECT rp.role_id, rp.permission_id, rp.scope FROM role_permission rp JOIN permission p ON p.id = rp.permission_id
+  WHERE p.code NOT IN ('activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own',
+                       'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request');
+SELECT pg_temp.expect_true('T13 truoc REMOVE: 4 dong ngoai A4 (2 access.* he thong, sales:customer.read, technician:activity.xuat_ngoai_a4)', $q$ (SELECT count(*) = 4 FROM b3_keep) $q$);
+
+-- 3c. REMOVE phai TU CHOI (khong go gi) khi mot trong 9 ma A4 bi cap NGOAI ma tran (director:activity.read:OWN). Chay trong SAVEPOINT,
+--     ON_ERROR_STOP tat de bat loi cua script; ket qua lay tu bien psql b3_rm_unexpected (script \gset truoc khi tu choi).
+SAVEPOINT b3_rf;
+SELECT pg_temp.cap('b3401000-0000-4000-8000-000000000006', 'activity.read', 'OWN');
+\set ON_ERROR_STOP off
 \ir B3_ACTIVITY_PERMISSIONS_REMOVE.sql.txt
-SELECT pg_temp.expect_true('T11 REMOVE: 0 dong activity.*, 0 ma activity.*', $q$ NOT EXISTS (SELECT 1 FROM permission WHERE code LIKE 'activity.%') AND NOT EXISTS (SELECT 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code LIKE 'activity.%') $q$);
-SELECT pg_temp.expect_true('T12 REMOVE: 16 yeu cau REMOVE EXECUTED; vai tro/quyen he thong con nguyen', $q$ (SELECT count(*) = 16 FROM privileged_change_request WHERE type = 'ROLE_PERMISSION_CHANGE' AND payload->>'op' = 'REMOVE' AND status = 'EXECUTED') AND (SELECT count(*) = 2 FROM role_permission) AND (SELECT count(*) = 5 FROM role) $q$);
+\set ON_ERROR_STOP on
+ROLLBACK TO SAVEPOINT b3_rf;
+SELECT pg_temp.expect_true('T14 REMOVE TU CHOI khi ma A4 bi cap ngoai ma tran (director:activity.read:OWN) - phat hien truoc khi go', quote_literal(:'b3_rm_unexpected') || '::boolean AND ' || quote_literal(:'b3_rm_unexpected_list') || ' = ''director:activity.read:OWN''');
+SELECT pg_temp.expect_true('T15 sau tu choi: 16 dong A4 + 4 dong khac con nguyen', $q$ (SELECT count(*) = 16 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code IN ('activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request')) AND (SELECT count(*) = 4 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code NOT IN ('activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request')) $q$);
+
+-- 4. REMOVE (binh thuong)
+\ir B3_ACTIVITY_PERMISSIONS_REMOVE.sql.txt
+SELECT pg_temp.expect_true('T11 REMOVE: 0 dong / 0 ma cua 9 ma A4; ma activity.xuat_ngoai_a4 (khong thuoc A4) VAN CON', $q$ NOT EXISTS (SELECT 1 FROM permission WHERE code IN ('activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request')) AND EXISTS (SELECT 1 FROM permission WHERE code = 'activity.xuat_ngoai_a4') $q$);
+SELECT pg_temp.expect_true('T12 REMOVE: dung 16 yeu cau REMOVE EXECUTED; 6 vai tro con nguyen', $q$ (SELECT count(*) = 16 FROM privileged_change_request WHERE type = 'ROLE_PERMISSION_CHANGE' AND payload->>'op' = 'REMOVE' AND status = 'EXECUTED') AND (SELECT count(*) = 6 FROM role) $q$);
+SELECT pg_temp.expect_true('T16 BAO TOAN: moi dong role_permission ngoai 9 ma A4 GIONG HET truoc REMOVE (role, quyen, scope)', $q$ NOT EXISTS ((SELECT role_id, permission_id, scope FROM b3_keep) EXCEPT (SELECT role_id, permission_id, scope FROM role_permission)) AND NOT EXISTS ((SELECT role_id, permission_id, scope FROM role_permission) EXCEPT (SELECT role_id, permission_id, scope FROM b3_keep)) $q$);
 
 SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
 SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;

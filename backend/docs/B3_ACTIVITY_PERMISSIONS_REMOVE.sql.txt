@@ -1,11 +1,17 @@
--- SISCOM CRM - B3 A4: ROLLBACK cua B3_ACTIVITY_PERMISSIONS.sql.txt - GO 16 dong role_permission activity.* qua yeu cau 2 nguoi (op=REMOVE) ROI xoa 9 ma.
+-- SISCOM CRM - B3 A4: ROLLBACK cua B3_ACTIVITY_PERMISSIONS.sql.txt - GO DUNG 16 dong role_permission cua 9 MA A4 qua yeu cau 2 nguoi (op=REMOVE) ROI xoa 9 ma.
 -- VIET SAN, KHONG TU CHAY. Chay bang siscom_migrator: psql -X -v ON_ERROR_STOP=1 -v b3_sysadmin=<uuid> -v b3_approver=<uuid> -d <db> -f B3_ACTIVITY_PERMISSIONS_REMOVE.sql.txt
+-- PHAM VI (ra soat doc lap 05/11/2026): CHI 9 ma liet ke tuong minh duoi day - KHONG dung LIKE 'activity.%'. Ma activity.* khac (A5+ hoac them tay)
+--   va moi quyen khong thuoc A4 duoc GIU NGUYEN; hau kiem so sanh dau van tay (md5) toan bo role_permission ngoai 9 ma truoc/sau.
+-- TU CHOI (khong go gi) khi mot trong 9 ma dang duoc cap NGOAI ma tran A4 (vai tro khac, hoac scope khac) - co the la thay doi co duyet sau A4;
+--   xu ly tay qua yeu cau 2 nguoi rieng roi chay lai. Liet ke dong ngoai ma tran trong thong diep.
 -- Thu tu bat buoc (thiet ke §5): tung dong role_permission qua yeu cau REMOVE (guard trg_role_permission_guard chay ca khi xoa) -> DELETE permission 9 ma.
 -- LUU Y: FK role_permission.permission_id la ON DELETE CASCADE (B1.2), KHONG phai Restrict => truoc DELETE permission PHAI tien kiem "khong con dong
---   role_permission activity.*" (buoc 2); neu con, DELETE se cascade va bi trg_role_permission_guard RAISE 42501 (bootstrap da dong) - van an toan
---   nhung thong diep kho hieu, nen tu choi som. Khong dung toi vai tro/quyen khac. Audit do cac ham API ghi.
--- Dien tap CI: B3_ACTIVITY_PERMISSIONS_TEST.sql.txt (\ir voi b3_nested=1).
+--   role_permission cua 9 ma" (buoc 2). Audit do cac ham API ghi.
+-- Dien tap CI: B3_ACTIVITY_PERMISSIONS_TEST.sql.txt (\ir voi b3_nested=1; ca tu choi chay voi ON_ERROR_STOP tat trong SAVEPOINT).
+\if :{?b3_nested}
+\else
 \set ON_ERROR_STOP on
+\endif
 \pset pager off
 \if :{?b3_sysadmin}
 \else
@@ -21,7 +27,9 @@ SELECT current_database() AS db_dich, current_user AS chay_bang;
 \else
 BEGIN;
 \endif
-SELECT set_config('b3.sysadmin', :'b3_sysadmin', true), set_config('b3.approver', :'b3_approver', true);
+-- 9 ma cua A4 (khop ACTIVITY_PERMISSIONS trong actor.ts - unit test activity-permissions.spec.ts kiem)
+SELECT set_config('b3.sysadmin', :'b3_sysadmin', true), set_config('b3.approver', :'b3_approver', true),
+       set_config('b3.codes', 'activity.read,activity.create,activity.create_tech,activity.update,activity.update_own,activity.assign,activity.delete,activity.assign_external,activity.transfer_request', true);
 DO $$
 DECLARE v_sys uuid; v_app uuid;
 BEGIN
@@ -43,13 +51,48 @@ BEGIN
   IF v_sys = v_app THEN RAISE EXCEPTION 'TU CHOI: nguoi yeu cau va nguoi duyet phai KHAC nhau (2 nguoi).'; END IF;
 END $$;
 
--- 1. Go TUNG dong role_permission activity.* (moi dong mot yeu cau REMOVE)
+-- 0a. Quyen NGOAI ma tran A4 tren 9 ma => TU CHOI (khong go gi). Ma tran 16 dong = B3_ACTIVITY_PERMISSIONS.sql.txt (unit test giu 2 file khop).
+SELECT (count(*) > 0) AS b3_rm_unexpected, coalesce(string_agg(x, ', ' ORDER BY x), '') AS b3_rm_unexpected_list FROM (
+  SELECT ro.code || ':' || p.code || ':' || rp.scope::text AS x
+  FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id JOIN public.role ro ON ro.id = rp.role_id
+  WHERE p.code = ANY (string_to_array(current_setting('b3.codes'), ','))
+    AND (ro.code, p.code, rp.scope::text) NOT IN (SELECT m.role_code, m.perm_code, m.scope FROM (VALUES
+      ('crm_admin',  'activity.read',             'ALL'),
+      ('crm_admin',  'activity.create',           'ALL'),
+      ('crm_admin',  'activity.update',           'ALL'),
+      ('crm_admin',  'activity.assign',           'ALL'),
+      ('crm_admin',  'activity.delete',           'ALL'),
+      ('crm_admin',  'activity.assign_external',  'ALL'),
+      ('sales',      'activity.read',             'OWN'),
+      ('sales',      'activity.create',           'OWN'),
+      ('sales',      'activity.update',           'OWN'),
+      ('sales',      'activity.assign',           'OWN'),
+      ('sales',      'activity.assign_external',  'OWN'),
+      ('technician', 'activity.read',             'DEPARTMENT'),
+      ('technician', 'activity.create_tech',      'DEPARTMENT'),
+      ('technician', 'activity.update_own',       'DEPARTMENT'),
+      ('technician', 'activity.transfer_request', 'DEPARTMENT'),
+      ('accountant', 'activity.read',             'ALL')
+    ) AS m(role_code, perm_code, scope))
+) u \gset
+\if :b3_rm_unexpected
+\echo 'TU CHOI REMOVE: 9 ma A4 dang duoc cap NGOAI ma tran (co the la thay doi co duyet sau A4) - xu ly tay roi chay lai:' :b3_rm_unexpected_list
+SELECT b3_remove_tu_choi_quyen_ngoai_ma_tran_a4();
+\endif
+-- 0b. Thong bao (khong chan): ma activity.* KHONG thuoc A4 se duoc giu nguyen
+SELECT 'GIU NGUYEN (khong thuoc 9 ma A4): ' || string_agg(code, ', ' ORDER BY code) AS thong_bao
+FROM public.permission WHERE code LIKE 'activity.%' AND code <> ALL (string_to_array(current_setting('b3.codes'), ',')) HAVING count(*) > 0;
+-- 0c. Dau van tay moi role_permission NGOAI 9 ma (bao toan quyen khac)
+SELECT set_config('b3.keep_fp', (SELECT coalesce(md5(string_agg(rp.role_id::text || '/' || rp.permission_id::text || '/' || rp.scope::text, ',' ORDER BY rp.role_id, rp.permission_id)), '-')
+  FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id WHERE p.code <> ALL (string_to_array(current_setting('b3.codes'), ','))), true);
+
+-- 1. Go TUNG dong role_permission cua 9 ma (moi dong mot yeu cau REMOVE)
 DO $$
 DECLARE v_sys uuid := current_setting('b3.sysadmin')::uuid; v_app uuid := current_setting('b3.approver')::uuid; r record; v_req uuid; n int := 0;
 BEGIN
   FOR r IN SELECT rp.role_id, rp.permission_id, ro.code AS role_code, p.code AS perm_code
            FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id JOIN public.role ro ON ro.id = rp.role_id
-           WHERE p.code LIKE 'activity.%' ORDER BY ro.code, p.code
+           WHERE p.code = ANY (string_to_array(current_setting('b3.codes'), ',')) ORDER BY ro.code, p.code
   LOOP
     v_req := public.fn_auth_api_request_create(v_sys, 'ROLE_PERMISSION_CHANGE', NULL, r.role_id,
                jsonb_build_object('op', 'REMOVE', 'permissionId', r.permission_id, 'b3', r.role_code || ':' || r.perm_code), 60);
@@ -57,22 +100,27 @@ BEGIN
     PERFORM public.fn_auth_api_role_permission_change(v_sys, v_req);
     n := n + 1;
   END LOOP;
-  RAISE NOTICE 'B3 A4 REMOVE: da go % dong role_permission activity.*', n;
+  RAISE NOTICE 'B3 A4 REMOVE: da go % dong role_permission cua 9 ma A4', n;
 END $$;
 
 -- 2. Tien kiem roi xoa 9 ma (FK la CASCADE => phai chac buoc 1 da sach, khong dua vao FK)
 DO $$
 DECLARE n int;
 BEGIN
-  SELECT count(*) INTO n FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id WHERE p.code LIKE 'activity.%';
-  IF n > 0 THEN RAISE EXCEPTION 'TU CHOI: con % dong role_permission activity.* sau buoc REMOVE - khong DELETE permission (FK CASCADE).', n; END IF;
+  SELECT count(*) INTO n FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id
+   WHERE p.code = ANY (string_to_array(current_setting('b3.codes'), ','));
+  IF n > 0 THEN RAISE EXCEPTION 'TU CHOI: con % dong role_permission cua 9 ma A4 sau buoc REMOVE - khong DELETE permission (FK CASCADE).', n; END IF;
 END $$;
-DELETE FROM public.permission WHERE code IN ('activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own',
-                                             'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request');
+DELETE FROM public.permission WHERE code = ANY (string_to_array(current_setting('b3.codes'), ','));
+-- 3. Hau kiem: 9 ma da het; quyen khac KHONG doi (dau van tay)
 DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM public.permission WHERE code LIKE 'activity.%')
-     OR EXISTS (SELECT 1 FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id WHERE p.code LIKE 'activity.%') THEN
-    RAISE EXCEPTION 'REMOVE chua sach.';
+  IF EXISTS (SELECT 1 FROM public.permission WHERE code = ANY (string_to_array(current_setting('b3.codes'), ','))) THEN
+    RAISE EXCEPTION 'REMOVE chua sach: con ma A4 trong permission.';
+  END IF;
+  IF (SELECT coalesce(md5(string_agg(rp.role_id::text || '/' || rp.permission_id::text || '/' || rp.scope::text, ',' ORDER BY rp.role_id, rp.permission_id)), '-')
+        FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id
+       WHERE p.code <> ALL (string_to_array(current_setting('b3.codes'), ','))) <> current_setting('b3.keep_fp') THEN
+    RAISE EXCEPTION 'REMOVE lam thay doi quyen NGOAI 9 ma A4 - huy toan bo.';
   END IF;
 END $$;
 \if :{?b3_nested}
