@@ -1,7 +1,9 @@
 -- SISCOM CRM - B3 A4: ROLLBACK cua B3_ACTIVITY_PERMISSIONS.sql.txt - GO 16 dong role_permission activity.* qua yeu cau 2 nguoi (op=REMOVE) ROI xoa 9 ma.
 -- VIET SAN, KHONG TU CHAY. Chay bang siscom_migrator: psql -X -v ON_ERROR_STOP=1 -v b3_sysadmin=<uuid> -v b3_approver=<uuid> -d <db> -f B3_ACTIVITY_PERMISSIONS_REMOVE.sql.txt
--- Thu tu bat buoc (thiet ke §5): tung dong role_permission qua yeu cau REMOVE (guard fn_pcr_exec_guard chay ca khi xoa) -> DELETE permission 9 ma
---   (chi khi khong con role_permission nao tro toi; FK Restrict se chan neu con). Khong dung toi vai tro/quyen khac. Audit do cac ham API ghi.
+-- Thu tu bat buoc (thiet ke §5): tung dong role_permission qua yeu cau REMOVE (guard trg_role_permission_guard chay ca khi xoa) -> DELETE permission 9 ma.
+-- LUU Y: FK role_permission.permission_id la ON DELETE CASCADE (B1.2), KHONG phai Restrict => truoc DELETE permission PHAI tien kiem "khong con dong
+--   role_permission activity.*" (buoc 2); neu con, DELETE se cascade va bi trg_role_permission_guard RAISE 42501 (bootstrap da dong) - van an toan
+--   nhung thong diep kho hieu, nen tu choi som. Khong dung toi vai tro/quyen khac. Audit do cac ham API ghi.
 -- Dien tap CI: B3_ACTIVITY_PERMISSIONS_TEST.sql.txt (\ir voi b3_nested=1).
 \set ON_ERROR_STOP on
 \pset pager off
@@ -58,7 +60,13 @@ BEGIN
   RAISE NOTICE 'B3 A4 REMOVE: da go % dong role_permission activity.*', n;
 END $$;
 
--- 2. Xoa 9 ma (FK Restrict tu role_permission se chan neu buoc 1 chua sach)
+-- 2. Tien kiem roi xoa 9 ma (FK la CASCADE => phai chac buoc 1 da sach, khong dua vao FK)
+DO $$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id WHERE p.code LIKE 'activity.%';
+  IF n > 0 THEN RAISE EXCEPTION 'TU CHOI: con % dong role_permission activity.* sau buoc REMOVE - khong DELETE permission (FK CASCADE).', n; END IF;
+END $$;
 DELETE FROM public.permission WHERE code IN ('activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own',
                                              'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request');
 DO $$ BEGIN

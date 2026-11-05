@@ -4,7 +4,7 @@
 --   psql -X -v ON_ERROR_STOP=1 -v b3_sysadmin=<uuid nhan vien nhom REQUEST (vai tro admin)> -v b3_approver=<uuid nhan vien co access.approve (crm_admin)> -d <db> -f B3_ACTIVITY_PERMISSIONS.sql.txt
 -- Hai nguoi phai KHAC nhau, employee ACTIVE + credential ACTIVE (fn_auth_api_actor). Bootstrap phai DA DONG (DB moi tinh: khong dung file nay - ma tran BIZ trong bootstrap.ts).
 -- Moi dong role_permission = MOT yeu cau rieng: fn_auth_api_request_create (sysadmin, ROLE_PERMISSION_CHANGE, op=ADD) -> fn_auth_api_request_decide (approver)
---   -> fn_auth_api_role_permission_change (sysadmin). IDEMPOTENT: dong da ton tai thi BO QUA (khong goi lai ham); ma permission da co thi giu.
+--   -> fn_auth_api_role_permission_change (sysadmin). IDEMPOTENT: dong da ton tai DUNG scope thi BO QUA (khong goi lai ham); lech scope => TU CHOI (khong tu SET_SCOPE); ma permission da co thi giu.
 -- Audit: moi yeu cau/duyet/thuc thi ghi audit_log boi chinh cac ham API (PRIV_REQUEST_*, ROLE_PERMISSION_CHANGE). admin (sysadmin) KHONG duoc cap BIZ (SoD).
 -- Rollback: B3_ACTIVITY_PERMISSIONS_REMOVE.sql.txt (op=REMOVE tung dong, roi xoa 9 ma). CHUA ap len DB demo/that nao (A9, anh duyet rieng).
 -- Dien tap CI: B3_ACTIVITY_PERMISSIONS_TEST.sql.txt (\ir file nay voi b3_nested=1: khong BEGIN/COMMIT rieng, nam trong transaction ngoai va ROLLBACK).
@@ -85,6 +85,10 @@ BEGIN
     SELECT id INTO v_role FROM public.role WHERE code = r.role_code;
     SELECT id INTO v_perm FROM public.permission WHERE code = r.perm_code;
     IF EXISTS (SELECT 1 FROM public.role_permission WHERE role_id = v_role AND permission_id = v_perm) THEN
+      -- dong da co: bo qua CHI KHI scope dung ma tran; lech scope => tu choi (khong tu SET_SCOPE, xu ly tay co duyet)
+      IF NOT EXISTS (SELECT 1 FROM public.role_permission WHERE role_id = v_role AND permission_id = v_perm AND scope::text = r.scope) THEN
+        RAISE EXCEPTION 'TU CHOI: %:% da co nhung scope khac ma tran (%), khong tu doi.', r.role_code, r.perm_code, r.scope;
+      END IF;
       n_skipped := n_skipped + 1; CONTINUE;
     END IF;
     v_req := public.fn_auth_api_request_create(v_sys, 'ROLE_PERMISSION_CHANGE', NULL, v_role,
