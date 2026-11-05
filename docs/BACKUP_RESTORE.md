@@ -21,5 +21,12 @@ Không tự động. Dừng backend → sao lưu lại trạng thái hiện tạ
 ## Lịch
 Trước mỗi `db:migrate` (bắt buộc cho B1.2), cuối ngày có dữ liệu quan trọng. File sao lưu có thể chứa dữ liệu thật: giữ ngoài Git, không đồng bộ lên đám mây công cộng.
 
+## Cụm demo (PostgreSQL riêng, mặc định cổng 55433) — 05/11/2026
+`backup-db.bat` / `restore-test.bat` **đọc `backend/.env` và cố định cổng 5432** ⇒ **không dùng** cho cụm demo (`demo-pg.bat`). Dùng hai script riêng, mặc định cổng **55433**, **từ chối 5432** không có ngoại lệ, mật khẩu `postgres` của cụm demo lấy từ `D:\SISCOM-CRM-demo-pg\private\pg-<port>.secrets` (không hỏi, không in), kiểm `cluster_name = siscom_demo` trước khi làm gì:
+- **Sao lưu:** `scripts\windows\demo-backup.bat [-DatabaseName <siscom_crm_test_…>] [-PgPort 55433] [-BackupDir D:\SISCOM-CRM-demo-pg\backups]` — mặc định DB trong `private\current-<port>.txt`; chỉ đọc; `pg_dump -Fc` vào `.partial`, kiểm `pg_restore -l`, đổi tên `<db>_YYYYMMDD_HHMMSS.dump`, ghi `<file>.sha256`; không ghi đè.
+- **Thử khôi phục (bắt buộc trước mỗi `demo-split.bat -Step migrate`):** `scripts\windows\demo-restore-test.bat [-DumpFile …]` — kiểm SHA-256, tạo DB **mới** `siscom_crm_restore_<ngày-giờ>` trên cụm demo (OWNER `siscom_migrator` nếu đã tách role), `pg_restore --exit-on-error`, so số dòng 6 bảng (`customer`, `contact`, `employee`, `activity`, `audit_log`, `_prisma_migrations`) với DB nguồn, ghi `<dump>.restore-ok.txt`. Không DROP; DB thử **giữ lại** làm bản sao để diễn tập migration/rollback (`demo-split.bat -Step migrate -DatabaseName siscom_crm_restore_…`).
+- **Snapshot cả cụm (khi cụm đang dừng, phục hồi nhanh nhất):** `robocopy D:\SISCOM-CRM-demo-pg\data D:\SISCOM-CRM-demo-pg\snapshot_<stamp>\data /E /COPY:DAT`; phục hồi = dừng cụm, đổi tên thư mục.
+- Thứ tự an toàn trước migration demo: dừng cụm → snapshot → khởi động → `demo-backup` → `demo-restore-test` → diễn tập migrate + rollback trên DB `siscom_crm_restore_…` → mới `demo-split -Step migrate` trên DB demo thật.
+
 ## Dữ liệu frontend (localStorage)
 Backend chưa chứa dữ liệu khách hàng. Dữ liệu trong trình duyệt sao lưu bằng nút "Xuất sao lưu" của frontend; lưu file JSON vào `D:\SISCOM-CRM\backups\`.
