@@ -255,7 +255,7 @@ jobs:
           out="$(bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app 2>&1)" && { echo "$out" | tail -5; echo 'KHONG DAT: VERIFY phai FAIL (B1 + E5) sau khi rollback ve V3'; exit 1; } || true
           echo "$out" | grep -E '^B1 .*KHONG DAT' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay B1 bi bat sau V3'; exit 1; }
           echo "$out" | grep -E '^E5 .*KHONG DAT' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay E5 bi bat sau V3'; exit 1; }
-          echo "$out" | grep -E '^FAIL|2$' >/dev/null || { echo "$out" | grep -E 'KHONG DAT|FAIL'; echo 'KHONG DAT: sau V3 chi duoc FAIL dung 2 muc (B1 + E5)'; exit 1; }
+          echo "$out" | grep -E '^FAIL\|2$' >/dev/null || { echo "$out" | grep -E 'KHONG DAT|FAIL'; echo 'KHONG DAT: sau V3 chi duoc FAIL dung 2 muc (B1 + E5)'; exit 1; }
           echo 'DAT (RED mong doi): rollback V4 -> V3 => VERIFY bat B1 + E5 (app mat ghi activity), khong muc nao khac'
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
           bash scripts/ci/pg-temp-db.sh grants v4
