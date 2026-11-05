@@ -58,7 +58,7 @@ function Dialog({ kind, a, ui, onClose }) {
         {kind === 'complete' ? <Input label="Kết quả" multiline rows={3} maxLength={2000} value={f.outcome} onChange={set('outcome')} error={fe('outcome')} placeholder="Đã làm gì, kết quả ra sao (không bắt buộc)" /> : null}
         {kind === 'reassign' ? (
           <>
-            {canExternal ? <Switch label="Giao cho người phòng khác (chỉ xem thẻ việc, không xem hồ sơ khách)" checked={f.external} onChange={set('external')} /> : null}
+            {canExternal ? <div><Switch label="Giao cho người phòng khác" checked={f.external} onChange={set('external')} /><p style={{ margin: '4px 0 0', font: 'var(--type-caption)', color: 'var(--text-3)' }}>Người nhận chỉ xem thẻ việc, không xem hồ sơ khách.</p></div> : null}
             <Select label="Người phụ trách mới" value={f.performedById} onChange={set('performedById')} error={fe('performedById')} disabled={cands.status !== 'ready'}
               hint={cands.status === 'loading' ? 'Đang tải…' : cands.status === 'error' ? 'Chưa tải được danh sách' : f.external ? 'Người không đọc được khách này; có quyền theo việc đến khi xong' : 'Người đọc được khách này'}
               options={[{ value: '', label: '— Chọn người —' }].concat(others(cands.items).map((e) => ({ value: e.id, label: e.fullName + ' · ' + e.code + (e.departmentCode ? ' · ' + e.departmentCode : '') })))} />

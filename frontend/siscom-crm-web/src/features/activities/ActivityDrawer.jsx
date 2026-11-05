@@ -84,7 +84,7 @@ export function ActivityDrawer({ open, ui, customerId, onClose, onSaved }) {
               disabled={cs.status !== 'ready'} hint={cs.status === 'loading' ? 'Đang tải…' : cs.status === 'error' ? 'Chưa tải được người liên hệ' : ''}
               options={[{ value: '', label: '— Không chọn —' }].concat(cs.items.map((c) => ({ value: c.id, label: c.fullName + (c.isPrimary ? ' (chính)' : '') })))} />
           ) : null}
-          {canExternal && f.type === 'TASK' ? <Switch label="Giao cho người phòng khác (chỉ xem thẻ việc)" checked={f.external} onChange={set('external')} /> : null}
+          {canExternal && f.type === 'TASK' ? <div><Switch label="Giao cho người phòng khác" checked={f.external} onChange={set('external')} /><p style={{ margin: '4px 0 0', font: 'var(--type-caption)', color: 'var(--text-3)' }}>Người nhận chỉ xem thẻ việc, không xem hồ sơ khách.</p></div> : null}
           {canAssign && f.external && f.type === 'TASK' ? (
             <Select label="Người phụ trách" value={f.performedById} onChange={set('performedById')} error={err('performedById')} disabled={ext.status !== 'ready'}
               hint={ext.status === 'loading' ? 'Đang tải…' : ext.status === 'error' ? 'Chưa tải được danh sách' : 'Người phòng khác, không đọc được khách; có quyền theo việc đến khi xong'}
