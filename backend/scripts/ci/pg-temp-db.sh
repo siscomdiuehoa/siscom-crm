@@ -5,12 +5,12 @@
 #
 # Dung: pg-temp-db.sh create | split | grants v1|v2|v3 | unsplit | drop
 #   (B1.4 P3c) create sinh TEST_AUTH_DATABASE_URL + TEST_AUTH_PW (role siscom_auth do AUTH_ROLE.sql tao o split - dien tap nhanh CREATE ROLE);
-#   split = ROLE_SPLIT -> AUTH_ROLE -> APP_GRANTS_V3 x2; auth = AUTH_ROLE + V3 (tach lai sau rollback); unauth = AUTH_ROLE_ROLLBACK
+#   split = ROLE_SPLIT -> AUTH_ROLE -> APP_GRANTS_V4 x2; auth = AUTH_ROLE + V4 (tach lai sau rollback); unauth = AUTH_ROLE_ROLLBACK
 #   voi DB canary3 cung cluster cap CONNECT cho siscom_auth (phai GIU CONNECT/SET/role), roi khong canary => role bi DROP.
 #   create:  tao role ung dung siscom_app (NOSUPERUSER) va role chu so huu siscom_migrator (NOSUPERUSER, B1.4 P3) voi mat khau ngau nhien,
 #            tao DB siscom_crm_test_<YYYYMMDD_HHMMSS> OWNER siscom_app (MO HINH CU B1.1 - de tai hien S1 truoc khi tach), ghi TEST_DB_NAME,
 #            TEST_DATABASE_URL (app) va TEST_MIGRATE_DATABASE_URL (migrator), ca hai da mask, vao $GITHUB_ENV.
-#   split:   TACH ROLE S1 tren DB tam: docs/B1.3_S1_ROLE_SPLIT.sql.txt (superuser cua container), AUTH_ROLE, roi APP_GRANTS_V3 (migrator, P3c).
+#   split:   TACH ROLE S1 tren DB tam: docs/B1.3_S1_ROLE_SPLIT.sql.txt (superuser cua container), AUTH_ROLE, roi APP_GRANTS_V4 (B3 A3) (migrator, P3c).
 #   grants v1|v2: dien tap rollback quyen P3b (V1 = B1.3_S1_APP_GRANTS.sql.txt, chi de rollback; V2 = toi thieu) + tu kiem bieu thuc
 #            "quyen rong kieu V1" cua src/prisma/db-role-check.ts bang chinh role app (v1 => true, v2 => false; sai => thoat 1).
 #   unsplit: ROLLBACK S1: docs/B1.3_S1_ROLE_SPLIT_ROLLBACK.sql.txt (superuser) => siscom_app lai la chu so huu (de dien tap rollback M1.x).
@@ -104,19 +104,19 @@ case "$cmd" in
     # B1.4 P3c: role xac thuc (CREATE ROLE neu chua co voi TEST_AUTH_PW, CONNECT + SET ON PARAMETER).
     echo "--- P3c AUTH_ROLE (superuser container) tren $name ---"
     psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -v "auth_pw=${TEST_AUTH_PW:-}" -d "$name" -f "$docs/B1.3_S1_AUTH_ROLE.sql.txt"
-    # Quyen TOI THIEU cho CA HAI role (V3). V1/V2 chi la duong rollback (CI dien tap o "grants v1|v2").
-    echo "--- S1 APP_GRANTS_V3 (siscom_migrator) tren $name ---"
-    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V3.sql.txt"
+    # Quyen TOI THIEU cho CA HAI role (V4 - B3 A3). V1/V2/V3 chi la duong rollback (CI dien tap o "grants v1|v2|v3").
+    echo "--- S1 APP_GRANTS_V4 (siscom_migrator) tren $name ---"
+    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V4.sql.txt"
     # I3: file khai bao => chay LAN 2 phai cho cung ket qua (VERIFY sau do van PASS).
-    echo "--- S1 APP_GRANTS_V3 lan 2 (idempotent) ---"
-    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V3.sql.txt"
-    assert_canary "sau APP_GRANTS_V3"
+    echo "--- S1 APP_GRANTS_V4 lan 2 (idempotent) ---"
+    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V4.sql.txt"
+    assert_canary "sau APP_GRANTS_V4"
     ;;
   grants)
-    # B1.4 P3b (QA Minor 11): dien tap rollback quyen app: "grants v1" (B1.3_S1_APP_GRANTS.sql.txt - duong rollback P3b) | "grants v2".
+    # B1.4 P3b (QA Minor 11): dien tap rollback quyen app: "grants v1" (B1.3_S1_APP_GRANTS.sql.txt - duong rollback P3b) | "grants v2" | "grants v3" (duong rollback B3 A3) | "grants v4" (hien hanh).
     name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }
     [ -n "${TEST_MIGRATE_DATABASE_URL:-}" ] || { echo "THIEU TEST_MIGRATE_DATABASE_URL."; exit 2; }
-    case "${2:-}" in v1) f="B1.3_S1_APP_GRANTS.sql.txt" ;; v2) f="B1.3_S1_APP_GRANTS_V2.sql.txt" ;; v3) f="B1.3_S1_APP_GRANTS_V3.sql.txt" ;; *) echo "Dung: $0 grants v1|v2|v3"; exit 2 ;; esac
+    case "${2:-}" in v1) f="B1.3_S1_APP_GRANTS.sql.txt" ;; v2) f="B1.3_S1_APP_GRANTS_V2.sql.txt" ;; v3) f="B1.3_S1_APP_GRANTS_V3.sql.txt" ;; v4) f="B1.3_S1_APP_GRANTS_V4.sql.txt" ;; *) echo "Dung: $0 grants v1|v2|v3|v4"; exit 2 ;; esac
     echo "--- $f (siscom_migrator) tren $name ---"
     psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/$f"
     assert_canary "sau $f"
@@ -128,24 +128,29 @@ case "$cmd" in
                  AND p.proname <> 'fn_auth_api_change_own_password' AND has_function_privilege(current_user, p.oid, 'EXECUTE'))")"
     echo "quyen rong kieu V1 (bang siscom_app) sau $2: $got (mong doi $want)"
     [ "$got" = "$want" ] || { echo "KHONG DAT: bieu thuc db-role-check khong khop trang thai quyen $2."; exit 1; }
-    # P3c: bieu thuc "quyen xac thuc" (has_auth_grants cua db-role-check.ts): app sau v3 => f, sau v1/v2 => t; auth sau v3 => t.
+    # P3c: bieu thuc "quyen xac thuc" (has_auth_grants cua db-role-check.ts): app sau v3/v4 => f, sau v1/v2 => t; auth sau v3/v4 => t.
     authexpr="has_any_column_privilege(current_user, 'public.auth_session', 'SELECT') OR has_any_column_privilege(current_user, 'public.auth_session', 'INSERT') OR has_any_column_privilege(current_user, 'public.auth_session', 'UPDATE') OR has_table_privilege(current_user, 'public.auth_session', 'DELETE') OR has_column_privilege(current_user, 'public.employee_credential', 'password_hash', 'SELECT') OR has_any_column_privilege(current_user, 'public.employee_credential', 'INSERT') OR has_any_column_privilege(current_user, 'public.employee_credential', 'UPDATE') OR has_table_privilege(current_user, 'public.employee_credential', 'DELETE') OR (CASE WHEN to_regclass('public.remember_device') IS NULL THEN false ELSE has_any_column_privilege(current_user, 'public.remember_device', 'SELECT') OR has_any_column_privilege(current_user, 'public.remember_device', 'INSERT') OR has_any_column_privilege(current_user, 'public.remember_device', 'UPDATE') OR has_table_privilege(current_user, 'public.remember_device', 'DELETE') END) OR has_function_privilege(current_user, 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE')"
-    wantapp=t; [ "$2" = v3 ] && wantapp=f
+    wantapp=t; { [ "$2" = v3 ] || [ "$2" = v4 ]; } && wantapp=f
     gotapp="$(psql -X -q -w -v ON_ERROR_STOP=1 -tA -d "$TEST_DATABASE_URL" -c "SELECT $authexpr")"
     echo "quyen xac thuc cua siscom_app sau $2: $gotapp (mong doi $wantapp)"
     [ "$gotapp" = "$wantapp" ] || { echo "KHONG DAT: has_auth_grants (app) khong khop trang thai $2."; exit 1; }
-    if [ "$2" = v3 ]; then
+    if [ "$2" = v3 ] || [ "$2" = v4 ]; then
       gotauth="$(psql -X -q -w -v ON_ERROR_STOP=1 -tA -d "$TEST_AUTH_DATABASE_URL" -c "SELECT $authexpr")"
-      echo "quyen xac thuc cua siscom_auth sau v3: $gotauth (mong doi t)"
-      [ "$gotauth" = t ] || { echo "KHONG DAT: siscom_auth khong co quyen xac thuc sau V3."; exit 1; }
+      echo "quyen xac thuc cua siscom_auth sau $2: $gotauth (mong doi t)"
+      [ "$gotauth" = t ] || { echo "KHONG DAT: siscom_auth khong co quyen xac thuc sau $2."; exit 1; }
+      # B3 A3: v4 cap ghi activity cho app; v3 (rollback) thu lai => VERIFY B1 phai FAIL o v3 (CI kiem rieng), o day chi kiem quyen activity.
+      wantact=f; [ "$2" = v4 ] && wantact=t
+      gotact="$(psql -X -q -w -v ON_ERROR_STOP=1 -tA -d "$TEST_DATABASE_URL" -c "SELECT has_table_privilege(current_user, 'public.activity', 'INSERT') AND has_table_privilege(current_user, 'public.activity', 'UPDATE') AND NOT has_table_privilege(current_user, 'public.activity', 'DELETE')")"
+      echo "quyen ghi activity (khong DELETE) cua siscom_app sau $2: $gotact (mong doi $wantact)"
+      [ "$gotact" = "$wantact" ] || { echo "KHONG DAT: quyen activity cua app khong khop $2."; exit 1; }
     fi
     ;;
   auth)
-    # P3c: tach lai pool auth sau rollback (AUTH_ROLE tao lai role voi TEST_AUTH_PW, V3 cap quyen).
+    # P3c: tach lai pool auth sau rollback (AUTH_ROLE tao lai role voi TEST_AUTH_PW, V4 cap quyen - B3 A3).
     name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }
     psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -v "auth_pw=${TEST_AUTH_PW:-}" -d "$name" -f "$docs/B1.3_S1_AUTH_ROLE.sql.txt"
-    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V3.sql.txt"
-    assert_canary "sau auth (AUTH_ROLE + V3)"
+    psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V4.sql.txt"
+    assert_canary "sau auth (AUTH_ROLE + V4)"
     ;;
   unauth)
     # P3c QA I-1: AUTH_ROLE_ROLLBACK khong duoc dung toi DB khac cung cluster. canary3 = DB khac cap CONNECT rieng cho siscom_auth:

@@ -3,7 +3,7 @@
 -- CHI CHAY TREN BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) bang CHU SO HUU BANG (siscom_migrator sau tach role).
 -- Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu; sequence ma TT-/KH-/NV- van tang - chap nhan).
 -- Pham vi: thiet ke docs/B3_ACTIVITIES_DESIGN.md §3.2 #7-#20 (7 CHECK, trigger #11, chi muc #12-#13, enum TASK, bang #18-#19, enum #20) + S34 quyen
---   siscom_app (A2: van CHI SELECT - A3 moi mo ghi va se doi ky vong S34).
+--   siscom_app (A3/V4: INSERT+UPDATE, KHONG DELETE/TRUNCATE tren 3 bang; truoc A3 ca S34 la "chi SELECT").
 -- In "PASS|n" va (neu co) "FAIL|n". Ky vong: khong co FAIL.
 \set ON_ERROR_STOP on
 \pset pager off
@@ -116,8 +116,8 @@ SELECT pg_temp.expect_err('S31 de xuat da quyet dinh khong doi lai (APPROVED -> 
 SELECT pg_temp.expect_err('S31b de xuat da quyet dinh khong sua ghi chu', $q$ UPDATE activity_transfer_request SET decision_note = 'sua' WHERE id = 'b3000000-0000-4000-8000-000000000071' $q$, '23001');
 SELECT pg_temp.expect_err('S33 reason rong bi tu choi', $q$ INSERT INTO activity_transfer_request (activity_id, from_employee_id, to_employee_id, reason) VALUES ('b3000000-0000-4000-8000-000000000051', 'b3000000-0000-4000-8000-000000000021', 'b3000000-0000-4000-8000-000000000022', '  ') $q$, '23514');
 
--- 6. Quyen (A2: siscom_app van CHI SELECT; A3 se doi ky vong nay)
-SELECT pg_temp.expect_true('S34 siscom_app khong co INSERT/UPDATE/DELETE tren activity, activity_access, activity_transfer_request; co SELECT 2 bang moi', $q$ (SELECT bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT') AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE')) FROM unnest(ARRAY['activity', 'activity_access', 'activity_transfer_request']) AS t) AND has_table_privilege('siscom_app', 'public.activity_access', 'SELECT') AND has_table_privilege('siscom_app', 'public.activity_transfer_request', 'SELECT') $q$);
+-- 6. Quyen (A3 / APP_GRANTS_V4: siscom_app INSERT+UPDATE, KHONG DELETE/TRUNCATE tren 3 bang; SELECT 2 bang moi)
+SELECT pg_temp.expect_true('S34 siscom_app co SELECT+INSERT+UPDATE va KHONG DELETE/TRUNCATE tren activity, activity_access, activity_transfer_request (V4)', $q$ (SELECT bool_and(has_table_privilege('siscom_app', 'public.' || t, 'SELECT') AND has_table_privilege('siscom_app', 'public.' || t, 'INSERT') AND has_table_privilege('siscom_app', 'public.' || t, 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'TRUNCATE')) FROM unnest(ARRAY['activity', 'activity_access', 'activity_transfer_request']) AS t) $q$);
 
 SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
 SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;

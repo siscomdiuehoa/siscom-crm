@@ -118,12 +118,20 @@ jobs:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: B1.4 P3 S1 - BAI TAI HIEN (RED) - verify TRUOC khi tach role (siscom_app con la chu so huu) => mong doi FAIL
         run: bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
-      - name: B1.4 P3/P3c S1 - TACH ROLE (ROLE_SPLIT + AUTH_ROLE bang superuser container, APP_GRANTS_V3 bang siscom_migrator, chay 2 lan) roi verify app + auth (GREEN)
+      - name: B1.4 P3/P3c S1 + B3 A3 - TACH ROLE (ROLE_SPLIT + AUTH_ROLE bang superuser container, APP_GRANTS_V4 bang siscom_migrator, chay 2 lan) roi verify app + auth (GREEN)
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          # B3 A3 (ra soat doc lap): quyen mac dinh cap SELECT bang moi cho app => chot FAIL-CLOSED: app chi doc bang trong danh sach cho phep
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt res app
+          # RED mong doi: bang nhay cam mo phong (migrator tao) => ALLOWLIST FAIL dung ten bang; REVOKE tuong minh => PASS; ROLLBACK, khong de lai
+          out="$(bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_APP_SELECT_ALLOWLIST_RED_TEST.sql.txt fail migrator 2>&1)" || { echo "$out" | tail -20; echo 'KHONG DAT: ALLOWLIST_RED_TEST'; exit 1; }
+          echo "$out" | grep -E 'ngoai danh sach: zz_b3_probe_bang_nhay_cam' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: ALLOWLIST khong bat bang nhay cam moi'; exit 1; }
+          echo "$out" | grep -E '^PASS\|2$' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: sau REVOKE tuong minh ALLOWLIST khong PASS'; exit 1; }
+          echo "$out" | grep -E 'bang thu con ton tai sau ROLLBACK = false' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: bang thu con lai'; exit 1; }
+          echo 'DAT (RED mong doi): bang nhay cam moi bi ALLOWLIST bat; REVOKE tuong minh => PASS; khong de lai bang thu'
       - name: Sau S1 - migrate status + diff bang siscom_migrator (MIGRATE_DATABASE_URL, prisma.config.ts uu tien) va bang siscom_app (chi doc)
         run: |
           set -euo pipefail
@@ -209,16 +217,18 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_ROLLBACK.sql.txt run migrator
           # B3 A2: seed 5 loai hoat dong CU truoc khi migrate deploy ap lai => chung minh tuong thich nguoc voi DB co du lieu (kiem sau deploy)
           bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_SEED_OLDTYPES_TEST.sql.txt run migrator
-          bash scripts/ci/pg-temp-db.sh grants v3
+          # B3 A3: V4 chay duoc khi 2 bang B3 CHUA ton tai (sau rollback B3) va VERIFY van PASS (B1 bao to_regclass)
+          bash scripts/ci/pg-temp-db.sh grants v4
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           npx prisma migrate deploy
           npx prisma migrate status
-          out="$(bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app 2>&1)" && { echo "$out" | tail -5; echo 'KHONG DAT: VERIFY phai FAIL (B1f) truoc khi chay lai V3'; exit 1; } || true
+          out="$(bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app 2>&1)" && { echo "$out" | tail -5; echo 'KHONG DAT: VERIFY phai FAIL (B1f) truoc khi chay lai V4'; exit 1; } || true
           echo "$out" | grep -E '^B1f .*KHONG DAT' || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay B1f bi bat'; exit 1; }
           echo 'DAT (RED mong doi): bang moi nhan SELECT mac dinh cho siscom_app => VERIFY bat B1f'
-          bash scripts/ci/pg-temp-db.sh grants v3
+          bash scripts/ci/pg-temp-db.sh grants v4
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt res migrator
           # B3 A2: dong cu sau migrate (DONE/version 1/cot moi NULL, khong UPDATE hang loat) + cau truc sau ap lai
           bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_SEED_OLDTYPES_CHECK.sql.txt res migrator
@@ -244,17 +254,25 @@ jobs:
           npm run test:e2e:customers
         env:
           CONCURRENCY_ROUNDS: "20"
-      - name: B1.4 P3b/P3c - dien tap rollback quyen (V1 => VERIFY FAIL; V2 = rollback P3c => VERIFY FAIL muc G vi app con quyen xac thuc; V3 lai => PASS app + auth)
+      - name: B1.4 P3b/P3c + B3 A3 - dien tap rollback quyen (V1 => VERIFY FAIL; V2 => FAIL muc G; V3 = rollback A3 => FAIL B1 vi app mat ghi activity; V4 lai => PASS app + auth)
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh grants v1
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
           bash scripts/ci/pg-temp-db.sh grants v2
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt fail app
+          # B3 A3: V3 la duong rollback cua V4 => VERIFY phai FAIL dung 2 muc B1 + E5 (app khong con INSERT/UPDATE activity: catalog + probe), VERIFY_AUTH van PASS
           bash scripts/ci/pg-temp-db.sh grants v3
+          out="$(bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app 2>&1)" && { echo "$out" | tail -5; echo 'KHONG DAT: VERIFY phai FAIL (B1 + E5) sau khi rollback ve V3'; exit 1; } || true
+          echo "$out" | grep -E '^B1 .*KHONG DAT' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay B1 bi bat sau V3'; exit 1; }
+          echo "$out" | grep -E '^E5 .*KHONG DAT' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay E5 bi bat sau V3'; exit 1; }
+          echo "$out" | grep -E '^FAIL\|2$' >/dev/null || { echo "$out" | grep -E 'KHONG DAT|FAIL'; echo 'KHONG DAT: sau V3 chi duoc FAIL dung 2 muc (B1 + E5)'; exit 1; }
+          echo 'DAT (RED mong doi): rollback V4 -> V3 => VERIFY bat B1 + E5 (app mat ghi activity), khong muc nao khac'
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          bash scripts/ci/pg-temp-db.sh grants v4
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
-      - name: B1.4 P3c - dien tap rollback role auth (V2 => AUTH_ROLE_ROLLBACK voi canary3 cung cluster) roi tach lai (AUTH_ROLE + V3) => PASS app + auth
+      - name: B1.4 P3c - dien tap rollback role auth (V2 => AUTH_ROLE_ROLLBACK voi canary3 cung cluster) roi tach lai (AUTH_ROLE + V4) => PASS app + auth
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh grants v2

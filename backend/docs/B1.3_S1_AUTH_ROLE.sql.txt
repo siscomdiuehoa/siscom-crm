@@ -1,7 +1,7 @@
 -- SISCOM CRM - B1.4 P3c: TAO ROLE XAC THUC siscom_auth (pool rieng cho dang nhap / phien / doi mat khau) - dong S3.
 -- VIET SAN. Chay bang psql -f voi SUPERUSER (postgres) tren DATABASE DICH (-d <ten db>), SAU B1.3_S1_ROLE_SPLIT.sql.txt (DB da thuoc
 --   siscom_migrator). Chi tao role + quyen CAP CLUSTER/DATABASE (CONNECT, SET ON PARAMETER). Quyen tren bang/ham cap o
---   B1.3_S1_APP_GRANTS_V3.sql.txt (chay bang siscom_migrator) - chua chay V3 thi siscom_auth KHONG doc/ghi duoc gi (fail-closed).
+--   B1.3_S1_APP_GRANTS_V4.sql.txt (chay bang siscom_migrator; V3 = ban rollback cua B3 A3) - chua chay V4 thi siscom_auth KHONG doc/ghi duoc gi (fail-closed).
 -- Pham vi: CHI ban sao thu (siscom_crm_test_* / siscom_crm_restore_*) hoac khi chu du an phe duyet RIENG bang van ban cho DB that.
 -- Mat khau: -v auth_pw='...' (>= 32 ky tu ngau nhien, sinh tren may chu, KHONG qua chat/log). Role da ton tai => KHONG doi mat khau.
 -- Rollback P3c: (1) trien khai lai backend ban TRUOC P3c, (2) B1.3_S1_APP_GRANTS_V2.sql.txt (migrator), (3) B1.3_S1_AUTH_ROLE_ROLLBACK.sql.txt.
@@ -67,4 +67,4 @@ SELECT 'siscom_auth' AS role, rolsuper AS super, rolcreaterole AS createrole, ro
        has_parameter_privilege('siscom_auth', 'app.actor_employee_id', 'SET') AS set_actor
   FROM pg_roles WHERE rolname = 'siscom_auth';
 -- Ky vong: super=f createrole=f createdb=f inherit=f connect_db=t temp_db=f set_actor=t.
--- Tiep theo: B1.3_S1_APP_GRANTS_V3.sql.txt (bang siscom_migrator), roi B1.3_S1_VERIFY.sql.txt (app) + B1.3_S1_VERIFY_AUTH.sql.txt (auth).
+-- Tiep theo: B1.3_S1_APP_GRANTS_V4.sql.txt (bang siscom_migrator), roi B1.3_S1_VERIFY.sql.txt (app) + B1.3_S1_VERIFY_AUTH.sql.txt (auth).

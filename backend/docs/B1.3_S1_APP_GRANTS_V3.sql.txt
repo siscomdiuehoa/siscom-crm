@@ -1,3 +1,4 @@
+-- [B3 A3, 05/11/2026] V3 DA DUOC B1.3_S1_APP_GRANTS_V4.sql.txt THAY THE lam nguon su that; file nay GIU NGUYEN lam DUONG ROLLBACK cua V4 (thu lai quyen ghi activity).
 -- SISCOM CRM - B1.4 P3c / B1.3 S1: CAP QUYEN TOI THIEU cho HAI role sau khi tach role: siscom_app (nghiep vu) va siscom_auth (xac thuc).
 -- Thay the B1.3_S1_APP_GRANTS_V2.sql.txt (P3b). Chay bang psql -f voi siscom_migrator tren DATABASE DICH, SAU B1.3_S1_AUTH_ROLE.sql.txt.
 -- KHAI BAO + IDEMPOTENT: thu HET quyen cu cua CA HAI role roi cap lai DUNG ma tran; chay lai cho cung ket qua. NGUON SU THAT DUY NHAT

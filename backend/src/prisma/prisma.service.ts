@@ -13,7 +13,7 @@ import { pgPoolConfig } from './pg-config';
 export class PrismaService extends PrismaClient implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly log = new Logger(PrismaService.name);
   private stopped = false; // dang tat => bo lan kiem role da hen (khong mo lai pool)
-  // B1.4 P3c: da tach pool auth (AUTH_DATABASE_URL) => pool nay KHONG duoc con quyen xac thuc (APP_GRANTS_V3).
+  // B1.4 P3c: da tach pool auth (AUTH_DATABASE_URL) => pool nay KHONG duoc con quyen xac thuc (APP_GRANTS_V4; V3 truoc B3 A3).
   private readonly dbUrl: string;
 
   // Constructor chi dung getOrThrow('DATABASE_URL'): test helper va CLI (seed-lookups, bootstrap-auth) truyen doi tuong toi gian.

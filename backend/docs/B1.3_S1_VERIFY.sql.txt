@@ -55,12 +55,17 @@ INSERT INTO s1_result SELECT 'A7 siscom_migrator khong superuser, khong tao role
 
 -- B. Quyen DML cua app (P3b: THEO MA TRAN DUONG GHI RUNTIME cua backend, khong con "DML moi bang")
 -- P3c: pool nghiep vu KHONG con dung toi auth_session / employee_credential (ke ca SELECT) - xem B1e va G.
-INSERT INTO s1_result SELECT 'B1 app co SELECT tren moi bang nghiep vu va INSERT/UPDATE (KHONG DELETE) tren customer/contact/customer_assignment',
+INSERT INTO s1_result SELECT 'B1 app co SELECT tren moi bang nghiep vu va INSERT/UPDATE (KHONG DELETE) tren customer/contact/customer_assignment/activity (+activity_access, activity_transfer_request khi co bang - B3 A3 V4)',
   bool_and(has_table_privilege('siscom_app', 'public.' || t, 'SELECT'))
   -- (viet trong SELECT, KHONG dung HAVING: HAVING sai se chen 0 dong => thieu nhan va tong ket khong dem FAIL)
   AND (SELECT bool_and(has_table_privilege('siscom_app', 'public.' || w, 'INSERT') AND has_table_privilege('siscom_app', 'public.' || w, 'UPDATE')
                        AND NOT has_table_privilege('siscom_app', 'public.' || w, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || w, 'TRUNCATE'))
-         FROM unnest(ARRAY['customer', 'contact', 'customer_assignment']) AS w)
+         FROM unnest(ARRAY['customer', 'contact', 'customer_assignment', 'activity']) AS w)
+  -- B3 A3: 2 bang moi co the chua ton tai (rollback B3 roi V4) => has_table_privilege tren ten khong co se loi 42P01 => bao bang to_regclass (CASE, khong dua vao short-circuit)
+  AND (SELECT bool_and(CASE WHEN to_regclass('public.' || w) IS NULL THEN true
+                            ELSE has_table_privilege('siscom_app', 'public.' || w, 'INSERT') AND has_table_privilege('siscom_app', 'public.' || w, 'UPDATE')
+                                 AND NOT has_table_privilege('siscom_app', 'public.' || w, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || w, 'TRUNCATE') END)
+         FROM unnest(ARRAY['activity_access', 'activity_transfer_request']) AS w)
   FROM unnest(ARRAY['customer', 'contact', 'activity', 'customer_assignment', 'employee', 'department', 'lookup_item', 'app_meta', 'role', 'permission',
                     'employee_role', 'role_permission']) AS t;
 INSERT INTO s1_result SELECT 'B1e app KHONG co quyen nao (ke ca SELECT theo cot) tren auth_session va employee_credential (P3c, S3)',
@@ -78,11 +83,11 @@ INSERT INTO s1_result SELECT 'B1d app KHONG SELECT (ke ca theo cot) tren privile
   FROM unnest(ARRAY['privileged_change_request', 'password_reset_token']) AS t;
 -- I-4 (ra soat P3b): has_any_column_privilege = quyen ca bang HOAC bat ky cot nao (has_table_privilege bo sot "GRANT UPDATE (cot) ...").
 -- DELETE/TRUNCATE chi cap duoc o muc bang nen van dung has_table_privilege.
-INSERT INTO s1_result SELECT 'B1b app KHONG INSERT/UPDATE/DELETE tren bang RBAC/yeu cau dac quyen/ma reset/app_meta/employee/department/lookup_item/activity (S2)',
+INSERT INTO s1_result SELECT 'B1b app KHONG INSERT/UPDATE/DELETE tren bang RBAC/yeu cau dac quyen/ma reset/app_meta/employee/department/lookup_item (S2; activity chuyen sang B1 tu V4)',
   bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT') AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE')
        AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'TRUNCATE'))
   FROM unnest(ARRAY['employee_role', 'role_permission', 'role', 'permission', 'privileged_change_request', 'password_reset_token', 'app_meta',
-                    'employee', 'department', 'lookup_item', 'activity']) AS t;
+                    'employee', 'department', 'lookup_item']) AS t;
 INSERT INTO s1_result SELECT 'B1c employee_credential: app KHONG UPDATE cot nao (P3c: 7 cot dem/khoa thuoc pool auth)',
   NOT has_any_column_privilege('siscom_app', 'public.employee_credential', 'UPDATE');
 INSERT INTO s1_result SELECT 'B2 app chi SELECT/INSERT tren audit_log (khong UPDATE/DELETE/TRUNCATE)',
@@ -188,16 +193,21 @@ BEGIN
   END;
 END $$;
 -- E3/E4 (P3b) da chuyen sang pool auth (B1.3_S1_VERIFY_AUTH.sql.txt H2/H3); voi app chung la ca TU CHOI (G).
-SELECT pg_temp.expect_ok('E5 app UPDATE customer (sua, xoa mem, khoi phuc) va customer_assignment.ended_at',
-  'UPDATE public.customer SET deleted_at = deleted_at, restored_at = restored_at, version = version WHERE false; UPDATE public.customer_assignment SET ended_at = ended_at WHERE false');
+SELECT pg_temp.expect_ok('E5 app UPDATE customer (sua, xoa mem, khoi phuc), customer_assignment.ended_at, activity (B3 A3) va 2 bang B3 khi co (INSERT/UPDATE WHERE false)',
+  'UPDATE public.customer SET deleted_at = deleted_at, restored_at = restored_at, version = version WHERE false; UPDATE public.customer_assignment SET ended_at = ended_at WHERE false; '
+  'INSERT INTO public.activity (customer_id, type, occurred_at, content) SELECT gen_random_uuid(), ''NOTE'', now(), chr(120) WHERE false; UPDATE public.activity SET outcome = outcome WHERE false; '
+  -- B3 A3: cot/bang B3 co the chua ton tai (CI: rollback B3 roi V4 roi VERIFY) => thu co dieu kien trong DO; than DO KHONG dung nhay don (dollar-quote long $b3$ / $s$ / $t$)
+  'DO $b3$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = $t$public$t$ AND table_name = $t$activity$t$ AND column_name = $t$status$t$) THEN EXECUTE $s$UPDATE public.activity SET status = status, version = version, deleted_at = deleted_at WHERE false$s$; END IF; '
+  'IF to_regclass($t$public.activity_access$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.activity_access (activity_id, employee_id, granted_by, expires_at) SELECT gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), now() WHERE false$s$; EXECUTE $s$UPDATE public.activity_access SET revoked_at = revoked_at WHERE false$s$; END IF; '
+  'IF to_regclass($t$public.activity_transfer_request$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.activity_transfer_request (activity_id, from_employee_id, to_employee_id, reason) SELECT gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), chr(120) WHERE false$s$; EXECUTE $s$UPDATE public.activity_transfer_request SET status = status WHERE false$s$; END IF; END $b3$');
 SELECT pg_temp.expect_ok('E6 app UPDATE contact',
   'UPDATE public.contact SET is_primary = is_primary WHERE false');
 -- M-8 (ra soat P3b): ham runtime can EXECUTE (qua PUBLIC): tim kiem (f_vn_fold), khoi phuc (fn_customer_restore_conflicts), sinh ma trong
 -- DEFAULT khi app INSERT (fn_next_customer_code / fn_next_contact_code). Migration sau nay lo REVOKE FROM PUBLIC => FAIL o day, khong doi 500.
-INSERT INTO s1_result SELECT 'E7 app EXECUTE duoc 4 ham runtime (f_vn_fold, fn_customer_restore_conflicts, fn_next_customer_code, fn_next_contact_code)',
-  count(DISTINCT p.proname) = 4 AND bool_and(has_function_privilege('siscom_app', p.oid, 'EXECUTE'))
+INSERT INTO s1_result SELECT 'E7 app EXECUTE duoc 5 ham runtime (f_vn_fold, fn_customer_restore_conflicts, fn_next_customer_code, fn_next_contact_code, fn_next_activity_code - B3 A3)',
+  count(DISTINCT p.proname) = 5 AND bool_and(has_function_privilege('siscom_app', p.oid, 'EXECUTE'))
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-  WHERE n.nspname = 'public' AND p.proname IN ('f_vn_fold', 'fn_customer_restore_conflicts', 'fn_next_customer_code', 'fn_next_contact_code');
+  WHERE n.nspname = 'public' AND p.proname IN ('f_vn_fold', 'fn_customer_restore_conflicts', 'fn_next_customer_code', 'fn_next_contact_code', 'fn_next_activity_code');
 
 -- F. S2/S3 (P3b): duong ghi truc tiep ma app KHONG duoc co, du trigger van con. Moi cau WHERE false / trong SAVEPOINT, khong doi du lieu.
 SELECT pg_temp.expect_denied('F1 app khong UPDATE password_hash (S3)',             'UPDATE public.employee_credential SET password_hash = password_hash WHERE false');

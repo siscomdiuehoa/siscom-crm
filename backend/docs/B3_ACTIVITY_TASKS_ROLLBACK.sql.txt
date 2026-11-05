@@ -7,7 +7,7 @@
 --   (2) file nay, bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi 1 chay sau unsplit):
 --       psql -X -v ON_ERROR_STOP=1 -d <db thu> -f B3_ACTIVITY_TASKS_ROLLBACK.sql.txt
 --       (khong kiem vai tro tuong minh: DROP/ALTER tu that bai 42501 neu khong phai chu so huu => transaction huy, khong do dang);
---   (3) (DB da tach role) chay lai B1.3_S1_APP_GRANTS_V3.sql.txt (V4 tu A3) + VERIFY / VERIFY_AUTH.
+--   (3) (DB da tach role) chay lai B1.3_S1_APP_GRANTS_V4.sql.txt (A3; chay duoc ca khi 2 bang B3 da go) + VERIFY / VERIFY_AUTH.
 -- MOT transaction. HAI TRANG THAI: S1 = chi migration 1 da ap (enum co TASK, chua co cot) => chi tao lai enum + xoa dong _prisma_migrations;
 --   S2 = ca 2 da ap => go bang/enum/CHECK/chi muc/trigger/ham/cot roi tao lai enum. S0 (chua ap) va S3 (co cot ma enum thieu TASK) => tu choi.
 -- KHONG BAO GIO tu xoa/sua du lieu. TU CHOI khi: (1) con dong activity type='TASK' (ke ca da xoa mem); (2) activity_access / activity_transfer_request

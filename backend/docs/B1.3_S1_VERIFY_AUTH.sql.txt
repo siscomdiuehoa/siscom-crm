@@ -1,4 +1,4 @@
--- SISCOM CRM - B1.4 P3c: KIEM quyen cua pool XAC THUC siscom_auth sau B1.3_S1_APP_GRANTS_V3.sql.txt. CHI DOC: moi cau thu nam trong
+-- SISCOM CRM - B1.4 P3c: KIEM quyen cua pool XAC THUC siscom_auth sau B1.3_S1_APP_GRANTS_V4.sql.txt (V3 truoc B3 A3; phan auth khong doi). CHI DOC: moi cau thu nam trong
 -- transaction va ROLLBACK (WHERE false / SAVEPOINT). In "PASS|n" / "FAIL|n".
 -- CHAY BANG SUPERUSER (psql -tA -d <db thu> -f ...): siscom_auth KHONG co TEMP (M-c) nen khong tu tao bang/ham tam; file tao bang/ham tam
 --   bang superuser roi SET ROLE siscom_auth cho moi cau thu => quyen dung la cua siscom_auth (SET ROLE bo dac quyen superuser).
