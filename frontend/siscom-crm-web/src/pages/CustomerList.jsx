@@ -54,10 +54,14 @@ function CustomerListPage({ ui }) {
     ...(apiOn ? [] : [{ key: 'revenue', label: 'Doanh thu luỹ kế', align: 'right', sortable: true, render: (r) => fmtRev(r.revenue) }]),
     { key: 'owner', label: 'Phụ trách', sortable: true, render: (r) => <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{r.owner ? <><Avatar name={r.owner} size={24} />{r.owner}</> : <span style={{ color: 'var(--text-3)' }}>Chưa phân công</span>}</div> },
     { key: 'status', label: 'Trạng thái', sortable: true, render: (r) => <Badge dot tone={U.STATUS_TONE[r.status]}>{r.status}</Badge> },
+    // E2 (05/11/2026): chế độ API không sửa/xoá tại dòng (sửa qua trang chi tiết; xoá chưa hỗ trợ). Trước đây 2 nút bị disabled không có dấu hiệu
+    // => người dùng bấm không thấy gì. Nay: một nút bật "Mở chi tiết để sửa" (tooltip, điều hướng như bấm dòng); không hiện nút Xoá chết.
     { key: 'act', label: <span className="sr-only">Thao tác</span>, width: 96, render: (r) => (
       <span style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()}>
-        <IconButton icon="pencil" label="Sửa" size="sm" disabled={apiOn || !ui.can('customer.update', r)} onClick={() => setForm(r)} />
-        <IconButton icon="trash-2" label="Xoá" size="sm" disabled={apiOn || !ui.can('customer.delete', r)} onClick={() => del([r.id])} />
+        {apiOn ? <IconButton icon="pencil" label="Mở chi tiết để sửa" tooltip="left" size="sm" onClick={() => ui.navigate('/customers/' + r.id)} /> : <>
+          <IconButton icon="pencil" label="Sửa" size="sm" disabled={!ui.can('customer.update', r)} onClick={() => setForm(r)} />
+          <IconButton icon="trash-2" label="Xoá" size="sm" disabled={!ui.can('customer.delete', r)} onClick={() => del([r.id])} />
+        </>}
       </span>) },
   ];
   const fsel = (label, value, set, opts, w = 190) => <div style={{ width: w, maxWidth: '100%' }}><Select size="sm" value={value} onChange={set} options={[{ value: 'all', label: label }, ...opts.map((o) => ({ value: o, label: o }))]} /></div>;
