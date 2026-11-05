@@ -7,7 +7,7 @@ import type { Permission, Scope } from '../src/common/auth/actor';
 import { vnDayRange } from '../src/modules/activities/activities.time';
 import { ACCT, as, leaks, makeApp, SALES, TECH, TestApp } from './helpers/test-app';
 import { assertTestConnection, createTestPrisma } from './helpers/test-db';
-import { ensureFixtures, Fixtures, makeContact, makeCustomer, makeEmployee, uniq } from './helpers/fixtures';
+import { ensureFixtures, Fixtures, makeContact, makeCustomer, makeEmployee, uniq, withAdmin } from './helpers/fixtures';
 
 const C = '/api/v1/customers/';
 const A = '/api/v1/activities/';
@@ -64,6 +64,7 @@ describe('xác thực và quyền cơ bản', () => {
     const x = await mkTask('salesA', cA.id);
     for (const u of [L, A + 'reminders/summary', A + x.id + '/history', TR + '?box=inbox']) expect((await a('readonly').get(u)).status).toBe(403);
     expect((await a('readonly').get(A + x.id)).status).toBe(403);
+    expect((await a('none').post(A + x.id + '/complete', { version: 1 })).status).toBe(403); // rà soát A6 M-1
     expect((await a('all').get(A + 'abc')).status).toBe(400);
     const nf = await a('all').get(A + '00000000-0000-4000-8000-000000000000');
     expect(nf.status).toBe(404);
@@ -339,12 +340,12 @@ describe('quyền theo việc §5.4 — giao ra ngoài phạm vi', () => {
     await new Promise((r) => setTimeout(r, 1300));
     expect((await a('techC').get(A + x.id)).status).toBe(404);
     expect((await a('salesA').get(A + x.id)).body.data.assigneeLostAccess).toBe(true);
-    const r = await a('salesA').post(A + x.id + '/assign', { performedById: empD, version: x.version, external: true });
-    expect(r.status).toBe(200);
-    const again = await a('salesA').post(A + x.id + '/assign', { performedById: fx.empC, version: x.version + 1, external: true });
+    // I-1: cấp lại thẳng cho CHÍNH người phụ trách (không giao vòng qua người thứ ba).
+    const again = await a('salesA').post(A + x.id + '/assign', { performedById: fx.empC, version: x.version, external: true });
     expect(again.status).toBe(200);
     const rows = await accessRows(x.id);
-    expect(rows.map((z) => [z.employeeId, z.revokeReason])).toEqual([[fx.empC, 'MANUAL'], [fx.empC, 'EXPIRED'], [empD, 'REASSIGNED'], [fx.empC, null]]);
+    expect(rows.map((z) => [z.employeeId, z.revokeReason])).toEqual([[fx.empC, 'MANUAL'], [fx.empC, 'EXPIRED'], [fx.empC, null]]);
+    expect((await a('techC').get(A + x.id)).status).toBe(200);
   });
   it('expires_at tính bằng SQL: hạn quá khứ => +168h; hạn +23 ngày => trần 720h; hạn +60 ngày => trần 720h', async () => {
     const hours = async (dueMs: number) => {
@@ -391,6 +392,34 @@ describe('quyền theo việc §5.4 — giao ra ngoài phạm vi', () => {
     expect(m.body.data).toMatchObject({ assigneeLostAccess: true, taskAccesses: [] });
     expect((await accessRows(x4.id))[0].revokeReason).toBe('MANUAL');
     expect((await a('salesA').post(A + x4.id + '/access/revoke', { employeeId: fx.empC })).status).toBe(404);
+  });
+  // Rà soát độc lập A6 I-1: cấp lại quyền theo việc cho CHÍNH người đang phụ trách (sau thu hồi thủ công / mở lại / hết hạn) — không phải giao vòng qua người thứ ba.
+  it('I-1: giao lại CÙNG người (external=true) sau thu hồi / mở lại => cấp lại quyền (version+1, audit access_grant, không audit assign); còn quyền => không đổi gì', async () => {
+    const x = await externalTask();
+    const same = await a('salesA').post(A + x.id + '/assign', { performedById: fx.empC, version: x.version, external: true });
+    expect(same.status).toBe(200);
+    expect(same.body.data.version).toBe(x.version); // còn quyền hiệu lực => không làm gì
+    await a('salesA').post(A + x.id + '/access/revoke', { employeeId: fx.empC });
+    expect((await a('techC').get(A + x.id)).status).toBe(404);
+    t.audit.entries = [];
+    const r = await a('salesA').post(A + x.id + '/assign', { performedById: fx.empC, version: await ver(x.id), external: true });
+    expect(r.status).toBe(200);
+    expect(r.body.data).toMatchObject({ assigneeLostAccess: false, version: x.version + 1 });
+    expect(t.audit.entries.map((e) => e.action)).toEqual(['activity.access_grant']);
+    expect((await a('techC').get(A + x.id)).status).toBe(200);
+    // Hoàn thành rồi mở lại: quyền đã thu hồi COMPLETED; PATCH performedById = chính người đó + external => cấp lại.
+    await a('techC').post(A + x.id + '/complete', { version: await ver(x.id) });
+    const ro = await a('salesA').post(A + x.id + '/reopen', { version: await ver(x.id) });
+    expect(ro.body.data.assigneeLostAccess).toBe(true);
+    const p = await a('salesA').patch(A + x.id, { version: await ver(x.id), performedById: fx.empC, external: true });
+    expect(p.status).toBe(200);
+    expect(p.body.data.assigneeLostAccess).toBe(false);
+    expect((await a('techC').get(A + x.id)).body.data.access).toBe('TASK');
+    // Không gửi external => không cấp (giữ hành vi tường minh).
+    await a('salesA').post(A + x.id + '/access/revoke', { employeeId: fx.empC });
+    const n = await a('salesA').post(A + x.id + '/assign', { performedById: fx.empC, version: await ver(x.id) });
+    expect(n.status).toBe(200);
+    expect((await a('techC').get(A + x.id)).status).toBe(404);
   });
   it('đổi chủ khách: quyền theo việc giữ nguyên; chủ mới thấy việc + người được cấp', async () => {
     const cx = await makeCustomer(prisma, fx, { ownerId: fx.empA });
@@ -511,6 +540,18 @@ describe('đề xuất chuyển việc §5.5', () => {
     expect(wd.body.data.status).toBe('WITHDRAWN');
     expect((await a('techC').post(TR + '/' + r2.id + '/withdraw', {})).body.error.code).toBe('ACTIVITY_TRANSFER_NOT_PENDING');
     expect((await a('salesA').post(TR + '/00000000-0000-4000-8000-000000000000/approve', { version: 1 })).status).toBe(404);
+  });
+  it('rà soát A6 M-4/M-8: người nhận đổi phòng khi chờ duyệt => duyệt 400 ASSIGNEE_INVALID; rút không nhận decisionNote (400)', async () => {
+    const x = await externalTask();
+    const r = (await a('techC').post(A + x.id + '/transfer-requests', { toEmployeeId: empD, reason: 'a' })).body.data;
+    expect((await a('techC').post(TR + '/' + r.id + '/withdraw', { decisionNote: 'x' })).status).toBe(400);
+    await withAdmin((ad) => ad.employee.update({ where: { id: empD }, data: { departmentId: fx.d1 } }));
+    try {
+      const ap = await a('salesA').post(TR + '/' + r.id + '/approve', { version: x.version });
+      expect(ap.status).toBe(400);
+      expect(ap.body.error.code).toBe('ACTIVITY_ASSIGNEE_INVALID');
+    } finally { await withAdmin((ad) => ad.employee.update({ where: { id: empD }, data: { departmentId: fx.d2 } })); }
+    expect((await a('techC').post(TR + '/' + r.id + '/withdraw', {})).body.data.status).toBe('WITHDRAWN');
   });
   it('tự WITHDRAWN khi việc hoàn thành / đổi người', async () => {
     const x = await externalTask();

@@ -253,6 +253,14 @@ export class ActivityTasksService {
     if (kind === 'EXTERNAL') await grantAccess(w, to);
   }
 
+  // Rà soát độc lập A6 I-1: "giao lại" CHÍNH người đang phụ trách với external=true => cấp lại quyền theo việc khi TASK OPEN và người đó
+  // KHÔNG còn dòng quyền hiệu lực (hết hạn / thu hồi thủ công / mở lại / ROLE_LOST rồi được gán lại vai trò). Còn quyền hoặc đọc được khách => không làm gì.
+  private async regrantSelf(tx: Tx, actor: Actor, row: ActivityTaskRow, vis: Vis, to: string): Promise<boolean> {
+    if (row.type !== 'TASK' || row.status !== 'OPEN') return false;
+    if ((await activeAccessRows(tx, [row.id], new Date())).some((r) => r.employeeId === to)) return false;
+    return planAssignment(actor, this.scopeOf(actor), vis.owner, (await this.access.load(tx, [to])).get(to), { external: true, openTask: true }) === 'EXTERNAL';
+  }
+
   // ───── PATCH /activities/:id ─────
   async update(ctx: RequestCtx, id: string, dto: UpdateActivityDto) {
     const { actor } = ctx;
@@ -313,8 +321,9 @@ export class ActivityTasksService {
         kind = planAssignment(actor, s, vis.owner, (await this.access.load(tx, [to])).get(to), { external: dto.external === true, openTask: isTask && row.status === 'OPEN' && !cancel });
         data.performedById = to;
       }
+      const regrant = !!to && to === row.performedById && dto.external === true && !cancel && vis.mode === 'SCOPE' && await this.regrantSelf(tx, actor, row, vis, to);
       if (cancel) { data.status = 'CANCELLED'; data.completedAt = null; data.completedById = null; }
-      if (!Object.keys(data).length) return this.present(tx, actor, row, vis); // không có gì đổi: trả nguyên trạng, không tăng version
+      if (!Object.keys(data).length && !regrant) return this.present(tx, actor, row, vis); // không có gì đổi: trả nguyên trạng, không tăng version
 
       // UPDATE activity TRƯỚC (rà soát lần 8: due_at mới phải có trước câu INSERT … SELECT a.due_at).
       await this.bump(tx, actor, row, dto.version, data);
@@ -337,6 +346,7 @@ export class ActivityTasksService {
           }
         }
       }
+      if (regrant && to) accessExpiresAt = (await grantAccess(w, to)).expiresAt.toISOString();
       return this.present(tx, actor, await this.reload(tx, row.id), vis, accessExpiresAt ? { accessExpiresAt } : {});
     });
   }
@@ -351,7 +361,15 @@ export class ActivityTasksService {
       if (vis.mode !== 'SCOPE') throw activityErrors.forbidden(); // người chỉ có quyền theo việc KHÔNG giao lại (§5.4)
       if (!inScope(actor, s('activity.assign'), vis.owner)) throw activityErrors.forbidden();
       if (row.version !== dto.version) throw activityErrors.versionConflict(row.version);
-      if (to === row.performedById) return this.present(tx, actor, row, vis); // đã là người phụ trách: không đổi gì
+      if (to === row.performedById) {
+        // I-1: external=true + mất quyền theo việc => cấp lại (version+1, audit access_grant; không audit assign vì người phụ trách không đổi).
+        if (dto.external === true && await this.regrantSelf(tx, actor, row, vis, to)) {
+          await this.bump(tx, actor, row, dto.version, {});
+          await grantAccess(w, to);
+          return this.present(tx, actor, await this.reload(tx, row.id), vis);
+        }
+        return this.present(tx, actor, row, vis); // đã là người phụ trách và không cần cấp lại: không đổi gì
+      }
       const kind = planAssignment(actor, s, vis.owner, (await this.access.load(tx, [to])).get(to), { external: dto.external === true, openTask: row.type === 'TASK' && row.status === 'OPEN' });
       await this.bump(tx, actor, row, dto.version, { performedById: to });
       await this.afterReassign(w, row.performedById, to, kind);
@@ -363,6 +381,7 @@ export class ActivityTasksService {
   // activity.update / activity.update_own (mình tạo/được giao) / performed_by = tôi — luôn áp lại phạm vi đọc HOẶC quyền theo việc.
   async complete(ctx: RequestCtx, id: string, dto: CompleteActivityDto) {
     const { actor } = ctx;
+    this.needReadOrTask(actor); // rà soát A6 M-1: không có quyền hoạt động nào => 403 (không 404)
     return this.write(ctx, id, async (tx, row, vis, w) => {
       const mine = row.performedById === actor.employeeId;
       const ok = vis.mode === 'TASK' ? mine : (mine || this.canEditByScope(actor, row, vis.owner));

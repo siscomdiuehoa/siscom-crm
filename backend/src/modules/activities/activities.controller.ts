@@ -9,7 +9,7 @@ import { CreateActivityDto } from './dto/create-activity.dto';
 import { QueryAssigneeCandidatesDto, QueryTimelineDto } from './dto/query-activities.dto';
 import {
   AssignActivityDto, CompleteActivityDto, CreateTransferRequestDto, DecideTransferDto, DeleteActivityDto, QueryTasksDto, QueryTransferBoxDto, RevokeAccessDto,
-  UpdateActivityDto, VersionDto,
+  UpdateActivityDto, VersionDto, WithdrawTransferDto,
 } from './dto/task-actions.dto';
 
 // Timeline + tạo hoạt động theo khách (thiết kế §6). CSRF/Origin là guard toàn cục như các module khác.
@@ -132,7 +132,7 @@ export class ActivityTransferRequestsController {
 
   @Post(':id/withdraw')
   @HttpCode(200)
-  async withdraw(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: DecideTransferDto) {
+  async withdraw(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: WithdrawTransferDto) {
     return { data: await this.transfers.withdraw(ctx, id, dto) };
   }
 }

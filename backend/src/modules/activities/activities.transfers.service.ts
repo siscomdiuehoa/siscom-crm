@@ -13,7 +13,7 @@ import { EMPLOYEE_ACCESS, EmployeeAccessReader } from './activities.employee-acc
 import { activityErrors } from './activities.errors';
 import { ActivityTaskRow, toTransfer, TRANSFER_SELECT } from './activities.mapper';
 import { lockActivity, mapError } from './activities.tasks.service';
-import type { CreateTransferRequestDto, DecideTransferDto } from './dto/task-actions.dto';
+import type { CreateTransferRequestDto, DecideTransferDto, WithdrawTransferDto } from './dto/task-actions.dto';
 
 type Tx = Prisma.TransactionClient;
 const DECISION_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // người đề xuất thấy kết quả trong 3 ngày (§5.5)
@@ -130,8 +130,11 @@ export class ActivityTransfersService {
       const { req, row, w, owner } = await this.lockDecision(tx, ctx, requestId);
       if (row.type !== 'TASK' || row.status !== 'OPEN' || row.performedById !== req.fromEmployeeId) throw activityErrors.transferNotPending();
       if (row.version !== dto.version) throw activityErrors.versionConflict(row.version);
-      const to = (await this.access.load(tx, [req.toEmployeeId])).get(req.toEmployeeId);
-      if (!hasTechAuthority(to)) throw activityErrors.assigneeInvalid();
+      const acc = await this.access.load(tx, [req.toEmployeeId, req.fromEmployeeId]);
+      const to = acc.get(req.toEmployeeId);
+      // Rà soát A6 M-4: kiểm lại lúc duyệt — người nhận vẫn ACTIVE, có update_own và CÙNG PHÒNG người đề xuất (có thể đã đổi phòng khi chờ duyệt).
+      const from = acc.get(req.fromEmployeeId);
+      if (!hasTechAuthority(to) || !from || from.departmentId === null || to!.departmentId !== from.departmentId) throw activityErrors.assigneeInvalid();
       const kind = this.approverKind(actor, owner, to);
       if (!kind) throw activityErrors.transferNotAllowed('Bạn không có thẩm quyền duyệt chuyển việc cho người này.');
       const u = await tx.activity.updateMany({ where: { id: row.id, version: dto.version, deletedAt: null }, data: { performedById: req.toEmployeeId, updatedById: actor.employeeId, version: { increment: 1 } } });
@@ -165,7 +168,7 @@ export class ActivityTransfersService {
   }
 
   // ───── POST /activity-transfer-requests/:id/withdraw ─────  Chỉ người đề xuất.
-  async withdraw(ctx: RequestCtx, requestId: string, dto: DecideTransferDto) {
+  async withdraw(ctx: RequestCtx, requestId: string, dto: WithdrawTransferDto) {
     const { actor } = ctx;
     return this.tx(async (tx) => {
       const head = await tx.activityTransferRequest.findUnique({ where: { id: requestId }, select: { activityId: true, fromEmployeeId: true } });

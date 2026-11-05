@@ -132,6 +132,12 @@ export class DecideTransferDto {
   decisionNote?: string | null;
 }
 
+// Rút đề xuất: chỉ version (tuỳ chọn) — không nhận decisionNote (rà soát A6 M-8).
+export class WithdrawTransferDto {
+  @IsOptional() @Type(() => Number) @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
+  version?: number;
+}
+
 export class QueryTransferBoxDto {
   @IsIn(['inbox', 'outbox'])
   box!: 'inbox' | 'outbox';
