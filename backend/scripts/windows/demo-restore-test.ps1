@@ -55,12 +55,15 @@ try {
   $have = (Get-FileHash -LiteralPath $DumpFile -Algorithm SHA256).Hash.ToLower()
   if ($want -ne $have) { Fail 'SHA-256 khong khop: file sao luu da bi thay doi/hong. Khong khoi phuc.' }
   Ok ('SHA-256 khop: ' + $have)
+  # Codex P1 (PR #206): ten DB nguon (tham so hoac suy tu ten file dump) duoc ghep vao SQL chay bang postgres => CHI nhan dung dang
+  # siscom_crm_(test|restore)_YYYYMMDD_HHMMSS (nhu demo-backup.ps1); khac => tu choi TRUOC khi doc mat khau / ket noi / tao DB.
+  if (-not $SourceDatabaseName) { $leaf = [IO.Path]::GetFileNameWithoutExtension($DumpFile); if ($leaf -match '^(.+)_[0-9]{8}_[0-9]{6}$') { $SourceDatabaseName = $Matches[1] } }
+  if ($SourceDatabaseName -and $SourceDatabaseName -notmatch '^siscom_crm_(test|restore)_[0-9]{8}_[0-9]{6}$') { Fail ('Ten DB nguon "' + $SourceDatabaseName + '" khong hop le (chi siscom_crm_test_*/siscom_crm_restore_* dang YYYYMMDD_HHMMSS). Doi ten file dump hoac chi ro -SourceDatabaseName dung dang.') }
   $pgPw = Get-DemoSecret $PgPort 'POSTGRES_PW'
   if (-not $pgPw) { Fail ('Khong co file mat khau cum demo (pg-' + $PgPort + '.secrets).') }
   $cluster = Invoke-Psql $pgPw 'postgres' 'SHOW cluster_name;'
   if ($cluster -ne 'siscom_demo') { Fail ('Cum tren cong ' + $PgPort + ' co cluster_name = "' + $cluster + '", khong phai cum demo. Dung lai.') }
   Ok 'Ket noi cum demo (cluster_name = siscom_demo).'
-  if (-not $SourceDatabaseName) { $leaf = [IO.Path]::GetFileNameWithoutExtension($DumpFile); if ($leaf -match '^(.+)_[0-9]{8}_[0-9]{6}$') { $SourceDatabaseName = $Matches[1] } }
   $owner = 'siscom_app'
   if ((Invoke-Psql $pgPw 'postgres' "SELECT 1 FROM pg_roles WHERE rolname = 'siscom_migrator';") -eq '1') { $owner = 'siscom_migrator' }
   $target = 'siscom_crm_restore_' + (Get-Date -Format 'yyyyMMdd_HHmmss')
