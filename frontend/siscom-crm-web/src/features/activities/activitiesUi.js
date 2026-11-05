@@ -7,7 +7,7 @@ const idleList = { status: 'idle', customerId: null, filters: {}, items: [], pag
 const idleRef = { status: 'idle', customerId: null, items: [], error: null };
 const clean = (f) => { const o = {}; for (const k of ['type', 'status', 'from', 'to']) if (f && f[k]) o[k] = f[k]; return o; };
 
-export function createActivitiesController(repo, describe) {
+export function createActivitiesController(repo, describe, hooks = {}) {
   let state = { list: idleList, submit: { status: 'idle', error: null }, assignees: idleRef, contacts: idleRef };
   const subs = new Set();
   const set = (patch) => { state = { ...state, ...patch }; subs.forEach((f) => f()); };
@@ -48,6 +48,7 @@ export function createActivitiesController(repo, describe) {
         const activity = await repo.createActivity(customerId, body);
         set({ submit: { status: 'idle', error: null } });
         if (state.list.customerId === customerId) await ctl.reload();
+        if (typeof hooks.onCreated === 'function') { try { await hooks.onCreated(activity); } catch (e) { /* chuông đọc lại lần sau */ } }
         return { ok: true, activity };
       } catch (e) {
         const error = err(e); set({ submit: { status: 'error', error } });

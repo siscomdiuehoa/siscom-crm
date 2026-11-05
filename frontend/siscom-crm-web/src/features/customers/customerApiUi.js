@@ -3,6 +3,7 @@
 //   flag ON  -> returns a controller over the async repository. Every failure is surfaced; nothing is ever written to localStorage and there is no fallback.
 import { createCustomerRepository, CustomerRepoError } from '../../data/api/customerRepository.js';
 import { createActivitiesController } from '../activities/activitiesUi.js';
+import { createTasksController } from '../activities/tasksUi.js';
 
 // Backend DTO field -> UI form field (details strings from class-validator start with the property name, e.g. "phone must be ...").
 const BACKEND_TO_UI = { name: 'name', phone: 'phone', shortName: 'short', taxId: 'taxId', email: 'email', website: 'website', address: 'address', note: 'note', industry: 'industry', source: 'source', province: 'city', tier: 'tier', status: 'status' };
@@ -316,6 +317,8 @@ export function createCustomerApiUi({ env, fetchImpl, auth, session } = {}) {
   if (!env || env.VITE_CRM_API_ENABLED !== 'true') return null;
   const repo = createCustomerRepository({ env, fetchImpl, auth, session });
   const ctl = createCustomerApiController(repo);
-  ctl.activities = createActivitiesController(repo, describeRepoError); // B3 A7: tab Hoạt động dùng chung repository/phiên
+  // B3 A8: công việc (API A6). Ghi ở một nơi => nơi kia đọc lại từ máy chủ (dòng thời gian khách <-> danh sách việc + chuông).
+  ctl.tasks = createTasksController(repo, describeRepoError, { onChanged: (cid) => { const l = ctl.activities.getState().list; return l.customerId && (!cid || l.customerId === cid) ? ctl.activities.reload() : undefined; } });
+  ctl.activities = createActivitiesController(repo, describeRepoError, { onCreated: () => (ctl.tasks.getState().summary.status !== 'idle' ? ctl.tasks.refreshAll() : undefined) }); // B3 A7: tab Hoạt động dùng chung repository/phiên
   return ctl;
 }
