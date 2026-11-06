@@ -85,13 +85,15 @@ export class TestEmployeeAccess extends DbEmployeeAccess {
   }
 }
 
-export interface TestApp { app: INestApplication; audit: RecordingAuditPort; access: TestEmployeeAccess }
+// B3 A6: actors (null khi denyAll) để test thêm preset cho nhân viên tạo trong beforeAll.
+export interface TestApp { app: INestApplication; audit: RecordingAuditPort; access: TestEmployeeAccess; actors: TestActorProvider | null }
 export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verifiedLinks?: boolean; denyAll?: boolean } = {}): Promise<TestApp> {
   const audit = new RecordingAuditPort();
   const access = new TestEmployeeAccess();
   let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule, ActivitiesModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(AUDIT_PORT).useValue(audit)
     .overrideProvider(EMPLOYEE_ACCESS).useValue(access);
-  if (!opts.denyAll) b = b.overrideProvider(ACTOR_PROVIDER).useValue(new TestActorProvider(fx));
+  const actors = opts.denyAll ? null : new TestActorProvider(fx);
+  if (actors) b = b.overrideProvider(ACTOR_PROVIDER).useValue(actors);
   if (opts.verifiedLinks) b = b.overrideProvider(ACTIVE_LINKS_CHECKER).useValue(new TestLinksChecker());
   const mod = await b.compile();
   const app = mod.createNestApplication();
@@ -103,7 +105,7 @@ export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verif
   // Lắng nghe sẵn cổng tạm 127.0.0.1: nếu không, supertest gọi server.listen(0) cho MỖI yêu cầu trên cùng http.Server chưa lắng nghe;
   // nhiều yêu cầu song song cộng dồn listener 'listening'/'close' -> MaxListenersExceededWarning. app.close() đóng server này.
   await app.listen(0, '127.0.0.1');
-  return { app, audit, access };
+  return { app, audit, access, actors };
 }
 
 export function as(app: INestApplication, who?: string) {
@@ -113,7 +115,8 @@ export function as(app: INestApplication, who?: string) {
     get: (u: string) => h(srv().get(u)),
     post: (u: string, body: object = {}) => h(srv().post(u)).send(body),
     patch: (u: string, body: object = {}) => h(srv().patch(u)).send(body),
-    delete: (u: string) => h(srv().delete(u)),
+    // B3 A6: DELETE /activities/:id nhận lý do ở body.
+    delete: (u: string, body?: object) => (body ? h(srv().delete(u)).send(body) : h(srv().delete(u))),
   };
 }
 

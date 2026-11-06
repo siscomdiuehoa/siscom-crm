@@ -1077,3 +1077,85 @@ describe('B3 A5 — Hoạt động qua API thật (phiên + vai trò + audit th�
     expect((await srv().get('/api/v1/activities/assignee-candidates?customerId=' + cust.id).set('Cookie', techS.cookie)).status).toBe(403);
   });
 });
+
+// B3 A6 — vòng đời việc + quyền theo việc (§5.4) bằng PHIÊN THẬT: quyền activity.* từ vai trò bootstrap, thẩm quyền kỹ thuật của người nhận đọc
+// vai trò THẬT (DbEmployeeAccess), ghi activity/activity_access bằng siscom_app (APP_GRANTS_V4), nhật ký THẬT vào audit_log (SENSITIVE_KEYS).
+describe('B3 A6 — Công việc + quyền theo việc qua API thật', () => {
+  const C = '/api/v1/customers/';
+  const A = '/api/v1/activities/';
+  const w = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
+  let adminS: { cookie: string; csrf: string }; let saleS: { cookie: string; csrf: string }; let techS: { cookie: string; csrf: string }; let acctS: { cookie: string; csrf: string };
+  const id: Record<string, string> = {};
+  let cust: { id: string; code: string };
+  let task: { id: string; code: string; version: number };
+  const secret = 'Nội dung khảo sát riêng ' + Date.now();
+  beforeAll(async () => {
+    adminS = await session('admin'); saleS = await session('sale'); techS = await session('technician'); acctS = await session('accountant');
+    for (const k of ['admin', 'sale', 'technician', 'accountant']) id[k] = (await prisma.employee.findFirstOrThrow({ where: { code: codes[k] }, select: { id: true } })).id;
+    cust = await makeCustomer(prisma, fx, { ownerId: id.sale, phone: '0903123471', phoneE164: '+84903123471' }); // khách của SALE (phòng KD)
+  });
+  const due = () => new Date(Date.now() + 3 * 86400000).toISOString();
+
+  it('SALE giao TASK cho KỸ THUẬT phòng khác: không external => 400; external=true => 201 + activity_access THẬT + audit access_grant', async () => {
+    const no = await srv().post(C + cust.id + '/activities').set(w(saleS)).send({ type: 'TASK', content: secret, dueAt: due(), performedById: id.technician });
+    expect(no.status).toBe(400);
+    const r = await srv().post(C + cust.id + '/activities').set(w(saleS)).send({ type: 'TASK', content: secret, dueAt: due(), performedById: id.technician, external: true });
+    expect(r.status).toBe(201);
+    task = r.body.data;
+    const acc = await prisma.activityAccess.findMany({ where: { activityId: task.id }, select: { employeeId: true, grantedById: true, revokedAt: true, createdAt: true, expiresAt: true } });
+    expect(acc).toHaveLength(1);
+    expect(acc[0]).toMatchObject({ employeeId: id.technician, grantedById: id.sale, revokedAt: null });
+    expect(Math.round((acc[0].expiresAt.getTime() - acc[0].createdAt.getTime()) / 3600000)).toBe(72 + 168);
+    const logs = await prisma.auditLog.findMany({ where: { entityId: task.id }, select: { action: true }, orderBy: { id: 'asc' } });
+    expect(logs.map((l) => l.action)).toEqual(['activity.create', 'activity.assign', 'activity.access_grant']);
+  });
+  it('KỸ THUẬT (chỉ quyền theo việc): danh sách/chi tiết/thẻ khách 200; timeline/lịch sử 404; sửa nội dung 403; không CSRF 403', async () => {
+    const l = await srv().get('/api/v1/activities?assignee=me&pageSize=100').set('Cookie', techS.cookie);
+    expect(l.status).toBe(200);
+    expect(l.body.data.items.find((i: { id: string }) => i.id === task.id)).toMatchObject({ access: 'TASK' });
+    const d = await srv().get(A + task.id).set('Cookie', techS.cookie);
+    expect(d.status).toBe(200);
+    expect(d.body.data.access).toBe('TASK');
+    const wc = await srv().get(A + task.id + '/work-card').set('Cookie', techS.cookie);
+    expect(wc.status).toBe(200);
+    expect(wc.body.data.customer).toMatchObject({ code: cust.code });
+    expect((await srv().get(C + cust.id + '/activities').set('Cookie', techS.cookie)).status).toBe(404);
+    expect((await srv().get(A + task.id + '/history').set('Cookie', techS.cookie)).status).toBe(404);
+    expect((await srv().patch(A + task.id).set(w(techS)).send({ version: task.version, content: 'sửa' })).status).toBe(403);
+    expect((await srv().patch(A + task.id).set('Cookie', techS.cookie).send({ version: task.version, outcome: 'x' })).status).toBe(403);
+    const s = await srv().get(A + 'reminders/summary').set('Cookie', techS.cookie);
+    expect(s.status).toBe(200);
+    expect(Object.keys(s.body.data).sort()).toEqual(['overdue', 'pendingApprovals', 'today', 'transferDecisions', 'upcoming7d']);
+    expect(s.body.data.upcoming7d).toBeGreaterThanOrEqual(1);
+  });
+  it('KỸ THUẬT hoàn thành (kèm kết quả) => DONE; quyền theo việc thu hồi COMPLETED trong audit_log THẬT (che kết quả); sau đó 404', async () => {
+    const r = await srv().post(A + task.id + '/complete').set(w(techS)).send({ version: task.version, outcome: 'Kết quả đo riêng' });
+    expect(r.status).toBe(200);
+    expect(r.body.data).toMatchObject({ status: 'DONE', completedById: id.technician });
+    const rev = await prisma.auditLog.findFirst({ where: { entityId: task.id, action: 'activity.access_revoke' }, select: { changes: true, actorId: true } });
+    expect(rev).toMatchObject({ actorId: id.technician, changes: { employeeId: id.technician, revokeReason: 'COMPLETED' } });
+    const done = await prisma.auditLog.findFirst({ where: { entityId: task.id, action: 'activity.complete' }, select: { changes: true } });
+    expect(done!.changes).toMatchObject({ outcome: '(đã thay đổi)', status: ['OPEN', 'DONE'] });
+    expect((await srv().get(A + task.id).set('Cookie', techS.cookie)).status).toBe(404);
+  });
+  it('SALE xem lịch sử THẬT (không lộ nội dung); KẾ TOÁN đọc chi tiết 200 nhưng không mở lại; SALE mở lại => cờ assigneeLostAccess', async () => {
+    const h = await srv().get(A + task.id + '/history').set('Cookie', saleS.cookie);
+    expect(h.status).toBe(200);
+    expect(h.body.data.items.map((i: { action: string }) => i.action)).toEqual(['activity.create', 'activity.assign', 'activity.access_grant', 'activity.complete', 'activity.access_revoke']);
+    expect(JSON.stringify(h.body)).not.toContain(secret);
+    expect(JSON.stringify(h.body)).not.toContain('Kết quả đo riêng');
+    expect((await srv().get(A + task.id).set('Cookie', acctS.cookie)).status).toBe(200);
+    expect((await srv().post(A + task.id + '/reopen').set(w(acctS)).send({ version: task.version + 1 })).status).toBe(403);
+    const ro = await srv().post(A + task.id + '/reopen').set(w(saleS)).send({ version: task.version + 1 });
+    expect(ro.status).toBe(200);
+    expect(ro.body.data).toMatchObject({ status: 'OPEN', completedAt: null, assigneeLostAccess: true });
+  });
+  it('xoá mềm: SALE 403; CRM_ADMIN 200, lý do che trong audit_log THẬT', async () => {
+    expect((await srv().delete(A + task.id).set(w(saleS)).send({ reason: 'x' })).status).toBe(403);
+    const r = await srv().delete(A + task.id).set(w(adminS)).send({ reason: 'Lý do xoá riêng' });
+    expect(r.status).toBe(200);
+    const log = await prisma.auditLog.findFirst({ where: { entityId: task.id, action: 'activity.delete' }, select: { changes: true, summary: true, actorId: true } });
+    expect(log).toMatchObject({ actorId: id.admin, changes: { reason: '(đã thay đổi)' }, summary: 'Xoá mềm hoạt động ' + task.code + ' (TASK)' });
+    expect((await srv().get(A + task.id).set('Cookie', saleS.cookie)).status).toBe(404);
+  });
+});
