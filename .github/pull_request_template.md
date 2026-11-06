@@ -41,6 +41,16 @@
 - [ ] Không đổi hợp đồng API đã chốt (hoặc đã nêu rõ và được duyệt)
 - [ ] Không thêm dependency (hoặc đã nêu gói, phiên bản ghim, kiểm tra peer)
 
+## Review độc lập (ChatGPT, theo docs/QUY_TRINH_PHOI_HOP_AI.md)
+| Vòng | Phạm vi diff (sha..sha) | Kết quả | Lỗi mở (P0/P1/P2/P3) |
+|---|---|---|---|
+| R1 | | | |
+| R2 | | | |
+| R3 | | | |
+
+- [ ] Không quá 3 vòng (vòng thêm cần `OWNER_APPROVED_EXTRA_ROUND`)
+- [ ] Báo cáo kết luận `[KET-LUAN]` đã gửi Owner trước khi trình merge
+
 ## Tài liệu và rủi ro
 - [ ] Đã cập nhật tài liệu / PROGRESS liên quan
 - Rủi ro và điểm chưa kiểm chứng:

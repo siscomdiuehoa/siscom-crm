@@ -1,9 +1,11 @@
-# AGENTS.md — Quy tắc an toàn cho trợ lý lập trình AI (Codex, Claude, …)
+# AGENTS.md — Quy tắc an toàn cho trợ lý lập trình AI
 
 Áp dụng cho mọi tác tử làm việc trong kho này. Quy tắc nhấn mạnh **an toàn dữ liệu trước, tốc độ sau**. Khi nghi ngờ: dừng lại và hỏi.
 
+**Vai trò và review:** Claude (Kai) là CTO, kiến trúc sư, lập trình viên và người sửa lỗi; ChatGPT là reviewer độc lập; Owner phê duyệt quyết định quan trọng. Chưa dùng Codex, Gemini. Mọi PR theo [docs/QUY_TRINH_PHOI_HOP_AI.md](docs/QUY_TRINH_PHOI_HOP_AI.md): tối đa 3 vòng review, chỉ review diff mới, gom lỗi theo nhóm, không báo lại lỗi đã đóng.
+
 ## 1. Bắt đầu mỗi phiên
-1. Đọc [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md) (trạng thái, quyết định kỹ thuật, ràng buộc) và [CONTRIBUTING.md](CONTRIBUTING.md).
+1. Đọc [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md) (trạng thái, quyết định kỹ thuật, ràng buộc), [CONTRIBUTING.md](CONTRIBUTING.md) và [quy trình phối hợp AI](docs/QUY_TRINH_PHOI_HOP_AI.md).
 2. Kiểm tra nhánh hiện tại và `git status`. Không làm việc trên `main`; dùng nhánh riêng và Pull Request. Không tự merge, không push khi chưa được người dùng chấp thuận.
 3. Chỉ ghi vào báo cáo những gì đã **xác minh** từ kho hoặc từ kết quả chạy thật. Không suy đoán trạng thái nghiệm thu, không tuyên bố PASS khi chưa có kết quả thật.
 
