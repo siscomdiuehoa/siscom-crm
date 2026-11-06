@@ -132,7 +132,9 @@ test('CSS đáp ứng: hai cột từ 900 px, banner dọc dưới 900, tablet 6
   assert.match(css, /grid-template-columns:minmax\(0,1fr\)/);
   assert.match(css, /\.lg3-card \.sg-control\{[^}]*min-width:0/);
   assert.match(css, /\.lg3-card \.sg-input\{min-width:0;font-size:16px/); // 16px: iOS không tự phóng to khi focus
-  assert.match(css, /backdrop-filter:blur\(22px\)/);
+  assert.match(css, /backdrop-filter:blur\(var\(--glass-blur\)\) saturate/);
+  for (const v of ['--o1:', '--o2:', '--o3:', '--o4:', '--oa:', '--glass-a:', '--glass-blur:', '--radius:', '--tilt:']) assert.ok(css.includes(v), 'bien tuy chinh ' + v);
+  assert.match(css, /\.lg3-orb--1/);
   assert.match(css, /@supports not \(\(backdrop-filter:blur\(1px\)\)/); // có phương án dự phòng khi trình duyệt không hỗ trợ kính mờ
   assert.match(css, /env\(safe-area-inset-bottom\)/);
   assert.match(css, /min-height:44px/); // vùng chạm >= 44 px

@@ -51,6 +51,24 @@ export default function LoginScreen({ session, enabled = false }) {
     if (el && !el.disabled) el.focus();
   }, [focusRequest]);
 
+  // Hiệu ứng kính 3D: khung nghiêng tối đa vài độ theo con trỏ + vệt sáng phản chiếu. CHỈ khi có chuột (hover:hover), tắt khi giảm chuyển động.
+  // Không đổi dữ liệu/logic: chỉ đặt biến CSS --rx/--ry/--mx/--my trên khung.
+  const tiltOk = React.useRef(null);
+  const onWrapMove = (e) => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    if (tiltOk.current === null) tiltOk.current = window.matchMedia('(hover:hover) and (pointer:fine) and (prefers-reduced-motion:no-preference)').matches;
+    if (!tiltOk.current) return;
+    const el = e.currentTarget; const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const px = (e.clientX - r.left) / r.width; const py = (e.clientY - r.top) / r.height;
+    const max = parseFloat(getComputedStyle(el).getPropertyValue('--tilt')) || 4;
+    el.style.setProperty('--ry', ((px - 0.5) * 2 * max).toFixed(2) + 'deg');
+    el.style.setProperty('--rx', ((0.5 - py) * 2 * max).toFixed(2) + 'deg');
+    el.style.setProperty('--mx', (px * 100).toFixed(1) + '%');
+    el.style.setProperty('--my', (py * 100).toFixed(1) + '%');
+  };
+  const onWrapLeave = (e) => { const s = e.currentTarget.style; s.setProperty('--rx', '0deg'); s.setProperty('--ry', '0deg'); s.removeProperty('--mx'); s.removeProperty('--my'); };
+
   if (!enabled) return null;
   const view = deriveLoginView({ status: state.status, error: state.error, identifier, password, touched });
 
@@ -72,9 +90,10 @@ export default function LoginScreen({ session, enabled = false }) {
   return (
     <main className="login-shell" data-login="v3" style={{ display: 'block', padding: 0 }}>
       <div className="lg3">
+        {/* nền loang màu pastel (tím – hồng – xanh) như mẫu Colorlib login-page-10; trang trí thuần tuý */}
+        <div className="lg3-orbs" aria-hidden="true"><span className="lg3-orb lg3-orb--1" /><span className="lg3-orb lg3-orb--2" /><span className="lg3-orb lg3-orb--3" /><span className="lg3-orb lg3-orb--4" /></div>
         <aside className="lg3-hero" data-photo={LOGIN_HERO_PHOTO ? 'true' : undefined}>
           {LOGIN_HERO_PHOTO ? <img className="lg3-photo" src={LOGIN_HERO_PHOTO} alt="" aria-hidden="true" /> : <LoginHeroScene />}
-          <div className="lg3-hero__tint" aria-hidden="true" />
           <div className="lg3-hero__body">
             <p className="lg3-eyebrow"><span className="lg3-eyebrow__dot" aria-hidden="true" />{T.eyebrow}</p>
             <h2 className="lg3-hero__title">{T.heroTitle}</h2>
@@ -86,7 +105,7 @@ export default function LoginScreen({ session, enabled = false }) {
         </aside>
 
         <section className="lg3-pane">
-          <div className="lg3-wrap">
+          <div className="lg3-wrap" onPointerMove={onWrapMove} onPointerLeave={onWrapLeave}>
             <form className="lg3-card" onSubmit={onSubmit} noValidate aria-busy={view.loading || undefined} aria-labelledby="login-title">
               <img className="lg3-logo" src={logo} alt="SISCOM" width="152" height="43" />
               <h1 id="login-title" className="lg3-title">{LOGIN_UI_TEXT.title}</h1>
