@@ -84,7 +84,8 @@ export class ActivityTasksService {
   // contact.read trong phạm vi (rà soát #209 M-1). TASK: chỉ việc + accessExpiresAt (thẻ khách lấy qua /work-card).
   private async present(db: Pick<Tx, 'activityAccess' | '$queryRaw'>, actor: Actor, row: ActivityTaskRow, vis: Vis, extra: Record<string, unknown> = {}) {
     const base = { ...toActivity(row), customer: { id: row.customer.id, code: row.customer.code, name: row.customer.name }, access: vis.mode };
-    if (vis.mode === 'TASK') return { ...base, accessExpiresAt: iso(vis.accessExpiresAt ?? null), assigneeLostAccess: false, ...extra };
+    // R1 PR #211 (§5.4): người chỉ có quyền theo việc KHÔNG nhận contact qua chi tiết/phản hồi ghi — contact tối thiểu chỉ qua /work-card.
+    if (vis.mode === 'TASK') return { ...base, contact: null, accessExpiresAt: iso(vis.accessExpiresAt ?? null), assigneeLostAccess: false, ...extra };
     const s = this.scopeOf(actor);
     const rows = await activeAccessRows(db, [row.id], await dbNow(db));
     const perf = row.performedById ? (await this.access.load(this.prisma, [row.performedById])).get(row.performedById) : undefined;
@@ -140,7 +141,8 @@ export class ActivityTasksService {
       const mode: AccessMode = readsByScope(actor, s, owner) ? 'SCOPE' : 'TASK';
       const a = toActivity(r);
       const lost = mode === 'SCOPE' && assigneeLost(r.status, r.performedById, owner, r.performedById ? perf.get(r.performedById) : undefined, accRows.some((x) => x.activityId === r.id && x.employeeId === r.performedById));
-      return { ...a, contact: mode === 'SCOPE' && !inScope(actor, s('contact.read'), owner) ? null : a.contact, customer: { id: r.customer.id, code: r.customer.code, name: r.customer.name }, access: mode, assigneeLostAccess: lost };
+      // R1 PR #211 (§5.4): TASK => không contact (chỉ qua /work-card); SCOPE => chỉ khi có contact.read trong phạm vi chủ khách.
+      return { ...a, contact: mode === 'SCOPE' && inScope(actor, s('contact.read'), owner) ? a.contact : null, customer: { id: r.customer.id, code: r.customer.code, name: r.customer.name }, access: mode, assigneeLostAccess: lost };
     });
     return { items, page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
   }

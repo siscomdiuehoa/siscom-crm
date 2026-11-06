@@ -37,6 +37,8 @@ beforeAll(async () => {
   preset('techCNoOwn', fx.empC, fx.d2, noOwn()); // cùng người C nhưng phiên đã mất activity.update_own
   const noExt = { ...SALES }; delete noExt['activity.assign_external'];
   preset('salesNoExt', fx.empA, fx.d1, noExt);   // sale có assign/update nhưng KHÔNG có assign_external
+  const noContact = { ...SALES }; delete noContact['contact.read'];
+  preset('salesNoContact', fx.empA, fx.d1, noContact); // chủ khách (SCOPE) nhưng KHÔNG có contact.read
   cA = await makeCustomer(prisma, fx, { ownerId: fx.empA }); // phòng 1, chủ = A
   cC = await makeCustomer(prisma, fx, { ownerId: fx.empC }); // phòng 2, chủ = C
 });
@@ -132,6 +134,41 @@ describe('chuông + bộ lọc hạn theo giờ VN (§7)', () => {
     expect((await a('salesS').get(A + 'reminders/summary')).body.data.overdue).toBe(3);
     await prisma.customer.update({ where: { id: cx.id }, data: { ownerId: fx.empA } });
     expect((await a('salesS').get(A + 'reminders/summary')).body.data.overdue).toBe(2);
+  });
+});
+
+describe('R1 PR #211 — tối thiểu hoá người liên hệ (§5.4)', () => {
+  const itemOf = (r: { body: { data: { items: { id: string; contact: unknown }[] } } }, id: string) => r.body.data.items.find((i) => i.id === id);
+  it('chỉ có quyền theo việc (TASK): danh sách, chi tiết và phản hồi ghi KHÔNG có contact; work-card vẫn trả contact tối thiểu', async () => {
+    const name = 'LH việc ngoài ' + uniq();
+    const ct = await makeContact(prisma, cA.id, name);
+    const x = await externalTask(fx.empC, { contactId: ct.id });
+    const d = await a('techC').get(A + x.id);
+    expect(d.status).toBe(200);
+    expect(d.body.data.access).toBe('TASK');
+    expect(d.body.data.contact).toBeNull();
+    const l = await a('techC').get(L + '?assignee=me&due=all&pageSize=100');
+    expect(itemOf(l, x.id)).toMatchObject({ access: 'TASK', contact: null });
+    const p = await a('techC').patch(A + x.id, { version: x.version, outcome: 'Đã khảo sát' });
+    expect(p.status).toBe(200);
+    expect(p.body.data.contact).toBeNull();
+    const w = await a('techC').get(A + x.id + '/work-card');
+    expect(w.status).toBe(200);
+    expect(Object.keys(w.body.data.contact).sort()).toEqual(['fullName', 'phone', 'title']);
+    expect(w.body.data.contact.fullName).toBe(name);
+    expect(JSON.stringify(d.body) + JSON.stringify(l.body) + JSON.stringify(p.body)).not.toContain(name);
+  });
+  it('theo phạm vi khách (SCOPE): có contact khi có contact.read; thiếu contact.read => contact null ở danh sách và chi tiết', async () => {
+    const name = 'LH việc trong ' + uniq();
+    const ct = await makeContact(prisma, cA.id, name);
+    const x = await mkTask('salesA', cA.id, { contactId: ct.id });
+    const q = L + '?assignee=me&due=all&pageSize=100';
+    expect((await a('salesA').get(A + x.id)).body.data.contact).toMatchObject({ id: ct.id, fullName: name });
+    expect(itemOf(await a('salesA').get(q), x.id)).toMatchObject({ access: 'SCOPE', contact: { id: ct.id, fullName: name } });
+    const d = await a('salesNoContact').get(A + x.id);
+    expect(d.status).toBe(200);
+    expect(d.body.data).toMatchObject({ access: 'SCOPE', contact: null });
+    expect(itemOf(await a('salesNoContact').get(q), x.id)).toMatchObject({ access: 'SCOPE', contact: null });
   });
 });
 
