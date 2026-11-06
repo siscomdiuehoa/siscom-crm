@@ -8,7 +8,7 @@ import { DomainException } from '../../common/errors/domain.exception';
 import { mapPrismaError } from '../../common/errors/prisma-error.mapper';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  AccessMode, activeAccessRows, activeTaskAccess, assigneeLost, grantAccess, ownerInfo, planAssignment, readsByScope, revokeAccess,
+  AccessMode, activeAccessRows, activeTaskAccess, assigneeLost, dbNow, grantAccess, ownerInfo, planAssignment, readsByScope, revokeAccess,
   scopeReadWhere, ScopeOf, sweepStaleAccess, taskAccessWhere, withdrawPendingTransfers, WriteCtx,
 } from './activities.access';
 import { EMPLOYEE_ACCESS, EmployeeAccessReader } from './activities.employee-access';
@@ -82,11 +82,11 @@ export class ActivityTasksService {
 
   // Trình bày một hoạt động. SCOPE: thêm cờ assigneeLostAccess + danh sách người đang có quyền theo việc; người liên hệ chỉ hiện khi có
   // contact.read trong phạm vi (rà soát #209 M-1). TASK: chỉ việc + accessExpiresAt (thẻ khách lấy qua /work-card).
-  private async present(db: Pick<Tx, 'activityAccess'>, actor: Actor, row: ActivityTaskRow, vis: Vis, extra: Record<string, unknown> = {}) {
+  private async present(db: Pick<Tx, 'activityAccess' | '$queryRaw'>, actor: Actor, row: ActivityTaskRow, vis: Vis, extra: Record<string, unknown> = {}) {
     const base = { ...toActivity(row), customer: { id: row.customer.id, code: row.customer.code, name: row.customer.name }, access: vis.mode };
     if (vis.mode === 'TASK') return { ...base, accessExpiresAt: iso(vis.accessExpiresAt ?? null), assigneeLostAccess: false, ...extra };
     const s = this.scopeOf(actor);
-    const rows = await activeAccessRows(db, [row.id], new Date());
+    const rows = await activeAccessRows(db, [row.id], await dbNow(db));
     const perf = row.performedById ? (await this.access.load(this.prisma, [row.performedById])).get(row.performedById) : undefined;
     const lost = assigneeLost(row.status, row.performedById, vis.owner, perf, rows.some((r) => r.employeeId === row.performedById));
     return {
@@ -106,7 +106,7 @@ export class ActivityTasksService {
     const page = q.page ?? 1;
     const pageSize = q.pageSize ?? 20;
     if (page * pageSize > MAX_OFFSET_WINDOW) throw activityErrors.validation(['page × pageSize vượt quá ' + MAX_OFFSET_WINDOW + '.']);
-    const now = new Date();
+    const now = await dbNow(this.prisma); // quyết định Owner #4: đồng hồ PostgreSQL cho cả vị từ quyền và mốc ngày VN
     const vis: Prisma.ActivityWhereInput[] = [scopeReadWhere(actor, s)];
     const ta = taskAccessWhere(actor, s, now);
     if (ta) vis.push(ta);
@@ -153,7 +153,7 @@ export class ActivityTasksService {
     const { actor } = ctx;
     this.need(actor, 'activity.read');
     const s = this.scopeOf(actor);
-    const now = new Date();
+    const now = await dbNow(this.prisma); // quyết định Owner #4: đồng hồ PostgreSQL cho cả vị từ quyền và mốc ngày VN
     const vis: Prisma.ActivityWhereInput[] = [scopeReadWhere(actor, s)];
     const ta = taskAccessWhere(actor, s, now);
     if (ta) vis.push(ta);
@@ -257,7 +257,7 @@ export class ActivityTasksService {
   // KHÔNG còn dòng quyền hiệu lực (hết hạn / thu hồi thủ công / mở lại / ROLE_LOST rồi được gán lại vai trò). Còn quyền hoặc đọc được khách => không làm gì.
   private async regrantSelf(tx: Tx, actor: Actor, row: ActivityTaskRow, vis: Vis, to: string): Promise<boolean> {
     if (row.type !== 'TASK' || row.status !== 'OPEN') return false;
-    if ((await activeAccessRows(tx, [row.id], new Date())).some((r) => r.employeeId === to)) return false;
+    if ((await activeAccessRows(tx, [row.id], await dbNow(tx))).some((r) => r.employeeId === to)) return false;
     return planAssignment(actor, this.scopeOf(actor), vis.owner, (await this.access.load(tx, [to])).get(to), { external: true, openTask: true }) === 'EXTERNAL';
   }
 
@@ -337,7 +337,7 @@ export class ActivityTasksService {
       } else if (dueChanged && isTask && row.status === 'OPEN' && !kind) {
         // §5.4 đổi hạn: quyền theo việc còn hiệu lực + người PATCH có assign_external trong phạm vi khách => thu hồi DUE_CHANGED + cấp lại theo hạn mới.
         // Không có assign_external => giữ nguyên quyền cũ, trả accessExpiresAt để giao diện cảnh báo (không gia hạn ngầm).
-        const holders = (await activeAccessRows(tx, [row.id], new Date())).filter((r) => r.employeeId !== actor.employeeId);
+        const holders = (await activeAccessRows(tx, [row.id], await dbNow(tx))).filter((r) => r.employeeId !== actor.employeeId);
         if (holders.length) {
           if (vis.mode === 'SCOPE' && inScope(actor, s('activity.assign_external'), vis.owner)) {
             for (const h of holders) { const g = await grantAccess(w, h.employeeId, 'DUE_CHANGED'); accessExpiresAt = g.expiresAt.toISOString(); }

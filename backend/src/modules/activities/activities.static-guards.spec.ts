@@ -60,6 +60,19 @@ describe('kiểm tra tĩnh module activities (A5 + A6)', () => {
     expect(timeline.length).toBeGreaterThan(100);
     expect(timeline).not.toMatch(/activity_access|accesses|taskAccess|activityAccess/);
   });
+  it('quyết định Owner #4: so thời hạn quyền theo việc bằng đồng hồ PostgreSQL (dbNow), không bằng giờ Node', () => {
+    const a = text('activities.access.ts');
+    expect(a).toMatch(/export async function dbNow\(/);
+    const sweep = a.slice(a.indexOf('export async function sweepStaleAccess('));
+    expect(sweep).not.toMatch(/Date\.now\(\)|new Date\(\)/);
+    for (const f of ['activities.service.ts', 'activities.tasks.service.ts', 'activities.transfers.service.ts']) {
+      const s = text(f);
+      expect(s).not.toMatch(/activeAccessRows\([^;]*new Date\(/);
+      expect(s).not.toMatch(/taskAccessWhere\([^;]*new Date\(/);
+      // Biến now truyền vào vị từ quyền phải lấy từ dbNow().
+      for (const m of s.matchAll(/taskAccessWhere\(actor, s, (\w+)\)/g)) expect(s).toMatch(new RegExp('const ' + m[1] + ' = await dbNow\\('));
+    }
+  });
   it('khoá nhạy cảm của nhật ký: lý do thu hồi dùng revokeReason (không dùng khoá reason trần)', () => {
     for (const f of ['activities.access.ts', 'activities.customer-hooks.ts']) expect(text(f)).not.toMatch(/changes: \{[^}]*\breason: r\./);
   });

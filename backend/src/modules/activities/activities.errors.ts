@@ -19,6 +19,8 @@ export const activityErrors = {
   alreadyOpen: () => new DomainException(409, 'ACTIVITY_ALREADY_OPEN', 'Công việc đang mở, không cần mở lại.'),
   notTask: () => new DomainException(409, 'ACTIVITY_NOT_TASK', 'Thao tác này chỉ áp dụng cho công việc (TASK).'),
   externalNotAllowed: () => new DomainException(400, 'ACTIVITY_EXTERNAL_NOT_ALLOWED', 'Chỉ giao được công việc đang mở cho người có thẩm quyền kỹ thuật ở phòng khác.', { field: 'performedById' }),
+  // Quyết định Owner #2 (06/11/2026): người nhận thiếu activity.update_own => 403 (không đủ quyền), cùng mã để client xử lý chung.
+  externalAssigneeForbidden: () => new DomainException(403, 'ACTIVITY_EXTERNAL_NOT_ALLOWED', 'Người nhận không có quyền xử lý công việc kỹ thuật được giao ra ngoài phạm vi.', { field: 'performedById' }),
   transferPending: () => new DomainException(409, 'ACTIVITY_TRANSFER_PENDING', 'Công việc đã có một đề xuất chuyển đang chờ duyệt.'),
   transferNotAllowed: (message = 'Không có quyền với đề xuất chuyển việc này.') => new DomainException(403, 'ACTIVITY_TRANSFER_NOT_ALLOWED', message),
   transferNotPending: () => new DomainException(409, 'ACTIVITY_TRANSFER_NOT_PENDING', 'Đề xuất chuyển việc không còn chờ duyệt.'),

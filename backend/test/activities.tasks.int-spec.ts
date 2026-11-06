@@ -263,17 +263,19 @@ describe('POST assign / complete / reopen', () => {
 });
 
 describe('quyền theo việc §5.4 — giao ra ngoài phạm vi', () => {
-  it('không external => quy tắc A5 (phòng khác => 400 INVALID); external nhưng thiếu assign_external => 403; người nhận không có update_own => 400 EXTERNAL_NOT_ALLOWED', async () => {
+  it('không external => quy tắc A5 (phòng khác => 400 INVALID); external nhưng thiếu assign_external => 403; người nhận không có update_own => 403 EXTERNAL_NOT_ALLOWED (quyết định Owner #2); việc không phải TASK => 400', async () => {
     const x = await mkTask('salesA', cA.id);
     expect((await a('salesA').post(A + x.id + '/assign', { performedById: fx.empC, version: x.version })).body.error.code).toBe('ACTIVITY_ASSIGNEE_INVALID');
     expect((await a('salesNoExt').post(A + x.id + '/assign', { performedById: fx.empC, version: x.version, external: true })).status).toBe(403);
     const k = await makeEmployee({ fullName: 'KT không update_own ' + uniq(), departmentId: fx.d2 });
     t.access.scopes.set(k.id, { 'lookup.read': 'ALL' }); // không đọc được khách, không update_own
     const r = await a('salesA').post(A + x.id + '/assign', { performedById: k.id, version: x.version, external: true });
-    expect(r.status).toBe(400);
+    expect(r.status).toBe(403);
     expect(r.body.error.code).toBe('ACTIVITY_EXTERNAL_NOT_ALLOWED');
     const note = await a('salesA').post(C + cA.id + '/activities', { type: 'NOTE', content: 'n' });
-    expect((await a('salesA').post(A + note.body.data.id + '/assign', { performedById: fx.empC, version: 1, external: true })).body.error.code).toBe('ACTIVITY_EXTERNAL_NOT_ALLOWED');
+    const rn = await a('salesA').post(A + note.body.data.id + '/assign', { performedById: fx.empC, version: 1, external: true });
+    expect(rn.status).toBe(400);
+    expect(rn.body.error.code).toBe('ACTIVITY_EXTERNAL_NOT_ALLOWED');
     expect(await prisma.activityAccess.count({ where: { activityId: x.id } })).toBe(0);
   });
   it('tạo TASK giao ngoài phạm vi (external=true) => 201 + 1 dòng activity_access + audit create/assign/access_grant', async () => {
@@ -346,6 +348,22 @@ describe('quyền theo việc §5.4 — giao ra ngoài phạm vi', () => {
     const rows = await accessRows(x.id);
     expect(rows.map((z) => [z.employeeId, z.revokeReason])).toEqual([[fx.empC, 'MANUAL'], [fx.empC, 'EXPIRED'], [fx.empC, null]]);
     expect((await a('techC').get(A + x.id)).status).toBe(200);
+  });
+  it('quyết định Owner #4: thời hạn quyền theo việc theo đồng hồ PostgreSQL — giờ Node lùi 2 giờ vẫn KHÔNG coi quyền đã hết hạn là còn hiệu lực', async () => {
+    const x = await externalTask();
+    await prisma.$executeRaw`UPDATE activity_access SET revoked_at = now(), revoked_by = ${fx.empA}::uuid, revoke_reason = 'MANUAL' WHERE activity_id = ${x.id}::uuid AND revoked_at IS NULL`;
+    await prisma.$executeRaw`INSERT INTO activity_access (activity_id, employee_id, granted_by, expires_at) VALUES (${x.id}::uuid, ${fx.empC}::uuid, ${fx.empA}::uuid, now() + interval '1 second')`;
+    await new Promise((r) => setTimeout(r, 1300)); // hết hạn theo giờ DB
+    // Chỉ giả Date của Node (lùi 2 giờ): theo giờ Node dòng quyền vẫn "còn hạn". Hẹn giờ/IO giữ thật để HTTP và pg chạy bình thường.
+    jest.useFakeTimers({ now: Date.now() - 2 * HOUR, doNotFake: ['hrtime', 'nextTick', 'performance', 'queueMicrotask', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
+    try {
+      const list = await a('techC').get(L + '?assignee=me&due=all&pageSize=100');
+      expect(list.status).toBe(200);
+      expect(list.body.data.items.map((i: { id: string }) => i.id)).not.toContain(x.id);
+      expect((await a('techC').get(A + x.id)).status).toBe(404);
+      expect((await a('salesA').get(A + x.id)).body.data.assigneeLostAccess).toBe(true);
+      expect((await a('salesA').get(A + x.id)).body.data.taskAccesses).toEqual([]);
+    } finally { jest.useRealTimers(); }
   });
   it('expires_at tính bằng SQL: hạn quá khứ => +168h; hạn +23 ngày => trần 720h; hạn +60 ngày => trần 720h', async () => {
     const hours = async (dueMs: number) => {
@@ -580,6 +598,16 @@ describe('xoá mềm khách hàng (CustomersService.softDelete) — thu hồi qu
     const w = await a('all').patch(A + x.id, { version: await ver(x.id), title: 'x' });
     expect(w.status).toBe(409);
     expect(w.body.error.code).toBe('CUSTOMER_DELETED');
+    // Quyết định Owner #5: MỌI thao tác ghi trên việc của khách đã xoá đều bị từ chối (kể cả người có customer.restore).
+    const v = await ver(x.id);
+    for (const [path, body, method] of [
+      ['/complete', { version: v }, 'post'], ['/reopen', { version: v }, 'post'], ['/assign', { performedById: fx.empA, version: v }, 'post'],
+      ['/access/revoke', { employeeId: fx.empC }, 'post'], ['', { reason: 'x' }, 'delete'],
+    ] as const) {
+      const r = method === 'post' ? await a('all').post(A + x.id + path, body) : await a('all').delete(A + x.id, body);
+      expect([path, r.status, r.body.error?.code]).toEqual([path, 409, 'CUSTOMER_DELETED']);
+    }
+    expect(await ver(x.id)).toBe(v);
     expect((await a('acctA').get(A + x.id)).status).toBe(404);  // không có customer.restore
     expect((await a('all').get(A + x.id)).status).toBe(200);    // có customer.restore (như timeline includeDeleted)
   });

@@ -13,6 +13,8 @@ const of = (s: Scopes) => (p: Permission) => s[p] ?? null;
 const emp = (id: string, departmentId: string | null, scopes: Scopes, active = true): EmployeeAccess => ({ id, departmentId, active, scopes });
 const ownSales = { ownerId: 'e-sales', ownerDepartmentId: 'KD' };
 const code = (fn: () => unknown): string => { try { fn(); return 'OK'; } catch (e) { return e instanceof DomainException ? e.code : 'THROW'; } };
+// Mã + HTTP status (quyết định Owner #2, 06/11/2026: người nhận thiếu update_own => 403; loại/trạng thái việc không hợp lệ => 400).
+const codeStatus = (fn: () => unknown): string => { try { fn(); return 'OK'; } catch (e) { return e instanceof DomainException ? e.getStatus() + ' ' + e.code : 'THROW'; } };
 
 describe('planAssignment (§5, §5.4)', () => {
   const techKD = emp('t-kd', 'KD', TECH); const techKT = emp('t-kt', 'KT', TECH); const acctKT = emp('a-kt', 'KT', ACCT);
@@ -26,9 +28,11 @@ describe('planAssignment (§5, §5.4)', () => {
   it('external: kỹ thuật phòng khác có update_own, TASK OPEN => EXTERNAL', () => {
     expect(planAssignment(sales, of(SALES), ownSales, techKT, { external: true, openTask: true })).toBe('EXTERNAL');
   });
-  it('external: không phải TASK OPEN, hoặc người nhận thiếu update_own => 400 EXTERNAL_NOT_ALLOWED', () => {
-    expect(code(() => planAssignment(sales, of(SALES), ownSales, techKT, { external: true, openTask: false }))).toBe('ACTIVITY_EXTERNAL_NOT_ALLOWED');
-    expect(code(() => planAssignment(sales, of(SALES), ownSales, emp('k', 'KT', { 'customer.read': 'ALL' }), { external: true, openTask: true }))).toBe('ACTIVITY_EXTERNAL_NOT_ALLOWED');
+  it('external: không phải TASK OPEN => 400; người nhận thiếu update_own => 403 (quyết định Owner #2), cùng mã EXTERNAL_NOT_ALLOWED', () => {
+    expect(codeStatus(() => planAssignment(sales, of(SALES), ownSales, techKT, { external: true, openTask: false }))).toBe('400 ACTIVITY_EXTERNAL_NOT_ALLOWED');
+    expect(codeStatus(() => planAssignment(sales, of(SALES), ownSales, emp('k', 'KT', { 'customer.read': 'ALL' }), { external: true, openTask: true }))).toBe('403 ACTIVITY_EXTERNAL_NOT_ALLOWED');
+    // Cả hai điều kiện cùng sai: loại/trạng thái được kiểm trước => 400.
+    expect(codeStatus(() => planAssignment(sales, of(SALES), ownSales, emp('k2', 'KT', { 'customer.read': 'ALL' }), { external: true, openTask: false }))).toBe('400 ACTIVITY_EXTERNAL_NOT_ALLOWED');
   });
   it('external: người giao thiếu assign_external => 403; thiếu assign => 403; người nhận nghỉ việc => INVALID', () => {
     const noExt = { ...SALES }; delete noExt['activity.assign_external'];

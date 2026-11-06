@@ -61,7 +61,14 @@ export async function activeTaskAccess(db: Pick<Tx, '$queryRaw'>, actor: Actor, 
   return rows.length ? { id: rows[0].id, expiresAt: rows[0].expires_at } : null;
 }
 
-// Dòng truy cập còn hiệu lực của MỘT nhóm hoạt động (để tính cờ assigneeLostAccess, danh sách người được cấp).
+// Quyết định Owner #4 (06/11/2026): mọi phép so thời hạn quyền theo việc dùng ĐỒNG HỒ POSTGRESQL, không dùng giờ Node.
+// Trong transaction, now() là thời điểm bắt đầu transaction — trùng với now() mà grantAccess/revokeAccess dùng khi ghi.
+export async function dbNow(db: Pick<Tx, '$queryRaw'>): Promise<Date> {
+  const rows = await db.$queryRaw<{ now: Date }[]>`SELECT now() AS now`;
+  return rows[0].now;
+}
+
+// Dòng truy cập còn hiệu lực của MỘT nhóm hoạt động (để tính cờ assigneeLostAccess, danh sách người được cấp). now: lấy từ dbNow().
 export async function activeAccessRows(db: Pick<Tx, 'activityAccess'>, activityIds: readonly string[], now: Date) {
   if (!activityIds.length) return [];
   return db.activityAccess.findMany({
@@ -83,7 +90,8 @@ export function assigneeLost(status: string, performedById: string | null, owner
 //  - Không xin external (hoặc người nhận ĐỌC ĐƯỢC khách): đúng quy tắc A5 — ACTIVE; cùng phòng người giao (phạm vi assign = ALL: mọi phòng);
 //    đọc được khách => 'INTERNAL'; không đọc được => 400 ACTIVITY_ASSIGNEE_NO_ACCESS.
 //  - external=true và người nhận KHÔNG đọc được khách: người giao cần thêm activity.assign_external trong phạm vi khách (403); chỉ TASK OPEN và
-//    người nhận có thẩm quyền kỹ thuật (activity.update_own) — không thì 400 ACTIVITY_EXTERNAL_NOT_ALLOWED => 'EXTERNAL' (cấp activity_access).
+//    người nhận có thẩm quyền kỹ thuật (activity.update_own) => 'EXTERNAL' (cấp activity_access). Quyết định Owner #2 (06/11/2026):
+//    không phải TASK OPEN => 400 ACTIVITY_EXTERNAL_NOT_ALLOWED; người nhận thiếu update_own => 403 cùng mã.
 export function planAssignment(actor: Actor, scopeOf: ScopeOf, owner: OwnerInfo, a: EmployeeAccess | undefined, opts: { external: boolean; openTask: boolean }): 'INTERNAL' | 'EXTERNAL' {
   const assignScope = scopeOf('activity.assign');
   if (!inScope(actor, assignScope, owner)) throw activityErrors.forbidden('Không có quyền giao việc cho người khác trên khách hàng này.');
@@ -95,7 +103,8 @@ export function planAssignment(actor: Actor, scopeOf: ScopeOf, owner: OwnerInfo,
     return 'INTERNAL';
   }
   if (!inScope(actor, scopeOf('activity.assign_external'), owner)) throw activityErrors.forbidden('Không có quyền giao việc cho người ngoài phạm vi khách hàng.');
-  if (!opts.openTask || !a.scopes['activity.update_own']) throw activityErrors.externalNotAllowed();
+  if (!opts.openTask) throw activityErrors.externalNotAllowed();
+  if (!a.scopes['activity.update_own']) throw activityErrors.externalAssigneeForbidden();
   return 'EXTERNAL';
 }
 
@@ -169,7 +178,7 @@ export async function sweepStaleAccess(w: WriteCtx, reader: EmployeeAccessReader
   const rows = await w.tx.activityAccess.findMany({ where: { activityId: w.activity.id, revokedAt: null, employeeId: { not: w.actorId } }, select: { employeeId: true, expiresAt: true } });
   if (!rows.length) return;
   const acc = await reader.load(w.tx, rows.map((r) => r.employeeId));
-  const now = Date.now();
+  const now = (await dbNow(w.tx)).getTime();
   for (const r of rows) {
     if (r.expiresAt.getTime() <= now || !hasTechAuthority(acc.get(r.employeeId))) await revokeAccess(w, 'ROLE_LOST', r.employeeId);
   }
