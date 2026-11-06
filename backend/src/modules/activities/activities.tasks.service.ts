@@ -400,7 +400,8 @@ export class ActivityTasksService {
       await withdrawPendingTransfers(w);
       const fresh = await this.reload(tx, row.id);
       // Người chỉ có quyền theo việc: quyền vừa hết cùng transaction => trả bản tối thiểu (không gọi lại present theo SCOPE).
-      return vis.mode === 'TASK' ? { ...toActivity(fresh), customer: { id: fresh.customer.id, code: fresh.customer.code, name: fresh.customer.name }, access: 'TASK' as const, accessExpiresAt: null, assigneeLostAccess: false } : this.present(tx, actor, fresh, vis);
+      // R2 PR #211 (§5.4): như present() nhánh TASK — không trả contact (liên hệ tối thiểu chỉ qua /work-card).
+      return vis.mode === 'TASK' ? { ...toActivity(fresh), contact: null, customer: { id: fresh.customer.id, code: fresh.customer.code, name: fresh.customer.name }, access: 'TASK' as const, accessExpiresAt: null, assigneeLostAccess: false } : this.present(tx, actor, fresh, vis);
     });
   }
 

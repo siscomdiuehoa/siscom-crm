@@ -170,6 +170,24 @@ describe('R1 PR #211 — tối thiểu hoá người liên hệ (§5.4)', () => 
     expect(JSON.stringify(d2.body) + JSON.stringify(l2)).not.toContain(ct.id);
     expect((await a('techCContactAll').get(A + x.id + '/work-card')).body.data.contact.fullName).toBe(name);
   });
+  it('R2 PR #211: POST /activities/:id/complete bởi người chỉ có quyền theo việc => phản hồi không có contact; quyền theo việc bị thu hồi COMPLETED', async () => {
+    const name = 'LH hoàn thành ' + uniq();
+    const ct = await makeContact(prisma, cA.id, name);
+    const x = await externalTask(fx.empC, { contactId: ct.id });
+    const r = await a('techC').post(A + x.id + '/complete', { version: x.version, outcome: 'Xong' });
+    expect(r.status).toBe(200);
+    expect(r.body.data).toMatchObject({ id: x.id, status: 'DONE', access: 'TASK', contact: null });
+    expect(r.body.data).not.toHaveProperty('contactId');
+    expect(JSON.stringify(r.body)).not.toContain(name);
+    expect(JSON.stringify(r.body)).not.toContain(ct.id);
+    // Quyền theo việc vẫn bị thu hồi ngay sau khi hoàn thành (cùng transaction).
+    const rows = await accessRows(x.id);
+    expect(rows.map((z) => [z.employeeId, z.revokeReason])).toEqual([[fx.empC, 'COMPLETED']]);
+    for (const u of [A + x.id, A + x.id + '/work-card']) expect({ u, s: (await a('techC').get(u)).status }).toEqual({ u, s: 404 });
+    expect(itemOf(await a('techC').get(L + '?assignee=me&due=all&status=DONE&pageSize=100'), x.id)).toBeUndefined();
+    // Nhánh SCOPE không đổi: chủ khách có contact.read vẫn thấy người liên hệ của việc đã xong.
+    expect((await a('salesA').get(A + x.id)).body.data.contact).toMatchObject({ id: ct.id, fullName: name });
+  });
   it('theo phạm vi khách (SCOPE): có contact khi có contact.read; thiếu contact.read => contact null ở danh sách và chi tiết', async () => {
     const name = 'LH việc trong ' + uniq();
     const ct = await makeContact(prisma, cA.id, name);
