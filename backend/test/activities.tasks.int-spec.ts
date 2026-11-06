@@ -39,6 +39,7 @@ beforeAll(async () => {
   preset('salesNoExt', fx.empA, fx.d1, noExt);   // sale có assign/update nhưng KHÔNG có assign_external
   const noContact = { ...SALES }; delete noContact['contact.read'];
   preset('salesNoContact', fx.empA, fx.d1, noContact); // chủ khách (SCOPE) nhưng KHÔNG có contact.read
+  preset('techCContactAll', fx.empC, fx.d2, { ...TECH, 'contact.read': 'ALL' }); // vẫn chỉ có quyền theo việc (không đọc được khách) nhưng CÓ contact.read phạm vi khách
   cA = await makeCustomer(prisma, fx, { ownerId: fx.empA }); // phòng 1, chủ = A
   cC = await makeCustomer(prisma, fx, { ownerId: fx.empC }); // phòng 2, chủ = C
 });
@@ -147,16 +148,27 @@ describe('R1 PR #211 — tối thiểu hoá người liên hệ (§5.4)', () => 
     expect(d.status).toBe(200);
     expect(d.body.data.access).toBe('TASK');
     expect(d.body.data.contact).toBeNull();
+    expect(d.body.data).not.toHaveProperty('contactId'); // Owner phương án 2: phản hồi không có khoá contactId; mã liên hệ chỉ nằm trong contact.id (đã ẩn)
     const l = await a('techC').get(L + '?assignee=me&due=all&pageSize=100');
     expect(itemOf(l, x.id)).toMatchObject({ access: 'TASK', contact: null });
+    expect(itemOf(l, x.id)).not.toHaveProperty('contactId');
     const p = await a('techC').patch(A + x.id, { version: x.version, outcome: 'Đã khảo sát' });
     expect(p.status).toBe(200);
     expect(p.body.data.contact).toBeNull();
+    expect(p.body.data).not.toHaveProperty('contactId');
     const w = await a('techC').get(A + x.id + '/work-card');
     expect(w.status).toBe(200);
     expect(Object.keys(w.body.data.contact).sort()).toEqual(['fullName', 'phone', 'title']);
     expect(w.body.data.contact.fullName).toBe(name);
     expect(JSON.stringify(d.body) + JSON.stringify(l.body) + JSON.stringify(p.body)).not.toContain(name);
+    expect(JSON.stringify(d.body) + JSON.stringify(itemOf(l, x.id)) + JSON.stringify(p.body)).not.toContain(ct.id);
+    // TASK nhưng CÓ contact.read phạm vi khách: vẫn chỉ có quyền theo việc => không nhận contact/mã liên hệ ở chi tiết, danh sách (R1: chỉ qua /work-card).
+    const d2 = await a('techCContactAll').get(A + x.id);
+    const l2 = itemOf(await a('techCContactAll').get(L + '?assignee=me&due=all&pageSize=100'), x.id);
+    expect(d2.body.data).toMatchObject({ access: 'TASK', contact: null });
+    expect(l2).toMatchObject({ access: 'TASK', contact: null });
+    expect(JSON.stringify(d2.body) + JSON.stringify(l2)).not.toContain(ct.id);
+    expect((await a('techCContactAll').get(A + x.id + '/work-card')).body.data.contact.fullName).toBe(name);
   });
   it('theo phạm vi khách (SCOPE): có contact khi có contact.read; thiếu contact.read => contact null ở danh sách và chi tiết', async () => {
     const name = 'LH việc trong ' + uniq();
@@ -169,6 +181,7 @@ describe('R1 PR #211 — tối thiểu hoá người liên hệ (§5.4)', () => 
     expect(d.status).toBe(200);
     expect(d.body.data).toMatchObject({ access: 'SCOPE', contact: null });
     expect(itemOf(await a('salesNoContact').get(q), x.id)).toMatchObject({ access: 'SCOPE', contact: null });
+    expect(JSON.stringify(d.body)).not.toContain(ct.id); // thiếu contact.read: không lộ mã liên hệ
   });
 });
 
