@@ -37,8 +37,11 @@ export class QueryTimelineDto {
   includeDeleted?: 'true' | 'false';
 }
 
-// GET /activities/assignee-candidates?customerId= (A5: ứng viên NỘI BỘ; external=true thuộc A6).
+// GET /activities/assignee-candidates?customerId= (A5: ứng viên NỘI BỘ). A6: external=true => ứng viên NGOÀI phạm vi (activity.assign_external).
 export class QueryAssigneeCandidatesDto {
   @IsUUID()
   customerId!: string;
+
+  @IsOptional() @IsIn(['true', 'false'])
+  external?: 'true' | 'false';
 }

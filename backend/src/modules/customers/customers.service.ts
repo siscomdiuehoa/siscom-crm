@@ -7,6 +7,7 @@ import { DomainException } from '../../common/errors/domain.exception';
 import { mapPrismaError, sqlStateOf } from '../../common/errors/prisma-error.mapper';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ACTIVE_LINKS_CHECKER, ActiveLinksChecker } from './customers.deletion-guard';
+import { ACTIVITY_CUSTOMER_HOOKS, ActivityCustomerHooksPort } from '../activities/activities.customer-hooks';
 import { DEFAULT_STATUS_CODE, DEFAULT_TIER_CODE, LOOKUP_TYPES, LookupKey, MAX_OFFSET_WINDOW } from './customers.defaults';
 import { customerErrors } from './customers.errors';
 import { CustomerRow, toDetail, toListItem } from './customers.mapper';
@@ -62,6 +63,8 @@ export class CustomersService {
     @Inject(ACTOR_PROVIDER) private readonly actors: ActorProvider,
     @Inject(AUDIT_PORT) private readonly audit: AuditPort,
     @Inject(ACTIVE_LINKS_CHECKER) private readonly links: ActiveLinksChecker,
+    // B3 A6 (§5, §5.4): giao diện export của module activities — thu hồi quyền theo việc + rút đề xuất chuyển khi xoá mềm khách.
+    @Inject(ACTIVITY_CUSTOMER_HOOKS) private readonly activityHooks: ActivityCustomerHooksPort,
   ) {}
 
   // ───── tiện ích ─────
@@ -359,6 +362,8 @@ export class CustomersService {
       const r = await tx.customer.updateMany({ where: { id, deletedAt: null }, data: { deletedAt: new Date(), deletedById: actor.employeeId, updatedById: actor.employeeId, version: { increment: 1 } } });
       if (r.count !== 1) throw customerErrors.notFound();
       await this.audit.record(tx, { action: 'customer.delete', entityType: 'customer', entityId: id, entityCode: cur.code, summary: 'Xoá mềm khách hàng ' + cur.code, actorEmployeeId: actor.employeeId, requestId: ctx.requestId });
+      // Cùng transaction: thu hồi mọi activity_access của khách (CUSTOMER_DELETED) + rút đề xuất chuyển đang chờ (WITHDRAWN) — thiết kế §5.4.
+      await this.activityHooks.onCustomerSoftDeleted(tx, id, actor.employeeId, ctx.requestId);
       return toDetail(await tx.customer.findUniqueOrThrow({ where: { id }, include: CUSTOMER_DETAIL_INCLUDE }));
     }));
   }

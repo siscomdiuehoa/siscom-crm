@@ -11,7 +11,7 @@ function build(scopes: Scopes) {
   const employee = { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([{ id: 'e1', code: 'NV-0001', fullName: 'A', department: { code: 'KD' } }]) };
   const prisma = { employee, customer: {}, lookupItem: {}, $transaction: jest.fn() };
   const actors = { resolve: jest.fn(), scopeFor: jest.fn((_a: Actor, p: Permission) => scopes[p] ?? null) };
-  const svc = new CustomersService(prisma as never, actors as never, { record: jest.fn() } as never, new UnverifiedLinksChecker() as never);
+  const svc = new CustomersService(prisma as never, actors as never, { record: jest.fn() } as never, new UnverifiedLinksChecker() as never, { onCustomerSoftDeleted: jest.fn() } as never);
   return { svc, employee, prisma };
 }
 async function err(p: Promise<unknown>): Promise<DomainException> {

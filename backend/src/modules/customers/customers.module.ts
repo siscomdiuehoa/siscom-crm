@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '../../common/audit/audit.module';
 import { AuthModule } from '../../common/auth/auth.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { ActivitiesModule } from '../activities/activities.module';
 import { ContactsController } from './contacts.controller';
 import { CustomersController } from './customers.controller';
 import { ContactsService } from './customers.contacts.service';
@@ -9,7 +10,8 @@ import { ACTIVE_LINKS_CHECKER, UnverifiedLinksChecker } from './customers.deleti
 import { CustomersService } from './customers.service';
 
 @Module({
-  imports: [AuthModule, AuditModule, PrismaModule],
+  // B3 A6: ActivitiesModule chỉ export ACTIVITY_CUSTOMER_HOOKS (thu hồi quyền theo việc khi xoá mềm khách).
+  imports: [AuthModule, AuditModule, PrismaModule, ActivitiesModule],
   controllers: [CustomersController, ContactsController],
   providers: [
     CustomersService,
