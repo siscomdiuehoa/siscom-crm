@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './styles/styles.css';
 import './styles/app.css';
+import './styles/login-v3.css'; // SISCOM Login V3 (chỉ phạm vi main[data-login="v3"])
 import App from './App.jsx';
 import AuthGate from './features/auth/AuthGate.jsx';
 import LoginPreviewEntry from './features/auth/LoginPreviewEntry.jsx';
