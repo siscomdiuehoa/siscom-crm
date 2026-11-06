@@ -1,0 +1,151 @@
+/* SISCOM Login V3 — chia đôi màn hình + kính mờ. CHỈ giao diện (không đổi logic/API). Phạm vi: main[data-login="v3"].
+   Khung phải LUÔN nền sáng (kể cả khi ứng dụng đang ở giao diện tối): token màu được đặt lại ngay trong .lg3-pane.
+   body{overflow:hidden} (app.css) => .lg3 tự cuộn (dvh + safe-area) để iPhone ngang/bàn phím không cắt form. */
+
+main[data-login="v3"]{position:relative;height:100%;min-height:100dvh;overflow:hidden;background:#0b1d4a;justify-items:stretch}
+.lg3{width:100%;--lg3-navy:#08143c;--lg3-blue:#1d4ed8;--lg3-sky:#38bdf8;--lg3-green:#10b981;
+  display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:100dvh;min-height:100%;overflow-y:auto;overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;font-family:inherit}
+
+/* ───────── Khung trái: cảnh HVAC/MEP + lớp phủ xanh ───────── */
+.lg3-hero{position:relative;display:flex;flex-direction:column;overflow:hidden;min-height:212px;color:#fff;isolation:isolate;background:linear-gradient(160deg,#0a1f5c 0%,#0b3a9e 55%,#0a5fb4 100%)}
+.lg3-scene,.lg3-photo{position:absolute;left:0;top:0;width:100%;height:100%;z-index:0}
+.lg3-photo{object-fit:cover}
+.lg3-hero__tint{position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:radial-gradient(900px 520px at 85% 8%,rgba(56,189,248,.30),transparent 60%),
+             radial-gradient(700px 480px at 0% 100%,rgba(16,185,129,.20),transparent 62%),
+             linear-gradient(180deg,rgba(8,20,60,.62) 0%,rgba(8,20,60,.28) 46%,rgba(8,20,60,.78) 100%)}
+.lg3-hero[data-photo] .lg3-hero__tint{background:linear-gradient(160deg,rgba(8,26,84,.88),rgba(11,58,158,.74) 55%,rgba(10,95,180,.66)),radial-gradient(700px 480px at 0% 100%,rgba(16,185,129,.22),transparent 62%)}
+.lg3-hero__body{position:relative;z-index:2;display:flex;flex-direction:column;justify-content:flex-end;gap:12px;flex:1;padding:26px 22px 80px}
+.lg3-eyebrow{display:flex;align-items:center;gap:10px;margin:0;font-weight:600;font-size:13px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.88)}
+.lg3-eyebrow__dot{width:9px;height:9px;border-radius:50%;background:var(--lg3-green);box-shadow:0 0 0 4px rgba(16,185,129,.25),0 0 18px rgba(16,185,129,.8)}
+.lg3-hero__title{margin:0;font-weight:700;font-size:clamp(22px,5.6vw,30px);line-height:1.22;letter-spacing:-.01em;text-wrap:balance;text-shadow:0 2px 18px rgba(8,20,60,.45)}
+.lg3-hero__lead,.lg3-chips{display:none}
+
+/* quạt quay + dòng chảy trong ống (tắt khi giảm chuyển động) */
+.lg3-spin{transform-box:fill-box;transform-origin:center;animation:lg3-rot 7s linear infinite}
+.lg3-flow{animation:lg3-dash 2.6s linear infinite}
+.lg3-flow--rev{animation-direction:reverse}
+@keyframes lg3-rot{to{transform:rotate(360deg)}}
+@keyframes lg3-dash{to{stroke-dashoffset:-72}}
+
+/* ───────── Khung phải: nền sáng + thẻ kính ───────── */
+.lg3-pane{position:relative;z-index:1;display:flex;align-items:flex-start;justify-content:center;min-width:0;
+  padding:0 16px calc(28px + env(safe-area-inset-bottom));
+  background:radial-gradient(640px 420px at 100% 0%,rgba(56,189,248,.20),transparent 62%),radial-gradient(560px 420px at 0% 100%,rgba(16,185,129,.14),transparent 62%),#f3f7fd;
+  /* token sáng cố định cho DS (Input/Button/Label) bất kể giao diện sáng/tối của app */
+  --surface-input:#fff;--surface-solid:#fff;--surface-sunken:#eef2f8;--surface-hover:rgba(15,23,42,.05);
+  --text-1:#0f172a;--text-2:#475569;--text-3:#56657a;--text-disabled:#94a3b8;
+  --border-default:rgba(15,23,42,.14);--border-strong:rgba(15,23,42,.28);--border-subtle:rgba(15,23,42,.08);
+  --primary:#2563eb;--primary-hover:#1d4ed8;--btn-primary-bg:linear-gradient(135deg,#2563eb 0%,#1d4ed8 60%,#1e40af 100%);
+  --text-link:#1d4ed8;--error:#dc2626;--focus-ring:0 0 0 4px rgba(37,99,235,.22);--focus-ring-error:0 0 0 4px rgba(220,38,38,.18)}
+.lg3-wrap{position:relative;width:100%;max-width:440px;margin-top:-52px}
+.lg3-wrap::before{content:"";position:absolute;inset:8% -4% -6%;z-index:0;border-radius:40px;pointer-events:none;
+  background:radial-gradient(60% 55% at 28% 30%,rgba(37,99,235,.55),transparent 70%),radial-gradient(55% 50% at 78% 78%,rgba(16,185,129,.42),transparent 70%);
+  filter:blur(38px);opacity:.55}
+
+.lg3-card{position:relative;z-index:1;display:grid;grid-template-columns:minmax(0,1fr);gap:16px;padding:26px 20px 22px;border-radius:26px;
+  background:linear-gradient(150deg,rgba(255,255,255,.90) 0%,rgba(255,255,255,.66) 100%);
+  border:1px solid rgba(255,255,255,.92);
+  -webkit-backdrop-filter:blur(22px) saturate(1.5);backdrop-filter:blur(22px) saturate(1.5);
+  box-shadow:0 1px 0 rgba(255,255,255,.95) inset,0 -1px 0 rgba(37,99,235,.07) inset,
+    0 2px 4px rgba(15,23,42,.04),0 8px 16px rgba(15,23,42,.06),0 22px 44px -10px rgba(30,64,175,.18),0 46px 90px -26px rgba(37,99,235,.28)}
+.lg3-card::before{content:"";position:absolute;left:14px;right:14px;top:0;height:1px;border-radius:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,1),transparent);pointer-events:none}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.lg3-card{background:#fff}}
+.lg3-logo{display:block;width:auto;height:40px;max-width:100%;object-fit:contain;object-position:left center}
+.lg3-title{margin:2px 0 0;font-weight:700;font-size:26px;line-height:1.2;letter-spacing:-.01em;color:#0f172a}
+.lg3-sub{margin:-8px 0 2px;font-weight:400;font-size:14px;line-height:1.5;color:#56657a}
+.lg3-field{display:grid;grid-template-columns:minmax(0,1fr);gap:0;min-width:0}
+.lg3-card .sg-field{gap:8px}
+.lg3-card .sg-label{font-weight:600;font-size:13px}
+.lg3-card .sg-control{height:50px;min-width:0;padding:0 14px;border-radius:14px;background:rgba(255,255,255,.92);border:1px solid rgba(15,23,42,.14);
+  box-shadow:0 1px 2px rgba(15,23,42,.04) inset;transition:border-color .15s,box-shadow .15s,background .15s}
+.lg3-card .sg-control:hover{border-color:rgba(37,99,235,.45)}
+.lg3-card .sg-control:focus-within{border-color:#2563eb;background:#fff;box-shadow:0 0 0 4px rgba(37,99,235,.20)}
+.lg3-card .sg-control--error{border-color:#dc2626;background:#fff7f7}
+.lg3-card .sg-control--error:focus-within{box-shadow:0 0 0 4px rgba(220,38,38,.18)}
+.lg3-card .sg-control > .sg-icon{color:#64748b;flex:none}
+.lg3-card .sg-input{min-width:0;font-size:16px;color:#0f172a}
+.lg3-card .sg-input::placeholder{color:#8a97aa}
+.lg3-err{color:#b91c1c}
+.lg3-eye{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin:0 -10px 0 0;border:0;border-radius:12px;background:transparent;color:#56657a;cursor:pointer}
+.lg3-eye:hover:not(:disabled){background:rgba(15,23,42,.06);color:#0f172a}
+.lg3-eye:focus-visible,.lg3-link:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.lg3-forgotrow{display:flex;justify-content:flex-end;margin-top:2px}
+.lg3-link{border:0;background:none;padding:10px 2px;min-height:44px;font-weight:600;font-size:13px;line-height:1.2;color:#1d4ed8;cursor:pointer;border-radius:8px}
+.lg3-link:hover{text-decoration:underline}
+.lg3-forgot{display:flex;gap:10px;align-items:flex-start;margin-top:2px;padding:12px 14px;border-radius:14px;background:rgba(37,99,235,.07);border:1px solid rgba(37,99,235,.18);font-weight:400;font-size:13px;line-height:1.5;color:#334155}
+.lg3-forgot .sg-icon{margin-top:2px;color:#2563eb;flex:none}
+.lg3-remember{display:grid;gap:6px}
+.lg3-remember__label{display:flex;gap:12px;align-items:flex-start;min-height:44px;padding:2px 0;font-weight:500;font-size:14px;line-height:1.45;color:#0f172a;cursor:pointer}
+.lg3-remember__label input{flex:none;width:20px;height:20px;margin:2px 0 0;accent-color:#2563eb;cursor:pointer}
+.lg3-remember__hint{margin-left:32px;font-weight:400;font-size:12.5px;line-height:1.5;color:#56657a}
+.lg3-banner{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:14px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-weight:500;font-size:13.5px;line-height:1.5}
+.lg3-banner .sg-icon{margin-top:2px;flex:none}
+.lg3-banner[data-kind="network"],.lg3-banner[data-kind="unavailable"]{background:#fffbeb;border-color:#fde68a;color:#92400e}
+.lg3-notice{padding:12px 14px;border-radius:14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;font-weight:500;font-size:13.5px;line-height:1.5}
+.lg3-card .lg3-submit{height:52px;border-radius:14px;font-size:16px;font-weight:700;letter-spacing:.01em;border:0;
+  box-shadow:0 10px 24px -8px rgba(37,99,235,.65),0 2px 6px rgba(30,64,175,.35),inset 0 1px 0 rgba(255,255,255,.28);transition:transform .15s,box-shadow .15s,filter .15s}
+.lg3-card .lg3-submit:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.05);box-shadow:0 16px 30px -10px rgba(37,99,235,.7),0 3px 8px rgba(30,64,175,.4),inset 0 1px 0 rgba(255,255,255,.3)}
+.lg3-card .lg3-submit:active:not(:disabled){transform:translateY(0)}
+.lg3-card .lg3-submit:focus-visible{outline:3px solid rgba(37,99,235,.45);outline-offset:3px}
+.lg3-card .lg3-submit:disabled{opacity:.7;cursor:not-allowed}
+.lg3-foot{display:flex;align-items:center;justify-content:center;gap:6px;margin:2px 0 0;font-weight:500;font-size:12px;line-height:1.4;color:#64748b;text-align:center}
+.lg3-foot .sg-icon{color:#10b981}
+
+/* ───────── Điện thoại nhỏ: 320–430 px ───────── */
+@media (max-width:380px){
+  .lg3-pane{padding-left:12px;padding-right:12px}
+  .lg3-card{padding:22px 16px 18px;gap:14px;border-radius:22px}
+  .lg3-title{font-size:24px}
+  .lg3-hero__body{padding:22px 16px 76px}
+  .lg3-hero__title{font-size:21px}
+  .lg3-logo{height:34px}
+}
+@media (max-height:520px) and (orientation:landscape){
+  .lg3-hero{min-height:150px}.lg3-hero__body{padding:16px 22px 72px}.lg3-hero__title{font-size:18px}
+}
+
+/* ───────── Tablet dọc: banner cao hơn ───────── */
+@media (min-width:600px){
+  .lg3-hero{min-height:300px}
+  .lg3-hero__body{padding:40px 48px 104px}
+  .lg3-hero__title{font-size:clamp(26px,4.2vw,34px);max-width:560px}
+  .lg3-hero__lead{display:block;margin:0;max-width:520px;font-weight:400;font-size:15px;line-height:1.6;color:rgba(255,255,255,.86)}
+  .lg3-pane{padding:0 24px 40px}
+  .lg3-wrap{margin-top:-64px}
+  .lg3-card{padding:34px 36px 28px;gap:18px}
+}
+
+/* ───────── PC / tablet ngang: hai cột ───────── */
+@media (min-width:900px){
+  .lg3{grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);grid-template-rows:minmax(0,1fr);overflow:hidden}
+  .lg3-hero{min-height:0;height:100dvh}
+  /* cảnh nằm nửa trên, chữ nằm nửa dưới trên nền tối (không đè lên thiết bị) */
+  .lg3-scene{height:60%}.lg3-photo{height:62%}
+  .lg3-hero__tint{background:radial-gradient(900px 520px at 85% 8%,rgba(56,189,248,.30),transparent 60%),radial-gradient(700px 480px at 0% 100%,rgba(16,185,129,.20),transparent 62%),linear-gradient(180deg,rgba(8,20,60,.35) 0%,rgba(8,20,60,.10) 38%,rgba(8,20,60,.72) 58%,rgba(8,20,60,.92) 100%)}
+  .lg3-hero[data-photo] .lg3-hero__tint{background:linear-gradient(160deg,rgba(8,26,84,.70),rgba(11,58,158,.55) 55%,rgba(10,95,180,.45)),linear-gradient(180deg,transparent 52%,rgba(8,20,60,.92) 62%)}
+  .lg3-hero__body{justify-content:flex-end;gap:18px;padding:56px 56px 64px}
+  .lg3-hero__title{font-size:clamp(30px,3vw,44px);max-width:620px}
+  .lg3-hero__lead{font-size:16px;max-width:540px}
+  .lg3-chips{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 0;padding:0;list-style:none}
+  .lg3-chips li{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;font-weight:500;font-size:13px;line-height:1;color:#fff;
+    background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+  .lg3-chips .sg-icon{color:#6ee7b7}
+  .lg3-pane{align-items:center;height:100dvh;overflow-y:auto;border-radius:0;margin-top:0;padding:40px 48px calc(40px + env(safe-area-inset-bottom));
+    box-shadow:-24px 0 60px -20px rgba(8,20,60,.35)}
+  .lg3-wrap{margin-top:0;margin-block:auto}
+  .lg3-card{padding:40px 40px 32px;gap:20px}
+}
+@media (min-width:1280px){
+  .lg3{grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr)}
+  .lg3-hero__body{padding:72px 72px 72px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .lg3-spin,.lg3-flow{animation:none}
+  .lg3-card .lg3-submit{transition:none}
+}
+@media (forced-colors:active){
+  .lg3-card{border:1px solid CanvasText;background:Canvas;-webkit-backdrop-filter:none;backdrop-filter:none}
+}
