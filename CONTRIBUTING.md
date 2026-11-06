@@ -24,7 +24,7 @@ Theo Conventional Commits, tiêu đề ngắn, tiếng Việt hoặc tiếng Anh
 1. Mở PR vào `main`, điền đủ [mẫu PR](.github/pull_request_template.md).
 2. Một PR = một gói: nêu rõ **phạm vi**, **file mới / file thay đổi**, **tác động database (có/không)**, **kiểm thử đã chạy (kết quả thật)**, **rollback**, **rủi ro**, và những gì **không đụng** (baseline, hợp đồng API).
 3. Cần ít nhất 1 người duyệt. Với thay đổi bảo mật (xác thực, phân quyền, audit), migration hoặc dữ liệu nhạy cảm: **người duyệt khác tác giả**. PR do AI viết: review độc lập bởi ChatGPT theo [quy trình phối hợp AI](docs/QUY_TRINH_PHOI_HOP_AI.md) (tối đa 3 vòng, chỉ review diff mới, lỗi gom theo nhóm có ID); Owner quyết định merge sau báo cáo kết luận.
-4. Squash merge sau khi được duyệt và kiểm tra bắt buộc đạt; xóa nhánh sau khi hợp nhất. Người viết không tự merge thay đổi của mình khi chưa có review.
+4. Merge bằng **Merge Commit** (không squash, không rebase) sau khi được duyệt và kiểm tra bắt buộc đạt; xóa nhánh sau khi hợp nhất. Người viết không tự merge thay đổi của mình khi chưa có review.
 5. Không tuyên bố "PASS/đạt" nếu chưa có kết quả chạy thật; môi trường không chạy được thì ghi rõ "chưa kiểm chứng".
 
 ## 4. Kiểm thử
