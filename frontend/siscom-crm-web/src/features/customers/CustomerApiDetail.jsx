@@ -1,10 +1,11 @@
 import React from 'react';
-import { Badge, Button, Avatar, Icon } from '../../ds/index.js';
+import { Badge, Button, Avatar, Icon, Tabs } from '../../ds/index.js';
 import * as U from '../../data/util.js';
 import { useCustomerApiState } from './useCustomerApi.js';
 import { customerDisplayCode } from './customerApiUi.js';
 import { ApiErrorBox } from './ApiListStatus.jsx';
 import { CustomerFormDrawer } from './CustomerForm.jsx';
+import { ActivitiesPanel } from '../activities/ActivitiesPanel.jsx';
 
 function InfoRow({ icon, label, children }) {
   return (
@@ -26,6 +27,27 @@ function ContactValue({ st, phone }) {
 
 // Customer detail + edit when the customer API flag is ON. Data comes ONLY from GET /customers/:id (no demo/localStorage records)
 // plus, B1.4, the primary contact (GET /customers/:id/contacts) when the server granted contact.read; quotes/... are not shown.
+// B3 A7: tab Người liên hệ = danh sách liên hệ của khách (GET /customers/:id/contacts, đã có), chỉ đọc.
+function ContactsPanel({ ui, id }) {
+  const actl = ui.customerApi.activities;
+  const s = useCustomerApiState(actl);
+  React.useEffect(() => { actl.loadContacts(id); }, [actl, id]);
+  const cs = s.contacts.customerId === id ? s.contacts : { status: 'loading', items: [], error: null };
+  return (
+    <section className="sg-card sg-solid" style={{ padding: '16px 20px 8px' }}>
+      {cs.status === 'loading' || cs.status === 'idle' ? <div role="status" style={{ color: 'var(--text-2)', padding: '8px 0 12px' }}>Đang tải người liên hệ…</div> : null}
+      {cs.status === 'error' ? <ApiErrorBox error={cs.error} onRetry={() => actl.loadContacts(id)} /> : null}
+      {cs.status === 'ready' && !cs.items.length ? <div style={{ color: 'var(--text-3)', padding: '8px 0 12px' }}>Chưa có người liên hệ.</div> : null}
+      {cs.status === 'ready' ? cs.items.map((c) => (
+        <InfoRow key={c.id} icon="contact" label={c.isPrimary ? 'Liên hệ chính' : 'Liên hệ'}>
+          <span><b style={{ fontWeight: 500 }}>{c.fullName}</b>{[c.title, c.phone, c.email].filter(Boolean).map((v) => ' · ' + v).join('')}</span>
+        </InfoRow>
+      )) : null}
+      <div style={{ height: 8 }} />
+    </section>
+  );
+}
+
 export default function CustomerApiDetail({ ui, id }) {
   const ctl = ui.customerApi;
   const s = useCustomerApiState(ctl);
@@ -39,6 +61,14 @@ export default function CustomerApiDetail({ ui, id }) {
   React.useEffect(() => { if (canReadContact && detailReady) ctl.loadContact(id); }, [ctl, id, canReadContact, detailReady]);
   const ct = s.contact && s.contact.id === id ? s.contact : { status: 'idle', item: null, error: null };
   const contactName = ct.status === 'ready' && ct.item ? ct.item.fullName : '';
+  // B3 A7: tab Hoạt động chỉ khi server cấp activity.read (fail-closed); không quyền => trang như trước, không gọi /activities.
+  const actl = ctl.activities;
+  const canReadActivity = !!actl && typeof ui.can === 'function' && !!ui.can('activity.read');
+  const acts = useCustomerApiState(canReadActivity ? actl : null);
+  const [tab, setTab] = React.useState('info');
+  React.useEffect(() => { setTab('info'); }, [id]);
+  React.useEffect(() => { if (canReadActivity && detailReady) actl.load(id, {}); }, [actl, id, canReadActivity, detailReady]);
+  const actCount = acts && acts.list.customerId === id && acts.list.status === 'ready' ? acts.list.total : null;
   const formInitial = React.useMemo(() => (d.customer ? { ...d.customer, contactName } : null), [d.customer, contactName]);
   if (d.id !== id || d.status === 'idle' || d.status === 'loading') {
     return <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>{back}<div className="sg-card sg-solid" role="status" aria-live="polite" style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-2)' }}><span className="sg-btn__spin" />Đang tải thông tin khách hàng…</div></div>;
@@ -72,7 +102,10 @@ export default function CustomerApiDetail({ ui, id }) {
           <Button icon="pencil" disabled={!canEdit} onClick={() => canEdit && setEdit(true)}>Sửa thông tin</Button>
         </div>
       </section>
-      <section className="sg-card sg-solid" style={{ padding: '16px 20px 8px' }}>
+      {canReadActivity ? <Tabs variant="line" value={tab} onChange={setTab} items={[{ id: 'info', label: 'Thông tin', icon: 'building-2' }, { id: 'activities', label: 'Hoạt động', icon: 'list-checks', count: actCount }].concat(canReadContact ? [{ id: 'contacts', label: 'Người liên hệ', icon: 'contact' }] : []).map((t) => (ui.mobile ? { ...t, icon: undefined, label: t.id === 'contacts' ? 'Liên hệ' : t.label } : t))} /> : null}
+      {canReadActivity && tab === 'activities' ? <ActivitiesPanel ui={ui} customerId={id} /> : null}
+      {canReadActivity && tab === 'contacts' && canReadContact ? <ContactsPanel ui={ui} id={id} /> : null}
+      {!canReadActivity || tab === 'info' ? <section className="sg-card sg-solid" style={{ padding: '16px 20px 8px' }}>
         <h3 style={{ margin: '0 0 4px', font: 'var(--type-h4)' }}>Thông tin doanh nghiệp</h3>
         <InfoRow icon="hash" label="Mã số thuế">{c.taxId ? <span style={{ font: 'var(--type-mono)' }}>{c.taxId}</span> : null}</InfoRow>
         <InfoRow icon="map-pin" label="Địa chỉ">{[c.address, c.city].filter(Boolean).join(', ') || null}</InfoRow>
@@ -85,7 +118,7 @@ export default function CustomerApiDetail({ ui, id }) {
         <InfoRow icon="calendar" label="Ngày tạo">{c.createdAt ? U.dmyVN(c.createdAt) : null}</InfoRow>
         {c.note ? <InfoRow icon="sticky-note" label="Ghi chú">{c.note}</InfoRow> : null}
         <div style={{ height: 8 }} />
-      </section>
+      </section> : null}
       <CustomerFormDrawer open={edit && canEdit} initial={formInitial} ui={ui} onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />
     </div>
   );

@@ -56,12 +56,15 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
       async update(id, ui, ...rest) { const l = need(); if (typeof l.update !== 'function') throw new CustomerRepoError('config', 'Nguồn cục bộ không hỗ trợ cập nhật.'); return l.update(id, ui, ...rest); },
       async contacts() { throw new CustomerRepoError('config', 'Chế độ demo: người liên hệ dùng dữ liệu cục bộ.'); },
       async setPrimaryContact() { throw new CustomerRepoError('config', 'Chế độ demo: người liên hệ dùng dữ liệu cục bộ.'); },
+      async activities() { throw new CustomerRepoError('config', 'Chế độ demo: hoạt động chỉ có ở chế độ API.'); },
+      async createActivity() { throw new CustomerRepoError('config', 'Chế độ demo: hoạt động chỉ có ở chế độ API.'); },
+      async assigneeCandidates() { throw new CustomerRepoError('config', 'Chế độ demo: hoạt động chỉ có ở chế độ API.'); },
     };
   }
 
   if (!config.enabled) {
     const err = () => new CustomerRepoError('config', 'Đã bật VITE_CRM_API_ENABLED nhưng thiếu VITE_CRM_API_BASE. Không dùng dữ liệu cục bộ thay thế.');
-    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); }, async contacts() { throw err(); }, async setPrimaryContact() { throw err(); } };
+    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); }, async contacts() { throw err(); }, async setPrimaryContact() { throw err(); }, async activities() { throw err(); }, async createActivity() { throw err(); }, async assigneeCandidates() { throw err(); } };
   }
 
   // Wrap fetch: transport failures become kind 'network', and we know whether a request was sent
@@ -150,6 +153,36 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
         const c = await api.createContact(id, body);
         if (!c || typeof c.fullName !== 'string') throw malformed('người liên hệ');
         return c;
+      } catch (err) { throw classify(err); }
+    },
+    // B3 A7: dòng thời gian hoạt động của khách (GET /customers/:id/activities) -> { items, page, pageSize, total, totalPages }.
+    async activities(id, params) {
+      sent = false;
+      try {
+        checkId(id);
+        const d = await api.listActivities(id, params);
+        if (!d || !Array.isArray(d.items) || !Number.isInteger(d.total)) throw malformed('danh sách hoạt động');
+        return d;
+      } catch (err) { throw classify(err); }
+    },
+    // Ghi nhận hoạt động (POST). Thân do activityModel.buildCreateBody dựng; không gửi người tạo/khách trong thân.
+    async createActivity(id, body) {
+      sent = false;
+      try {
+        checkId(id);
+        const a = await api.createActivity(id, body);
+        if (!a || typeof a.id !== 'string' || typeof a.type !== 'string') throw malformed('hoạt động');
+        return a;
+      } catch (err) { throw classify(err); }
+    },
+    // Ứng viên phụ trách (GET /activities/assignee-candidates?customerId=) -> [{ id, code, fullName, departmentCode }].
+    async assigneeCandidates(id) {
+      sent = false;
+      try {
+        checkId(id);
+        const d = await api.getAssigneeCandidates(id);
+        if (!d || !Array.isArray(d.items)) throw malformed('ứng viên phụ trách');
+        return d.items;
       } catch (err) { throw classify(err); }
     },
   };

@@ -1,5 +1,6 @@
 // Minimal in-memory DOM (no dependency) so React 18 client rendering + synthetic events can run under `node --test`.
-// Only what react-dom/client + the customer form/panel components touch. NOT a browser: no layout, no CSS, no focus management.
+// Only what react-dom/client + the customer form/panel components touch. NOT a browser: no layout, no CSS.
+// Focus tối thiểu (B3 A7 R2): focus() ghi document.activeElement; không có thứ tự Tab tự nhiên của trình duyệt.
 class Node_ {
   constructor(nodeType, ownerDocument) { this.nodeType = nodeType; this.ownerDocument = ownerDocument; this.childNodes = []; this.parentNode = null; }
   get firstChild() { return this.childNodes[0] || null; }
@@ -34,7 +35,8 @@ class Element_ extends Node_ {
   addEventListener(t, f) { (this.listeners[t] = this.listeners[t] || []).push(f); }
   removeEventListener(t, f) { this.listeners[t] = (this.listeners[t] || []).filter((x) => x !== f); }
   get type() { return this.attributes.type || (this.tagName === 'INPUT' ? 'text' : this.tagName === 'BUTTON' ? 'submit' : ''); }
-  focus() {} blur() {}
+  focus() { if (this.ownerDocument) this.ownerDocument.activeElement = this; }
+  blur() { if (this.ownerDocument && this.ownerDocument.activeElement === this) this.ownerDocument.activeElement = this.ownerDocument.body; }
   getRootNode() { let x = this; while (x.parentNode) x = x.parentNode; return x; }
   querySelectorAll(pred) { const out = []; const walk = (n) => n.childNodes.forEach((c) => { if (c.nodeType === 1) { if (pred(c)) out.push(c); walk(c); } }); walk(this); return out; }
 }
@@ -84,3 +86,5 @@ export const click = (el) => { if (el.disabled) return false; dispatch(el, 'clic
 // Controlled input typing: React tracks the value via a property setter on the node; set the plain value then fire `input`.
 export function type(el, value) { el.value = value; dispatch(el, 'input'); }
 export const submit = (el) => { dispatch(el, "submit"); return true; };
+// Phím (keydown) phát từ phần tử, nổi bọt như sự kiện thật; trả về event để kiểm defaultPrevented.
+export const keydown = (el, key, init = {}) => dispatch(el, 'keydown', { key, shiftKey: false, ...init });
