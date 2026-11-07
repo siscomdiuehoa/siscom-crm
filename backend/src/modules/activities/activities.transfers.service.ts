@@ -100,14 +100,15 @@ export class ActivityTransfersService {
         activity: { deletedAt: null, type: 'TASK', status: 'OPEN', customer: { is: { deletedAt: null, AND: [customerScopeWhere(actor, s('customer.read')), customerScopeWhere(actor, s('activity.read')), customerScopeWhere(actor, s('activity.assign'))] } } },
       },
       orderBy: { createdAt: 'asc' }, take: INBOX_MAX,
-      select: { ...TRANSFER_SELECT, activity: { select: { id: true, code: true, type: true, status: true, title: true, dueAt: true, customer: { select: { id: true, code: true, name: true, ownerId: true, owner: { select: { departmentId: true } } } } } } },
+      select: { ...TRANSFER_SELECT, activity: { select: { id: true, code: true, type: true, status: true, title: true, dueAt: true, version: true, customer: { select: { id: true, code: true, name: true, ownerId: true, owner: { select: { departmentId: true } } } } } } },
     });
     const acc = await this.access.load(this.prisma, [...new Set(rows.map((r) => r.toEmployeeId))]);
     return rows
       .filter((r) => this.approverKind(actor, ownerInfo(r.activity.customer), acc.get(r.toEmployeeId)) !== null)
       .map((r) => ({
         ...toTransfer(r),
-        activity: { id: r.activity.id, code: r.activity.code, type: r.activity.type, status: r.activity.status, title: r.activity.title, dueAt: r.activity.dueAt ? r.activity.dueAt.toISOString() : null },
+        // F-A8-01: version để người duyệt gửi kèm POST /approve (bắt buộc; lệch => 409 ACTIVITY_VERSION_CONFLICT).
+        activity: { id: r.activity.id, code: r.activity.code, type: r.activity.type, status: r.activity.status, title: r.activity.title, dueAt: r.activity.dueAt ? r.activity.dueAt.toISOString() : null, version: r.activity.version },
         customer: { id: r.activity.customer.id, code: r.activity.customer.code, name: r.activity.customer.name },
       }));
   }

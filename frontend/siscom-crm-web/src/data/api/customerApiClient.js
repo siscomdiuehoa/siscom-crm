@@ -96,5 +96,11 @@ export function createCustomerApi(config, fetchImpl, options) {
     async listActivities(id, params) { return await call('GET', '/customers/' + encodeURIComponent(id) + '/activities' + qs(params)); },
     async createActivity(id, body) { return await call('POST', '/customers/' + encodeURIComponent(id) + '/activities', body); },
     async getAssigneeCandidates(id) { return await call('GET', '/activities/assignee-candidates' + qs({ customerId: id })); },
+    // B3 A8 công việc (API A6): MỘT cổng cho các đường dẫn /activities… và /activity-transfer-requests…; đường dẫn khác bị từ chối trước khi gọi mạng.
+    async activityRequest(method, path, body) {
+      if (!/^\/(activities|activity-transfer-requests)(\/|\?|$)/.test(String(path)) || /\.\.|\/\//.test(String(path))) throw new Error('Đường dẫn API công việc không hợp lệ.');
+      return await call(method, path, body);
+    },
+    qs,
   };
 }

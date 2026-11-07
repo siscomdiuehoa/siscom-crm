@@ -1,10 +1,10 @@
 import React from 'react';
-import { Button, Icon, IconButton, Input, Select } from '../../ds/index.js';
+import { Button, Icon, IconButton, Input, Select, Switch } from '../../ds/index.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import { TYPE_META, allowedTypes, hasTitle, hasDue, hasOutcome, hasOccurred, validateDraft, buildCreateBody } from './activityModel.js';
 
-const empty = (type) => ({ type, title: '', content: '', outcome: '', occurredAt: '', dueAt: '', remindAt: '', contactId: '', performedById: '' });
+const empty = (type) => ({ type, title: '', content: '', outcome: '', occurredAt: '', dueAt: '', remindAt: '', contactId: '', performedById: '', external: false });
 const can = (ui, p) => typeof ui.can === 'function' && !!ui.can(p); // fail-closed
 // R2 F-1 (trợ năng, WCAG 2.4.3): phần tử nhận focus bằng Tab trong dialog — duyệt cây DOM (không phụ thuộc selector CSS).
 const TABBABLE = { BUTTON: 1, INPUT: 1, SELECT: 1, TEXTAREA: 1 };
@@ -25,6 +25,8 @@ export function ActivityDrawer({ open, ui, customerId, onClose, onSaved }) {
   const types = allowedTypes(ui.can);
   const canAssign = can(ui, 'activity.assign');
   const canContact = can(ui, 'contact.read');
+  const canExternal = canAssign && can(ui, 'activity.assign_external') && !!(ui.customerApi && ui.customerApi.tasks);
+  const [ext, setExt] = React.useState({ status: 'idle', items: [], error: null });
   const [f, setF] = React.useState(() => empty(types[0]));
   const [tried, setTried] = React.useState(false);
   React.useEffect(() => {
@@ -38,7 +40,9 @@ export function ActivityDrawer({ open, ui, customerId, onClose, onSaved }) {
   const errs = validateDraft(f);
   const err = (k) => (tried && errs[k]) || (srv && srv.fieldErrors && srv.fieldErrors[k]) || '';
   const dirty = JSON.stringify(f) !== JSON.stringify(empty(f.type)) || f.type !== types[0];
-  const set = (k) => (v) => { if (srv && !srv.denied) actl.clearSubmitError(); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
+  const set = (k) => (v) => { if (srv && !srv.denied) actl.clearSubmitError(); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v, ...(k === 'external' ? { performedById: '' } : {}) })); };
+  // B3 A8: bật "Giao cho người phòng khác" => ứng viên ngoài phạm vi (API A6 external=true); chỉ với Công việc.
+  React.useEffect(() => { if (!open || !f.external || !canExternal) return undefined; let live = true; setExt({ status: 'loading', items: [], error: null }); ui.customerApi.tasks.candidates(customerId, true).then((r) => { if (live) setExt(r.ok ? { status: 'ready', items: r.items, error: null } : { status: 'error', items: [], error: r.error }); }); return () => { live = false; }; }, [open, f.external, customerId]); // eslint-disable-line react-hooks/exhaustive-deps
   const close = () => { if (saving) return; if (dirty) ui.confirm({ title: 'Huỷ ghi nhận?', description: 'Nội dung bạn vừa nhập sẽ không được lưu.', icon: 'triangle-alert', tone: 'warning', confirmLabel: 'Huỷ ghi nhận', cancelLabel: 'Tiếp tục nhập', onConfirm: onClose }); else onClose(); };
   React.useEffect(() => { if (!open) return undefined; const h = (e) => { if (e.key === 'Escape') close(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); });
   // R2 F-1: mở => focus vào loại đang chọn (hoặc phần tử đầu); đóng => trả focus về phần tử đã mở drawer (nếu còn trong trang).
@@ -107,7 +111,13 @@ export function ActivityDrawer({ open, ui, customerId, onClose, onSaved }) {
               disabled={cs.status !== 'ready'} hint={cs.status === 'loading' ? 'Đang tải…' : cs.status === 'error' ? 'Chưa tải được người liên hệ' : ''}
               options={[{ value: '', label: '— Không chọn —' }].concat(cs.items.map((c) => ({ value: c.id, label: c.fullName + (c.isPrimary ? ' (chính)' : '') })))} />
           ) : null}
-          {canAssign ? (
+          {canExternal && f.type === 'TASK' ? <div><Switch label="Giao cho người phòng khác" checked={f.external} onChange={set('external')} /><p style={{ margin: '4px 0 0', font: 'var(--type-caption)', color: 'var(--text-3)' }}>Người nhận chỉ xem thẻ việc, không xem hồ sơ khách.</p></div> : null}
+          {canAssign && f.external && f.type === 'TASK' ? (
+            <Select label="Người phụ trách" value={f.performedById} onChange={set('performedById')} error={err('performedById')} disabled={ext.status !== 'ready'}
+              hint={ext.status === 'loading' ? 'Đang tải…' : ext.status === 'error' ? 'Chưa tải được danh sách' : 'Người phòng khác, không đọc được khách; có quyền theo việc đến khi xong'}
+              options={[{ value: '', label: '— Chọn người —' }].concat(ext.items.map((e) => ({ value: e.id, label: e.fullName + ' · ' + e.code + (e.departmentCode ? ' · ' + e.departmentCode : '') })))} />
+          ) : null}
+          {canAssign && !(f.external && f.type === 'TASK') ? (
             <Select label="Người phụ trách" value={f.performedById} onChange={set('performedById')} error={err('performedById')}
               disabled={as.status !== 'ready'} hint={as.status === 'loading' ? 'Đang tải…' : as.status === 'error' ? 'Chưa tải được danh sách; hoạt động sẽ ghi cho bạn' : 'Chỉ người đọc được khách này'}
               options={[{ value: '', label: 'Tôi (người ghi nhận)' }].concat(as.items.map((e) => ({ value: e.id, label: e.fullName + ' · ' + e.code + (e.departmentCode ? ' · ' + e.departmentCode : '') })))} />

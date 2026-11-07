@@ -12,6 +12,9 @@ import CustomerListPage from './pages/CustomerList.jsx';
 import CustomerProfilePage from './pages/CustomerProfile.jsx';
 import CustomerApiDetail from './features/customers/CustomerApiDetail.jsx';
 import { createCustomerApiUi } from './features/customers/customerApiUi.js';
+import { useCustomerApiState } from './features/customers/useCustomerApi.js';
+import TasksPage, { TaskView } from './features/activities/TasksPage.jsx';
+import { parseTasksRoute, bellCount } from './features/activities/tasksModel.js';
 import ApiModeUnsupported, { API_UNSUPPORTED_NOTE } from './features/apiMode/ApiModeUnsupported.jsx';
 import ChangePasswordDialog from './features/auth/ChangePasswordDialog.jsx';
 import { CHANGE_PASSWORD_UI_TEXT } from './auth/changePasswordModel.js';
@@ -34,6 +37,7 @@ const INIT = (() => { const p = new URLSearchParams(location.search); const rout
 
 function parseRoute(h) {
   const p = (h || '').replace(/^#\/?/, '').split('/');
+  if (p[0] === 'activities') return parseTasksRoute(p); // B3 A8: #/activities[/:filter], #/activities/view/:id
   if (p[0] === 'customers' && p[1]) { let id = p[1]; try { id = decodeURIComponent(id); } catch (e) { /* malformed %-escape: keep the raw text; the id check rejects it, the app must not crash */ } return { page: 'customers', id }; }
   return { page: p[0] || 'dashboard' };
 }
@@ -83,10 +87,17 @@ function RoleSwitch({ user, setUserId }) {
 function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
   const CUSTOMER_API = customerApi === undefined ? MODULE_CUSTOMER_API : customerApi;
   const API_ON = !!CUSTOMER_API;
-  const NAV = React.useMemo(() => (API_ON ? SISCOM_NAV.map(({ badge, ...rest }) => rest) : SISCOM_NAV), [API_ON]); // static badges (e.g. 8 opportunities) are demo counts
+  const NAV0 = React.useMemo(() => (API_ON ? SISCOM_NAV.map(({ badge, ...rest }) => rest) : SISCOM_NAV), [API_ON]); // static badges (e.g. 8 opportunities) are demo counts
   const sessionState = React.useSyncExternalStore(session ? session.subscribe : () => () => {}, session ? session.getState : () => null, session ? session.getState : () => null);
   const me = sessionState && sessionState.status === 'AUTHENTICATED' ? sessionState.me : null;
   const API_CAN = React.useMemo(() => grantsFromSession(session), [session, sessionState]);
+  // B3 A8: mục "Công việc" (Kinh doanh) chỉ khi máy chủ cấp activity.read; chuông = quá hạn + hôm nay + chờ duyệt (đọc lại mỗi 5 phút và sau mỗi thao tác).
+  const TASKS = API_ON && CUSTOMER_API.tasks && API_CAN('activity.read') ? CUSTOMER_API.tasks : null;
+  const NAV = React.useMemo(() => { if (!TASKS) return NAV0; const i = NAV0.findIndex((n) => n.id === 'customers'); return [...NAV0.slice(0, i + 1), { id: 'activities', label: 'Công việc', icon: 'list-checks' }, ...NAV0.slice(i + 1)]; }, [NAV0, TASKS]);
+  const tasksState = useCustomerApiState(TASKS);
+  React.useEffect(() => { if (!TASKS || !me) return undefined; TASKS.loadSummary(); const t = setInterval(() => TASKS.loadSummary(), 5 * 60 * 1000); return () => clearInterval(t); }, [TASKS, me && me.employeeId]);
+  const bell = TASKS && tasksState ? bellCount(tasksState.summary.data) : 0;
+  const bellTarget = () => { const d = tasksState && tasksState.summary.data; navigate(d && !d.overdue && !d.today && d.pendingApprovals ? '/activities/approvals' : d && !d.overdue && d.today ? '/activities/today' : '/activities/overdue'); };
   const init = INIT;
   const [boot] = React.useState(() => (API_ON ? { db: EMPTY_DB, report: { readOnly: true, error: null, migrated: false } } : init ? { db: seedV2(), report: { readOnly: false, error: null, migrated: false } } : loadDatabase()));
   const [db, setDb] = React.useState(boot.db);
@@ -145,13 +156,15 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
     decideApproval: (code, ok) => commit((d, x) => Ops.decideApproval(d, code, ok, x)),
   };
   const view = React.useMemo(() => ({ ...db, customers: db.customers.filter((c) => !c.deletedAt) }), [db]);
-  const ui = { customerApi: CUSTOMER_API, db: view, api, navigate, toast, confirm, mobile, user, can: API_ON ? API_CAN : (a, rec) => canDo(user, a, rec), openChat: () => setChat(true) };
+  const ui = { customerApi: CUSTOMER_API, db: view, api, navigate, toast, confirm, mobile, user, me, can: API_ON ? API_CAN : (a, rec) => canDo(user, a, rec), openChat: () => setChat(true) };
 
   const cust = route.id ? db.customers.find((c) => c.id === route.id) : null;
   const navItem = NAV.find((n) => n.id === route.page) || {};
   let title = navItem.label || 'SISCOM CRM', crumbs = ['SISCOM CRM'], body;
   if (API_ON && route.page === 'dashboard') { title = 'Tổng quan điều hành'; crumbs = ['SISCOM CRM', 'Tổng quan']; body = <ApiModeUnsupported title="Tổng quan điều hành" onBack={() => navigate('/customers')} />; }
   else if (route.page === 'dashboard') { title = 'Tổng quan điều hành'; crumbs = ['SISCOM CRM', 'Tổng quan']; body = <DashboardPage ui={ui} />; }
+  else if (route.page === 'activities' && TASKS && route.id) { title = 'Công việc'; crumbs = ['SISCOM CRM', 'Công việc', 'Chi tiết']; body = <TaskView ui={ui} id={route.id} />; }
+  else if (route.page === 'activities' && TASKS) { title = 'Công việc của tôi'; crumbs = ['SISCOM CRM', 'Kinh doanh', 'Công việc']; body = <TasksPage ui={ui} filter={route.filter} />; }
   else if (route.page === 'customers' && route.id && CUSTOMER_API) { title = 'Chi tiết khách hàng'; crumbs = ['SISCOM CRM', 'Khách hàng', 'Chi tiết']; body = <CustomerApiDetail ui={ui} id={route.id} />; }
   else if (route.page === 'customers' && route.id) { title = cust ? cust.short : 'Không tìm thấy'; crumbs = ['SISCOM CRM', 'Khách hàng', route.id]; body = cust ? <CustomerProfilePage ui={ui} c={cust} /> : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description={'Mã ' + route.id + ' không tồn tại hoặc đã bị xoá.'} action={<Button onClick={() => navigate('/customers')}>Về danh sách</Button>} /></div>; }
   else if (route.page === 'customers') { title = 'Quản lý khách hàng'; crumbs = ['SISCOM CRM', 'Kinh doanh']; body = <CustomerListPage ui={ui} />; }
@@ -173,11 +186,11 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
           <div style={{ position: 'relative', height: '100%', animation: 'sg-fade-up var(--dur-slow) var(--ease-out)' }}>{sidebar({ onToggle: () => setNavOpen(false), className: 'sg-glass-strong' })}</div>
         </div>) : null) : sidebar({ collapsed, onToggle: () => setCollapsed(!collapsed) })}
       <main className="sg-scroll" style={{ flex: 1, minWidth: 0, overflow: 'auto', position: 'relative' }}>
-        <Topbar title={title} breadcrumbs={crumbs} search={q} onSearch={setQ} notifications={API_ON ? 0 : 5} onAskAI={API_ON ? undefined : () => setChat(true)} onMenu={mobile ? () => setNavOpen(true) : undefined}
+        <Topbar title={title} breadcrumbs={crumbs} search={q} onSearch={setQ} notifications={API_ON ? bell : 5} onNotifications={TASKS ? bellTarget : undefined} onAskAI={API_ON ? undefined : () => setChat(true)} onMenu={mobile ? () => setNavOpen(true) : undefined}
           user={{ name: API_ON ? sessionUser.name : user.name }} actions={<>{API_ON ? null : <RoleSwitch user={user} setUserId={setUserId} />}<ThemeSwitch mode={mode} setMode={setMode} />{changePasswordButton}{logoutButton}</>} />
         <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px var(--page-gutter)', font: 'var(--type-caption)', color: 'var(--warning-text)', background: 'var(--warning-soft)', borderBottom: '1px solid var(--warning-border)', flexWrap: 'wrap' }}>
           <Icon name={API_ON ? 'server' : 'flask-conical'} size={14} />
-          {API_ON ? <span style={{ flex: 1, minWidth: 200 }}>{me ? 'Đang đăng nhập: ' + me.fullName + ' (' + me.code + ') — ' : 'Chế độ API — '}chỉ danh sách và chi tiết khách hàng lấy từ máy chủ. Các mô-đun khác {API_UNSUPPORTED_NOTE}; không hiển thị dữ liệu minh hoạ.</span>
+          {API_ON ? <span style={{ flex: 1, minWidth: 200 }}>{me ? 'Đang đăng nhập: ' + me.fullName + ' (' + me.code + ') — ' : 'Chế độ API — '}khách hàng, hoạt động và công việc lấy từ máy chủ. Các mô-đun khác {API_UNSUPPORTED_NOTE}; không hiển thị dữ liệu minh hoạ.</span>
             : <span style={{ flex: 1, minWidth: 200 }}>Bản demo giao diện — toàn bộ khách hàng và số liệu là <b>dữ liệu minh hoạ</b>, không phải hồ sơ kinh doanh thực tế. Thay đổi chỉ lưu trên trình duyệt này.</span>}
           {API_ON ? null : <DataTools ui={ui} getDb={() => dbRef.current} onRestoreText={(text) => { const next = parseBackupFile(text); backupNow('auto-restore'); replaceDb(next); }} onReset={() => { backupNow('auto-reset'); replaceDb(seedV2()); }} />}
         </div>

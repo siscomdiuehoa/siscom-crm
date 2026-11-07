@@ -89,6 +89,7 @@ export function buildCreateBody(d) {
   if (hasDue(type) && s(d.remindAt)) b.remindAt = vnLocalToIso(d.remindAt);
   if (s(d.contactId)) b.contactId = s(d.contactId);
   if (s(d.performedById)) b.performedById = s(d.performedById);
+  if (d.external === true && type === 'TASK' && b.performedById) b.external = true; // B3 A8: giao ra ngoài phạm vi chỉ khi bật tường minh
   return b;
 }
 

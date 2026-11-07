@@ -5,6 +5,7 @@ import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import { TYPE_META, ALL_TYPES, STATUS_META, OVERDUE_LABEL, allowedTypes, activityVisual, isOverdue } from './activityModel.js';
 import { ActivityDrawer } from './ActivityDrawer.jsx';
+import { TaskActions } from './TaskActions.jsx';
 
 const TONE = {
   blue: ['var(--primary-soft)', 'var(--primary)'], success: ['var(--success-soft)', 'var(--success)'], warning: ['var(--warning-soft)', 'var(--warning)'],
@@ -14,7 +15,7 @@ const TYPE_OPTIONS = [{ value: '', label: 'Tất cả loại' }].concat(ALL_TYPE
 const STATUS_OPTIONS = [{ value: '', label: 'Mọi trạng thái' }].concat(Object.keys(STATUS_META).map((k) => ({ value: k, label: STATUS_META[k].label })));
 const clamp = { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' };
 
-function ActivityItem({ a, now }) {
+function ActivityItem({ a, now, ui }) {
   const v = activityVisual(a, now); const t = TONE[v.tone] || TONE.neutral; const m = TYPE_META[a.type] || { label: a.type };
   const overdue = isOverdue(a, now);
   const when = a.type === 'TASK' ? 'Hạn ' + U.dtVN(a.dueAt) : U.dtVN(a.occurredAt);
@@ -34,6 +35,7 @@ function ActivityItem({ a, now }) {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: overdue ? 'var(--error-text)' : undefined }}><Icon name="clock" size={12} />{when}</span>
           {a.contact ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="contact" size={12} />{a.contact.fullName}</span> : null}
         </div>
+        {ui && ui.customerApi && ui.customerApi.tasks ? <div><TaskActions ui={ui} a={a} /></div> : null}
       </div>
     </li>
   );
@@ -73,7 +75,7 @@ export function ActivitiesPanel({ ui, customerId }) {
       {l.status === 'ready' && l.items.length ? (
         <>
           <div style={{ font: 'var(--type-sm)', color: 'var(--text-3)' }}>{l.items.length + ' / ' + l.total + ' hoạt động · giờ Việt Nam'}</div>
-          <ul className="sg-feed" style={{ margin: 0 }}>{l.items.map((a) => <ActivityItem key={a.id} a={a} now={now} />)}</ul>
+          <ul className="sg-feed" style={{ margin: 0 }}>{l.items.map((a) => <ActivityItem key={a.id} a={a} now={now} ui={ui} />)}</ul>
           {l.more === 'error' && l.moreError ? <ApiErrorBox error={l.moreError} /> : null}
           {l.page < l.totalPages ? <div style={{ display: 'flex', justifyContent: 'center' }}><Button variant="secondary" size="sm" loading={l.more === 'loading'} onClick={() => actl.loadMore()}>Tải thêm</Button></div> : null}
         </>
