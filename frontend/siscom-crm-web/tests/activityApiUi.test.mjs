@@ -5,7 +5,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import React from 'react';
-import { installDom, text, findAll, buttonByText, inputByLabel, click, type } from './helpers/miniDom.mjs';
+import { installDom, text, findAll, buttonByText, inputByLabel, click, type, keydown } from './helpers/miniDom.mjs';
 
 const BASE = 'http://127.0.0.1:3000/api/v1';
 const ON = { VITE_CRM_API_ENABLED: 'true', VITE_CRM_API_BASE: BASE };
@@ -229,6 +229,34 @@ test('điện thoại (ui.mobile): nút "+" nổi mở drawer dạng bottom shee
     assert.ok(fab); assert.equal(fab.style.position, 'fixed');
     await doAct(() => click(fab));
     const d = dialog(m.container); assert.ok(d); assert.equal(d.style.width, '100%');
+  } finally { await m.unmount(); }
+});
+
+test('R2 F-1 trợ năng: mở drawer => focus vào loại đang chọn; Tab/Shift+Tab vòng trong dialog; đóng => focus trả về nút mở', async () => {
+  const m = await mount(server(), SALES);
+  try {
+    await openTab(m);
+    const opener = byAria(m.container, 'Ghi nhận hoạt động').find((e) => e.tagName === 'BUTTON');
+    opener.focus(); assert.equal(dom.doc.activeElement, opener);
+    await doAct(() => click(opener));
+    const d = dialog(m.container); assert.ok(d);
+    const a0 = dom.doc.activeElement;
+    assert.ok(d.contains(a0), 'focus phải nằm trong dialog khi mở');
+    assert.equal(a0.attributes.role, 'radio'); assert.equal(a0.attributes['aria-checked'], 'true');
+    const tabbable = findAll(d, (e) => ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT'].includes(e.tagName) && !e.disabled && e.attributes.tabindex !== '-1');
+    const first = tabbable[0]; const last = tabbable[tabbable.length - 1];
+    assert.ok(tabbable.length >= 4 && first !== last);
+    last.focus();
+    let ev; await doAct(() => { ev = keydown(last, 'Tab'); });
+    assert.equal(dom.doc.activeElement, first, 'Tab ở phần tử cuối => về phần tử đầu'); assert.equal(ev.defaultPrevented, true);
+    await doAct(() => { ev = keydown(first, 'Tab', { shiftKey: true }); });
+    assert.equal(dom.doc.activeElement, last, 'Shift+Tab ở phần tử đầu => về phần tử cuối'); assert.equal(ev.defaultPrevented, true);
+    const mid = tabbable[1]; mid.focus();
+    await doAct(() => { ev = keydown(mid, 'Tab'); });
+    assert.equal(ev.defaultPrevented, false, 'Tab ở giữa: để trình duyệt tự chuyển'); assert.equal(dom.doc.activeElement, mid);
+    await doAct(() => click(byAria(d, 'Đóng').find((e) => e.tagName === 'BUTTON') || buttonByText(d, /^Huỷ$/)));
+    assert.equal(dialog(m.container), undefined);
+    assert.equal(dom.doc.activeElement, opener, 'đóng => focus trả về nút mở');
   } finally { await m.unmount(); }
 });
 
