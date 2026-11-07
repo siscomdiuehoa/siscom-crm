@@ -256,6 +256,35 @@ describe('PATCH /activities/:id', () => {
     expect((await a('acctA').patch(A + other.id, { version: other.version, outcome: 'x' })).status).toBe(403);
     expect((await a('salesA').patch(A + other.id, { version: other.version })).status).toBe(400);
   });
+  it('F-217-01: kỹ thuật (update_own) sửa việc DO MÌNH TẠO (đã giao người khác) trên khách phòng mình => 200, version +1, DB + audit; việc người khác tạo, không phụ trách => 403, DB/audit không đổi', async () => {
+    // cA: chủ = empA (phòng d1) => techB (empB, phòng d1, TECH: customer.read/activity.update_own DEPARTMENT) đọc được khách.
+    const c = await a('techB').post(C + cA.id + '/activities', { type: 'TASK', title: 'KT tự tạo', content: 'Việc do kỹ thuật tạo', dueAt: at(2 * DAY) });
+    expect(c.status).toBe(201);
+    const own = c.body.data;
+    // Giao cho người khác để chỉ còn nhánh "người tạo" (createdById), không còn nhánh "người phụ trách".
+    const g = await a('salesA').post(A + own.id + '/assign', { performedById: fx.empA, version: own.version });
+    expect(g.status).toBe(200);
+    const before = await prisma.activity.findUniqueOrThrow({ where: { id: own.id } });
+    expect([before.createdById, before.performedById]).toEqual([fx.empB, fx.empA]);
+    t.audit.entries = [];
+    const ok = await a('techB').patch(A + own.id, { version: before.version, title: 'KT sửa việc mình tạo' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data.version).toBe(before.version + 1);
+    const after = await prisma.activity.findUniqueOrThrow({ where: { id: own.id } });
+    expect({ title: after.title, version: after.version, updatedById: after.updatedById, performedById: after.performedById }).toEqual({ title: 'KT sửa việc mình tạo', version: before.version + 1, updatedById: fx.empB, performedById: fx.empA });
+    const e = t.audit.entries.filter((z) => z.action === 'activity.update');
+    expect(e).toHaveLength(1);
+    expect(e[0]).toMatchObject({ entityType: 'activity', entityId: own.id, actorEmployeeId: fx.empB, changes: { title: AUDIT_REDACTED_TEXT } });
+    // Việc salesA tạo, empA phụ trách: techB không tạo, không phụ trách => 403, không ghi DB, không audit.
+    const other = await mkTask('salesA', cA.id, { performedById: fx.empA });
+    t.audit.entries = [];
+    const no = await a('techB').patch(A + other.id, { version: other.version, title: 'KT cố sửa việc người khác' });
+    expect(no.status).toBe(403);
+    expect(no.body.error.code).toBe('FORBIDDEN');
+    const o2 = await prisma.activity.findUniqueOrThrow({ where: { id: other.id } });
+    expect({ title: o2.title, version: o2.version }).toEqual({ title: null, version: other.version });
+    expect(t.audit.entries).toEqual([]);
+  });
   it('TASK: không sửa occurredAt, không bỏ hạn, remindAt > dueAt => 400; trường lạ / status khác CANCELLED => 400', async () => {
     const x = await mkTask('salesA', cA.id);
     for (const b of [{ occurredAt: at(-DAY) }, { dueAt: null }, { remindAt: at(10 * DAY) }, { status: 'DONE' }, { customerId: cC.id }, { type: 'CALL' }]) {
