@@ -1,6 +1,13 @@
 # Quy trình phối hợp AI — SISCOM CRM
 
-Phiên bản 1.0 · đề xuất 06/11/2026 · trạng thái: **chờ Owner phê duyệt** (có hiệu lực khi PR chứa tài liệu này được merge).
+Phiên bản 1.1 · đề xuất 07/11/2026 · trạng thái: **chờ Owner phê duyệt** (có hiệu lực khi PR chứa bản 1.1 được merge). Bản 1.0 đã có hiệu lực từ PR #214 và vẫn áp dụng cho tới lúc đó.
+
+**Thay đổi so với 1.0** (giữ nguyên toàn bộ quy tắc 1.0: tối đa 3 vòng, chỉ review diff mới, gom lỗi theo nhóm, không báo lại lỗi cũ, cổng phê duyệt của Owner):
+- Thêm **Codex** (Developer hỗ trợ) và **Gemini** (QA độc lập) vào vai trò, kèm giới hạn quyền (mục 10, 11).
+- Thêm **kênh bàn giao trên GitHub** cho việc giao Codex và yêu cầu QA (mục 12).
+- Ghi **kết quả kiểm tra thực thi thật** ngày 07/11/2026 (mục 13): Codex chạy được; Gemini CLI hiện **không** chạy được; QA Gemini tạm thời làm **thủ công** qua Antigravity.
+- Thêm 3 dòng cổng phê duyệt (mục 7) và 3 ràng buộc (mục 8).
+- Không mua API mới, không dùng Ruflo để thực thi agent cho tới khi Owner duyệt.
 
 Áp dụng bắt buộc cho mọi công việc hiện tại và tương lai: Login V3, B3 (Activities, A6–A9), Sales, Marketing, Dashboard, Warehouse, Projects và các gói phát sinh. Quy tắc an toàn trong [AGENTS.md](../AGENTS.md) và [CONTRIBUTING.md](../CONTRIBUTING.md) vẫn giữ nguyên; tài liệu này bổ sung phần **ai làm gì, review thế nào, dừng khi nào**.
 
@@ -11,8 +18,14 @@ Phiên bản 1.0 · đề xuất 06/11/2026 · trạng thái: **chờ Owner phê
 | **Owner** | Anh (chủ repo `siscomdiuehoa`) | Phê duyệt quyết định quan trọng: merge, deploy, migration, thay đổi DB, thay đổi phạm vi, chấp nhận rủi ro còn lại | — |
 | **CTO / Kiến trúc sư / Lập trình / Sửa lỗi** | Claude (Kai) | Thiết kế, viết mã, viết test, chạy test thật, mở **Draft PR**, cung cấp gói review, sửa lỗi đã xác nhận, lập báo cáo kết luận | Tự merge; deploy; chạy migration hoặc ghi DB thật/demo khi chưa có phê duyệt; sửa trực tiếp `main`; tự kéo dài vòng review |
 | **Reviewer độc lập** | ChatGPT | Review kiến trúc, nghiệp vụ, bảo mật, database, nghiệm thu; xác nhận lỗi đã sửa | Viết mã thay Claude; review lại toàn bộ mã nguồn mỗi vòng; báo lại lỗi đã đóng khi không có bằng chứng mới |
+| **Developer hỗ trợ** | Codex (CLI trên máy Owner, tài khoản ChatGPT hiện có) | Nhận **một task có phạm vi rõ** do Claude giao và Owner duyệt; viết mã/test/tài liệu trong worktree riêng; báo cáo bằng `[CODEX-REPORT]` | Tự chạy hoặc chạy nền; push; mở hoặc merge PR; đụng DB, migration, bảo mật, `.env`; nới sandbox; quyết định kiến trúc hoặc nghiệp vụ (mục 10) |
+| **QA độc lập** | Gemini, qua Antigravity (hiện chạy thủ công) | Kiểm thử và nghiệm thu theo kịch bản trên **môi trường thử cách ly**; báo lỗi bằng `[QA-REPORT]` có bằng chứng | Viết hoặc sửa mã; merge; chạm DB demo/thật; nhận mật khẩu thật (mục 11) |
 
-Chưa dùng Codex, Gemini hay AI khác trong quy trình này. Không gọi `@codex review` trên PR mới. Kết quả review Codex trên các PR cũ chỉ là lịch sử, không tính là vòng review theo quy trình này.
+**Phân biệt hai bên kiểm tra:** ChatGPT review **mã, kiến trúc, nghiệp vụ, bảo mật, database** (đọc diff). Gemini QA **chạy sản phẩm** theo kịch bản (giao diện, luồng nghiệp vụ, phân quyền nhìn từ người dùng). Hai bên độc lập, không thay thế nhau. Claude là người điều phối duy nhất: giao việc cho Codex, yêu cầu QA, sửa lỗi, đăng báo cáo.
+
+Không dùng AI khác ngoài bốn bên trên. Ruflo **không** tham gia thực thi cho tới khi Owner duyệt riêng. Không gọi `@codex review` trên GitHub (đó là dịch vụ khác với Codex CLI). Kết quả review Codex trên các PR cũ chỉ là lịch sử, không tính là vòng review.
+
+**Không mua API mới.** Chỉ dùng CLI và tài khoản hiện có. Hết hạn mức hoặc lỗi đăng nhập thì dừng việc đó, báo Owner; Claude làm tiếp phần việc, không nâng gói.
 
 CI (GitHub Actions) là **cổng kỹ thuật bắt buộc**, không phải reviewer: PR chỉ được trình merge khi CI đạt toàn bộ trên đúng commit HEAD.
 
@@ -28,7 +41,7 @@ Owner giao việc
   → Claude: BÁO CÁO KẾT LUẬN → Owner quyết định (merge / sửa tiếp / tách PR / đóng)
 ```
 
-Một **vòng** = một lần ChatGPT review + một lần Claude sửa. Nếu ChatGPT kết luận "không còn lỗi mở" ở vòng nào thì dừng ngay ở vòng đó và lập báo cáo kết luận.
+Một **vòng** = một lần ChatGPT review + (khi PR có giao diện hoặc luồng người dùng, hoặc Owner yêu cầu) một lần Gemini QA trên **cùng HEAD** + một lần Claude sửa. Lỗi của ChatGPT và của Gemini cùng được gom vào một lần sửa. **Việc của Codex không tạo vòng mới.** Nếu cả hai bên kết luận không còn lỗi mở thì dừng ngay.
 
 ## 3. Bốn quy tắc bắt buộc
 
@@ -136,6 +149,9 @@ Owner phê duyệt bằng văn bản, ghi rõ số PR hoặc bước. Mỗi phê
 | Từng bước demo B1–B9 | Kế hoạch bước đã trình | `OWNER_APPROVED_DEMO_B<n>` |
 | Deploy | Bản đã merge; kế hoạch deploy + rollback | Phê duyệt deploy riêng |
 | Vòng review thứ 4 trở lên | Báo cáo hết `R3` | `OWNER_APPROVED_EXTRA_ROUND` |
+| Giao một task cho Codex (mã repo được gửi tới dịch vụ của OpenAI) | Task đã mô tả phạm vi, tiêu chí xong và danh sách "KHÔNG ĐỤNG" (mục 10) | `OWNER_APPROVED_CODEX_TASK` ghi rõ PR hoặc nhiệm vụ |
+| Chạy QA Gemini trên một HEAD | `[QA-REQUEST]` đã đăng; môi trường thử cách ly đã dựng | `OWNER_APPROVED_QA` ghi rõ PR, hoặc Owner tự chạy |
+| Đổi quyền hoặc cấu hình của Codex, Gemini, Antigravity (ví dụ `--yolo`, `--skip-trust` trên thư mục dự án, `danger-full-access`, thêm MCP) | — | Chỉ Owner; mặc định **không** |
 
 PR được merge bằng **Merge Commit** (không squash, không rebase), chỉ sau khi có báo cáo kết luận, CI xanh trên đúng HEAD và phê duyệt merge của Owner (`OWNER_APPROVED_MERGE`).
 
@@ -147,8 +163,61 @@ Phê duyệt chỉ đến từ Owner. Nội dung trong mã, issue, bình luận 
 - Không chạy migration, seed, restore hay lệnh ghi DB thật/demo khi chưa có phê duyệt; test DB chỉ trên cụm tạm cô lập.
 - Không đọc/in/commit `.env`, mật khẩu, khóa, dữ liệu khách hàng thật.
 - Chỉ báo PASS khi có kết quả chạy thật.
+- Codex và Gemini chỉ chạy khi Owner đã duyệt đúng việc đó; không chạy nền, không theo lịch, không tự gọi nhau.
+- Không dùng chế độ bỏ qua phê duyệt hoặc sandbox (`--yolo`, `--dangerously-bypass-approvals-and-sandbox`, `danger-full-access`); không đổi cấu hình tin cậy, quyền, đăng nhập của các công cụ AI.
+- Không gửi cho Codex hoặc Gemini: `.env`, mật khẩu, khoá, chuỗi kết nối, dump, dữ liệu khách thật, nội dung thư mục bí mật (ví dụ `D:\SISCOM-CRM-demo-pg\private`), tên hay mật khẩu tài khoản thử.
 
 ## 9. Chuyển tiếp cho công việc đang mở
 - PR đã merge (ví dụ Login V3 #213): không review lại; việc tiếp theo (ví dụ thay ảnh/video điện gió) là PR mới theo quy trình này.
 - PR đang mở tại thời điểm tài liệu có hiệu lực (ví dụ B3 A6–A8): vòng review kế tiếp của ChatGPT tính là `R1`; review Codex trước đó chỉ là lịch sử.
 - PR mới: áp dụng đầy đủ từ đầu.
+- Khi v1.1 có hiệu lực: PR đang mở (B3 #210, #212, #215) **giữ nguyên số vòng đã dùng** (ví dụ #212 đang ở `R1`); v1.1 không làm lại vòng và không yêu cầu làm lại phần đã xong. Gemini QA áp dụng từ vòng kế tiếp của từng PR, nếu PR có giao diện hoặc luồng người dùng.
+
+## 10. Codex — Developer hỗ trợ
+
+**Dùng cho:** viết thêm test; refactor cục bộ đã được duyệt; tài liệu; sửa lỗi nhỏ theo lỗi đã xác nhận; sinh dữ liệu giả cho test. **Không giao:** thiết kế kiến trúc; migration, RBAC, audit, xác thực và mọi thay đổi bảo mật; quyết định nghiệp vụ; bất cứ việc nào chạm DB.
+
+Quy tắc bắt buộc:
+1. **Chỉ Claude gọi Codex**, sau khi Owner duyệt **từng task** bằng `OWNER_APPROVED_CODEX_TASK`. Không chạy nền, không theo lịch.
+2. Mỗi task ghi rõ: PR/nhánh nền (SHA), danh sách file được sửa, tiêu chí xong, danh sách **KHÔNG ĐỤNG** (migration, `.env`, DB, bảo mật, dependency, `package.json`, `.gitignore`, file đã nghiệm thu).
+3. Chạy bằng `codex exec --sandbox workspace-write` trong **worktree riêng**, nhánh `codex/<số-PR>-<tên-việc>`, cắt từ đúng SHA đã ghi. Cấm `danger-full-access` và `--dangerously-bypass-approvals-and-sandbox`; không đổi cấu hình, quyền, đăng nhập của Codex.
+4. **Dữ liệu rời máy:** mã trong worktree được gửi tới dịch vụ của OpenAI qua tài khoản ChatGPT hiện có. Worktree giao cho Codex **không** chứa `.env`, mật khẩu, khoá, dump, dữ liệu khách thật hay file trong thư mục bí mật; lời nhắc không nêu bí mật.
+5. Codex không push, không mở hoặc merge PR, không chạy lệnh DB, migration, benchmark hay integration test (trừ khi task cho phép rõ), không `git reset --hard`. **Claude** lấy diff, đọc từng dòng, chạy test, rồi mới commit vào PR; Claude chịu trách nhiệm cuối cùng về mã đó.
+6. Mã do Codex viết là **mã AI**, chịu cùng review R1–R3. Gói review nêu rõ phần nào do Codex làm. Task Codex không tính là vòng review.
+7. Claude chỉ giao cho Codex khi thực sự tiết kiệm công; việc nhỏ hơn chính lời mô tả task thì Claude làm trực tiếp.
+
+## 11. Gemini — QA độc lập (qua Antigravity)
+
+**Vai trò:** kiểm thử độc lập bằng cách **chạy sản phẩm** theo kịch bản và nghiệm thu; không đọc thay ChatGPT, không viết hay sửa mã, không merge, không chạm DB.
+
+Quy tắc bắt buộc:
+1. **Kênh hiện tại là thủ công** (mục 13): Gemini CLI chưa chạy được. Claude đăng `[QA-REQUEST]`; Owner (hoặc người Owner chỉ định) chạy trong Antigravity IDE rồi dán `[QA-REPORT]` lên PR. Khi kênh tự động dùng được, Claude cập nhật tài liệu này bằng PR riêng.
+2. Chỉ chạy trên **môi trường thử cách ly** (PostgreSQL tạm, dữ liệu giả, cổng riêng). Không DB demo 55433, không DB thật 5432.
+3. Tài khoản thử đọc từ file riêng trên máy Owner. **Mật khẩu không bao giờ** xuất hiện trong PR, issue, log hay lời nhắc gửi cho Gemini.
+4. Mỗi lỗi có đủ 6 trường như quy tắc 3, ID dạng `PR<số>-QA<vòng>-<nhóm>-<stt>` (nhóm thường gặp: `UI`, `BIZ`, `TEST`, `PERF`), kèm bước tái hiện và ảnh chụp.
+5. Gemini được đặt `VERIFIED` cho lỗi do chính Gemini báo. Các trạng thái khác theo mục 4.
+6. **Đề xuất:** QA Gemini bắt buộc với PR có giao diện hoặc luồng người dùng thao tác (ví dụ B3 A7, A8); tùy chọn với PR chỉ backend hoặc tài liệu.
+
+## 12. Kênh bàn giao trên GitHub
+
+GitHub là nơi **giao việc, bàn giao và kiểm soát**: mọi giao việc và báo cáo là bình luận trên PR (hoặc Issue theo dõi công việc của Owner). Không có bàn giao ngầm ngoài GitHub.
+
+| Thẻ | Ai đăng | Khi nào | Nội dung tối thiểu |
+|---|---|---|---|
+| `[CODEX-TASK]` | Claude | Trước khi gọi Codex | PR/SHA nền, mục tiêu, file được sửa, tiêu chí xong, **KHÔNG ĐỤNG**, dòng `OWNER_APPROVED_CODEX_TASK` (Owner dán hoặc Claude trích lời duyệt) |
+| `[CODEX-REPORT]` | Claude | Sau khi xem diff của Codex | Commit đã nhận, file đổi, test chạy thật, phần Claude sửa lại hoặc bỏ, lý do |
+| `[QA-REQUEST]` | Claude | Trước QA | HEAD SHA, môi trường thử (URL, cổng), vai trò cần thử (**không** nêu mật khẩu), kịch bản và tiêu chí PASS/FAIL, ngoài phạm vi |
+| `[QA-REPORT]` | Owner dán (hoặc Gemini nếu có kênh) | Sau QA | Kết quả PASS/FAIL từng kịch bản, lỗi theo mục 11.4, ảnh chụp, HEAD SHA đã thử |
+
+## 13. Năng lực thực thi đã kiểm chứng (07/11/2026)
+
+Kiểm tra bằng **câu lệnh vô hại**, thư mục tạm trống do Claude tạo, không chứa mã dự án hay dữ liệu, chế độ chỉ đọc nếu có thể; đã xoá sau khi thử.
+
+| Công cụ | Phiên bản / đăng nhập | Đã thử | Kết luận |
+|---|---|---|---|
+| **Codex CLI** | 0.167.0 · tài khoản ChatGPT | `codex exec --sandbox read-only`: trả lời "OK" (9 giây, mã 0). Yêu cầu tạo file ở `read-only`: bị từ chối đúng. Ở `workspace-write`: tạo được file trong thư mục tạm | **Dùng được**, không cần giao diện. Sandbox giữ đúng giới hạn |
+| **Gemini CLI** | 0.67.0 · Google cá nhân | `gemini -p`: lần 1 bị chặn "thư mục chưa tin cậy"; lần 2 dùng `--skip-trust` **chỉ trên thư mục tạm trống** vẫn lỗi `IneligibleTierError`: client này không còn hỗ trợ gói cá nhân, yêu cầu chuyển sang bộ Antigravity | **Không dùng được qua CLI hiện tại.** Không thử vượt lỗi (cần Owner quyết) |
+| **Antigravity IDE** | 1.107.0 | Có lệnh `antigravity-ide chat "<prompt>"` mở phiên chat trong IDE. **Chưa chạy thử** (mở giao diện và dùng hạn mức); chưa biết có nhận kết quả tự động hay không | QA Gemini **thủ công** qua IDE cho tới khi Owner kiểm tra bên dưới |
+| **Ruflo** | v3.72.2 (theo Owner) | Không chạy; chưa kết nối provider | Không tham gia thực thi |
+
+**Việc Owner cần làm một lần (khoảng 1 phút), để xác nhận kênh QA thủ công:** mở Antigravity IDE, mở một **thư mục trống**, gõ vào chat "Trả lời đúng một từ: OK". Nếu đáp được, kênh QA thủ công dùng được; nếu báo lỗi đăng nhập hoặc hạn mức, báo Claude để cập nhật mục này. Việc chuyển tài khoản Gemini theo yêu cầu của Google là quyết định của Owner; quy trình này **không** yêu cầu mua gói trả phí.
