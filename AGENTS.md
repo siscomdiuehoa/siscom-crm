@@ -2,7 +2,7 @@
 
 Áp dụng cho mọi tác tử làm việc trong kho này. Quy tắc nhấn mạnh **an toàn dữ liệu trước, tốc độ sau**. Khi nghi ngờ: dừng lại và hỏi.
 
-**Vai trò và review:** Claude (Kai) là CTO, kiến trúc sư, lập trình viên và người sửa lỗi; ChatGPT là reviewer độc lập; Owner phê duyệt quyết định quan trọng. Chưa dùng Codex, Gemini. Mọi PR theo [docs/QUY_TRINH_PHOI_HOP_AI.md](docs/QUY_TRINH_PHOI_HOP_AI.md): tối đa 3 vòng review, chỉ review diff mới, gom lỗi theo nhóm, không báo lại lỗi đã đóng.
+**Vai trò và review:** Claude (Kai) là CTO, kiến trúc sư, lập trình viên và người sửa lỗi; ChatGPT là reviewer độc lập; Owner phê duyệt quyết định quan trọng. Codex là developer hỗ trợ và Gemini là QA độc lập, chỉ chạy khi Owner duyệt từng việc; Codex chỉ chạy khi **chuẩn cách ly** (mục 10.3 tài liệu quy trình) còn đạt — mọi file bí mật phải có quyền **chỉ tài khoản Owner** và không để bí mật ở nơi sandbox Codex đọc được (ví dụ thư mục Temp). Mọi PR theo [docs/QUY_TRINH_PHOI_HOP_AI.md](docs/QUY_TRINH_PHOI_HOP_AI.md): tối đa 3 vòng review, chỉ review diff mới, gom lỗi theo nhóm, không báo lại lỗi đã đóng.
 
 ## 1. Bắt đầu mỗi phiên
 1. Đọc [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md) (trạng thái, quyết định kỹ thuật, ràng buộc), [CONTRIBUTING.md](CONTRIBUTING.md) và [quy trình phối hợp AI](docs/QUY_TRINH_PHOI_HOP_AI.md).
