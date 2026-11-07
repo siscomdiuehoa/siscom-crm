@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { dtVN } from '../src/data/util.js';
-import { allowedTypes, activityVisual, vnLocalToIso, isoToVnLocal, validateDraft, buildCreateBody, detailsToFieldErrors, TYPE_META } from '../src/features/activities/activityModel.js';
+import { allowedTypes, activityVisual, vnLocalToIso, isoToVnLocal, validateDraft, buildCreateBody, detailsToFieldErrors, TYPE_META, editDraftOf, buildPatchBody } from '../src/features/activities/activityModel.js';
 
 const can = (...keys) => (a) => keys.includes(a);
 
@@ -72,4 +72,27 @@ test('detailsToFieldErrors: chi tiết lỗi 400 của máy chủ gắn đúng �
   assert.equal(r.fieldErrors.dueAt, 'Công việc (TASK) phải có hạn (dueAt).');
   assert.match(r.fieldErrors.occurredAt, /1 ngày/);
   assert.deepEqual(r.extra, ['lạ']);
+});
+
+test('editDraftOf: điền sẵn theo giờ VN; trường trống thành chuỗi rỗng', () => {
+  const a = { type: 'TASK', title: 'Gửi báo giá', content: 'VRV', outcome: null, occurredAt: '2026-11-05T01:00:00.000Z', dueAt: '2026-11-06T10:00:00.000Z', remindAt: null, contact: null, version: 3 };
+  assert.deepEqual(editDraftOf(a), { type: 'TASK', title: 'Gửi báo giá', content: 'VRV', outcome: '', occurredAt: '2026-11-05T08:00', dueAt: '2026-11-06T17:00', remindAt: '' });
+});
+
+test('buildPatchBody: chỉ gửi trường đã đổi; không đổi gì => {}; giờ kèm +07:00', () => {
+  const a = { type: 'TASK', title: 'Gửi báo giá', content: 'VRV', outcome: null, occurredAt: '2026-11-05T01:00:00.000Z', dueAt: '2026-11-06T10:00:00.000Z', remindAt: null, version: 3 };
+  const d = editDraftOf(a);
+  assert.deepEqual(buildPatchBody(a, d), {});
+  assert.deepEqual(buildPatchBody(a, { ...d, dueAt: '2026-11-07T09:00' }), { dueAt: '2026-11-07T09:00:00+07:00' });
+  assert.deepEqual(buildPatchBody(a, { ...d, content: '  VRV mới ', remindAt: '2026-11-06T08:00' }), { content: 'VRV mới', remindAt: '2026-11-06T08:00:00+07:00' });
+  assert.deepEqual(buildPatchBody(a, { ...d, title: '  ' }), { title: null });
+  assert.deepEqual(buildPatchBody(a, { ...d, occurredAt: '2026-11-01T08:00' }), {}); // TASK không sửa thời điểm diễn ra
+});
+
+test('buildPatchBody: MEETING bỏ hạn/nhắc => null; CALL đổi thời điểm + xoá kết quả => null', () => {
+  const m = { type: 'MEETING', title: 'Họp', content: 'x', outcome: 'ok', occurredAt: '2026-11-05T01:00:00.000Z', dueAt: '2026-11-06T10:00:00.000Z', remindAt: '2026-11-06T09:00:00.000Z', version: 1 };
+  assert.deepEqual(buildPatchBody(m, { ...editDraftOf(m), dueAt: '', remindAt: '' }), { dueAt: null, remindAt: null });
+  const c = { type: 'CALL', title: null, content: 'Gọi', outcome: 'Hẹn', occurredAt: '2026-11-05T01:00:00.000Z', dueAt: null, remindAt: null, version: 2 };
+  assert.deepEqual(buildPatchBody(c, { ...editDraftOf(c), occurredAt: '2026-11-05T09:30', outcome: '' }), { outcome: null, occurredAt: '2026-11-05T09:30:00+07:00' });
+  assert.deepEqual(buildPatchBody(c, { ...editDraftOf(c), title: 'bị bỏ', dueAt: '2026-11-06T09:00' }), {}); // CALL không có tiêu đề/hạn
 });

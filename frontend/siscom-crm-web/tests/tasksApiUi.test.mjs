@@ -231,3 +231,30 @@ test('thẻ việc: hoàn thành xong mà quyền theo việc kết thúc (đọ
     assert.equal(findAll(m.container, (e) => e.attributes.role === 'alert').length, 0);
   } finally { await m.unmount(); }
 });
+
+test('Sửa: hộp thoại điền sẵn; đổi hạn => PATCH chỉ {version, dueAt}; không đổi gì => không gửi', async () => {
+  const f = server({ list: () => page([task({ dueAt: '2026-11-06T10:00:00.000Z', status: 'OPEN' })]) }); const m = await page_(f, SALES);
+  try {
+    await menuItem(m.container, /^Sửa$/);
+    const d = modal(m.container); assert.ok(d);
+    assert.equal(inputByLabel(d, /^Hạn/).value, '2026-11-06T17:00');
+    assert.equal(inputByLabel(d, /^Nội dung/).value, 'Phương án VRV');
+    await doAct(() => click(findAll(modal(m.container), (e) => e.tagName === 'BUTTON' && text(e) === 'Lưu thay đổi')[0]));
+    assert.equal(f.writes().length, 0); assert.match(text(modal(m.container)), /Chưa có thay đổi/);
+    type(inputByLabel(modal(m.container), /^Hạn/), '2026-11-08T09:00'); await flush();
+    await doAct(() => click(findAll(modal(m.container), (e) => e.tagName === 'BUTTON' && text(e) === 'Lưu thay đổi')[0]));
+    assert.equal(f.writes()[0].method, 'PATCH'); assert.equal(f.writes()[0].p, '/activities/t1');
+    assert.deepEqual(f.writes()[0].body, { version: 3, dueAt: '2026-11-08T09:00:00+07:00' });
+    assert.equal(modal(m.container), undefined); assert.match(m.toasts[0].title, /Đã lưu/);
+  } finally { await m.unmount(); }
+});
+
+test('Sửa: nhắc sau hạn bị chặn tại ô, không gửi PATCH', async () => {
+  const f = server({ list: () => page([task({ dueAt: '2026-11-06T10:00:00.000Z' })]) }); const m = await page_(f, SALES);
+  try {
+    await menuItem(m.container, /^Sửa$/);
+    type(inputByLabel(modal(m.container), /^Nhắc lúc/), '2026-11-07T09:00'); await flush();
+    await doAct(() => click(findAll(modal(m.container), (e) => e.tagName === 'BUTTON' && text(e) === 'Lưu thay đổi')[0]));
+    assert.equal(f.writes().length, 0); assert.match(text(modal(m.container)), /Thời điểm nhắc phải không sau hạn/);
+  } finally { await m.unmount(); }
+});

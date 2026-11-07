@@ -28,16 +28,16 @@ test('bellCount: quá hạn + hôm nay + chờ duyệt; dữ liệu thiếu => 0
 });
 
 test('taskActions: người phụ trách (update_own) => Hoàn thành, Đề xuất chuyển, Huỷ, Lịch sử; không Giao lại/Xoá', () => {
-  assert.deepEqual(taskActions(task(), { can: can('activity.read', 'activity.update_own', 'activity.transfer_request'), meId: ME }), ['complete', 'transfer', 'cancel', 'history']);
+  assert.deepEqual(taskActions(task(), { can: can('activity.read', 'activity.update_own', 'activity.transfer_request'), meId: ME }), ['complete', 'edit', 'transfer', 'cancel', 'history']);
 });
 
 test('taskActions: crm_admin (update + assign + delete) với việc người khác => Hoàn thành, Giao lại, Huỷ, Lịch sử, Xoá', () => {
   const a = task({ performedBy: { id: 'e-x', fullName: 'X' } });
-  assert.deepEqual(taskActions(a, { can: can('activity.read', 'activity.update', 'activity.assign', 'activity.delete'), meId: ME }), ['complete', 'reassign', 'cancel', 'history', 'delete']);
+  assert.deepEqual(taskActions(a, { can: can('activity.read', 'activity.update', 'activity.assign', 'activity.delete'), meId: ME }), ['complete', 'edit', 'reassign', 'cancel', 'history', 'delete']);
 });
 
 test('taskActions: việc đã xong => Mở lại (khi có quyền sửa), không Hoàn thành/Huỷ/Giao lại', () => {
-  assert.deepEqual(taskActions(task({ status: 'DONE' }), { can: can('activity.update', 'activity.assign'), meId: ME }), ['reopen', 'history']);
+  assert.deepEqual(taskActions(task({ status: 'DONE' }), { can: can('activity.update', 'activity.assign'), meId: ME }), ['reopen', 'edit', 'history']);
 });
 
 test('taskActions: người chỉ có quyền theo việc (access=TASK) => chỉ Hoàn thành + Đề xuất chuyển; không Lịch sử/Huỷ', () => {
@@ -46,6 +46,7 @@ test('taskActions: người chỉ có quyền theo việc (access=TASK) => chỉ
 
 test('taskActions: hoạt động không phải TASK => chỉ Lịch sử (+ Xoá cho admin); không có can => rỗng an toàn', () => {
   assert.deepEqual(taskActions(task({ type: 'CALL', status: 'DONE' }), { can: can('activity.read', 'activity.delete'), meId: ME }), ['history', 'delete']);
+  assert.deepEqual(taskActions(task({ type: 'CALL', status: 'DONE', createdById: ME }), { can: can('activity.read', 'activity.update_own'), meId: ME }), ['edit', 'history']); // hoạt động thường: Sửa khi mình tạo
   assert.deepEqual(taskActions(task(), { meId: ME }), ['complete']); // người phụ trách luôn được hoàn thành (máy chủ kiểm lại)
   assert.deepEqual(taskActions(task({ performedBy: { id: 'e-x' } }), {}), []);
 });

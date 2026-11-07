@@ -60,13 +60,14 @@ export function createTasksController(repo, describe, hooks = {}) {
       if (typeof hooks.onChanged === 'function') { try { jobs.push(Promise.resolve(hooks.onChanged(customerId))); } catch (e) { /* bỏ qua */ } }
       await Promise.all(jobs);
     },
-    // kind: complete | reopen | cancel | reassign | transfer | delete. a = hoạt động đã tải (id, version, customerId).
+    // kind: complete | reopen | edit | cancel | reassign | transfer | delete. a = hoạt động đã tải (id, version, customerId).
     async act(kind, a, payload = {}) {
       if (inflight) return { ok: false, duplicate: true };
       const id = '/activities/' + enc(a.id);
       const calls = {
         complete: () => req('POST', id + '/complete', { version: a.version, ...(payload.outcome ? { outcome: payload.outcome } : {}) }),
         reopen: () => req('POST', id + '/reopen', { version: a.version }),
+        edit: () => req('PATCH', id, { version: a.version, ...(payload.changes || {}) }),
         cancel: () => req('PATCH', id, { version: a.version, status: 'CANCELLED' }),
         reassign: () => req('POST', id + '/assign', { performedById: payload.performedById, version: a.version, ...(payload.external ? { external: true } : {}) }),
         transfer: () => req('POST', id + '/transfer-requests', { toEmployeeId: payload.toEmployeeId, reason: payload.reason }),
