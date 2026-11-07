@@ -92,7 +92,7 @@ export function createTasksController(repo, describe, hooks = {}) {
       inflight = true; set({ busy: kind + ':' + t.id });
       try {
         const body = {};
-        if (payload.version) body.version = payload.version;
+        if (Number.isInteger(payload.version)) body.version = payload.version;
         if (kind !== 'withdraw' && payload.decisionNote) body.decisionNote = payload.decisionNote;
         const data = await req('POST', '/activity-transfer-requests/' + enc(t.id) + '/' + kind, body);
         await ctl.refreshAll(t.customer && t.customer.id);

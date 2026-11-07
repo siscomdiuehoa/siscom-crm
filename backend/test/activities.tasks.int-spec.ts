@@ -585,12 +585,31 @@ describe('đề xuất chuyển việc §5.5', () => {
     // Người đề xuất KHÔNG tự mở quyền: người nhận vẫn chưa thấy việc.
     expect((await a('techD').get(A + x.id)).status).toBe(404);
   });
+  it('F-A8-01: việc đổi sau khi tải hộp đến => duyệt bằng version cũ 409 {currentVersion}; tải lại hộp đến có version mới => duyệt được', async () => {
+    const x = await externalTask();
+    const req = (await a('techC').post(A + x.id + '/transfer-requests', { toEmployeeId: empD, reason: 'Đổi lịch' })).body.data;
+    const v1 = (await a('salesA').get(TR + '?box=inbox')).body.data.items.find((i: { id: string }) => i.id === req.id).activity.version;
+    expect(v1).toBe(x.version);
+    const p = await a('salesA').patch(A + x.id, { version: v1, title: 'Đổi tiêu đề sau khi tải hộp đến' });
+    expect(p.status).toBe(200);
+    const stale = await a('salesA').post(TR + '/' + req.id + '/approve', { version: v1 });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toMatchObject({ code: 'ACTIVITY_VERSION_CONFLICT', details: { currentVersion: v1 + 1 } });
+    expect((await prisma.activityTransferRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe('PENDING');
+    const v2 = (await a('salesA').get(TR + '?box=inbox')).body.data.items.find((i: { id: string }) => i.id === req.id).activity.version;
+    expect(v2).toBe(v1 + 1);
+    const ok = await a('salesA').post(TR + '/' + req.id + '/approve', { version: v2 });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data.status).toBe('APPROVED');
+  });
   it('hộp đến (chủ khách) + chuông pendingApprovals; duyệt thiếu assign_external => 403; duyệt => đổi người, thu hồi cũ, cấp mới, APPROVED; outbox + transferDecisions', async () => {
     const x = await externalTask();
     const req = (await a('techC').post(A + x.id + '/transfer-requests', { toEmployeeId: empD, reason: 'Nhờ chuyển' })).body.data;
     const inbox = await a('salesA').get(TR + '?box=inbox');
     expect(inbox.status).toBe(200);
-    expect(inbox.body.data.items.find((i: { id: string }) => i.id === req.id)).toMatchObject({ reason: 'Nhờ chuyển', customer: { id: cA.id } });
+    const item = inbox.body.data.items.find((i: { id: string }) => i.id === req.id);
+    expect(item).toMatchObject({ reason: 'Nhờ chuyển', customer: { id: cA.id } });
+    expect(item.activity.version).toBe(x.version); // F-A8-01: inbox trả phiên bản việc để giao diện gửi khi duyệt
     expect((await a('salesA').get(A + 'reminders/summary')).body.data.pendingApprovals).toBeGreaterThanOrEqual(1);
     expect((await a('techB').get(TR + '?box=inbox')).body.data.items).toEqual([]);
     expect((await a('salesNoExt').get(TR + '?box=inbox')).body.data.items.map((i: { id: string }) => i.id)).not.toContain(req.id);
@@ -598,7 +617,7 @@ describe('đề xuất chuyển việc §5.5', () => {
     expect((await a('salesA').post(TR + '/' + req.id + '/approve', {})).status).toBe(400);
     expect((await a('salesA').post(TR + '/' + req.id + '/approve', { version: x.version + 9 })).status).toBe(409);
     t.audit.entries = [];
-    const ok = await a('salesA').post(TR + '/' + req.id + '/approve', { version: x.version, decisionNote: 'Đồng ý' });
+    const ok = await a('salesA').post(TR + '/' + req.id + '/approve', { version: item.activity.version, decisionNote: 'Đồng ý' });
     expect(ok.status).toBe(200);
     expect(ok.body.data).toMatchObject({ status: 'APPROVED', decisionNote: 'Đồng ý' });
     expect(t.audit.entries.map((e) => e.action)).toEqual(['activity.access_revoke', 'activity.assign', 'activity.transfer_approve', 'activity.access_grant']);
