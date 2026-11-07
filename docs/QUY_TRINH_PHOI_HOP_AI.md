@@ -41,7 +41,11 @@ Owner giao việc
   → Claude: BÁO CÁO KẾT LUẬN → Owner quyết định (merge / sửa tiếp / tách PR / đóng)
 ```
 
-Một **vòng** = một lần ChatGPT review + (khi PR có giao diện hoặc luồng người dùng, hoặc Owner yêu cầu) một lần Gemini QA trên **cùng HEAD** + một lần Claude sửa. Lỗi của ChatGPT và của Gemini cùng được gom vào một lần sửa. **Việc của Codex không tạo vòng mới.** Nếu cả hai bên kết luận không còn lỗi mở thì dừng ngay.
+Một **vòng** = một lần ChatGPT review + (nếu PR **bắt buộc QA**) một lần Gemini QA trên **cùng HEAD** + một lần Claude sửa. Lỗi của ChatGPT và của Gemini được gom vào một lần sửa. **Việc của Codex không tạo vòng mới.**
+
+**PR bắt buộc QA** khi thay đổi giao diện (`frontend/`) hoặc luồng người dùng thao tác (ví dụ B3 A7, A8). PR chỉ backend, tài liệu hoặc CI **không** bắt buộc QA, trừ khi Owner yêu cầu rõ trong PR. Không có trường hợp "tùy": PR thuộc đúng một trong hai loại, Claude ghi loại vào gói review `R1`.
+
+**Điều kiện dừng sớm:** ChatGPT kết luận không còn lỗi mở **và** (PR không bắt buộc QA **hoặc** `[QA-REPORT]` của Gemini trên **cùng HEAD** không còn lỗi mở). QA bắt buộc mà chưa chạy được thì **không** coi là đạt: vòng không dừng sớm, và báo cáo kết luận ghi rõ "QA chưa chạy" (mục 6).
 
 ## 3. Bốn quy tắc bắt buộc
 
@@ -82,7 +86,7 @@ Mỗi lỗi bắt buộc có đủ 6 trường:
 Lỗi thiếu trường bắt buộc hoặc không có kịch bản cụ thể: Claude ghi nhận là "chưa đủ thông tin" và hỏi lại trong gói review vòng sau, không tính là lỗi mở cho đến khi được bổ sung.
 
 ### Quy tắc 4 — Không báo lại lỗi cũ (NO REPEATED FINDINGS)
-- Lỗi đã ở trạng thái `VERIFIED` (ChatGPT xác nhận đã sửa) hoặc `ACCEPTED` (Owner chấp nhận) **không được báo lại**.
+- Lỗi đã ở trạng thái `VERIFIED` (người đã báo lỗi đó xác nhận đã sửa: ChatGPT với lỗi review, Gemini với lỗi QA) hoặc `ACCEPTED` (Owner chấp nhận) **không được báo lại**.
 - Chỉ mở lại (`REOPENED`, giữ ID cũ) khi có **bằng chứng** lỗi tái xuất hiện hoặc diff mới gây ra lỗi; phải chỉ rõ commit và dòng gây tái phát.
 - Lỗi mới do diff mới gây ra: ID mới theo vòng hiện tại.
 
@@ -90,11 +94,11 @@ Lỗi thiếu trường bắt buộc hoặc không có kịch bản cụ thể: 
 
 | Trạng thái | Ai đặt | Ý nghĩa |
 |---|---|---|
-| `OPEN` | ChatGPT | Lỗi mới được báo |
+| `OPEN` | ChatGPT (lỗi review) · Gemini (lỗi QA, ID `PR<số>-QA<vòng>-…`) | Lỗi mới được báo |
 | `FIXED` | Claude | Đã sửa, kèm commit + test chứng minh |
-| `DISPUTED` | Claude | Không đồng ý, kèm bằng chứng (test, trích dẫn mã/tài liệu). ChatGPT trả lời ở vòng sau; còn bất đồng thì Owner quyết |
-| `VERIFIED` | ChatGPT | Xác nhận đã sửa đúng tiêu chí; **đóng vĩnh viễn** |
-| `REOPENED` | ChatGPT | Mở lại có bằng chứng (quy tắc 4) |
+| `DISPUTED` | Claude | Không đồng ý, kèm bằng chứng (test, trích dẫn mã/tài liệu). Người đã báo lỗi (ChatGPT hoặc Gemini) trả lời ở vòng sau; còn bất đồng thì Owner quyết |
+| `VERIFIED` | Người đã báo lỗi đó: ChatGPT (lỗi review) · Gemini (lỗi QA) | Xác nhận đã sửa đúng tiêu chí; **đóng vĩnh viễn**. Claude không tự đặt |
+| `REOPENED` | Người đã báo lỗi đó: ChatGPT (lỗi review) · Gemini (lỗi QA) | Mở lại có bằng chứng (quy tắc 4) |
 | `DEFERRED` | Owner | Chuyển sang PR/việc sau, ghi rõ nơi theo dõi |
 | `ACCEPTED` | Owner | Chấp nhận rủi ro, không sửa |
 
@@ -130,13 +134,14 @@ Xác nhận lỗi vòng trước: <ID → VERIFIED / REOPENED (bằng chứng)>
 
 ## 6. Báo cáo kết luận (gửi Owner)
 
-Lập khi ChatGPT kết luận không còn lỗi mở, hoặc khi hết `R3`. Tiêu đề `[KET-LUAN] PR #<số>`:
+Lập khi đạt **điều kiện dừng sớm** (mục 2: ChatGPT sạch và, nếu PR bắt buộc QA, `[QA-REPORT]` sạch trên **cùng HEAD**), hoặc khi hết `R3`. Tiêu đề `[KET-LUAN] PR #<số>`:
 
 1. Commit HEAD, kết quả CI trên đúng HEAD, kết quả test thật.
 2. Bảng toàn bộ lỗi: ID, nhóm, mức độ, trạng thái cuối.
 3. Lỗi còn mở (nếu có) và **phương án đề xuất**: (a) sửa tiếp với 1 vòng bổ sung do Owner duyệt, (b) merge và mở PR theo dõi riêng cho lỗi `P2`/`P3`, (c) tách PR, (d) đóng PR. Lỗi `P0`/`P1` còn mở thì Claude **không** đề xuất merge.
 4. Tác động DB, việc cần Owner duyệt riêng (migration, demo, deploy).
-5. Đề xuất: sẵn sàng merge / chưa sẵn sàng.
+5. **Trạng thái QA** (nếu PR bắt buộc QA): HEAD đã QA, kết quả, lỗi QA còn mở. QA thiếu, khác HEAD hoặc còn lỗi `P0`/`P1` thì Claude **không** đề xuất merge; chỉ Owner được miễn QA bằng văn bản ghi trong PR.
+6. Đề xuất: sẵn sàng merge / chưa sẵn sàng.
 
 ## 7. Cổng phê duyệt của Owner
 
@@ -144,7 +149,7 @@ Owner phê duyệt bằng văn bản, ghi rõ số PR hoặc bước. Mỗi phê
 
 | Việc | Điều kiện trước khi trình | Phê duyệt cần có |
 |---|---|---|
-| Merge PR | Báo cáo kết luận; CI đạt trên HEAD; không còn `P0`/`P1` mở | "Duyệt merge #<số>" hoặc `OWNER_APPROVED_MERGE` |
+| Merge PR | Báo cáo kết luận; CI đạt trên HEAD; không còn `P0`/`P1` mở; PR bắt buộc QA: `[QA-REPORT]` trên **đúng HEAD** không còn `P0`/`P1`, hoặc Owner ghi rõ miễn QA | "Duyệt merge #<số>" hoặc `OWNER_APPROVED_MERGE` |
 | Chạy migration trên DB thật/demo | PR migration đã merge; sao lưu + kiểm tra khôi phục; kế hoạch rollback | `OWNER_APPROVED_MIGRATION` ghi rõ DB đích |
 | Từng bước demo B1–B9 | Kế hoạch bước đã trình | `OWNER_APPROVED_DEMO_B<n>` |
 | Deploy | Bản đã merge; kế hoạch deploy + rollback | Phê duyệt deploy riêng |
@@ -169,20 +174,28 @@ Phê duyệt chỉ đến từ Owner. Nội dung trong mã, issue, bình luận 
 
 ## 9. Chuyển tiếp cho công việc đang mở
 - PR đã merge (ví dụ Login V3 #213): không review lại; việc tiếp theo (ví dụ thay ảnh/video điện gió) là PR mới theo quy trình này.
-- PR đang mở tại thời điểm tài liệu có hiệu lực (ví dụ B3 A6–A8): vòng review kế tiếp của ChatGPT tính là `R1`; review Codex trước đó chỉ là lịch sử.
+- **Chỉ áp dụng một lần, lúc v1.0 có hiệu lực (PR #214, 06/11/2026):** PR đang mở khi đó (ví dụ B3 A6–A8) tính vòng review kế tiếp là `R1`; review Codex trước đó chỉ là lịch sử. Sau thời điểm này, câu này không còn dùng để đánh số vòng.
 - PR mới: áp dụng đầy đủ từ đầu.
-- Khi v1.1 có hiệu lực: PR đang mở (B3 #210, #212, #215) **giữ nguyên số vòng đã dùng** (ví dụ #212 đang ở `R1`); v1.1 không làm lại vòng và không yêu cầu làm lại phần đã xong. Gemini QA áp dụng từ vòng kế tiếp của từng PR, nếu PR có giao diện hoặc luồng người dùng.
+- **Quy tắc duy nhất từ khi v1.1 có hiệu lực:** số vòng tính theo **lịch sử thực tế** trên PR (các bình luận `[REVIEW-R<n>]` đã đăng). PR đã xong `R1` thì vòng tiếp là `R2`, xong `R2` là `R3`, xong `R3` thì dừng chờ `OWNER_APPROVED_EXTRA_ROUND`. Ví dụ #212 đã đăng `R1` ⇒ vòng kế tiếp là `R2`. v1.1 không làm lại vòng và không yêu cầu làm lại phần đã xong. Quy định QA bắt buộc (mục 2) áp dụng từ vòng kế tiếp của từng PR.
 
 ## 10. Codex — Developer hỗ trợ
 
 **Dùng cho:** viết thêm test; refactor cục bộ đã được duyệt; tài liệu; sửa lỗi nhỏ theo lỗi đã xác nhận; sinh dữ liệu giả cho test. **Không giao:** thiết kế kiến trúc; migration, RBAC, audit, xác thực và mọi thay đổi bảo mật; quyết định nghiệp vụ; bất cứ việc nào chạm DB.
 
 Quy tắc bắt buộc:
-1. **Chỉ Claude gọi Codex**, sau khi Owner duyệt **từng task** bằng `OWNER_APPROVED_CODEX_TASK`. Không chạy nền, không theo lịch.
+1. **Chỉ Claude gọi Codex**, sau khi Owner duyệt **từng task**. Không chạy nền, không theo lịch.
+   - Mỗi task có mã `CT-<số-PR>-<stt>` và được đăng thành `[CODEX-TASK]` **trước** khi xin duyệt.
+   - Phê duyệt hợp lệ khi lời của **chính Owner** nêu đúng mã task (hoặc liên kết tới bình luận `[CODEX-TASK]` đó), kèm `OWNER_APPROVED_CODEX_TASK`. Phê duyệt chung chung ("cứ giao Codex") **không** đủ.
+   - Claude **chỉ trích nguyên văn**, không tóm tắt: ghi kênh (bình luận GitHub có liên kết, hoặc tin nhắn trong phiên Claude), ngày giờ và câu gốc. Lưu ý: bình luận do Claude đăng hiện mang tài khoản GitHub của Owner, nên tài khoản đăng **không** phải bằng chứng; bằng chứng là lời gốc của Owner.
+   - Đổi bất kỳ phần nào của task (SHA nền, file được sửa, danh sách KHÔNG ĐỤNG, mục tiêu) ⇒ mã task mới, **duyệt lại**. Task không khớp với lời duyệt gốc thì **không chạy**.
 2. Mỗi task ghi rõ: PR/nhánh nền (SHA), danh sách file được sửa, tiêu chí xong, danh sách **KHÔNG ĐỤNG** (migration, `.env`, DB, bảo mật, dependency, `package.json`, `.gitignore`, file đã nghiệm thu).
-3. Chạy bằng `codex exec --sandbox workspace-write` trong **worktree riêng**, nhánh `codex/<số-PR>-<tên-việc>`, cắt từ đúng SHA đã ghi. Cấm `danger-full-access` và `--dangerously-bypass-approvals-and-sandbox`; không đổi cấu hình, quyền, đăng nhập của Codex.
+3. Chạy bằng `codex exec --sandbox workspace-write` (việc viết mã) hoặc `--sandbox read-only` (việc review) trong **thư mục làm việc riêng**: worktree riêng nhánh `codex/<số-PR>-<tên-việc>` cắt từ đúng SHA đã ghi, hoặc thư mục tạm chỉ chứa đúng các file cần review. Cấm `danger-full-access` và `--dangerously-bypass-approvals-and-sandbox`; không đổi cấu hình, quyền, đăng nhập của Codex.
+   - **Giới hạn đã kiểm chứng (07/11/2026, mục 13):** trên máy Windows của Owner, sandbox của Codex **chặn ghi** ngoài thư mục làm việc nhưng **không chặn đọc**: Codex đọc được một file giả đặt ở thư mục bên cạnh. Điều kiện "worktree sạch" vì vậy **không đủ** để ngăn đọc bí mật nằm nơi khác trên máy.
+   - Biện pháp bắt buộc cho tới khi có cách ly cấp hệ điều hành: (a) lời nhắc cấm đọc ngoài thư mục làm việc; (b) **sau mỗi lần chạy, Claude kiểm nhật ký** của Codex (mọi lệnh và đường dẫn đã đọc) và ghi kết quả vào `[CODEX-REPORT]`; (c) thấy truy cập ngoài thư mục làm việc ⇒ dừng mọi task Codex, báo Owner như một sự cố.
+   - **Rủi ro còn lại cần Owner quyết:** (a) và (b) chỉ ngăn bằng chỉ dẫn và phát hiện sau khi chạy, không chặn trước. Chặn thật cần chạy Codex dưới **một tài khoản Windows riêng** không có quyền đọc các thư mục bí mật (các file bí mật hiện chỉ cấp quyền cho tài khoản của Owner). Đây là thay đổi cấu hình máy, chỉ Owner quyết. Cho tới khi Owner chọn, mỗi `OWNER_APPROVED_CODEX_TASK` đồng nghĩa Owner chấp nhận rủi ro còn lại này cho đúng task đó.
 4. **Dữ liệu rời máy:** mã trong worktree được gửi tới dịch vụ của OpenAI qua tài khoản ChatGPT hiện có. Worktree giao cho Codex **không** chứa `.env`, mật khẩu, khoá, dump, dữ liệu khách thật hay file trong thư mục bí mật; lời nhắc không nêu bí mật.
-5. Codex không push, không mở hoặc merge PR, không chạy lệnh DB, migration, benchmark hay integration test (trừ khi task cho phép rõ), không `git reset --hard`. **Claude** lấy diff, đọc từng dòng, chạy test, rồi mới commit vào PR; Claude chịu trách nhiệm cuối cùng về mã đó.
+5. Codex **không bao giờ** chạy lệnh chạm database (kể cả database tạm): migration, seed, reset, restore, `prisma migrate`/`db push`/`db execute`, `psql`, integration test, benchmark. Không task nào, kể cả có ghi "cho phép", mở được quyền này; task ghi như vậy thì **không chạy**. Codex chỉ được chạy: đọc mã, sửa file trong thư mục làm việc, unit test không cần database, typecheck, build.
+   - Codex không push, không mở hoặc merge PR, không `git reset --hard`. **Claude** lấy diff, đọc từng dòng, chạy test (kể cả integration test trên PostgreSQL tạm cách ly nếu cần), rồi mới commit vào PR; Claude chịu trách nhiệm cuối cùng về mã đó.
 6. Mã do Codex viết là **mã AI**, chịu cùng review R1–R3. Gói review nêu rõ phần nào do Codex làm. Task Codex không tính là vòng review.
 7. Claude chỉ giao cho Codex khi thực sự tiết kiệm công; việc nhỏ hơn chính lời mô tả task thì Claude làm trực tiếp.
 
@@ -193,10 +206,14 @@ Quy tắc bắt buộc:
 Quy tắc bắt buộc:
 1. **Kênh hiện tại là thủ công** (mục 13): Gemini CLI chưa chạy được. Claude đăng `[QA-REQUEST]`; Owner (hoặc người Owner chỉ định) chạy trong Antigravity IDE rồi dán `[QA-REPORT]` lên PR. Khi kênh tự động dùng được, Claude cập nhật tài liệu này bằng PR riêng.
 2. Chỉ chạy trên **môi trường thử cách ly** (PostgreSQL tạm, dữ liệu giả, cổng riêng). Không DB demo 55433, không DB thật 5432.
-3. Tài khoản thử đọc từ file riêng trên máy Owner. **Mật khẩu không bao giờ** xuất hiện trong PR, issue, log hay lời nhắc gửi cho Gemini.
+3. **Đăng nhập do người vận hành (Owner hoặc người Owner chỉ định) tự làm**, trước khi giao trình duyệt cho Gemini:
+   - Người vận hành tự mở file tài khoản thử trên máy mình và tự gõ vào ô đăng nhập. Gemini **không** được đọc file tài khoản, **không** nhận tên đăng nhập hay mật khẩu trong lời nhắc, `[QA-REQUEST]` hay bất kỳ tin nhắn nào.
+   - Gemini chỉ thao tác **sau khi đã đăng nhập**. Đổi vai trò (ví dụ từ sale sang kế toán) thì người vận hành tự đăng xuất và đăng nhập lại.
+   - Ảnh chụp, video, nhật ký trong `[QA-REPORT]` **không** được chứa màn hình đăng nhập có chữ đang gõ, file tài khoản hay thanh địa chỉ có thông tin đăng nhập. Claude kiểm tra trước khi tham chiếu bằng chứng trong báo cáo; có thông tin xác thực thì gỡ khỏi PR và báo Owner.
+   - Mật khẩu **không bao giờ** xuất hiện trong PR, issue, log hay lời nhắc (đúng `AGENTS.md`).
 4. Mỗi lỗi có đủ 6 trường như quy tắc 3, ID dạng `PR<số>-QA<vòng>-<nhóm>-<stt>` (nhóm thường gặp: `UI`, `BIZ`, `TEST`, `PERF`), kèm bước tái hiện và ảnh chụp.
-5. Gemini được đặt `VERIFIED` cho lỗi do chính Gemini báo. Các trạng thái khác theo mục 4.
-6. **Đề xuất:** QA Gemini bắt buộc với PR có giao diện hoặc luồng người dùng thao tác (ví dụ B3 A7, A8); tùy chọn với PR chỉ backend hoặc tài liệu.
+5. Trạng thái lỗi QA theo mục 4: Gemini đặt `OPEN`, `VERIFIED`, `REOPENED` cho lỗi do chính Gemini báo; Claude đặt `FIXED`, `DISPUTED`; chỉ Owner đặt `DEFERRED`, `ACCEPTED`.
+6. PR nào bắt buộc QA, điều kiện dừng và QA chưa chạy được: theo **mục 2**. Không có PR "tùy chọn" ngoài quy định đó.
 
 ## 12. Kênh bàn giao trên GitHub
 
@@ -204,8 +221,8 @@ GitHub là nơi **giao việc, bàn giao và kiểm soát**: mọi giao việc v
 
 | Thẻ | Ai đăng | Khi nào | Nội dung tối thiểu |
 |---|---|---|---|
-| `[CODEX-TASK]` | Claude | Trước khi gọi Codex | PR/SHA nền, mục tiêu, file được sửa, tiêu chí xong, **KHÔNG ĐỤNG**, dòng `OWNER_APPROVED_CODEX_TASK` (Owner dán hoặc Claude trích lời duyệt) |
-| `[CODEX-REPORT]` | Claude | Sau khi xem diff của Codex | Commit đã nhận, file đổi, test chạy thật, phần Claude sửa lại hoặc bỏ, lý do |
+| `[CODEX-TASK]` | Claude | Trước khi xin duyệt và trước khi gọi Codex | Mã `CT-<số-PR>-<stt>`, PR/SHA nền, mục tiêu, file được sửa, tiêu chí xong, **KHÔNG ĐỤNG**; sau khi Owner duyệt: **trích nguyên văn** lời Owner (kênh, ngày giờ, câu gốc) theo mục 10.1 |
+| `[CODEX-REPORT]` | Claude | Sau khi xem diff của Codex | Commit đã nhận, file đổi, test chạy thật, phần Claude sửa lại hoặc bỏ, lý do; **kết quả kiểm nhật ký** (các đường dẫn Codex đã đọc, có/không truy cập ngoài thư mục làm việc) |
 | `[QA-REQUEST]` | Claude | Trước QA | HEAD SHA, môi trường thử (URL, cổng), vai trò cần thử (**không** nêu mật khẩu), kịch bản và tiêu chí PASS/FAIL, ngoài phạm vi |
 | `[QA-REPORT]` | Owner dán (hoặc Gemini nếu có kênh) | Sau QA | Kết quả PASS/FAIL từng kịch bản, lỗi theo mục 11.4, ảnh chụp, HEAD SHA đã thử |
 
@@ -219,5 +236,7 @@ Kiểm tra bằng **câu lệnh vô hại**, thư mục tạm trống do Claude 
 | **Gemini CLI** | 0.67.0 · Google cá nhân | `gemini -p`: lần 1 bị chặn "thư mục chưa tin cậy"; lần 2 dùng `--skip-trust` **chỉ trên thư mục tạm trống** vẫn lỗi `IneligibleTierError`: client này không còn hỗ trợ gói cá nhân, yêu cầu chuyển sang bộ Antigravity | **Không dùng được qua CLI hiện tại.** Không thử vượt lỗi (cần Owner quyết) |
 | **Antigravity IDE** | 1.107.0 | Có lệnh `antigravity-ide chat "<prompt>"` mở phiên chat trong IDE. **Chưa chạy thử** (mở giao diện và dùng hạn mức); chưa biết có nhận kết quả tự động hay không | QA Gemini **thủ công** qua IDE cho tới khi Owner kiểm tra bên dưới |
 | **Ruflo** | v3.72.2 (theo Owner) | Không chạy; chưa kết nối provider | Không tham gia thực thi |
+
+**Thử giới hạn đọc của sandbox Codex (07/11/2026, vòng R2 của PR #216):** tạo hai thư mục tạm cạnh nhau; một file **giả** (không phải bí mật) ở thư mục bên cạnh; chạy `codex exec --sandbox read-only` trong thư mục làm việc và yêu cầu đọc file giả đó. Kết quả: Codex **đọc được** và in đúng nội dung; nhật ký ghi lại đường dẫn đã đọc. Kết luận: sandbox **không chặn đọc** ngoài thư mục làm việc trên máy này; chỉ phát hiện được sau khi chạy (mục 10.3). Thư mục thử đã xoá.
 
 **Việc Owner cần làm một lần (khoảng 1 phút), để xác nhận kênh QA thủ công:** mở Antigravity IDE, mở một **thư mục trống**, gõ vào chat "Trả lời đúng một từ: OK". Nếu đáp được, kênh QA thủ công dùng được; nếu báo lỗi đăng nhập hoặc hạn mức, báo Claude để cập nhật mục này. Việc chuyển tài khoản Gemini theo yêu cầu của Google là quyết định của Owner; quy trình này **không** yêu cầu mua gói trả phí.
