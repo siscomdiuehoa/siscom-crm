@@ -6,6 +6,16 @@ import { TYPE_META, allowedTypes, hasTitle, hasDue, hasOutcome, hasOccurred, val
 
 const empty = (type) => ({ type, title: '', content: '', outcome: '', occurredAt: '', dueAt: '', remindAt: '', contactId: '', performedById: '' });
 const can = (ui, p) => typeof ui.can === 'function' && !!ui.can(p); // fail-closed
+// R2 F-1 (trợ năng, WCAG 2.4.3): phần tử nhận focus bằng Tab trong dialog — duyệt cây DOM (không phụ thuộc selector CSS).
+const TABBABLE = { BUTTON: 1, INPUT: 1, SELECT: 1, TEXTAREA: 1 };
+function tabbables(root) {
+  const out = [];
+  const walk = (n) => { for (const c of n.childNodes || []) { if (c.nodeType !== 1) continue; const ti = c.getAttribute('tabindex');
+    if (ti !== '-1' && !c.disabled && (TABBABLE[c.tagName] ? !(c.tagName === 'INPUT' && c.getAttribute('type') === 'hidden') : (c.tagName === 'A' && c.getAttribute('href') != null) || ti != null)) out.push(c);
+    walk(c); } };
+  if (root) walk(root);
+  return out;
+}
 
 // B3 A7: drawer "Ghi nhận hoạt động" (§8): PC = drawer phải .sg-solid 640 px; điện thoại (ui.mobile) = bottom sheet.
 // Loại theo quyền (6 hoặc 3); người liên hệ chỉ khi contact.read; người phụ trách chỉ khi activity.assign (ứng viên từ máy chủ). Máy chủ luôn kiểm lại.
@@ -31,6 +41,23 @@ export function ActivityDrawer({ open, ui, customerId, onClose, onSaved }) {
   const set = (k) => (v) => { if (srv && !srv.denied) actl.clearSubmitError(); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
   const close = () => { if (saving) return; if (dirty) ui.confirm({ title: 'Huỷ ghi nhận?', description: 'Nội dung bạn vừa nhập sẽ không được lưu.', icon: 'triangle-alert', tone: 'warning', confirmLabel: 'Huỷ ghi nhận', cancelLabel: 'Tiếp tục nhập', onConfirm: onClose }); else onClose(); };
   React.useEffect(() => { if (!open) return undefined; const h = (e) => { if (e.key === 'Escape') close(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); });
+  // R2 F-1: mở => focus vào loại đang chọn (hoặc phần tử đầu); đóng => trả focus về phần tử đã mở drawer (nếu còn trong trang).
+  const panelRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const opener = document.activeElement;
+    const list = tabbables(panelRef.current);
+    const start = list.find((e) => e.getAttribute('role') === 'radio' && e.getAttribute('aria-checked') === 'true') || list[0];
+    if (start) start.focus();
+    return () => { if (opener && opener !== document.body && opener.isConnected !== false && typeof opener.focus === 'function') opener.focus(); };
+  }, [open]);
+  // Tab ở phần tử cuối => về đầu; Shift+Tab ở phần tử đầu => về cuối. Chỉ bắt khi focus nằm trong drawer (không cản hộp xác nhận ui.confirm).
+  const onTrapKey = (e) => {
+    if (e.key !== 'Tab') return;
+    const list = tabbables(panelRef.current); if (!list.length) return;
+    const a = document.activeElement; const first = list[0]; const last = list[list.length - 1];
+    if (e.shiftKey ? a === first : a === last) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+  };
   const save = async () => {
     setTried(true);
     if (Object.keys(errs).length || !types.includes(f.type)) return;
@@ -48,7 +75,7 @@ export function ActivityDrawer({ open, ui, customerId, onClose, onSaved }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 65, display: 'flex', justifyContent: 'flex-end', alignItems: mobile ? 'flex-end' : 'stretch' }}>
       <div onClick={close} style={{ position: 'absolute', inset: 0, background: 'var(--overlay)', backdropFilter: 'blur(4px)', animation: 'sg-fade var(--dur-base)' }} />
-      <aside role="dialog" aria-modal="true" aria-label="Ghi nhận hoạt động" className="sg-solid" style={panelStyle}>
+      <aside ref={panelRef} onKeyDown={onTrapKey} role="dialog" aria-modal="true" aria-label="Ghi nhận hoạt động" className="sg-solid" style={panelStyle}>
         <header style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: mobile ? '16px 16px 12px' : '20px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
           <span className="sg-kpi__icon"><Icon name="plus" size={18} /></span>
           <div style={{ flex: 1, minWidth: 0 }}><h2 style={{ margin: 0, font: 'var(--type-h3)' }}>Ghi nhận hoạt động</h2><p style={{ margin: '2px 0 0', font: 'var(--type-sm)', color: 'var(--text-2)' }}>Giờ nhập theo giờ Việt Nam. Chỉ nội dung là bắt buộc{f.type === 'TASK' ? '; công việc cần có hạn' : ''}.</p></div>
