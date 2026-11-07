@@ -37,7 +37,8 @@ function Transfers({ ui }) {
   const tasks = ui.customerApi.tasks; const s = useCustomerApiState(tasks); const t = s.transfers;
   React.useEffect(() => { tasks.loadTransfers(); }, [tasks]);
   const decide = async (kind, x) => {
-    const r = await tasks.decide(kind, x, {});
+    // F-A8-01: duyệt phải gửi phiên bản việc (máy chủ bắt buộc, khoá lạc quan); lấy từ hộp đến (activity.version).
+    const r = await tasks.decide(kind, x, kind === 'approve' ? { version: x.activity && x.activity.version } : {});
     if (r.ok) ui.toast({ tone: 'success', title: kind === 'approve' ? 'Đã duyệt chuyển' : kind === 'reject' ? 'Đã từ chối' : 'Đã rút đề xuất', message: x.activity ? x.activity.code : '' });
     else if (!r.duplicate) ui.toast({ tone: 'error', title: r.error.title, message: r.error.message });
   };

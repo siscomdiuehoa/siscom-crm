@@ -24,7 +24,7 @@ const server = ({ list = () => page([task()]), cands = () => [{ id: 'e2', code: 
     if (p === '/activities/reminders/summary') return res(200, { data: SUMMARY });
     if (p === '/activities/assignee-candidates') return res(200, { data: { items: cands(u.searchParams) } });
     if (p === '/activities' && method === 'GET') return res(200, list(u.searchParams));
-    if (p === '/activity-transfer-requests') return res(200, { data: { items: u.searchParams.get('box') === 'inbox' ? [{ id: 'tr1', status: 'PENDING', reason: 'Nghỉ phép', createdAt: past, activity: { id: 't1', code: 'HD-000010', type: 'TASK', status: 'OPEN', title: 'Gửi báo giá' }, customer: { id: CID, code: 'KH-00007', name: 'Công ty A' }, from: { fullName: 'Nhân viên kinh doanh' }, to: { fullName: 'Lê Thị Hai' } }] : [] } });
+    if (p === '/activity-transfer-requests') return res(200, { data: { items: u.searchParams.get('box') === 'inbox' ? [{ id: 'tr1', status: 'PENDING', reason: 'Nghỉ phép', createdAt: past, activity: { id: 't1', code: 'HD-000010', type: 'TASK', status: 'OPEN', title: 'Gửi báo giá', version: 5 }, customer: { id: CID, code: 'KH-00007', name: 'Công ty A' }, from: { fullName: 'Nhân viên kinh doanh' }, to: { fullName: 'Lê Thị Hai' } }] : [] } });
     if (method !== 'GET') { const r = post && post(p, body, method); if (r) return r; return res(200, { data: { ...task(), status: 'DONE' } }); }
     if (get) { const r = get(p); if (r) return r; }
     if (/^\/activities\/[^/]+$/.test(p)) return res(200, { data: task() });
@@ -150,7 +150,20 @@ test('Chờ duyệt (#/activities/approvals): người có quyền giao duyệt 
     assert.match(text(m.container), /Chờ tôi duyệt \(1\)/); assert.match(text(m.container), /Nghỉ phép/);
     await doAct(() => click(buttonByText(m.container, /^Duyệt$/)));
     assert.equal(f.writes()[0].p, '/activity-transfer-requests/tr1/approve');
+    assert.deepEqual(f.writes()[0].body, { version: 5 }, 'F-A8-01: duyệt phải gửi activity.version lấy từ hộp đến');
     assert.match(m.toasts[0].title, /Đã duyệt/);
+  } finally { await m.unmount(); }
+});
+
+test('F-A8-01: duyệt khi việc đã đổi (409 ACTIVITY_VERSION_CONFLICT) => báo lỗi, đọc lại hộp đến', async () => {
+  const f = server({ post: (p) => (/\/approve$/.test(p) ? res(409, { error: { code: 'ACTIVITY_VERSION_CONFLICT', message: 'Việc đã bị người khác thay đổi.', details: { currentVersion: 6 } } }) : null) });
+  const m = await page_(f, ADMIN, 'approvals');
+  try {
+    const n = f.count('/activity-transfer-requests');
+    await doAct(() => click(buttonByText(m.container, /^Duyệt$/)));
+    assert.deepEqual(f.writes()[0].body, { version: 5 });
+    assert.equal(m.toasts.length, 1); assert.equal(m.toasts[0].tone, 'error');
+    assert.ok(f.count('/activity-transfer-requests') > n, 'đọc lại hộp đến sau 409');
   } finally { await m.unmount(); }
 });
 
