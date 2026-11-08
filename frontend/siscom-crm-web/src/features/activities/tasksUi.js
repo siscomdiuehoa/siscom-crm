@@ -16,6 +16,7 @@ export function createTasksController(repo, describe, hooks = {}) {
   const qs = (o) => (typeof repo.qs === 'function' ? repo.qs(o) : '');
   const err = (e) => { const d = describe(e); if (d.kind !== 'bad_request') return d; const r = detailsToFieldErrors(e && e.details); return { ...d, fieldErrors: r.fieldErrors, extra: r.extra }; };
   let lseq = 0; let sseq = 0; let tseq = 0; let inflight = false;
+  const pinned = new Set(); // FV13-01: id việc đang mở hộp thoại sau 409 (giữ dòng tới khi hộp đóng)
 
   const ctl = {
     getState: () => state,
@@ -35,20 +36,30 @@ export function createTasksController(repo, describe, hooks = {}) {
       } catch (e) { if (my === lseq) set({ list: { ...idleList, status: 'error', query: { ...filters }, error: err(e) } }); }
     },
     // FV13-01 (#220): danh sách đang hiển thị => đọc lại KHÔNG PHÁ (giữ dòng tới khi có dữ liệu mới) để hộp thoại gắn với dòng
-    // không bị gỡ (mất bản nháp/lỗi). keepId: giữ dòng đang thao tác nếu bản mới không còn nó (đổi phụ trách/lọc/trang sau).
-    // Danh sách chưa sẵn sàng (lỗi/đang tải) => tải như cũ.
+    // không bị gỡ (mất bản nháp/lỗi). Dòng đang mở hộp thoại sau 409 được "ghim" (pinned): nếu bản mới không còn nó (đổi phụ trách/
+    // quyền/lọc) thì giữ bản cũ (đánh dấu stale) CHỈ tới khi hộp đóng (release). R1 SEC-01: không để dòng cũ tồn tại sau đó.
+    // Lỗi đọc lại: giữ dữ liệu + ghi refreshError để giao diện báo (R1 UX-03). Danh sách chưa sẵn sàng => tải như cũ.
     async reload(keepId) {
       const l = state.list; if (!l.query) return;
+      if (keepId) pinned.add(keepId);
       if (l.status !== 'ready') { await ctl.load(l.query); return; }
       const my = ++lseq;
       try {
         const d = await req('GET', '/activities' + qs(buildTasksQuery({ ...l.query, page: 1 })));
         if (my !== lseq) return;
         let items = d.items;
-        const kept = keepId && !items.some((a) => a.id === keepId) ? state.list.items.find((a) => a.id === keepId) : null;
-        if (kept) items = items.concat([kept]);
+        for (const id of pinned) {
+          if (items.some((a) => a.id === id)) continue;
+          const old = state.list.items.find((a) => a.id === id);
+          if (old) items = items.concat([{ ...old, stale: true }]);
+        }
         set({ list: { ...idleList, status: 'ready', query: { ...l.query }, items, page: d.page || 1, total: d.total, totalPages: d.totalPages } });
-      } catch (e) { /* lỗi đọc lại: giữ dữ liệu đang có (lỗi thao tác, nếu có, đã báo ở hộp thoại) */ }
+      } catch (e) { if (my === lseq) set({ list: { ...state.list, refreshError: err(e) } }); }
+    },
+    // Hộp thoại của dòng đã đóng: bỏ ghim; dòng cũ (không còn trong kết quả máy chủ) bị bỏ khỏi danh sách.
+    release(id) {
+      if (!pinned.delete(id)) return;
+      const l = state.list; if (l.items.some((a) => a.id === id && a.stale)) set({ list: { ...l, items: l.items.filter((a) => !(a.id === id && a.stale)) } });
     },
     async loadMore() {
       const l = state.list; if (l.status !== 'ready' || l.more === 'loading' || l.page >= l.totalPages) return;

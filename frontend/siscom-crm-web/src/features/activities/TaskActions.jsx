@@ -12,6 +12,12 @@ const cid = (a) => a.customerId || (a.customer && a.customer.id);
 const ACTION_TEXT = { create: 'Tạo', update: 'Sửa', assign: 'Giao việc', complete: 'Hoàn thành', reopen: 'Mở lại', cancel: 'Huỷ', delete: 'Xoá', transfer_request: 'Đề xuất chuyển', transfer_approve: 'Duyệt chuyển', transfer_reject: 'Từ chối chuyển', access_revoke: 'Thu hồi quyền theo việc' };
 const FIELD_TEXT = { type: 'Loại', title: 'Tiêu đề', content: 'Nội dung', outcome: 'Kết quả', status: 'Trạng thái', dueAt: 'Hạn', remindAt: 'Nhắc lúc', occurredAt: 'Thời điểm', contactId: 'Người liên hệ', customerId: 'Khách hàng', performedById: 'Phụ trách', completedAt: 'Hoàn thành lúc', deletedAt: 'Xoá' };
 const fieldText = (k) => FIELD_TEXT[k] || k;
+// FV13-01 R1 BIZ-02a: so một trường giữa hai bản trên máy chủ. Mốc thời gian so theo thời điểm (ms); văn bản: null ~ rỗng.
+const TIME_FIELDS = new Set(['occurredAt', 'dueAt', 'remindAt']);
+function sameField(k, x, y) {
+  if (TIME_FIELDS.has(k)) { const t = (v) => (v ? Date.parse(v) : null); return t(x) === t(y); }
+  return String(x == null ? '' : x) === String(y == null ? '' : y);
+}
 const actionText = (k) => ACTION_TEXT[String(k).replace(/^activity\./, '').replace(/\./g, '_')] || String(k);
 
 // Ứng viên (giao lại / đề xuất chuyển). external = người ngoài phạm vi khách (cần assign_external). Đọc tại chỗ, không lưu state chung.
@@ -46,8 +52,10 @@ function Dialog({ kind, a, ui, onClose }) {
   const setE = (k) => (v) => { setError(null); setConflict(false); setOverlap(null); setEd((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
   const terr = kind === 'transfer' && tried ? validateTransfer(f) : kind === 'edit' && tried ? validateDraft(ed) : {};
   const fe = (k) => terr[k] || (error && error.fieldErrors && error.fieldErrors[k]) || '';
-  // force = người dùng đã chọn "Giữ nội dung của tôi" cho các trường trùng.
-  const run = async (force = false) => {
+  // forceAt = version mà người dùng đã chọn "Giữ nội dung của tôi" (R1 BIZ-02b): chỉ có hiệu lực khi bản hiện tại vẫn đúng version đó;
+  // có phiên khác lưu tiếp (version khác) => kiểm và hỏi lại, không coi lựa chọn cũ là quyền ghi đè dữ liệu mới.
+  const run = async (forceAt = null) => {
+    const force = forceAt !== null && forceAt !== false && a.version === forceAt;
     setTried(true);
     if (kind === 'transfer' && Object.keys(validateTransfer(f)).length) return;
     let changes = null;
@@ -59,9 +67,10 @@ function Dialog({ kind, a, ui, onClose }) {
       changes = {}; for (const k of Object.keys(mine)) if (k in vsNow) changes[k] = mine[k];
       if (!Object.keys(changes).length) { setError({ title: 'Chưa có thay đổi', message: 'Chưa có thay đổi nào để lưu.', fieldErrors: {} }); return; }
       if (!force && a.version !== base.version) {
-        const b0 = editDraftOf(base); const now = editDraftOf(a);
-        const ov = Object.keys(changes).filter((k) => String(now[k] || '') !== String(b0[k] || ''));
-        if (ov.length) { setError(null); setConflict(false); setOverlap(ov.map((k) => ({ k, theirs: now[k] || '' }))); return; }
+        // R1 BIZ-02a: so giá trị THẬT trên máy chủ (giờ theo mốc thời gian đến mili-giây; null ~ rỗng), không so chuỗi đã làm tròn phút.
+        const now = editDraftOf(a);
+        const ov = Object.keys(changes).filter((k) => !sameField(k, base[k], a[k]));
+        if (ov.length) { setError(null); setConflict(false); setOverlap({ at: a.version, items: ov.map((k) => ({ k, theirs: now[k] || '' })) }); return; }
       }
     }
     if (kind === 'reassign' && !f.performedById) { setError({ title: 'Chưa chọn người', message: 'Chọn người phụ trách mới.', fieldErrors: {} }); return; }
@@ -71,7 +80,7 @@ function Dialog({ kind, a, ui, onClose }) {
     if (r.ok) { ui.toast({ tone: 'success', title: kind === 'edit' ? 'Đã lưu thay đổi' : 'Đã ' + ACTION_LABEL[kind].toLowerCase(), message: a.code || a.title || '' }); onClose(); }
     else { setOverlap(null); setConflict(!!(r.error && r.error.code === VERSION_CONFLICT)); setError(r.error); }
   };
-  const takeTheirs = () => { setEd((x) => { const y = { ...x }; for (const o of overlap || []) y[o.k] = o.theirs; return y; }); setOverlap(null); setError(null); };
+  const takeTheirs = () => { setEd((x) => { const y = { ...x }; for (const o of (overlap && overlap.items) || []) y[o.k] = o.theirs; return y; }); setOverlap(null); setError(null); };
   const others = (items) => items.filter((e) => !a.performedBy || e.id !== a.performedBy.id);
   const nonField = error && !Object.keys(error.fieldErrors || {}).length ? error : null;
   const title = { edit: 'Sửa hoạt động', complete: 'Hoàn thành công việc', reassign: 'Giao lại công việc', transfer: 'Đề xuất chuyển người phụ trách', delete: 'Xoá hoạt động', history: 'Lịch sử thay đổi' }[kind];
@@ -91,8 +100,8 @@ function Dialog({ kind, a, ui, onClose }) {
           <div role="alert" style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--warning-bg, rgba(245,158,11,.12))', border: '1px solid var(--warning-border, rgba(245,158,11,.45))', font: 'var(--type-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <b>Trùng trường với người khác</b>
             <div>Người khác vừa sửa chính các trường bạn đang sửa. Chọn giữ nội dung của bạn (ghi đè phần họ vừa sửa) hoặc dùng giá trị mới:</div>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>{overlap.map((o) => <li key={o.k}>{fieldText(o.k) + ': giá trị mới “' + (o.theirs ? String(o.theirs).replace('T', ' ') : '(trống)') + '”'}</li>)}</ul>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Button size="sm" variant="secondary" disabled={busy} onClick={() => run(true)}>Giữ nội dung của tôi</Button><Button size="sm" variant="secondary" disabled={busy} onClick={takeTheirs}>Dùng giá trị mới</Button></div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>{overlap.items.map((o) => <li key={o.k}>{fieldText(o.k) + ': giá trị mới “' + (o.theirs ? String(o.theirs).replace('T', ' ') : '(trống)') + '”'}</li>)}</ul>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Button size="sm" variant="secondary" disabled={busy} onClick={() => run(overlap.at)}>Giữ nội dung của tôi</Button><Button size="sm" variant="secondary" disabled={busy} onClick={takeTheirs}>Dùng giá trị mới</Button></div>
           </div>
         ) : null}
         {kind === 'edit' ? (
@@ -170,7 +179,7 @@ export function TaskActions({ ui, a, size = 'sm' }) {
         </div>
       ) : null}
       {/* Hộp thoại có thể nằm trong ô bảng (canh phải, nowrap): đặt lại để không thừa hưởng. */}
-      {open ? <div style={{ textAlign: 'left', whiteSpace: 'normal' }}><Dialog kind={open} a={a} ui={ui} onClose={() => setOpen(null)} /></div> : null}
+      {open ? <div style={{ textAlign: 'left', whiteSpace: 'normal' }}><Dialog kind={open} a={a} ui={ui} onClose={() => { setOpen(null); if (typeof tasks.release === 'function') tasks.release(a.id); }} /></div> : null}
     </span>
   );
 }

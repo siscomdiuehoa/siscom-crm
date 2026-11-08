@@ -101,6 +101,7 @@ export default function TasksPage({ ui, filter = 'all' }) {
           </div>
           {l.status === 'loading' || l.status === 'idle' ? <div role="status" style={{ color: 'var(--text-2)', padding: '12px 0' }}>Đang tải công việc…</div> : null}
           {l.status === 'error' ? <ApiErrorBox error={l.error} onRetry={() => tasks.reload()} /> : null}
+          {l.status === 'ready' && l.refreshError ? <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', font: 'var(--type-sm)', color: 'var(--warning-text, var(--text-2))' }}><span>Không tải lại được danh sách — dữ liệu đang hiển thị có thể đã cũ.</span><Button size="sm" variant="secondary" onClick={() => tasks.reload()}>Thử lại</Button></div> : null}
           {l.status === 'ready' && !l.items.length ? <EmptyState compact icon="list-checks" title="Không có công việc" description="Không có việc khớp bộ lọc trong phạm vi của bạn." /> : null}
           {l.status === 'ready' && l.items.length ? (
             <>

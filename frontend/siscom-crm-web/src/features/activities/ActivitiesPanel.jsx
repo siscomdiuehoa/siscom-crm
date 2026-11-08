@@ -72,6 +72,7 @@ export function ActivitiesPanel({ ui, customerId }) {
       {l.status === 'loading' || l.status === 'idle' ? <div role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-2)', padding: '12px 0' }}><span className="sg-btn__spin" />Đang tải hoạt động…</div> : null}
       {l.status === 'error' ? <ApiErrorBox error={l.error} onRetry={() => actl.reload()} /> : null}
       {l.status === 'ready' && !l.items.length ? <EmptyState compact icon="list-checks" title="Chưa có hoạt động" description={f.type || f.status || f.from || f.to ? 'Không có hoạt động khớp bộ lọc.' : canCreate ? 'Bấm "Ghi nhận hoạt động" để thêm cuộc gọi, ghi chú, công việc…' : undefined} /> : null}
+      {l.status === 'ready' && l.refreshError ? <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', font: 'var(--type-sm)', color: 'var(--warning-text, var(--text-2))' }}><span>Không tải lại được dòng thời gian — dữ liệu đang hiển thị có thể đã cũ.</span><Button size="sm" variant="secondary" onClick={() => actl.reload()}>Thử lại</Button></div> : null}
       {l.status === 'ready' && l.items.length ? (
         <>
           <div style={{ font: 'var(--type-sm)', color: 'var(--text-3)' }}>{l.items.length + ' / ' + l.total + ' hoạt động · giờ Việt Nam'}</div>

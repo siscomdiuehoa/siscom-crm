@@ -28,7 +28,7 @@ export function createActivitiesController(repo, describe, hooks = {}) {
       } catch (e) { if (my === seq) set({ list: { ...idleList, status: 'error', customerId, filters: f, error: err(e) } }); }
     },
     // FV13-01 (#220): dòng thời gian đang hiển thị => đọc lại KHÔNG PHÁ (giữ mục tới khi có dữ liệu mới) để hộp thoại thao tác
-    // gắn với mục không bị gỡ. Chưa sẵn sàng (lỗi/đang tải) => tải như cũ. Lỗi đọc lại: giữ dữ liệu đang có.
+    // gắn với mục không bị gỡ. Chưa sẵn sàng (lỗi/đang tải) => tải như cũ. Lỗi đọc lại: giữ dữ liệu + refreshError để báo (R1 UX-03).
     async reload() {
       const l = state.list; if (!l.customerId) return;
       if (l.status !== 'ready') { await ctl.load(l.customerId, l.filters); return; }
@@ -36,7 +36,7 @@ export function createActivitiesController(repo, describe, hooks = {}) {
       try {
         const d = await repo.activities(l.customerId, { ...l.filters, page: 1, pageSize: PAGE_SIZE });
         if (my === seq) set({ list: { ...idleList, status: 'ready', customerId: l.customerId, filters: l.filters, items: d.items, page: d.page || 1, total: d.total, totalPages: d.totalPages } });
-      } catch (e) { /* giữ dữ liệu đang có */ }
+      } catch (e) { if (my === seq) set({ list: { ...state.list, refreshError: err(e) } }); }
     },
     // "Tải thêm": nối trang kế tiếp; lỗi chỉ hiện ở nút (danh sách đã tải giữ nguyên). Bỏ trùng id nếu dữ liệu dịch trang.
     async loadMore() {
