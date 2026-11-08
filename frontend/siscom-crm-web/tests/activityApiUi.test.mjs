@@ -458,6 +458,21 @@ test('FV-3 đang gửi (fetch chậm): nút Lưu bị khoá, bấm 2 lần chỉ
   } finally { await m.unmount(); }
 });
 
+test('FV-3 ô "Liên hệ chính" phản ánh đúng dữ liệu (liên hệ thường => không tích; liên hệ chính => tích)', async () => {
+  const K2 = '22222222-3333-4444-8555-666666666666';
+  const f = server({ contacts: () => [ct1(), ct1({ id: K2, code: 'LH-000002', fullName: 'Lê Văn Bình', isPrimary: false })] });
+  const m = await mount(f, CONTACT_EDIT);
+  const box = () => findAll(cdlg(m.container), (e) => e.tagName === 'INPUT' && e.attributes.type === 'checkbox')[0];
+  try {
+    await openContacts(m);
+    await doAct(() => click(btnAria(m.container, /^Sửa người liên hệ Lê Văn Bình$/)));
+    assert.equal(!!box().checked, false, 'liên hệ thường: ô không được tích');
+    await doAct(() => click(buttonByText(cdlg(m.container), /^Huỷ$/)));
+    await doAct(() => click(btnAria(m.container, /^Sửa người liên hệ Nguyễn Văn A$/)));
+    assert.equal(!!box().checked, true, 'liên hệ chính: ô được tích');
+  } finally { await m.unmount(); }
+});
+
 test('FV-3 điện thoại (ui.mobile): nút Sửa/Xoá dạng thẻ, đủ lớn để chạm (không size sm)', async () => {
   const m = await mount(server({ contacts: () => [ct1()] }), CONTACT_EDIT, { mobile: true });
   try {
