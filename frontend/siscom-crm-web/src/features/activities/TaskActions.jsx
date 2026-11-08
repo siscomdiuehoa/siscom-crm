@@ -83,7 +83,8 @@ function Dialog({ kind, a, ui, onClose }) {
         {conflict && nonField ? (
           <div role="alert" style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--warning-bg, rgba(245,158,11,.12))', border: '1px solid var(--warning-border, rgba(245,158,11,.45))', font: 'var(--type-sm)' }}>
             <b>Dữ liệu đã thay đổi</b>
-            <div>{'Người khác vừa cập nhật việc này' + (nonField.message ? ' (' + nonField.message + ')' : '') + '. Nội dung bạn nhập vẫn được giữ — kiểm tra lại rồi lưu lại, hoặc Huỷ.'}</div>
+            <div>Người khác vừa cập nhật việc này. Nội dung bạn nhập vẫn được giữ — kiểm tra lại rồi lưu lại, hoặc Huỷ.</div>
+            {nonField.message ? <div style={{ color: 'var(--text-3)', font: 'var(--type-caption)', marginTop: 4 }}>{'Chi tiết: ' + nonField.message}</div> : null}
           </div>
         ) : nonField ? <ApiErrorBox error={nonField} /> : null}
         {overlap ? (
