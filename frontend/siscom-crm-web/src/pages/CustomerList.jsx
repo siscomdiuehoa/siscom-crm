@@ -5,7 +5,7 @@ import { APP_DATA } from '../data/demoData.js';
 import { CustomerFormDrawer } from '../features/customers/CustomerForm.jsx';
 import { CustomerExportModal, CustomerImportModal } from '../features/customers/CustomerIO.jsx';
 import { useCustomerApiState } from '../features/customers/useCustomerApi.js';
-import { customerDisplayCode, searchCustomers } from '../features/customers/customerApiUi.js';
+import { csvSafe, customerDisplayCode, searchCustomers } from '../features/customers/customerApiUi.js';
 import { ApiListStatus, ApiModeNote, ApiSearchBar, ApiPager } from '../features/customers/ApiListStatus.jsx';
 
 function CustomerListPage({ ui }) {
@@ -17,6 +17,7 @@ function CustomerListPage({ ui }) {
   const all = apiOn ? apiS.list.items : ui.db.customers;
   const [view, setView] = React.useState(ui.mobile ? 'grid' : 'table');
   const [tier, setTier] = React.useState('all');
+  const [statusFilter, setStatusFilter] = React.useState(null);
   const [industry, setIndustry] = React.useState('all');
   const [owner, setOwner] = React.useState('all');
   const [city, setCity] = React.useState('all');
@@ -25,6 +26,21 @@ function CustomerListPage({ ui }) {
   const [ver, setVer] = React.useState(0);
   const [form, setForm] = React.useState(null);
   const [io, setIo] = React.useState(null);
+  const [exporting, setExporting] = React.useState(false);
+  // FV-4: máy chủ không có quyền "customer.export" riêng => chế độ API xuất theo customer.read (đúng dữ liệu người dùng xem được, máy chủ lọc theo phạm vi).
+  // Không có quyền từ máy chủ (fail-closed) => khoá. Chế độ demo giữ quyền customer.export.
+  const canExport = typeof ui.can === 'function' && !!ui.can(apiOn ? 'customer.read' : 'customer.export');
+  const exportApi = async (selectedOnly) => {
+    if (exporting || !canExport) return;
+    setExporting(true);
+    try {
+      const result = selectedOnly ? { items: all.filter((c) => sel.includes(c.id)), truncated: false } : await apiCtl.exportList(apiS.list.params || {}, (c) => (tier === 'all' || c.tier === tier) && (industry === 'all' || c.industry === industry) && (owner === 'all' || c.owner === owner) && (city === 'all' || c.city === city) && (!statusFilter || view !== 'table' || c.status === statusFilter) && (view !== 'grid' || searchCustomers([c], q).length > 0));
+      const cols = [['code', 'Mã KH'], ['name', 'Tên công ty'], ['taxId', 'Mã số thuế'], ['industry', 'Ngành nghề'], ['tier', 'Phân hạng'], ['status', 'Trạng thái'], ['owner', 'Phụ trách'], ['address', 'Địa chỉ'], ['city', 'Tỉnh/Thành phố'], ['phone', 'Điện thoại'], ['email', 'Email']];
+      U.downloadCsv('KhachHang_' + U.today() + '.csv', cols.map((c) => c[1]), result.items.map((r) => cols.map((c) => csvSafe(r[c[0]]))));
+      ui.toast({ tone: result.truncated ? 'warning' : 'success', title: 'Đã xuất ' + result.items.length + ' khách hàng', message: result.truncated ? 'Vượt giới hạn 5.000 dòng; chỉ xuất 5.000 dòng đầu.' : 'File CSV (UTF-8) mở được bằng Excel.' });
+    } catch (e) { ui.toast({ tone: 'error', title: 'Không xuất được khách hàng', message: 'Không tải được đầy đủ dữ liệu. Vui lòng thử lại.' }); }
+    finally { setExporting(false); }
+  };
   const rows = all.filter((c) => (tier === 'all' || c.tier === tier) && (industry === 'all' || c.industry === industry) && (owner === 'all' || c.owner === owner) && (city === 'all' || c.city === city));
   const gridRows = apiOn ? searchCustomers(rows, q) : q.trim() ? rows.filter((c) => [c.name, c.short, c.id, c.taxId, c.owner].some((v) => U.norm(v).includes(U.norm(q.trim())))) : rows;
   const nFilters = [industry, owner, city].filter((x) => x !== 'all').length;
@@ -79,7 +95,7 @@ function CustomerListPage({ ui }) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Tabs value={view} onChange={setView} items={[{ id: 'table', label: 'Bảng', icon: 'list' }, { id: 'grid', label: 'Thẻ', icon: 'layout-grid' }]} />
           <Button variant="secondary" icon="upload" disabled={apiOn || !ui.can('customer.import')} onClick={() => setIo('import')}>Nhập</Button>
-          <Button variant="secondary" icon="download" disabled={apiOn} onClick={() => setIo('export')}>Xuất</Button>
+          <Button variant="secondary" icon="download" disabled={exporting || !canExport} onClick={() => (apiOn ? exportApi(false) : setIo('export'))}>{exporting ? 'Đang xuất…' : 'Xuất'}</Button>
           <Button icon="plus" disabled={!ui.can('customer.create')} onClick={() => setForm('new')}>Thêm khách hàng</Button>
         </div>
       </div>
@@ -92,7 +108,7 @@ function CustomerListPage({ ui }) {
         <span style={{ flex: 1 }} />
         {sel.length ? (<>
           <span style={{ font: 'var(--type-sm)', color: 'var(--primary-text)', fontWeight: 600 }}>Đã chọn {sel.length}</span>
-          <Button size="sm" variant="secondary" icon="download" disabled={apiOn} onClick={() => setIo('export')}>Xuất đã chọn</Button>
+          <Button size="sm" variant="secondary" icon="download" disabled={exporting || !canExport} onClick={() => (apiOn ? exportApi(true) : setIo('export'))}>Xuất đã chọn</Button>
           <Button size="sm" variant="danger" icon="trash-2" disabled={apiOn || !ui.can('customer.delete')} onClick={() => del(sel)}>Xoá</Button>
         </>) : null}
       </div>
@@ -101,7 +117,7 @@ function CustomerListPage({ ui }) {
       {apiOn && apiS.list.status !== 'ready' ? <ApiListStatus s={apiS.list} onRetry={() => apiCtl.reload()} /> : view === 'table' ? (
         <DataTable key={ver + tier + industry + owner + city} itemLabel={apiOn ? 'khách hàng (trang này)' : 'khách hàng'} selectable onSelectionChange={setSel} pageSize={apiOn ? 100 : 10} rows={rows} columns={cols}
           searchable={!apiOn} searchKeys={['name', 'short', 'id', 'code', 'taxId', 'owner', 'city', 'phone', 'email']} searchPlaceholder="Tìm tên, mã KH, MST, SĐT…"
-          filter={{ key: 'status', options: D.STATUSES }} onRowClick={(r) => ui.navigate('/customers/' + r.id)} emptyTitle="Chưa có khách hàng" />
+          onFilterChange={setStatusFilter} filter={{ key: 'status', options: D.STATUSES }} onRowClick={(r) => ui.navigate('/customers/' + r.id)} emptyTitle="Chưa có khách hàng" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ maxWidth: 360 }}><Input icon="search" placeholder="Tìm tên, mã KH, MST…" value={q} onChange={(e) => setQ(e.target.value)} /></div>

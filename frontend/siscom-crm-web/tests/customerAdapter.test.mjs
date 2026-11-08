@@ -134,3 +134,27 @@ test('R01 fromApiCustomer: chuỗi hợp lệ giữ nguyên (không đổi hành
   const ui = fromApiCustomer({ id: 'u1', name: 'Công ty A', website: 'b.vn', email: 'a@b.vn' });
   assert.equal(ui.name, 'Công ty A'); assert.equal(ui.website, 'b.vn'); assert.equal(ui.email, 'a@b.vn');
 });
+
+test('CT-FV4-1: truy vấn độc lập và gom trang xuất, giới hạn 5000', async () => {
+  const { createCustomerApiController } = await import('../src/features/customers/customerApiUi.js');
+  const calls = []; const ctl = createCustomerApiController({ mode: 'api', list: async (p) => { calls.push(p); return { items: Array.from({ length: 100 }, (_, i) => ({ id: `${p.page}-${i}` })), total: 5100, page: p.page, pageSize: 100, totalPages: 51 }; } });
+  await ctl.queryList({ search: 'ab', pageSize: 6 });
+  assert.deepEqual(calls[0], { page: 1, pageSize: 6, search: 'ab' });
+  const result = await ctl.exportList({ search: 'ab' });
+  assert.equal(result.items.length, 5000); assert.equal(result.truncated, true); assert.equal(calls.length, 52);
+  assert.equal(calls[1].search, 'ab');
+});
+
+test('CT-FV4-1: csvSafe chặn chèn công thức Excel, giữ nguyên số điện thoại/số', async () => {
+  const { csvSafe } = await import('../src/features/customers/customerApiUi.js');
+  for (const bad of ['=HYPERLINK("x")', '@SUM(A1)', '+cmd|x', '-2+3+cmd', '\t=1', '\r=1']) assert.equal(csvSafe(bad), "'" + bad, bad);
+  for (const ok of ['+84 903 123 456', '-1', '0903.123.456', 'Công ty A', '', 'a=b']) assert.equal(csvSafe(ok), ok, ok);
+  assert.equal(csvSafe(null), ''); assert.equal(csvSafe(undefined), '');
+});
+
+test('CT-FV4-1: lỗi ở trang sau không trả dữ liệu xuất dở', async () => {
+  const { createCustomerApiController } = await import('../src/features/customers/customerApiUi.js');
+  const ctl = createCustomerApiController({ mode: 'api', list: async (p) => { if (p.page === 2) throw Error('lỗi'); return { items: Array.from({ length: 100 }, () => ({})), total: 200, page: 1, pageSize: 100, totalPages: 2 }; } });
+  await assert.rejects(ctl.exportList({}), /lỗi/);
+});
+

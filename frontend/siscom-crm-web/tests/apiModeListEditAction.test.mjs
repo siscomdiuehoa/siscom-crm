@@ -6,7 +6,7 @@ import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import React from 'react';
-import { installDom, text, byTag, click } from './helpers/miniDom.mjs';
+import { installDom, text, byTag, click, type, inputByLabel } from './helpers/miniDom.mjs';
 
 const BASE = 'http://127.0.0.1:3000/api/v1';
 const ID = '0b9f1c52-3a0e-4c3e-9d6f-0a1b2c3d4e5f';
@@ -48,12 +48,12 @@ after(async () => { for (const s of servers) await s.close(); if (dom) dom.resto
 beforeEach(() => { store = {}; fetchCalls = []; fetchImpl = async () => { throw new TypeError('network down'); }; });
 
 const settle = async () => { for (let i = 0; i < 6; i += 1) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
-async function mount(apiOn, hash) {
+async function mount(apiOn, hash, props = undefined) {
   globalThis.location.hash = hash;
   const container = dom.doc.createElement('div'); dom.doc.body.appendChild(container);
   const root = createRoot(container);
   const App = await loadApp(apiOn);
-  await act(async () => { root.render(React.createElement(App)); });
+  await act(async () => { root.render(React.createElement(App, props)); });
   await settle();
   return { container, unmount: async () => { await act(async () => root.unmount()); } };
 }
@@ -99,4 +99,72 @@ test('OFF (demo): giữ nguyên nút Sửa/Xoá tại dòng, không có nút "M�
     assert.equal(byLabel(l.container, /^Mở chi tiết để sửa$/).length, 0);
     assert.ok(byLabel(l.container, /^Sửa$/).length > 0 && byLabel(l.container, /^Xoá$/).length > 0, 'demo vẫn có Sửa/Xoá tại dòng');
   } finally { await l.unmount(); }
+});
+
+
+test('CT-FV4-1: tìm đầu trang debounce và phản hồi cũ', async () => {
+  const pending = [];
+  fetchImpl = (url) => { const u = new URL(url); if (u.searchParams.has('search')) return new Promise((resolve) => pending.push({ q: u.searchParams.get('search'), resolve })); return okServer(url); };
+  document.querySelector = (s) => s === '.sg-search' ? { getBoundingClientRect: () => ({ left: 0, bottom: 40, width: 400 }) } : null;
+  const l = await mount(true, '#/dashboard');
+  try {
+    const input = byTag(l.container, 'input').find((e) => e.getAttribute('aria-label') === 'Tìm kiếm toàn hệ thống');
+    await act(async () => { type(input, 'ab'); type(input, 'abc'); await new Promise((r) => setTimeout(r, 300)); });
+    assert.deepEqual(pending.map((x) => x.q), ['abc']);
+    await act(async () => { type(input, 'abcd'); await new Promise((r) => setTimeout(r, 300)); });
+    assert.deepEqual(pending.map((x) => x.q), ['abc', 'abcd']);
+    await act(async () => { pending[1].resolve(res(200, { data: { items: [ROW], page: 1, pageSize: 6, total: 1, totalPages: 1 } })); });
+    await act(async () => { pending[0].resolve(res(200, { data: { items: [{ ...ROW, shortName: 'Kết quả cũ' }], page: 1, pageSize: 6, total: 1, totalPages: 1 } })); });
+    assert.match(text(l.container), /Máy Chủ/); assert.doesNotMatch(text(l.container), /Kết quả cũ/);
+    const hit = l.container.querySelectorAll((e) => (e.getAttribute('class') || '') === 'sg-menu__item')[0];
+    await act(async () => { const ev = { type: 'mousedown', target: hit, bubbles: true, preventDefault() {}, stopPropagation() {}, timeStamp: Date.now() }; for (let n = hit; n; n = n.parentNode) for (const f of (n.listeners && n.listeners.mousedown || [])) f(ev); });
+    assert.equal(location.hash, '/customers/' + ID);
+    await act(async () => { type(input, 'loi'); });
+    assert.match(text(l.container), /Đang tìm…/, 'đang chờ gõ xong: không báo "không tìm thấy" sai');
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); pending[2].resolve(res(403, { error: { code: 'FORBIDDEN', message: 'Không có quyền' } })); });
+    assert.match(text(l.container), /Không tìm được khách hàng\. Vui lòng thử lại\./);
+  } finally { await l.unmount(); document.querySelector = () => null; }
+});
+
+test('CT-FV4-1: nút Xuất (API) gom đủ các trang theo bộ lọc hiện tại -> CSV UTF-8 có BOM, chặn công thức; lỗi giữa chừng -> không tải file', async () => {
+  // Toast tự ẩn sau 4,5 s và downloadCsv thu hồi URL sau 1 s: gom các hẹn giờ dài để huỷ khi kết thúc (không chạy sau khi DOM giả đã gỡ).
+  const longTimers = []; const origST = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { const t = origST(fn, ms, ...a); if (ms >= 1000) longTimers.push(t); return t; };
+  const blobs = []; const origURL = globalThis.URL.createObjectURL; const origRevoke = globalThis.URL.revokeObjectURL;
+  globalThis.URL.createObjectURL = (b) => { blobs.push(b); return 'blob:x'; }; globalThis.URL.revokeObjectURL = () => {};
+  const page = (p, n, total) => ({ data: { items: Array.from({ length: n }, (_, i) => ({ ...ROW, id: ID.slice(0, -3) + String(p * 100 + i).padStart(3, '0').slice(-3), code: 'KH-' + p + '-' + i, name: i === 0 ? '=HYPERLINK("x")' : 'Cty ' + i })), page: p, pageSize: 100, total, totalPages: Math.ceil(total / 100) } });
+  let failPage2 = false;
+  fetchImpl = async (url) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/customers') && u.searchParams.get('pageSize') === '100') {
+      const p = Number(u.searchParams.get('page'));
+      if (p === 2 && failPage2) return res(500, { error: { code: 'INTERNAL', message: 'lỗi' } });
+      return res(200, page(p, p === 1 ? 100 : 50, 150));
+    }
+    return okServer(url);
+  };
+  // Phiên có customer.read (máy chủ cấp) => được xuất; không có quyền thì khoá (apiModePermissionFailClosed).
+  const ST = { status: 'AUTHENTICATED', employeeId: 'e1', me: { employeeId: 'e1', fullName: 'Sale A', roles: ['sales'], permissions: { 'customer.read': 'OWN', 'lookup.read': 'ALL' }, mustChangePassword: false } };
+  const session = { getState: () => ST, subscribe: () => () => {} };
+  const l = await mount(true, '#/customers', { session });
+  try {
+    const btn = () => byTag(l.container, 'button').find((b) => /^Xuất$/.test(text(b).trim()));
+    assert.ok(btn() && !btn().disabled, 'nút Xuất bật ở chế độ API');
+    await act(async () => { click(btn()); }); await settle();
+    const pages = fetchCalls.map(([u]) => new URL(u)).filter((u) => u.pathname.endsWith('/customers') && u.searchParams.get('pageSize') === '100').map((u) => u.searchParams.get('page'));
+    assert.deepEqual(pages, ['1', '2']);
+    assert.equal(blobs.length, 1);
+    const bytes = new Uint8Array(await blobs[0].arrayBuffer());
+    assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'có BOM UTF-8');
+    assert.match(blobs[0].type, /^text\/csv;charset=utf-8/);
+    const lines = (await blobs[0].text()).replace(/^﻿/, '').split('\r\n');
+    assert.match(lines[0], /^Mã KH,Tên công ty,Mã số thuế/);
+    assert.equal(lines.length, 151, 'tiêu đề + 150 dòng');
+    assert.ok(lines.some((x) => x.includes(`"'=HYPERLINK(""x"")"`)), 'ô bắt đầu bằng = được thêm dấu \'');
+    assert.equal(writeCalls().length, 0);
+    failPage2 = true; blobs.length = 0;
+    await act(async () => { click(btn()); }); await settle();
+    assert.equal(blobs.length, 0, 'lỗi trang 2: không tải file dở');
+    assert.match(text(dom.doc.body), /Không xuất được khách hàng/);
+  } finally { await l.unmount(); for (const t of longTimers) clearTimeout(t); globalThis.setTimeout = origST; globalThis.URL.createObjectURL = origURL; globalThis.URL.revokeObjectURL = origRevoke; }
 });

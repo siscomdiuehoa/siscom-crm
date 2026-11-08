@@ -129,6 +129,15 @@ export function searchCustomers(items, q) {
 // page >= 1 integer; pageSize 1..100 (default 20); search is trimmed and the server rejects < 2 chars (400), so a shorter query is simply NOT sent.
 // The server also rejects page * pageSize > 100000 (400); that error is surfaced as-is, never hidden. Response: { items, page, pageSize, total, totalPages }.
 export const LIST_PAGE_SIZE = 20; export const LIST_PAGE_SIZE_MAX = 100; export const SEARCH_MIN_CHARS = 2;
+export const EXPORT_MAX_ROWS = 5000;
+// FV-4: dữ liệu xuất là dữ liệu người dùng nhập => chặn chèn công thức khi mở bằng Excel (CSV/formula injection).
+// Ô bắt đầu bằng = @ TAB CR, hoặc + / - mà KHÔNG phải số điện thoại/số thuần, được thêm dấu ' phía trước.
+export function csvSafe(v) {
+  const s = v == null ? '' : String(v);
+  if (/^[=@\t\r]/.test(s)) return "'" + s;
+  if (/^[+-]/.test(s) && !/^[+-][\d\s().-]*$/.test(s)) return "'" + s;
+  return s;
+}
 const toInt = (v, d, lo, hi) => { const n = Math.trunc(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
 export function buildListParams({ page, pageSize, search } = {}) {
   const out = { page: toInt(page, 1, 1, Number.MAX_SAFE_INTEGER), pageSize: toInt(pageSize, LIST_PAGE_SIZE, 1, LIST_PAGE_SIZE_MAX) };
@@ -176,6 +185,19 @@ export function createCustomerApiController(repo) {
   };
   return {
     mode: repo.mode,
+    queryList(params) { return repo.list(buildListParams(params)); },
+    async exportList(params, matches = () => true) {
+      const items = []; let page = 1; let total = 0;
+      do {
+        const r = await repo.list(buildListParams({ ...params, page, pageSize: LIST_PAGE_SIZE_MAX }));
+        if (!Number.isInteger(r.total) || r.total < 0 || !Array.isArray(r.items)) throw new Error('Phản hồi danh sách không hợp lệ.');
+        total = r.total;
+        for (const item of r.items) if (matches(item)) { if (items.length === EXPORT_MAX_ROWS) return { items, truncated: true }; items.push(item); }
+        if (!r.items.length && (page - 1) * LIST_PAGE_SIZE_MAX < total) throw new Error('Phản hồi danh sách không đầy đủ.');
+        page += 1;
+      } while ((page - 1) * LIST_PAGE_SIZE_MAX < total && page <= 1000);
+      return { items, truncated: false };
+    },
     getState: () => state,
     subscribe: (f) => { subs.add(f); return () => subs.delete(f); },
     // Canonical GET /lookups choices for the form. Loaded once and cached; `force` (retry) refetches. Failure leaves maps null (selects stay disabled, no demo choices).

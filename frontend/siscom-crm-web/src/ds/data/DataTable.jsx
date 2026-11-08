@@ -17,7 +17,7 @@ function pages(cur, total) {
   return out;
 }
 
-export function DataTable({ columns = [], rows = [], rowKey = 'id', searchable = true, searchPlaceholder = 'Tìm kiếm…', searchKeys, filter, pageSize = 8, selectable = false, onSelectionChange, toolbar, title, onRowClick, itemLabel = 'bản ghi', loading = false, emptyTitle = 'Chưa có dữ liệu', compact = false, variant = 'solid' }) {
+export function DataTable({ columns = [], rows = [], rowKey = 'id', searchable = true, searchPlaceholder = 'Tìm kiếm…', searchKeys, filter, pageSize = 8, selectable = false, onSelectionChange, onFilterChange, toolbar, title, onRowClick, itemLabel = 'bản ghi', loading = false, emptyTitle = 'Chưa có dữ liệu', compact = false, variant = 'solid' }) {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState(null);
   const [page, setPage] = useState(1);
@@ -65,8 +65,8 @@ export function DataTable({ columns = [], rows = [], rowKey = 'id', searchable =
           ) : null}
           {filter ? (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button type="button" className="sg-chip" aria-pressed={fv == null} onClick={() => { setFv(null); setPage(1); }}>Tất cả</button>
-              {filter.options.map((o) => <button key={o} type="button" className="sg-chip" aria-pressed={fv === o} onClick={() => { setFv(fv === o ? null : o); setPage(1); }}>{o}</button>)}
+              <button type="button" className="sg-chip" aria-pressed={fv == null} onClick={() => { setFv(null); onFilterChange && onFilterChange(null); setPage(1); }}>Tất cả</button>
+              {filter.options.map((o) => <button key={o} type="button" className="sg-chip" aria-pressed={fv === o} onClick={() => { setFv(fv === o ? null : o); onFilterChange && onFilterChange(fv === o ? null : o); setPage(1); }}>{o}</button>)}
             </div>
           ) : null}
           <div style={{ flex: 1 }} />
