@@ -4,6 +4,7 @@ import * as U from '../../data/util.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import { taskActions, ACTION_LABEL, ACTION_ICON, validateTransfer } from './tasksModel.js';
+import { VERSION_CONFLICT } from './tasksUi.js';
 import { editDraftOf, buildPatchBody, validateDraft, hasTitle, hasDue, hasOutcome, hasOccurred } from './activityModel.js';
 
 const has = (ui, p) => typeof ui.can === 'function' && !!ui.can(p);
@@ -31,41 +32,68 @@ function Dialog({ kind, a, ui, onClose }) {
   const busy = !!s.busy;
   const [f, setF] = React.useState({ outcome: '', performedById: '', external: false, toEmployeeId: '', reason: '' });
   const [ed, setEd] = React.useState(() => editDraftOf(a)); // bản nháp Sửa (chỉ dùng khi kind = edit)
+  // FV13-01 (#220): bản hoạt động lúc MỞ hộp (gốc so sánh). Sau 409 danh sách đọc lại => `a` là bản mới (version mới), bản nháp giữ nguyên.
+  const base = React.useRef(a).current;
+  const [conflict, setConflict] = React.useState(false); // lần lưu gần nhất gặp 409 ACTIVITY_VERSION_CONFLICT
+  const [overlap, setOverlap] = React.useState(null); // [{ k, theirs }]: trường mình sửa mà người khác cũng vừa sửa (chờ người dùng quyết)
   const [error, setError] = React.useState(null);
   const [tried, setTried] = React.useState(false);
   const [hist, setHist] = React.useState({ status: 'idle', items: [], error: null });
   const canExternal = kind === 'reassign' && has(ui, 'activity.assign_external');
   const cands = useCandidates(ui, a, kind === 'reassign' || kind === 'transfer', kind === 'reassign' && f.external, kind === 'reassign' || has(ui, 'activity.assign'));
   React.useEffect(() => { if (kind === 'history') ui.customerApi.tasks.history(a.id).then((r) => setHist(r.ok ? { status: 'ready', items: r.items, error: null } : { status: 'error', items: [], error: r.error })); }, [kind, a.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const set = (k) => (v) => { setError(null); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v, ...(k === 'external' ? { performedById: '' } : {}) })); };
-  const setE = (k) => (v) => { setError(null); setEd((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
+  const set = (k) => (v) => { setError(null); setConflict(false); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v, ...(k === 'external' ? { performedById: '' } : {}) })); };
+  const setE = (k) => (v) => { setError(null); setConflict(false); setOverlap(null); setEd((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
   const terr = kind === 'transfer' && tried ? validateTransfer(f) : kind === 'edit' && tried ? validateDraft(ed) : {};
   const fe = (k) => terr[k] || (error && error.fieldErrors && error.fieldErrors[k]) || '';
-  const run = async () => {
+  // force = người dùng đã chọn "Giữ nội dung của tôi" cho các trường trùng.
+  const run = async (force = false) => {
     setTried(true);
     if (kind === 'transfer' && Object.keys(validateTransfer(f)).length) return;
     let changes = null;
     if (kind === 'edit') {
       if (Object.keys(validateDraft(ed)).length) return;
-      changes = buildPatchBody(a, ed);
+      // Chỉ gửi trường NGƯỜI DÙNG đã đổi (so với lúc mở hộp) và còn khác bản hiện tại trên máy chủ (không đè trường người khác vừa sửa).
+      const mine = buildPatchBody(base, ed);
+      const vsNow = a.version === base.version ? mine : buildPatchBody(a, ed);
+      changes = {}; for (const k of Object.keys(mine)) if (k in vsNow) changes[k] = mine[k];
       if (!Object.keys(changes).length) { setError({ title: 'Chưa có thay đổi', message: 'Chưa có thay đổi nào để lưu.', fieldErrors: {} }); return; }
+      if (!force && a.version !== base.version) {
+        const b0 = editDraftOf(base); const now = editDraftOf(a);
+        const ov = Object.keys(changes).filter((k) => String(now[k] || '') !== String(b0[k] || ''));
+        if (ov.length) { setError(null); setConflict(false); setOverlap(ov.map((k) => ({ k, theirs: now[k] || '' }))); return; }
+      }
     }
     if (kind === 'reassign' && !f.performedById) { setError({ title: 'Chưa chọn người', message: 'Chọn người phụ trách mới.', fieldErrors: {} }); return; }
     const payload = kind === 'edit' ? { changes } : kind === 'complete' ? { outcome: f.outcome.trim() } : kind === 'reassign' ? { performedById: f.performedById, external: f.external } : kind === 'transfer' ? { toEmployeeId: f.toEmployeeId, reason: f.reason.trim() } : kind === 'delete' ? { reason: f.reason.trim() } : {};
     const r = await tasks.act(kind, a, payload);
     if (r.duplicate) return;
     if (r.ok) { ui.toast({ tone: 'success', title: kind === 'edit' ? 'Đã lưu thay đổi' : 'Đã ' + ACTION_LABEL[kind].toLowerCase(), message: a.code || a.title || '' }); onClose(); }
-    else setError(r.error);
+    else { setOverlap(null); setConflict(!!(r.error && r.error.code === VERSION_CONFLICT)); setError(r.error); }
   };
+  const takeTheirs = () => { setEd((x) => { const y = { ...x }; for (const o of overlap || []) y[o.k] = o.theirs; return y; }); setOverlap(null); setError(null); };
   const others = (items) => items.filter((e) => !a.performedBy || e.id !== a.performedBy.id);
   const nonField = error && !Object.keys(error.fieldErrors || {}).length ? error : null;
   const title = { edit: 'Sửa hoạt động', complete: 'Hoàn thành công việc', reassign: 'Giao lại công việc', transfer: 'Đề xuất chuyển người phụ trách', delete: 'Xoá hoạt động', history: 'Lịch sử thay đổi' }[kind];
   const footer = kind === 'history' ? <Button variant="secondary" onClick={onClose}>Đóng</Button>
-    : <><Button variant="secondary" disabled={busy} onClick={onClose}>Huỷ</Button><Button variant={kind === 'delete' ? 'danger' : 'primary'} icon={ACTION_ICON[kind]} loading={busy} onClick={run}>{kind === 'transfer' ? 'Gửi đề xuất' : kind === 'edit' ? 'Lưu thay đổi' : ACTION_LABEL[kind]}</Button></>;
+    : <><Button variant="secondary" disabled={busy} onClick={onClose}>Huỷ</Button><Button variant={kind === 'delete' ? 'danger' : 'primary'} icon={ACTION_ICON[kind]} loading={busy} onClick={() => run(false)}>{kind === 'transfer' ? 'Gửi đề xuất' : kind === 'edit' ? 'Lưu thay đổi' : ACTION_LABEL[kind]}</Button></>;
   return (
     <Modal open onClose={busy ? undefined : onClose} size={kind === 'history' ? 'lg' : 'md'} icon={ACTION_ICON[kind]} tone={kind === 'delete' ? 'error' : 'blue'} title={title} description={(a.code ? a.code + ' · ' : '') + (a.title || a.content || '').slice(0, 80)} footer={footer}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {nonField ? <ApiErrorBox error={nonField} /> : null}
+        {conflict && nonField ? (
+          <div role="alert" style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--warning-bg, rgba(245,158,11,.12))', border: '1px solid var(--warning-border, rgba(245,158,11,.45))', font: 'var(--type-sm)' }}>
+            <b>Dữ liệu đã thay đổi</b>
+            <div>{'Người khác vừa cập nhật việc này' + (nonField.message ? ' (' + nonField.message + ')' : '') + '. Nội dung bạn nhập vẫn được giữ — kiểm tra lại rồi lưu lại, hoặc Huỷ.'}</div>
+          </div>
+        ) : nonField ? <ApiErrorBox error={nonField} /> : null}
+        {overlap ? (
+          <div role="alert" style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--warning-bg, rgba(245,158,11,.12))', border: '1px solid var(--warning-border, rgba(245,158,11,.45))', font: 'var(--type-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <b>Trùng trường với người khác</b>
+            <div>Người khác vừa sửa chính các trường bạn đang sửa. Chọn giữ nội dung của bạn (ghi đè phần họ vừa sửa) hoặc dùng giá trị mới:</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>{overlap.map((o) => <li key={o.k}>{fieldText(o.k) + ': giá trị mới “' + (o.theirs ? String(o.theirs).replace('T', ' ') : '(trống)') + '”'}</li>)}</ul>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Button size="sm" variant="secondary" disabled={busy} onClick={() => run(true)}>Giữ nội dung của tôi</Button><Button size="sm" variant="secondary" disabled={busy} onClick={takeTheirs}>Dùng giá trị mới</Button></div>
+          </div>
+        ) : null}
         {kind === 'edit' ? (
           <>
             {hasTitle(a.type) ? <Input label="Tiêu đề" maxLength={200} value={ed.title} onChange={setE('title')} error={fe('title')} /> : null}
