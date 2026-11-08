@@ -8,11 +8,11 @@ const ctx = { actor, requestId: 'r1' };
 type Scopes = Partial<Record<Permission, Scope>>;
 const ALL: Scopes = { 'customer.read': 'ALL', 'customer.update': 'ALL', 'contact.read': 'ALL', 'contact.create': 'ALL' };
 const cust = (o: Record<string, unknown> = {}) => ({ id: CID, code: 'KH-00001', deletedAt: null, ownerId: null, owner: null, ...o });
-const contactRow = (o: Record<string, unknown> = {}) => ({ id: 'c1', code: 'LH-000001', fullName: 'Nguyễn Văn A', title: null, phone: '0903123456', email: null, isPrimary: false, note: null, createdAt: new Date('2026-01-01T00:00:00Z'), ...o });
+const contactRow = (o: Record<string, unknown> = {}) => ({ id: 'c1', code: 'LH-000001', fullName: 'Nguyễn Văn A', title: null, phone: '0903123456', email: null, isPrimary: false, note: null, createdAt: new Date('2026-01-01T00:00:00Z'), updatedAt: new Date('2026-01-01T00:00:00Z'), ...o });
 
 function build(scopes: Scopes = ALL) {
   const customer = { findFirst: jest.fn() };
-  const contact = { findMany: jest.fn(), updateMany: jest.fn(), create: jest.fn() };
+  const contact = { findMany: jest.fn(), findFirst: jest.fn(), findUniqueOrThrow: jest.fn(), updateMany: jest.fn(), create: jest.fn() };
   const tx = { $executeRaw: jest.fn().mockResolvedValue(0), $queryRaw: jest.fn().mockResolvedValue([{ id: CID }]), customer, contact };
   const prisma = { customer, contact, $transaction: jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx)) };
   const actors = { scopeFor: jest.fn((_a: Actor, p: Permission) => scopes[p] ?? null) };
@@ -117,5 +117,118 @@ describe('ContactsService.create', () => {
     const b = ready();
     b.audit.record.mockRejectedValue(new Error('AuditLog chưa triển khai'));
     await expect(b.svc.create(ctx, CID, { fullName: 'A', phone: '0903123456' } as never)).rejects.toThrow('AuditLog');
+  });
+});
+
+// FV-3 (CT-FV3-1, Owner 08/11/2026 phương án A): sửa/xoá mềm liên hệ theo quyền customer.update trên TỪNG khách; khoá lạc quan bằng updatedAt.
+const KID = '22222222-2222-4222-8222-222222222222';
+const T0 = new Date('2026-11-01T00:00:00.000Z');
+const stored = (o: Record<string, unknown> = {}) => contactRow({ id: KID, updatedAt: T0, ...o });
+const readyW = (scopes: Scopes = ALL, c = cust(), row: Record<string, unknown> | null = stored()) => {
+  const e = ready(scopes, c);
+  e.contact.findFirst.mockImplementation(async (q: { where: { id?: unknown } }) => (q.where.id === KID ? row : null));
+  e.contact.updateMany.mockResolvedValue({ count: 1 });
+  e.contact.findUniqueOrThrow.mockResolvedValue(stored({ updatedAt: new Date(T0.getTime() + 1) }));
+  return e;
+};
+const upd = (o: Record<string, unknown> = {}) => ({ updatedAt: T0.toISOString(), ...o }) as never;
+
+describe('ContactsService.update (FV-3)', () => {
+  it('sửa đúng phạm vi: chỉ ghi trường thay đổi, điều kiện updatedAt cũ, updatedAt mới tăng chặt; nhật ký không chứa thông tin cá nhân', async () => {
+    const e = readyW();
+    const r = await e.svc.update(ctx, CID, KID, upd({ phone: '0903 999 888', title: 'Kế toán trưởng', fullName: 'Nguyễn Văn A' }));
+    const call = e.contact.updateMany.mock.calls.at(-1)[0];
+    expect(call.where).toEqual({ id: KID, customerId: CID, deletedAt: null, updatedAt: T0 });
+    expect(call.data).toMatchObject({ phone: '0903 999 888', title: 'Kế toán trưởng', updatedById: 'e1' });
+    expect(call.data).not.toHaveProperty('fullName'); // không đổi => không ghi
+    expect(call.data.updatedAt.getTime()).toBeGreaterThan(T0.getTime());
+    const a = e.audit.record.mock.calls[0][1];
+    expect(a).toMatchObject({ action: 'contact.update', entityType: 'contact', entityId: KID, entityCode: 'LH-000001', actorEmployeeId: 'e1' });
+    expect(a.changes.fields).toEqual(['phone', 'title']);
+    expect(JSON.stringify(a)).not.toMatch(/0903|Kế toán|Nguyễn/);
+    expect(r).toHaveProperty('updatedAt');
+    expect(e.tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(e.contact.findFirst.mock.invocationCallOrder[0]); // khoá khách trước
+  });
+  it('gửi rỗng/null = xoá giá trị tuỳ chọn; không gửi = giữ nguyên', async () => {
+    const e = readyW(ALL, cust(), stored({ email: 'a@x.vn', note: 'ghi chú' }));
+    await e.svc.update(ctx, CID, KID, upd({ email: '', note: null }));
+    const d = e.contact.updateMany.mock.calls.at(-1)[0].data;
+    expect(d).toMatchObject({ email: null, note: null });
+    expect(d).not.toHaveProperty('phone');
+  });
+  it('không có thay đổi -> trả bản hiện tại, không ghi, không nhật ký', async () => {
+    const e = readyW();
+    const r = await e.svc.update(ctx, CID, KID, upd({ fullName: 'Nguyễn Văn A' }));
+    expect(e.contact.updateMany).not.toHaveBeenCalled();
+    expect(e.audit.record).not.toHaveBeenCalled();
+    expect(r.updatedAt).toBe(T0.toISOString());
+  });
+  it('updatedAt cũ -> 409 CONTACT_VERSION_CONFLICT, không ghi; DB đổi giữa chừng (count 0) -> 409', async () => {
+    const e = readyW();
+    const x = await err(e.svc.update(ctx, CID, KID, upd({ updatedAt: '2026-10-01T00:00:00.000Z', phone: '0903111222' })));
+    expect(x.code).toBe('CONTACT_VERSION_CONFLICT');
+    expect(x.getStatus()).toBe(409);
+    expect(e.contact.updateMany).not.toHaveBeenCalled();
+    const f = readyW();
+    f.contact.updateMany.mockResolvedValue({ count: 0 });
+    expect((await err(f.svc.update(ctx, CID, KID, upd({ phone: '0903111222' })))).code).toBe('CONTACT_VERSION_CONFLICT');
+    expect(f.audit.record).not.toHaveBeenCalled();
+  });
+  it('đặt làm liên hệ chính: hạ liên hệ chính khác của CÙNG khách trước khi ghi, cùng transaction', async () => {
+    const e = readyW();
+    await e.svc.update(ctx, CID, KID, upd({ isPrimary: true }));
+    const [demote, own] = e.contact.updateMany.mock.calls.map((c: unknown[]) => c[0] as { data: Record<string, unknown> });
+    expect(demote).toEqual({ where: { customerId: CID, isPrimary: true, deletedAt: null, id: { not: KID } }, data: { isPrimary: false, updatedById: 'e1' } });
+    expect(own.data).toMatchObject({ isPrimary: true });
+    expect(e.prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+  it('quyền theo từng khách: thiếu customer.update -> 403; customer.update ngoài phạm vi khách -> 403; ngoài phạm vi đọc -> 404', async () => {
+    const body = upd({ phone: '0903111222' });
+    const noUpdate = readyW({ 'customer.read': 'ALL', 'contact.read': 'ALL', 'contact.create': 'ALL' });
+    expect((await err(noUpdate.svc.update(ctx, CID, KID, body))).code).toBe('FORBIDDEN');
+    const other = cust({ ownerId: 'e9', owner: { departmentId: 'd9' } });
+    const outOwn = readyW({ ...ALL, 'customer.update': 'OWN' }, other);
+    expect((await err(outOwn.svc.update(ctx, CID, KID, body))).code).toBe('FORBIDDEN');
+    expect(outOwn.contact.updateMany).not.toHaveBeenCalled();
+    expect((await err(readyW({ ...ALL, 'customer.read': 'OWN' }, other).svc.update(ctx, CID, KID, body))).code).toBe('CUSTOMER_NOT_FOUND');
+    expect((await err(readyW({ ...ALL, 'contact.read': 'OWN' }, other).svc.update(ctx, CID, KID, body))).code).toBe('CUSTOMER_NOT_FOUND');
+  });
+  it('liên hệ không thuộc khách / đã xoá -> 404 CONTACT_NOT_FOUND; khách đã xoá -> 409 CUSTOMER_DELETED', async () => {
+    const e = readyW(ALL, cust(), null);
+    expect((await err(e.svc.update(ctx, CID, KID, upd({ phone: '0903111222' })))).code).toBe('CONTACT_NOT_FOUND');
+    expect(e.contact.findFirst.mock.calls[0][0].where).toMatchObject({ id: KID, customerId: CID, deletedAt: null });
+    const d = readyW(ALL, cust({ deletedAt: new Date() }));
+    expect((await err(d.svc.update(ctx, CID, KID, upd({ phone: '0903111222' })))).code).toBe('CUSTOMER_DELETED');
+  });
+  it('định dạng sai, họ tên rỗng, updatedAt sai -> VALIDATION_FAILED, không mở transaction', async () => {
+    for (const b of [upd({ phone: '123' }), upd({ email: 'x@' }), upd({ fullName: '   ' }), upd({ updatedAt: 'hôm qua' })]) {
+      const e = readyW();
+      expect((await err(e.svc.update(ctx, CID, KID, b))).code).toBe('VALIDATION_FAILED');
+      expect(e.prisma.$transaction).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('ContactsService.remove (FV-3)', () => {
+  it('xoá mềm: đặt deletedAt/deletedBy, điều kiện updatedAt; nhật ký contact.delete; không xoá vật lý', async () => {
+    const e = readyW();
+    const r = await e.svc.remove(ctx, CID, KID, upd());
+    const call = e.contact.updateMany.mock.calls.at(-1)[0];
+    expect(call.where).toEqual({ id: KID, customerId: CID, deletedAt: null, updatedAt: T0 });
+    expect(call.data).toMatchObject({ deletedById: 'e1', updatedById: 'e1' });
+    expect(call.data.deletedAt).toBeInstanceOf(Date);
+    expect(e.audit.record.mock.calls[0][1]).toMatchObject({ action: 'contact.delete', entityId: KID, entityCode: 'LH-000001', actorEmployeeId: 'e1' });
+    expect(JSON.stringify(e.audit.record.mock.calls[0][1])).not.toContain('Nguyễn');
+    expect(r).toEqual({ id: KID, code: 'LH-000001' });
+    expect(e.contact).not.toHaveProperty('delete');
+  });
+  it('updatedAt cũ -> 409; thiếu quyền / ngoài phạm vi customer.update -> 403; không thuộc khách -> 404', async () => {
+    expect((await err(readyW().svc.remove(ctx, CID, KID, upd({ updatedAt: '2026-10-01T00:00:00.000Z' })))).code).toBe('CONTACT_VERSION_CONFLICT');
+    expect((await err(readyW({ 'customer.read': 'ALL', 'contact.read': 'ALL' }).svc.remove(ctx, CID, KID, upd()))).code).toBe('FORBIDDEN');
+    const other = cust({ ownerId: 'e9', owner: { departmentId: 'd9' } });
+    const o = readyW({ ...ALL, 'customer.update': 'OWN' }, other);
+    expect((await err(o.svc.remove(ctx, CID, KID, upd()))).code).toBe('FORBIDDEN');
+    expect(o.contact.updateMany).not.toHaveBeenCalled();
+    expect((await err(readyW(ALL, cust(), null).svc.remove(ctx, CID, KID, upd()))).code).toBe('CONTACT_NOT_FOUND');
   });
 });
