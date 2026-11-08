@@ -271,3 +271,260 @@ test('Sửa: nhắc sau hạn bị chặn tại ô, không gửi PATCH', async (
     assert.equal(f.writes().length, 0); assert.match(text(modal(m.container)), /Thời điểm nhắc phải không sau hạn/);
   } finally { await m.unmount(); }
 });
+
+// ===== FV13-01 (Issue #220): 409 khi thao tác => hộp thoại KHÔNG biến mất, giữ nội dung, báo xung đột; lưu lại chỉ gửi trường đã đổi =====
+// Trình duyệt thật có độ trễ mạng: danh sách tải lại sau 409 phải "chậm" thì lỗi mới lộ (fetch giả lập trả ngay => React gộp, không thấy).
+const CONFLICT = () => res(409, { error: { code: 'ACTIVITY_VERSION_CONFLICT', message: 'Hoạt động đã được người khác cập nhật. Vui lòng tải lại.', details: { currentVersion: 4 } } });
+const slow = (f, ms = 40) => {
+  const g = async (url, init = {}) => {
+    const p = new URL(url).pathname.replace('/api/v1', '');
+    if ((init.method || 'GET') === 'GET' && (p === '/activities' || /^\/customers\/[^/]+\/activities$/.test(p))) await new Promise((r) => setTimeout(r, ms));
+    return f(url, init);
+  };
+  return Object.assign(g, { calls: f.calls, lists: f.lists, writes: f.writes, count: f.count });
+};
+const settle = async () => { await act(async () => { await new Promise((r) => setTimeout(r, 150)); }); await flush(); };
+const saveBtn = (root) => findAll(modal(root), (e) => e.tagName === 'BUTTON' && text(e) === 'Lưu thay đổi')[0];
+// Máy chủ: version 3 cho tới khi "phiên khác" lưu (giả lập: đúng lúc PATCH đầu tiên của phiên này tới) => version 4 với các trường `other`.
+const otherSaves = (other) => { const st = { changed: false }; return { st, list: () => page([st.changed ? task({ dueAt: '2026-11-06T10:00:00.000Z', version: 4, ...other }) : task({ dueAt: '2026-11-06T10:00:00.000Z' })]), first409: () => { st.changed = true; return CONFLICT(); } }; };
+
+test('FV13-01 T1: sau 409, danh sách Công việc không về "loading"/rỗng trong lúc đọc lại (dòng việc không bị gỡ)', async () => {
+  const sc = otherSaves({ dueAt: '2026-11-09T03:00:00.000Z' }); const f = slow(server({ list: sc.list, post: (p, b, m) => (m === 'PATCH' ? sc.first409() : null) }));
+  const m = await page_(f, SALES); await settle();
+  const seen = []; const off = m.ctl.tasks.subscribe(() => { const l = m.ctl.tasks.getState().list; seen.push(l.status + ':' + l.items.length); });
+  try {
+    await menuItem(m.container, /^Sửa$/);
+    type(inputByLabel(modal(m.container), /^Tiêu đề/), 'Tiêu đề của tôi'); await flush();
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.equal(f.writes()[0].method, 'PATCH');
+    assert.ok(seen.length > 0, 'có đọc lại danh sách');
+    assert.deepEqual(seen.filter((s) => !/^ready:[1-9]/.test(s)), [], 'không có trạng thái loading/rỗng: ' + JSON.stringify(seen));
+  } finally { off(); await m.unmount(); }
+});
+
+test('FV13-01 T2: sau 409 ở tab Hoạt động, dòng thời gian không về "loading"/rỗng khi đọc lại', async () => {
+  const f = slow(server({ post: (p) => (/\/complete$/.test(p) ? CONFLICT() : null) }));
+  const m = await mount(f, { ...SALES, can: (p) => p === 'contact.read' ? false : SALES.can(p) }, (ui) => React.createElement(CustomerApiDetail, { ui, id: CID })); await settle();
+  try {
+    await doAct(() => click(findAll(m.container, (e) => e.attributes.role === 'tab' && /^Hoạt động/.test(text(e)))[0])); await settle();
+    const seen = []; const off = m.ctl.activities.subscribe(() => { const l = m.ctl.activities.getState().list; seen.push(l.status + ':' + l.items.length); });
+    await doAct(() => click(buttonByText(m.container, /^Hoàn thành$/)));
+    await doAct(() => click(findAll(modal(m.container), (e) => e.tagName === 'BUTTON' && text(e) === 'Hoàn thành')[0])); await settle(); off();
+    assert.equal(f.writes()[0].p, '/activities/t1/complete');
+    assert.ok(seen.length > 0, 'có đọc lại dòng thời gian');
+    assert.deepEqual(seen.filter((s) => !/^ready:[1-9]/.test(s)), [], 'không có trạng thái loading/rỗng: ' + JSON.stringify(seen));
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 T3: Sửa gặp 409 => hộp Sửa VẪN MỞ, giữ nội dung đã gõ, báo "Dữ liệu đã thay đổi"', async () => {
+  const sc = otherSaves({ dueAt: '2026-11-09T03:00:00.000Z' }); const f = slow(server({ list: sc.list, post: (p, b, m) => (m === 'PATCH' ? sc.first409() : null) }));
+  const m = await page_(f, SALES); await settle();
+  try {
+    await menuItem(m.container, /^Sửa$/);
+    type(inputByLabel(modal(m.container), /^Tiêu đề/), 'Tiêu đề của tôi'); await flush();
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.ok(modal(m.container), 'hộp Sửa phải còn mở sau 409');
+    assert.equal(inputByLabel(modal(m.container), /^Tiêu đề/).value, 'Tiêu đề của tôi');
+    assert.match(text(modal(m.container)), /Dữ liệu đã thay đổi/);
+    assert.equal(m.toasts.filter((t) => /Đã lưu/.test(t.title)).length, 0, 'không báo đã lưu');
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 T4: sau 409, phiên kia đổi TRƯỜNG KHÁC (Hạn) => lưu lại gửi version mới + CHỈ trường mình đổi (không đè Hạn)', async () => {
+  let n = 0;
+  const sc = otherSaves({ dueAt: '2026-11-09T03:00:00.000Z' }); const f = slow(server({ list: sc.list, post: (p, b, m) => (m === 'PATCH' ? (++n === 1 ? sc.first409() : res(200, { data: task({ version: 5 }) })) : null) }));
+  const m = await page_(f, SALES); await settle();
+  try {
+    await menuItem(m.container, /^Sửa$/);
+    type(inputByLabel(modal(m.container), /^Tiêu đề/), 'Tiêu đề của tôi'); await flush();
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.ok(modal(m.container), 'hộp Sửa còn mở sau 409');
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    const w = f.writes().filter((c) => c.method === 'PATCH');
+    assert.equal(w.length, 2); assert.equal(w[0].body.version, 3, 'PATCH đầu dùng version lúc mở hộp');
+    assert.deepEqual(w[1].body, { version: 4, title: 'Tiêu đề của tôi' });
+    assert.equal(modal(m.container), undefined); assert.match(m.toasts.at(-1).title, /Đã lưu/);
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 T4b: phiên kia đổi CÙNG TRƯỜNG (Tiêu đề) => không tự ghi đè; báo trùng + giá trị mới; "Giữ nội dung của tôi" mới gửi', async () => {
+  let n = 0;
+  const sc = otherSaves({ title: 'Tiêu đề người khác' }); const f = slow(server({ list: sc.list, post: (p, b, m) => (m === 'PATCH' ? (++n === 1 ? sc.first409() : res(200, { data: task({ version: 5 }) })) : null) }));
+  const m = await page_(f, SALES); await settle();
+  try {
+    await menuItem(m.container, /^Sửa$/);
+    type(inputByLabel(modal(m.container), /^Tiêu đề/), 'Tiêu đề của tôi'); await flush();
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.ok(modal(m.container), 'hộp Sửa còn mở sau 409');
+    assert.equal(f.writes().filter((c) => c.method === 'PATCH').length, 1);
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.equal(f.writes().filter((c) => c.method === 'PATCH').length, 1, 'trùng trường: KHÔNG tự gửi');
+    const t = text(modal(m.container));
+    assert.match(t, /Trùng trường/); assert.match(t, /Tiêu đề/); assert.match(t, /Tiêu đề người khác/);
+    await doAct(() => click(buttonByText(modal(m.container), /^Giữ nội dung của tôi$/))); await settle();
+    const w = f.writes().filter((c) => c.method === 'PATCH');
+    assert.equal(w.length, 2); assert.equal(w[0].body.version, 3); assert.deepEqual(w[1].body, { version: 4, title: 'Tiêu đề của tôi' });
+    assert.equal(modal(m.container), undefined);
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 T4c: trùng trường, chọn "Dùng giá trị mới" => ô nhận giá trị của phiên kia, không gửi PATCH', async () => {
+  const sc = otherSaves({ title: 'Tiêu đề người khác' }); const f = slow(server({ list: sc.list, post: (p, b, m) => (m === 'PATCH' ? sc.first409() : null) }));
+  const m = await page_(f, SALES); await settle();
+  try {
+    await menuItem(m.container, /^Sửa$/);
+    type(inputByLabel(modal(m.container), /^Tiêu đề/), 'Tiêu đề của tôi'); await flush();
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    await doAct(() => click(buttonByText(modal(m.container), /^Dùng giá trị mới$/))); await settle();
+    assert.equal(inputByLabel(modal(m.container), /^Tiêu đề/).value, 'Tiêu đề người khác');
+    assert.equal(f.writes().filter((c) => c.method === 'PATCH').length, 1);
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 T5: tab Hoạt động của khách — Sửa gặp 409 => hộp VẪN MỞ, giữ nội dung, báo xung đột', async () => {
+  const f = slow(server({ post: (p, b, m) => (m === 'PATCH' ? CONFLICT() : null) }));
+  const m = await mount(f, { ...SALES, can: (p) => p === 'contact.read' ? false : SALES.can(p) }, (ui) => React.createElement(CustomerApiDetail, { ui, id: CID })); await settle();
+  try {
+    await doAct(() => click(findAll(m.container, (e) => e.attributes.role === 'tab' && /^Hoạt động/.test(text(e)))[0])); await settle();
+    await menuItem(m.container, /^Sửa$/);
+    type(inputByLabel(modal(m.container), /^Nội dung/), 'Nội dung của tôi'); await flush();
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.equal(f.writes()[0].method, 'PATCH');
+    assert.ok(modal(m.container), 'hộp Sửa phải còn mở sau 409');
+    assert.equal(inputByLabel(modal(m.container), /^Nội dung/).value, 'Nội dung của tôi');
+    assert.match(text(modal(m.container)), /Dữ liệu đã thay đổi/);
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 T6: Hoàn thành gặp 409 (mạng có độ trễ) => hộp VẪN MỞ, giữ Kết quả đã gõ, báo xung đột', async () => {
+  const f = slow(server({ post: (p) => (/\/complete$/.test(p) ? CONFLICT() : null) }));
+  const m = await page_(f, SALES); await settle();
+  try {
+    await doAct(() => click(buttonByText(m.container, /^Hoàn thành$/)));
+    type(inputByLabel(modal(m.container), /^Kết quả/), 'Đã gửi email'); await flush();
+    await doAct(() => click(findAll(modal(m.container), (e) => e.tagName === 'BUTTON' && text(e) === 'Hoàn thành')[0])); await settle();
+    assert.ok(modal(m.container), 'hộp Hoàn thành phải còn mở sau 409');
+    assert.equal(inputByLabel(modal(m.container), /^Kết quả/).value, 'Đã gửi email');
+    assert.match(text(modal(m.container)), /Dữ liệu đã thay đổi/);
+  } finally { await m.unmount(); }
+});
+
+// ===== FV13-01 R1 (ChatGPT, PR #221 comment 6719164295): tái hiện SEC-01, BIZ-02, UX-03 =====
+// "Máy chủ" có version thật: PATCH sai version => 409; đúng => áp và tăng version. world.gone = việc không còn trong danh sách (đổi phụ trách/quyền/lọc).
+const worldServer = (init = {}) => {
+  const w = { gone: false, failList: false, row: { dueAt: '2026-11-06T10:00:00.000Z', outcome: null, version: 3, ...init } };
+  const f = slow(server({
+    list: () => page(w.gone ? [] : [task({ ...w.row })]),
+    post: (p, b, m) => {
+      if (m !== 'PATCH') return null;
+      if (b.version !== w.row.version) return CONFLICT();
+      const { version, ...ch } = b; Object.assign(w.row, ch, { version: w.row.version + 1 }); return res(200, { data: task({ ...w.row }) });
+    },
+  }));
+  const g = async (url, init2 = {}) => { if (w.failList && (init2.method || 'GET') === 'GET' && new URL(url).pathname.endsWith('/activities')) return res(500, { error: { code: 'INTERNAL', message: 'Lỗi máy chủ' } }); return f(url, init2); };
+  return { w, f: Object.assign(g, { calls: f.calls, lists: f.lists, writes: f.writes, count: f.count }) };
+};
+// "Phiên khác" lưu trực tiếp trên máy chủ (không qua giao diện này).
+const otherSave = (w, ch) => { Object.assign(w.row, ch, { version: w.row.version + 1 }); };
+const patches = (f) => f.writes().filter((c) => c.method === 'PATCH');
+const openEditTyped = async (m, label, value) => { await menuItem(m.container, /^Sửa$/); type(inputByLabel(modal(m.container), label), value); await flush(); };
+
+test('FV13-01 R1 SEC-01: 409 + việc không còn trong danh sách => dòng giữ tạm khi hộp mở; ĐÓNG hộp => dòng cũ bị bỏ', async () => {
+  const { w, f } = worldServer(); const m = await page_(f, SALES); await settle();
+  try {
+    await openEditTyped(m, /^Tiêu đề/, 'Tiêu đề của tôi');
+    otherSave(w, { title: 'Đã giao người khác' }); w.gone = true; // phiên khác giao việc cho người khác => không còn trong "Của tôi"
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.equal(patches(f).at(-1).body.version, 3); assert.ok(modal(m.container), 'hộp còn mở để người dùng thấy lỗi');
+    await doAct(() => click(findAll(modal(m.container), (e) => e.tagName === 'BUTTON' && text(e) === 'Huỷ')[0])); await settle();
+    assert.equal(modal(m.container), undefined);
+    assert.doesNotMatch(text(m.container), /Gửi báo giá/, 'dòng cũ (không còn thuộc danh sách) phải bị bỏ sau khi đóng hộp');
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 R1 BIZ-02a: phiên khác đổi Hạn chỉ khác GIÂY, mình cũng đổi Hạn => vẫn là trùng trường (hỏi, không tự gửi)', async () => {
+  const { w, f } = worldServer(); const m = await page_(f, SALES); await settle();
+  try {
+    await openEditTyped(m, /^Hạn/, '2026-11-08T09:00');
+    otherSave(w, { dueAt: '2026-11-06T10:00:30.000Z' }); // cùng phút 17:00 giờ VN, khác giây
+    await doAct(() => click(saveBtn(m.container))); await settle(); // 409
+    const n = patches(f).length;
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.equal(patches(f).length, n, 'không tự gửi khi người khác vừa đổi chính trường Hạn');
+    assert.match(text(modal(m.container)), /Trùng trường/);
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 R1 BIZ-02b: đang hỏi trùng trường ở v4, phiên thứ ba lưu v5 (danh sách đã đọc lại) => "Giữ nội dung của tôi" KHÔNG gửi, hỏi lại với giá trị v5', async () => {
+  const { w, f } = worldServer(); const m = await page_(f, SALES); await settle();
+  try {
+    await openEditTyped(m, /^Tiêu đề/, 'Tiêu đề của tôi');
+    otherSave(w, { title: 'Tiêu đề v4' });
+    await doAct(() => click(saveBtn(m.container))); await settle(); // 409 => đọc lại v4
+    await doAct(() => click(saveBtn(m.container))); await settle(); // hỏi trùng (v4)
+    assert.match(text(modal(m.container)), /Tiêu đề v4/);
+    otherSave(w, { title: 'Tiêu đề v5' }); await doAct(() => m.ctl.tasks.reload()); await settle(); // phiên thứ ba; danh sách đọc lại v5
+    const n = patches(f).length;
+    await doAct(() => click(buttonByText(modal(m.container), /^Giữ nội dung của tôi$/))); await settle();
+    assert.equal(patches(f).length, n, 'lựa chọn ở v4 không phải quyền ghi đè v5');
+    assert.match(text(modal(m.container)), /Tiêu đề v5/);
+    assert.equal(w.row.title, 'Tiêu đề v5');
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 R1 BIZ-02c: chọn "Giữ nội dung của tôi" ở v4 nhưng máy chủ đã v5 (chưa đọc lại) => PATCH v4 bị 409, không ghi đè, hộp mở', async () => {
+  const { w, f } = worldServer(); const m = await page_(f, SALES); await settle();
+  try {
+    await openEditTyped(m, /^Tiêu đề/, 'Tiêu đề của tôi');
+    otherSave(w, { title: 'Tiêu đề v4' });
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    otherSave(w, { title: 'Tiêu đề v5' }); // máy chủ v5, giao diện chưa biết
+    await doAct(() => click(buttonByText(modal(m.container), /^Giữ nội dung của tôi$/))); await settle();
+    const last = patches(f).at(-1);
+    assert.equal(last.body.version, 4); assert.equal(w.row.title, 'Tiêu đề v5', 'máy chủ không bị ghi đè');
+    assert.ok(modal(m.container)); assert.match(text(modal(m.container)), /Dữ liệu đã thay đổi/);
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 R1 BIZ-02d: null ↔ rỗng không phải thay đổi; chỉ gửi trường mình sửa', async () => {
+  const { w, f } = worldServer({ outcome: null }); const m = await page_(f, SALES); await settle();
+  try {
+    await openEditTyped(m, /^Tiêu đề/, 'Tiêu đề của tôi');
+    otherSave(w, { outcome: '' }); // phiên khác "đổi" Kết quả null -> '' (không đổi nghĩa)
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.deepEqual(patches(f).at(-1).body, { version: 4, title: 'Tiêu đề của tôi' });
+    assert.equal(modal(m.container), undefined);
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 R1 UX-03: đọc lại danh sách sau 409 thất bại => giữ dữ liệu + hộp, CÓ cảnh báo "Không tải lại được" và nút Thử lại', async () => {
+  const { w, f } = worldServer(); const m = await page_(f, SALES); await settle();
+  try {
+    await openEditTyped(m, /^Tiêu đề/, 'Tiêu đề của tôi');
+    otherSave(w, { dueAt: '2026-11-09T03:00:00.000Z' }); w.failList = true;
+    await doAct(() => click(saveBtn(m.container))); await settle();
+    assert.ok(modal(m.container)); assert.match(text(m.container), /Gửi báo giá/);
+    assert.match(text(m.container), /Không tải lại được/);
+    w.failList = false; await doAct(() => click(buttonByText(m.container, /^Thử lại$/))); await settle();
+    assert.doesNotMatch(text(m.container), /Không tải lại được/);
+  } finally { await m.unmount(); }
+});
+
+test('FV13-01 R1 UX-03b: tab Hoạt động — đọc lại dòng thời gian sau 409 thất bại => giữ mục + hộp, có cảnh báo và Thử lại', async () => {
+  let fail = false;
+  const base = slow(server({ post: (p) => (/\/complete$/.test(p) ? CONFLICT() : null) }));
+  const f = Object.assign(async (url, init = {}) => (fail && (init.method || 'GET') === 'GET' && /\/customers\/[^/]+\/activities$/.test(new URL(url).pathname) ? res(500, { error: { code: 'INTERNAL', message: 'Lỗi máy chủ' } }) : base(url, init)), { calls: base.calls, lists: base.lists, writes: base.writes, count: base.count });
+  const m = await mount(f, { ...SALES, can: (p) => p === 'contact.read' ? false : SALES.can(p) }, (ui) => React.createElement(CustomerApiDetail, { ui, id: CID })); await settle();
+  try {
+    await doAct(() => click(findAll(m.container, (e) => e.attributes.role === 'tab' && /^Hoạt động/.test(text(e)))[0])); await settle();
+    fail = true;
+    await doAct(() => click(buttonByText(m.container, /^Hoàn thành$/)));
+    await doAct(() => click(findAll(modal(m.container), (e) => e.tagName === 'BUTTON' && text(e) === 'Hoàn thành')[0])); await settle();
+    assert.ok(modal(m.container)); assert.match(text(m.container), /Không tải lại được dòng thời gian/);
+    fail = false; await doAct(() => click(buttonByText(m.container, /^Thử lại$/))); await settle();
+    assert.doesNotMatch(text(m.container), /Không tải lại được dòng thời gian/);
+  } finally { await m.unmount(); }
+});
