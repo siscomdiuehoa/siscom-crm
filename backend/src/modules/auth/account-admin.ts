@@ -18,7 +18,8 @@ import type { PrismaService } from '../../prisma/prisma.service';
 export const TEST_DB_RE = /^siscom_crm_(test|restore)_\d{8}_\d{6}$/;
 export const LOCKED_DBS: readonly string[] = ['siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948'];
 // Vai trò cấp được qua CLI. `admin` (vai trò KỸ THUẬT, nhóm REQUEST) cố ý KHÔNG có: cấp riêng khi Owner duyệt.
-export const GRANTABLE_ROLES: readonly string[] = ['sales', 'technician', 'accountant', 'crm_admin'];
+// Owner 08/11/2026: tạm CẤM `crm_admin` (xem toàn bộ khách + là người duyệt) cho tới khi có phê duyệt hai người thật (thiết kế A1+A3).
+export const GRANTABLE_ROLES: readonly string[] = ['sales', 'technician', 'accountant'];
 const REQUEST_TTL_MIN = 15;
 const RESET_TOKEN_TTL_MIN = 10;
 
@@ -194,6 +195,10 @@ export class AccountAdmin {
   // PASSWORD_RESET hai người: request -> duyệt -> phát hành mã reset (chỉ gửi SHA-256) -> đặt mật khẩu bằng mã gốc (DB tự băm & so).
   // fn_auth_api_reset_password đặt must_change_password = false => bật lại (chủ sở hữu; cột không thuộc nhóm bí mật) + ghi nhật ký.
   private async setPassword(tx: Tx, req: string, appr: string, employeeId: string, hash: string): Promise<void> {
+    // M1 (Owner 08/11/2026): khoá dòng credential và ghi nhớ token_version TRƯỚC khi đặt mật khẩu; sau reset, cờ chỉ được bật khi
+    // token_version = cũ + 1 VÀ password_hash = đúng hash vừa đặt (đúng tài khoản, đúng lần reset này, không bị đổi chen giữa).
+    const cur = await tx.$queryRaw<{ token_version: number }[]>`SELECT token_version FROM public.employee_credential WHERE employee_id = ${employeeId}::uuid FOR UPDATE`;
+    if (cur.length !== 1) throw new AccountAdminError('INTERNAL', 'nhân viên chưa có thông tin đăng nhập.');
     const r = await this.approved(tx, req, appr, 'PASSWORD_RESET', employeeId, null);
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token, 'utf8').digest('hex');
@@ -201,8 +206,7 @@ export class AccountAdmin {
     const res = await tx.$queryRaw<{ r: string }[]>`
       SELECT public.fn_auth_api_reset_password(${employeeId}::uuid, ${token}, ${hash}, ${ARGON2_ALGO}, ${JSON.stringify(ARGON2_PARAMS)}::jsonb) AS r`;
     if (res[0]?.r !== 'OK') throw new AccountAdminError('RESET_FAILED', 'đặt mật khẩu không thành công (' + String(res[0]?.r) + ').');
-    const u = await tx.$executeRaw`UPDATE public.employee_credential SET must_change_password = true, updated_at = now() WHERE employee_id = ${employeeId}::uuid AND status = 'ACTIVE'`;
-    if (u !== 1) throw new AccountAdminError('INTERNAL', 'không bật được yêu cầu đổi mật khẩu lần đầu.');
+    await markMustChange(tx, employeeId, { tokenVersion: Number(cur[0].token_version) + 1, passwordHash: hash });
     await tx.$executeRaw`SELECT public.fn_auth_api_audit('USER', ${req}::uuid, 'PASSWORD_MUST_CHANGE_SET', 'employee', ${employeeId}::uuid, 'FV-5 account-admin', NULL)`;
   }
 
@@ -238,6 +242,14 @@ export class AccountAdmin {
       return fn(tx);
     }, { maxWait: 5000, timeout: 60000 }) as Promise<T>;
   }
+}
+
+// M1: bật must_change_password (fn_auth_api_reset_password luôn đặt false; chưa có hàm DB để bật). Ghi trực tiếp bằng CHỦ SỞ HỮU nhưng điều
+// kiện khớp CHÍNH XÁC lần reset vừa xong: đúng nhân viên, ACTIVE, token_version mong đợi, đúng hash vừa đặt, cờ đang tắt. Khác đúng 1 dòng
+// => lỗi => cả transaction (kể cả mật khẩu mới) bị huỷ. Chỉ thêm hạn chế (fail-safe), không đụng hash/token_version.
+export async function markMustChange(tx: Pick<Tx, '$executeRaw'>, employeeId: string, expected: { tokenVersion: number; passwordHash: string }): Promise<void> {
+  const n = await tx.$executeRaw`UPDATE public.employee_credential SET must_change_password = true, updated_at = now() WHERE employee_id = ${employeeId}::uuid AND status = 'ACTIVE' AND token_version = ${expected.tokenVersion} AND password_hash = ${expected.passwordHash} AND must_change_password = false`;
+  if (n !== 1) throw new AccountAdminError('MUST_CHANGE_FAILED', 'không bật được yêu cầu đổi mật khẩu lần đầu (không khớp đúng lần đặt lại mật khẩu); đã huỷ toàn bộ thao tác.');
 }
 
 // Nội dung file bàn giao (chỉ người chạy đọc được). Không bao giờ in ra màn hình.

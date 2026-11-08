@@ -17,7 +17,7 @@ param(
   [ValidateRange(1024, 65535)][int]$PgPort = 55433,
   [string]$Requester, [string]$Approver, [string]$Employee,
   [string]$Email, [string]$FullName, [string]$Department,
-  [ValidateSet('', 'sales', 'technician', 'accountant', 'crm_admin')][string]$Role = '',
+  [ValidateSet('', 'sales', 'technician', 'accountant')][string]$Role = '', # crm_admin: tam cam (Owner 08/11/2026)
   [string]$Phone, [string]$Title, [string]$Reason, [string]$Out,
   [string]$AllowDb,
   [switch]$AllowMainCluster,

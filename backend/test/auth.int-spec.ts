@@ -8,7 +8,7 @@ import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter
 import { requestContext } from '../src/common/middleware/request-context.middleware';
 import { AuthApiModule } from '../src/modules/auth/auth-api.module';
 import { bootstrapAuth, BootstrapUser } from '../src/modules/auth/bootstrap';
-import { AccountAdmin, parseArgs } from '../src/modules/auth/account-admin';
+import { AccountAdmin, markMustChange, parseArgs } from '../src/modules/auth/account-admin';
 import { ActivitiesModule } from '../src/modules/activities/activities.module';
 import { CustomersModule } from '../src/modules/customers/customers.module';
 import { LookupsModule } from '../src/modules/lookups/lookups.module';
@@ -1226,5 +1226,28 @@ describe('FV-5 — account-admin (thêm / đặt lại mật khẩu / khoá) qua
     expect(await adminPrisma.employee.count({ where: { email: e2 } })).toBe(0);
     // requester không thuộc nhóm REQUEST (crm_admin) => DB từ chối
     await expect(tool.disable(parseArgs(['disable', '--requester', codes.admin, '--employee', empCode, '--reason', 'x']))).rejects.toThrow(/APPROVAL_REQUIRED/);
+  });
+  it('FV5-7 (M1). cờ buộc đổi mật khẩu chỉ bật đúng tài khoản + đúng lần reset: sai nhân viên / token_version cũ / hash khác => 0 dòng, lỗi, không đổi gì', async () => {
+    const r = await tool.resetPassword(parseArgs(['reset-password', ...base(), '--employee', empCode, '--out', 'khong-dung']));
+    const emp = await adminPrisma.employee.findFirstOrThrow({ where: { code: empCode }, select: { id: true } });
+    const other = await adminPrisma.employee.findFirstOrThrow({ where: { email: USERS[2].email }, select: { id: true } }); // sale (không bị đụng)
+    const snap = async (id: string) => adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: id }, select: { mustChangePassword: true, tokenVersion: true, passwordHash: true } });
+    const me = await snap(emp.id); const them = await snap(other.id);
+    expect(me.mustChangePassword).toBe(true);
+    const run = (id: string, tv: number, hash: string) => adminPrisma.$transaction((tx) => markMustChange(tx, id, { tokenVersion: tv, passwordHash: hash }));
+    // Tắt cờ của chính tài khoản để chứng minh các điều kiện sai KHÔNG bật lại được (không đổi token_version/hash).
+    await adminPrisma.employeeCredential.update({ where: { employeeId: emp.id }, data: { mustChangePassword: false } });
+    await expect(run(other.id, me.tokenVersion, me.passwordHash)).rejects.toThrow('MUST_CHANGE_FAILED'); // sai tài khoản
+    await expect(run(emp.id, me.tokenVersion - 1, me.passwordHash)).rejects.toThrow('MUST_CHANGE_FAILED'); // lần reset cũ
+    await expect(run(emp.id, me.tokenVersion, them.passwordHash)).rejects.toThrow('MUST_CHANGE_FAILED'); // hash không phải lần reset này
+    expect((await snap(emp.id)).mustChangePassword).toBe(false);
+    expect(await snap(other.id)).toEqual(them);
+    await run(emp.id, me.tokenVersion, me.passwordHash); // đúng => bật
+    expect((await snap(emp.id)).mustChangePassword).toBe(true);
+    await expect(run(emp.id, me.tokenVersion, me.passwordHash)).rejects.toThrow('MUST_CHANGE_FAILED'); // đã bật => không chạy lại
+    expect((await login(email, r.password)).body.data.me.mustChangePassword).toBe(true);
+  });
+  it('FV5-8. CLI không cấp crm_admin (tạm cấm, Owner 08/11/2026)', () => {
+    expect(() => parseArgs(['add', ...base(), '--email', 'x@' + DOMAIN, '--full-name', 'X', '--department', 'KD', '--role', 'crm_admin', '--out', 'x'])).toThrow('INPUT');
   });
 });

@@ -59,6 +59,9 @@ describe('FV-5 parseArgs', () => {
     expect(code(() => parseArgs(add.map((v) => (v === 'NV-0002' ? 'nv-0001' : v))))).toBe('TWO_PERSON');
     expect(code(() => parseArgs(add.map((v) => (v === 'sales' ? 'admin' : v))))).toBe('INPUT');
     expect(GRANTABLE_ROLES).not.toContain('admin');
+    // Owner 08/11/2026: tạm CẤM cấp crm_admin qua CLI (vai trò xem toàn bộ khách + người duyệt) cho tới khi có phê duyệt hai người thật.
+    expect(code(() => parseArgs(add.map((v) => (v === 'sales' ? 'crm_admin' : v))))).toBe('INPUT');
+    expect(GRANTABLE_ROLES).toEqual(['sales', 'technician', 'accountant']);
     expect(code(() => parseArgs(add.map((v) => (v === 'a@siscom.vn' ? 'khong-email' : v))))).toBe('INPUT');
     expect(code(() => parseArgs(['reset-password', '--requester', 'NV-0001', '--approver', 'NV-0002', '--employee', 'NV-0009']))).toBe('INPUT'); // thiếu --out
     expect(parseArgs(['list']).command).toBe('list');
@@ -66,7 +69,7 @@ describe('FV-5 parseArgs', () => {
 });
 
 // Giả lập Prisma: ghi lại thứ tự lời gọi SQL (chỉ phần chữ của template) để kiểm luồng gọi đúng hàm đặc quyền.
-function fakeDb(o: { db?: string; can?: boolean; open?: boolean; emp?: Record<string, unknown>[]; reset?: string; dup?: number } = {}) {
+function fakeDb(o: { db?: string; can?: boolean; open?: boolean; emp?: Record<string, unknown>[]; reset?: string; dup?: number; markRows?: number; noCred?: boolean } = {}) {
   const calls: string[] = []; const values: unknown[][] = [];
   const run = async (strings: TemplateStringsArray, ...v: unknown[]) => {
     const sql = strings.join('?').replace(/\s+/g, ' ').trim(); calls.push(sql); values.push(v);
@@ -83,7 +86,8 @@ function fakeDb(o: { db?: string; can?: boolean; open?: boolean; emp?: Record<st
     if (sql.includes('fn_auth_api_request_create')) return [{ id: 'req-' + calls.length }];
     if (sql.includes('fn_auth_api_request_decide')) return [{ s: 'APPROVED' }];
     if (sql.includes('fn_auth_api_reset_password')) return [{ r: o.reset ?? 'OK' }];
-    if (sql.startsWith('UPDATE public.employee_credential')) return 1;
+    if (sql.includes('SELECT token_version FROM public.employee_credential')) return o.noCred ? [] : [{ token_version: 4 }];
+    if (sql.startsWith('UPDATE public.employee_credential')) return o.markRows ?? 1;
     return [];
   };
   const tx = { $queryRaw: jest.fn(run), $executeRaw: jest.fn(run) };
@@ -141,6 +145,27 @@ describe('FV-5 AccountAdmin (giả lập DB)', () => {
     expect(idx(f.calls, 'must_change_password = true')).toBeGreaterThan(idx(f.calls, 'fn_auth_api_reset_password'));
     const none = fakeDb({ emp: [{ id: 'req-1', code: 'NV-0001', email: 's', full_name: 'S', status: 'ACTIVE', cred_status: 'ACTIVE' }, { id: 'appr-2', code: 'NV-0002', email: 'a', full_name: 'A', status: 'ACTIVE', cred_status: 'ACTIVE' }, { id: 'e3', code: 'NV-0003', email: 'n', full_name: 'N', status: 'ACTIVE', cred_status: null }] });
     await expect(new AccountAdmin(none.db as never, hasher).resetPassword(parseArgs(['reset-password', '--requester', 'NV-0001', '--approver', 'NV-0002', '--employee', 'NV-0003', '--out', 'x']))).rejects.toThrow('INPUT');
+  });
+  it('M1: cờ buộc đổi mật khẩu chỉ bật đúng tài khoản + đúng lần reset (token_version mới = cũ + 1, đúng hash vừa đặt, đang ACTIVE, cờ đang tắt)', async () => {
+    const f = fakeDb();
+    await new AccountAdmin(f.db as never, hasher).resetPassword(parseArgs(['reset-password', '--requester', 'NV-0001', '--approver', 'NV-0002', '--employee', 'NV-0009', '--out', 'x']));
+    const lock = idx(f.calls, 'SELECT token_version FROM public.employee_credential');
+    expect(lock).toBeGreaterThan(-1);
+    expect(f.calls[lock]).toContain('FOR UPDATE');
+    expect(lock).toBeLessThan(idx(f.calls, 'fn_auth_api_request_create')); // khoá dòng TRƯỚC khi phát hành/đặt mật khẩu
+    const u = idx(f.calls, 'must_change_password = true');
+    expect(f.calls[u]).toMatch(/WHERE employee_id = \?::uuid AND status = 'ACTIVE' AND token_version = \? AND password_hash = \? AND must_change_password = false/);
+    expect(f.values[u]).toEqual(['emp-9', 5, '$argon2id$v=19$fake']);
+  });
+  it('M1: điều kiện không khớp (0 dòng: sai tài khoản / sai lần reset / bị đổi chen giữa) hoặc thiếu credential -> lỗi, cả transaction huỷ', async () => {
+    const z = fakeDb({ markRows: 0 });
+    await expect(new AccountAdmin(z.db as never, hasher).resetPassword(parseArgs(['reset-password', '--requester', 'NV-0001', '--approver', 'NV-0002', '--employee', 'NV-0009', '--out', 'x']))).rejects.toThrow('MUST_CHANGE_FAILED');
+    expect(idx(z.calls, 'PASSWORD_MUST_CHANGE_SET')).toBe(-1);
+    const two = fakeDb({ markRows: 2 });
+    await expect(new AccountAdmin(two.db as never, hasher).resetPassword(parseArgs(['reset-password', '--requester', 'NV-0001', '--approver', 'NV-0002', '--employee', 'NV-0009', '--out', 'x']))).rejects.toThrow('MUST_CHANGE_FAILED');
+    const nc = fakeDb({ noCred: true });
+    await expect(new AccountAdmin(nc.db as never, hasher).resetPassword(parseArgs(['reset-password', '--requester', 'NV-0001', '--approver', 'NV-0002', '--employee', 'NV-0009', '--out', 'x']))).rejects.toThrow('INTERNAL');
+    expect(idx(nc.calls, 'fn_auth_api_request_create')).toBe(-1);
   });
   it('disable: gọi fn_auth_api_credential_disable(requester, nhân viên, lý do); nhân viên không tồn tại -> NOT_FOUND', async () => {
     const f = fakeDb();
