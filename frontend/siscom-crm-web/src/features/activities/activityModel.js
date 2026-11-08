@@ -80,6 +80,25 @@ export function validateDraft(d) {
 }
 
 // Thân POST /customers/:id/activities: chỉ trường đúng loại, bỏ trường trống, giờ kèm +07:00. Người tạo/khách do máy chủ xác định.
+// B3 A8: bản nháp "Sửa" điền sẵn từ hoạt động đã tải (giờ VN cho ô datetime-local; trường trống = '').
+export function editDraftOf(a) {
+  const t = (v) => (v ? isoToVnLocal(v) : '');
+  return { type: a.type, title: a.title || '', content: a.content || '', outcome: a.outcome || '', occurredAt: t(a.occurredAt), dueAt: t(a.dueAt), remindAt: t(a.remindAt) };
+}
+
+// Thân PATCH /activities/:id: CHỈ trường thực sự đổi và đúng loại (§6). Xoá chữ => null; giờ kèm +07:00; TASK không sửa thời điểm diễn ra.
+// Không gồm version (controller thêm). Không đổi gì => {} (giao diện không gửi).
+export function buildPatchBody(a, d) {
+  const type = a.type; const o = editDraftOf(a); const b = {};
+  const text = (k) => { const nv = s(d[k]); if (nv !== s(o[k])) b[k] = nv || null; };
+  if (hasTitle(type)) text('title');
+  if (s(d.content) !== s(o.content)) b.content = s(d.content);
+  if (hasOutcome(type)) text('outcome');
+  if (hasOccurred(type) && s(d.occurredAt) && s(d.occurredAt) !== o.occurredAt) b.occurredAt = vnLocalToIso(d.occurredAt);
+  if (hasDue(type)) for (const k of ['dueAt', 'remindAt']) { const nv = s(d[k]); if (nv !== o[k]) b[k] = nv ? vnLocalToIso(nv) : null; }
+  return b;
+}
+
 export function buildCreateBody(d) {
   const type = d.type; const b = { type, content: s(d.content) };
   if (hasTitle(type) && s(d.title)) b.title = s(d.title);

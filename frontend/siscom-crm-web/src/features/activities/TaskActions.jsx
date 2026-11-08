@@ -4,6 +4,7 @@ import * as U from '../../data/util.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import { taskActions, ACTION_LABEL, ACTION_ICON, validateTransfer } from './tasksModel.js';
+import { editDraftOf, buildPatchBody, validateDraft, hasTitle, hasDue, hasOutcome, hasOccurred } from './activityModel.js';
 
 const has = (ui, p) => typeof ui.can === 'function' && !!ui.can(p);
 const cid = (a) => a.customerId || (a.customer && a.customer.id);
@@ -29,6 +30,7 @@ function Dialog({ kind, a, ui, onClose }) {
   const s = useCustomerApiState(tasks);
   const busy = !!s.busy;
   const [f, setF] = React.useState({ outcome: '', performedById: '', external: false, toEmployeeId: '', reason: '' });
+  const [ed, setEd] = React.useState(() => editDraftOf(a)); // bản nháp Sửa (chỉ dùng khi kind = edit)
   const [error, setError] = React.useState(null);
   const [tried, setTried] = React.useState(false);
   const [hist, setHist] = React.useState({ status: 'idle', items: [], error: null });
@@ -36,27 +38,45 @@ function Dialog({ kind, a, ui, onClose }) {
   const cands = useCandidates(ui, a, kind === 'reassign' || kind === 'transfer', kind === 'reassign' && f.external, kind === 'reassign' || has(ui, 'activity.assign'));
   React.useEffect(() => { if (kind === 'history') ui.customerApi.tasks.history(a.id).then((r) => setHist(r.ok ? { status: 'ready', items: r.items, error: null } : { status: 'error', items: [], error: r.error })); }, [kind, a.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k) => (v) => { setError(null); setF((x) => ({ ...x, [k]: v && v.target ? v.target.value : v, ...(k === 'external' ? { performedById: '' } : {}) })); };
-  const terr = kind === 'transfer' && tried ? validateTransfer(f) : {};
+  const setE = (k) => (v) => { setError(null); setEd((x) => ({ ...x, [k]: v && v.target ? v.target.value : v })); };
+  const terr = kind === 'transfer' && tried ? validateTransfer(f) : kind === 'edit' && tried ? validateDraft(ed) : {};
   const fe = (k) => terr[k] || (error && error.fieldErrors && error.fieldErrors[k]) || '';
   const run = async () => {
     setTried(true);
     if (kind === 'transfer' && Object.keys(validateTransfer(f)).length) return;
+    let changes = null;
+    if (kind === 'edit') {
+      if (Object.keys(validateDraft(ed)).length) return;
+      changes = buildPatchBody(a, ed);
+      if (!Object.keys(changes).length) { setError({ title: 'Chưa có thay đổi', message: 'Chưa có thay đổi nào để lưu.', fieldErrors: {} }); return; }
+    }
     if (kind === 'reassign' && !f.performedById) { setError({ title: 'Chưa chọn người', message: 'Chọn người phụ trách mới.', fieldErrors: {} }); return; }
-    const payload = kind === 'complete' ? { outcome: f.outcome.trim() } : kind === 'reassign' ? { performedById: f.performedById, external: f.external } : kind === 'transfer' ? { toEmployeeId: f.toEmployeeId, reason: f.reason.trim() } : kind === 'delete' ? { reason: f.reason.trim() } : {};
+    const payload = kind === 'edit' ? { changes } : kind === 'complete' ? { outcome: f.outcome.trim() } : kind === 'reassign' ? { performedById: f.performedById, external: f.external } : kind === 'transfer' ? { toEmployeeId: f.toEmployeeId, reason: f.reason.trim() } : kind === 'delete' ? { reason: f.reason.trim() } : {};
     const r = await tasks.act(kind, a, payload);
     if (r.duplicate) return;
-    if (r.ok) { ui.toast({ tone: 'success', title: 'Đã ' + ACTION_LABEL[kind].toLowerCase(), message: a.code || a.title || '' }); onClose(); }
+    if (r.ok) { ui.toast({ tone: 'success', title: kind === 'edit' ? 'Đã lưu thay đổi' : 'Đã ' + ACTION_LABEL[kind].toLowerCase(), message: a.code || a.title || '' }); onClose(); }
     else setError(r.error);
   };
   const others = (items) => items.filter((e) => !a.performedBy || e.id !== a.performedBy.id);
   const nonField = error && !Object.keys(error.fieldErrors || {}).length ? error : null;
-  const title = { complete: 'Hoàn thành công việc', reassign: 'Giao lại công việc', transfer: 'Đề xuất chuyển người phụ trách', delete: 'Xoá hoạt động', history: 'Lịch sử thay đổi' }[kind];
+  const title = { edit: 'Sửa hoạt động', complete: 'Hoàn thành công việc', reassign: 'Giao lại công việc', transfer: 'Đề xuất chuyển người phụ trách', delete: 'Xoá hoạt động', history: 'Lịch sử thay đổi' }[kind];
   const footer = kind === 'history' ? <Button variant="secondary" onClick={onClose}>Đóng</Button>
-    : <><Button variant="secondary" disabled={busy} onClick={onClose}>Huỷ</Button><Button variant={kind === 'delete' ? 'danger' : 'primary'} icon={ACTION_ICON[kind]} loading={busy} onClick={run}>{kind === 'transfer' ? 'Gửi đề xuất' : ACTION_LABEL[kind]}</Button></>;
+    : <><Button variant="secondary" disabled={busy} onClick={onClose}>Huỷ</Button><Button variant={kind === 'delete' ? 'danger' : 'primary'} icon={ACTION_ICON[kind]} loading={busy} onClick={run}>{kind === 'transfer' ? 'Gửi đề xuất' : kind === 'edit' ? 'Lưu thay đổi' : ACTION_LABEL[kind]}</Button></>;
   return (
     <Modal open onClose={busy ? undefined : onClose} size={kind === 'history' ? 'lg' : 'md'} icon={ACTION_ICON[kind]} tone={kind === 'delete' ? 'error' : 'blue'} title={title} description={(a.code ? a.code + ' · ' : '') + (a.title || a.content || '').slice(0, 80)} footer={footer}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {nonField ? <ApiErrorBox error={nonField} /> : null}
+        {kind === 'edit' ? (
+          <>
+            {hasTitle(a.type) ? <Input label="Tiêu đề" maxLength={200} value={ed.title} onChange={setE('title')} error={fe('title')} /> : null}
+            <Input label="Nội dung" required multiline rows={4} maxLength={4000} value={ed.content} onChange={setE('content')} error={fe('content')} />
+            {hasOutcome(a.type) ? <Input label="Kết quả" multiline rows={2} maxLength={2000} value={ed.outcome} onChange={setE('outcome')} error={fe('outcome')} /> : null}
+            {hasOccurred(a.type) ? <Input label="Thời điểm diễn ra" type="datetime-local" value={ed.occurredAt} onChange={setE('occurredAt')} error={fe('occurredAt')} /> : null}
+            {hasDue(a.type) ? <Input label="Hạn" required={a.type === 'TASK'} type="datetime-local" value={ed.dueAt} onChange={setE('dueAt')} error={fe('dueAt')} /> : null}
+            {hasDue(a.type) ? <Input label="Nhắc lúc" type="datetime-local" value={ed.remindAt} onChange={setE('remindAt')} error={fe('remindAt')} hint="Không sau hạn; để trống = bỏ nhắc" /> : null}
+            <p style={{ margin: 0, font: 'var(--type-caption)', color: 'var(--text-3)' }}>Giờ theo giờ Việt Nam. Chỉ các ô đã đổi được gửi lên máy chủ.</p>
+          </>
+        ) : null}
         {kind === 'complete' ? <Input label="Kết quả" multiline rows={3} maxLength={2000} value={f.outcome} onChange={set('outcome')} error={fe('outcome')} placeholder="Đã làm gì, kết quả ra sao (không bắt buộc)" /> : null}
         {kind === 'reassign' ? (
           <>

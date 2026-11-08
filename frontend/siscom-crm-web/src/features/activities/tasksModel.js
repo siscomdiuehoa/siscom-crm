@@ -48,6 +48,7 @@ export function taskActions(a, ctx = {}) {
   const out = [];
   if (isTask && open && (canUpdate || mine)) out.push('complete');
   if (isTask && !open && canUpdate) out.push('reopen');
+  if (canUpdate) out.push('edit'); // PATCH: người chỉ có quyền theo việc không sửa (chỉ ghi kết quả khi Hoàn thành)
   if (isTask && open && !byTask && has(can, 'activity.assign')) out.push('reassign');
   if (isTask && open && mine && has(can, 'activity.transfer_request')) out.push('transfer');
   if (isTask && open && canUpdate) out.push('cancel');
@@ -55,8 +56,8 @@ export function taskActions(a, ctx = {}) {
   if (!byTask && has(can, 'activity.delete')) out.push('delete');
   return out;
 }
-export const ACTION_LABEL = { complete: 'Hoàn thành', reopen: 'Mở lại', reassign: 'Giao lại', transfer: 'Đề xuất chuyển', cancel: 'Huỷ việc', history: 'Lịch sử', delete: 'Xoá' };
-export const ACTION_ICON = { complete: 'circle-check', reopen: 'rotate-ccw', reassign: 'user-round-cog', transfer: 'arrow-right-left', cancel: 'circle-x', history: 'history', delete: 'trash-2' };
+export const ACTION_LABEL = { complete: 'Hoàn thành', reopen: 'Mở lại', edit: 'Sửa', reassign: 'Giao lại', transfer: 'Đề xuất chuyển', cancel: 'Huỷ việc', history: 'Lịch sử', delete: 'Xoá' };
+export const ACTION_ICON = { complete: 'circle-check', reopen: 'rotate-ccw', edit: 'pencil', reassign: 'user-round-cog', transfer: 'arrow-right-left', cancel: 'circle-x', history: 'history', delete: 'trash-2' };
 
 // Route: #/activities[/overdue|today|week|all|approvals], #/activities/view/:id
 const ROUTE_FILTERS = [...DUES, 'approvals'];
