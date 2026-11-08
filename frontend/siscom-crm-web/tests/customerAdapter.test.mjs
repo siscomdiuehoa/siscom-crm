@@ -152,6 +152,26 @@ test('CT-FV4-1: csvSafe chặn chèn công thức Excel, giữ nguyên số đi�
   assert.equal(csvSafe(null), ''); assert.equal(csvSafe(undefined), '');
 });
 
+test('CT-FV4-1 phạm vi (Owner 08/11/2026): xuất KHÔNG vượt phạm vi máy chủ — chỉ gửi page/pageSize/search (tham số lạ bị bỏ), chỉ xuất đúng dòng máy chủ trả, bộ lọc giao diện chỉ thu hẹp', async () => {
+  const { createCustomerApiController } = await import('../src/features/customers/customerApiUi.js');
+  const served = [];
+  const calls = []; const ctl = createCustomerApiController({ mode: 'api', list: async (p) => {
+    calls.push(p);
+    const items = Array.from({ length: p.page === 1 ? 100 : 30 }, (_, i) => ({ id: p.page + '-' + i, tier: i % 2 ? 'VIP' : 'Thường' }));
+    served.push(...items);
+    return { items, total: 130, page: p.page, pageSize: 100, totalPages: 2 };
+  } });
+  // Cố tình truyền tham số mở rộng phạm vi: không tham số nào được gửi đi (máy chủ tự lọc theo quyền của phiên).
+  const r = await ctl.exportList({ search: 'ab', scope: 'ALL', ownerId: 'x', deleted: 'only', all: true, pageSize: 100000 }, (c) => c.tier === 'VIP');
+  assert.equal(calls.length, 2);
+  for (const c of calls) assert.deepEqual(Object.keys(c).sort(), ['page', 'pageSize', 'search'], 'chỉ page/pageSize/search');
+  assert.ok(calls.every((c) => c.pageSize === 100), 'pageSize bị chặn ở mức tối đa API (100)');
+  const ids = new Set(served.map((x) => x.id));
+  assert.ok(r.items.every((x) => ids.has(x.id)), 'mọi dòng xuất đều do máy chủ trả');
+  assert.equal(r.items.length, served.filter((x) => x.tier === 'VIP').length, 'bộ lọc giao diện chỉ thu hẹp');
+  assert.ok(r.items.every((x) => x.tier === 'VIP'));
+});
+
 test('CT-FV4-1: lỗi ở trang sau không trả dữ liệu xuất dở', async () => {
   const { createCustomerApiController } = await import('../src/features/customers/customerApiUi.js');
   const ctl = createCustomerApiController({ mode: 'api', list: async (p) => { if (p.page === 2) throw Error('lỗi'); return { items: Array.from({ length: 100 }, () => ({})), total: 200, page: 1, pageSize: 100, totalPages: 2 }; } });
