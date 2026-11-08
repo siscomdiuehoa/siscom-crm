@@ -92,6 +92,9 @@ export function createCustomerApi(config, fetchImpl, options) {
     // B1.4 người liên hệ: API Contact có sẵn (GET/POST /customers/:id/contacts). Server sắp người chính lên đầu; POST isPrimary gỡ cờ người chính cũ.
     async listContacts(id) { return await call('GET', '/customers/' + encodeURIComponent(id) + '/contacts'); },
     async createContact(id, body) { return await call('POST', '/customers/' + encodeURIComponent(id) + '/contacts', body); },
+    // FV-3: sửa / xoá mềm (quyền customer.update trên khách — máy chủ kiểm); body luôn kèm updatedAt đã tải (khoá lạc quan).
+    async updateContact(id, contactId, body) { return await call('PATCH', '/customers/' + encodeURIComponent(id) + '/contacts/' + encodeURIComponent(contactId), body); },
+    async deleteContact(id, contactId, body) { return await call('DELETE', '/customers/' + encodeURIComponent(id) + '/contacts/' + encodeURIComponent(contactId), body); },
     // B3 A7 hoạt động (API A5): dòng thời gian theo khách, ghi nhận hoạt động, ứng viên phụ trách. Người tạo/khách do máy chủ xác định.
     async listActivities(id, params) { return await call('GET', '/customers/' + encodeURIComponent(id) + '/activities' + qs(params)); },
     async createActivity(id, body) { return await call('POST', '/customers/' + encodeURIComponent(id) + '/activities', body); },
