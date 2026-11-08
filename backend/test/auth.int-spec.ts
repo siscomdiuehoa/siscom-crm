@@ -8,6 +8,7 @@ import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter
 import { requestContext } from '../src/common/middleware/request-context.middleware';
 import { AuthApiModule } from '../src/modules/auth/auth-api.module';
 import { bootstrapAuth, BootstrapUser } from '../src/modules/auth/bootstrap';
+import { AccountAdmin, parseArgs } from '../src/modules/auth/account-admin';
 import { ActivitiesModule } from '../src/modules/activities/activities.module';
 import { CustomersModule } from '../src/modules/customers/customers.module';
 import { LookupsModule } from '../src/modules/lookups/lookups.module';
@@ -1157,5 +1158,73 @@ describe('B3 A6 — Công việc + quyền theo việc qua API thật', () => {
     const log = await prisma.auditLog.findFirst({ where: { entityId: task.id, action: 'activity.delete' }, select: { changes: true, summary: true, actorId: true } });
     expect(log).toMatchObject({ actorId: id.admin, changes: { reason: '(đã thay đổi)' }, summary: 'Xoá mềm hoạt động ' + task.code + ' (TASK)' });
     expect((await srv().get(A + task.id).set('Cookie', saleS.cookie)).status).toBe(404);
+  });
+});
+
+// FV-5 (CT-FV5-1): công cụ quản lý tài khoản nhân viên SAU bootstrap, chạy bằng kết nối CHỦ SỞ HỮU (adminPrisma = siscom_migrator khi đã tách role)
+// trên DB thử này, qua ĐÚNG các hàm đặc quyền M1.2 (2 người). Kiểm bằng đăng nhập THẬT: mật khẩu tạm dùng được, bị buộc đổi, reset/khoá có hiệu lực.
+describe('FV-5 — account-admin (thêm / đặt lại mật khẩu / khoá) qua hàm đặc quyền thật', () => {
+  const ME5 = '/api/v1/auth/me'; const CP5 = '/api/v1/auth/change-password'; const C5 = '/api/v1/customers';
+  const hdr = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
+  const email = 'fv5-' + Date.now().toString(36) + '@' + DOMAIN;
+  const base = () => ['--requester', codes.sysadmin, '--approver', codes.admin];
+  let tool: AccountAdmin; let first = ''; let empCode = '';
+
+  beforeAll(() => { tool = new AccountAdmin(adminPrisma); });
+
+  it('FV5-1. preflight: đúng DB thử, chủ sở hữu, bootstrap đã đóng', async () => {
+    await expect(tool.preflight()).resolves.toBe(dbName);
+  });
+  it('FV5-2. add: tạo nhân viên + vai trò sales; đăng nhập bằng mật khẩu tạm => mustChangePassword, API bị chặn; đổi mật khẩu => dùng được', async () => {
+    const r = await tool.add(parseArgs(['add', ...base(), '--email', email, '--full-name', 'Nhân viên FV5', '--department', 'KD', '--role', 'sales', '--out', 'khong-dung']));
+    expect(r.code).toMatch(/^NV-[0-9]{4,}$/); empCode = r.code; first = r.password;
+    const res = await login(email, r.password);
+    expect(res.status).toBe(200);
+    expect(res.body.data.me).toMatchObject({ code: r.code, roles: ['sales'], mustChangePassword: true });
+    const s = { cookie: cookieOf(res), csrf: res.body.data.csrfToken };
+    const blocked = await srv().get(C5).set('Cookie', s.cookie);
+    expect(blocked.status).toBe(403); expect(blocked.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    const NEW = 'Fv5#Doi-MatKhau-2026';
+    const ok = await srv().post(CP5).set(hdr(s)).send({ currentPassword: r.password, newPassword: NEW, confirmPassword: NEW });
+    expect(ok.status).toBe(200); expect(ok.body.data.me.mustChangePassword).toBe(false);
+    expect((await srv().get(C5).set('Cookie', cookieOf(ok))).status).toBe(200);
+    const emp = await adminPrisma.employee.findFirstOrThrow({ where: { email }, select: { isDemo: true, status: true, department: { select: { code: true } } } });
+    expect(emp).toMatchObject({ isDemo: false, status: 'ACTIVE', department: { code: 'KD' } });
+  });
+  it('FV5-3. audit đủ bước (2 yêu cầu, 2 lần duyệt, thi hành) và KHÔNG chứa mật khẩu', async () => {
+    const e = await adminPrisma.employee.findFirstOrThrow({ where: { email }, select: { id: true } });
+    const reqs = await adminPrisma.privilegedChangeRequest.findMany({ where: { subjectEmployeeId: e.id }, select: { id: true, type: true, status: true, requestedById: true, approvedById: true } });
+    expect(reqs.map((q) => q.type).sort()).toEqual(['PASSWORD_RESET', 'ROLE_GRANT']);
+    expect(reqs.every((q) => q.status === 'EXECUTED' && !!q.approvedById && q.requestedById !== q.approvedById)).toBe(true);
+    const ids = [e.id, ...reqs.map((q) => q.id)];
+    const logs = await adminPrisma.auditLog.findMany({ where: { entityId: { in: ids } }, select: { action: true, summary: true, changes: true } });
+    const acts = logs.map((l) => l.action);
+    for (const a of ['EMPLOYEE_CREATE', 'CREDENTIAL_CREATE', 'ROLE_GRANT', 'PASSWORD_RESET_ISSUE', 'PASSWORD_RESET_DONE', 'PASSWORD_MUST_CHANGE_SET']) expect(acts).toContain(a);
+    expect(acts.filter((a) => a === 'PRIV_REQUEST_CREATE')).toHaveLength(2);
+    expect(acts.filter((a) => a === 'PRIV_REQUEST_APPROVE')).toHaveLength(2);
+    expect(JSON.stringify(logs)).not.toContain(first);
+  });
+  it('FV5-4. reset-password: mật khẩu cũ hết hiệu lực, mật khẩu mới đăng nhập được và lại bị buộc đổi', async () => {
+    const r = await tool.resetPassword(parseArgs(['reset-password', ...base(), '--employee', empCode, '--out', 'khong-dung']));
+    expect((await login(email, 'Fv5#Doi-MatKhau-2026')).status).toBe(401);
+    const res = await login(empCode, r.password);
+    expect(res.status).toBe(200); expect(res.body.data.me.mustChangePassword).toBe(true);
+  });
+  it('FV5-5. disable: phiên đang mở bị thu hồi, không đăng nhập được; reset-password mở lại (M1.2 chỉ cho mở lại kèm mật khẩu mới)', async () => {
+    const r0 = await tool.resetPassword(parseArgs(['reset-password', ...base(), '--employee', empCode, '--out', 'khong-dung']));
+    const live = await login(email, r0.password); expect(live.status).toBe(200);
+    await tool.disable(parseArgs(['disable', '--requester', codes.sysadmin, '--employee', empCode, '--reason', 'FV5 thử khoá']));
+    expect((await srv().get(ME5).set('Cookie', cookieOf(live))).status).toBe(401);
+    expect((await login(email, r0.password)).status).toBe(401);
+    const r1 = await tool.resetPassword(parseArgs(['reset-password', ...base(), '--employee', empCode, '--out', 'khong-dung']));
+    expect((await login(email, r1.password)).status).toBe(200);
+  });
+  it('FV5-6. người duyệt KHÔNG có quyền duyệt (sale) => DB từ chối, KHÔNG tạo nhân viên dở dang (một transaction)', async () => {
+    const e2 = 'fv5-x-' + Date.now().toString(36) + '@' + DOMAIN;
+    await expect(tool.add(parseArgs(['add', '--requester', codes.sysadmin, '--approver', codes.sale, '--email', e2, '--full-name', 'Không được tạo', '--department', 'KD', '--role', 'sales', '--out', 'x'])))
+      .rejects.toThrow(/APPROVAL_REQUIRED/);
+    expect(await adminPrisma.employee.count({ where: { email: e2 } })).toBe(0);
+    // requester không thuộc nhóm REQUEST (crm_admin) => DB từ chối
+    await expect(tool.disable(parseArgs(['disable', '--requester', codes.admin, '--employee', empCode, '--reason', 'x']))).rejects.toThrow(/APPROVAL_REQUIRED/);
   });
 });
