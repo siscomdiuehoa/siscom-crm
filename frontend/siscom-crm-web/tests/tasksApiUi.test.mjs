@@ -512,3 +512,19 @@ test('FV13-01 R1 UX-03: đọc lại danh sách sau 409 thất bại => giữ d�
     assert.doesNotMatch(text(m.container), /Không tải lại được/);
   } finally { await m.unmount(); }
 });
+
+test('FV13-01 R1 UX-03b: tab Hoạt động — đọc lại dòng thời gian sau 409 thất bại => giữ mục + hộp, có cảnh báo và Thử lại', async () => {
+  let fail = false;
+  const base = slow(server({ post: (p) => (/\/complete$/.test(p) ? CONFLICT() : null) }));
+  const f = Object.assign(async (url, init = {}) => (fail && (init.method || 'GET') === 'GET' && /\/customers\/[^/]+\/activities$/.test(new URL(url).pathname) ? res(500, { error: { code: 'INTERNAL', message: 'Lỗi máy chủ' } }) : base(url, init)), { calls: base.calls, lists: base.lists, writes: base.writes, count: base.count });
+  const m = await mount(f, { ...SALES, can: (p) => p === 'contact.read' ? false : SALES.can(p) }, (ui) => React.createElement(CustomerApiDetail, { ui, id: CID })); await settle();
+  try {
+    await doAct(() => click(findAll(m.container, (e) => e.attributes.role === 'tab' && /^Hoạt động/.test(text(e)))[0])); await settle();
+    fail = true;
+    await doAct(() => click(buttonByText(m.container, /^Hoàn thành$/)));
+    await doAct(() => click(findAll(modal(m.container), (e) => e.tagName === 'BUTTON' && text(e) === 'Hoàn thành')[0])); await settle();
+    assert.ok(modal(m.container)); assert.match(text(m.container), /Không tải lại được dòng thời gian/);
+    fail = false; await doAct(() => click(buttonByText(m.container, /^Thử lại$/))); await settle();
+    assert.doesNotMatch(text(m.container), /Không tải lại được dòng thời gian/);
+  } finally { await m.unmount(); }
+});
