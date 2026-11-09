@@ -5,7 +5,7 @@ import { APP_DATA } from '../data/demoData.js';
 import { CustomerFormDrawer } from '../features/customers/CustomerForm.jsx';
 import { CustomerExportModal, CustomerImportModal } from '../features/customers/CustomerIO.jsx';
 import { useCustomerApiState } from '../features/customers/useCustomerApi.js';
-import { csvSafe, customerDisplayCode, searchCustomers } from '../features/customers/customerApiUi.js';
+import { customerDisplayCode, exportErrorMessage, ExportFilterError, exportFilterBlock, EXPORT_PREFIX_NOTE, searchCustomers } from '../features/customers/customerApiUi.js';
 import { ApiListStatus, ApiModeNote, ApiSearchBar, ApiPager } from '../features/customers/ApiListStatus.jsx';
 
 function CustomerListPage({ ui }) {
@@ -27,18 +27,28 @@ function CustomerListPage({ ui }) {
   const [form, setForm] = React.useState(null);
   const [io, setIo] = React.useState(null);
   const [exporting, setExporting] = React.useState(false);
-  // FV-4: máy chủ không có quyền "customer.export" riêng => chế độ API xuất theo customer.read (đúng dữ liệu người dùng xem được, máy chủ lọc theo phạm vi).
-  // Không có quyền từ máy chủ (fail-closed) => khoá. Chế độ demo giữ quyền customer.export.
-  const canExport = typeof ui.can === 'function' && !!ui.can(apiOn ? 'customer.read' : 'customer.export');
+  // FV-4A: quyền xuất RIÊNG do máy chủ cấp (customer.export); customer.read KHÔNG còn mở nút Xuất. Không có quyền (fail-closed) => không hiện nút.
+  // Máy chủ tạo file, kiểm phạm vi và ghi nhật ký (POST /customers/export). Chế độ demo giữ hộp thoại cục bộ.
+  const canExport = typeof ui.can === 'function' && !!ui.can('customer.export');
+  const exportFilters = { tier: tier !== 'all' ? tier : null, industry: industry !== 'all' ? industry : null, city: city !== 'all' ? city : null, status: view === 'table' && statusFilter ? statusFilter : null };
+  const hasExportFilter = Object.values(exportFilters).some(Boolean);
+  React.useEffect(() => { if (apiOn && canExport && hasExportFilter && apiCtl.getState().lookups.status === 'idle') apiCtl.loadLookups(); }, [apiOn, canExport, hasExportFilter, apiCtl]);
+  // D-E6: bộ lọc không đổi được sang mã danh mục (hoặc tìm nhanh trong trang ở chế độ thẻ) => khoá Xuất, không xuất lệch với màn hình.
+  const exportBlock = !apiOn ? null : view === 'grid' && q.trim() ? 'Tìm nhanh trong trang chưa áp dụng được khi xuất.'
+    : hasExportFilter && exportFilterBlock(exportFilters, apiS.lookups && apiS.lookups.maps) ? new ExportFilterError(exportFilterBlock(exportFilters, apiS.lookups && apiS.lookups.maps)).message : null;
   const exportApi = async (selectedOnly) => {
-    if (exporting || !canExport) return;
+    if (exporting || !canExport || (!selectedOnly && exportBlock)) return;
     setExporting(true);
     try {
-      const result = selectedOnly ? { items: all.filter((c) => sel.includes(c.id)), truncated: false } : await apiCtl.exportList(apiS.list.params || {}, (c) => (tier === 'all' || c.tier === tier) && (industry === 'all' || c.industry === industry) && (owner === 'all' || c.owner === owner) && (city === 'all' || c.city === city) && (!statusFilter || view !== 'table' || c.status === statusFilter) && (view !== 'grid' || searchCustomers([c], q).length > 0));
-      const cols = [['code', 'Mã KH'], ['name', 'Tên công ty'], ['taxId', 'Mã số thuế'], ['industry', 'Ngành nghề'], ['tier', 'Phân hạng'], ['status', 'Trạng thái'], ['owner', 'Phụ trách'], ['address', 'Địa chỉ'], ['city', 'Tỉnh/Thành phố'], ['phone', 'Điện thoại'], ['email', 'Email']];
-      U.downloadCsv('KhachHang_' + U.today() + '.csv', cols.map((c) => c[1]), result.items.map((r) => cols.map((c) => csvSafe(r[c[0]]))));
-      ui.toast({ tone: result.truncated ? 'warning' : 'success', title: 'Đã xuất ' + result.items.length + ' khách hàng', message: result.truncated ? 'Vượt giới hạn 5.000 dòng; chỉ xuất 5.000 dòng đầu.' : 'File CSV (UTF-8) mở được bằng Excel.' });
-    } catch (e) { ui.toast({ tone: 'error', title: 'Không xuất được khách hàng', message: 'Không tải được đầy đủ dữ liệu. Vui lòng thử lại.' }); }
+      const r = await apiCtl.exportServer(selectedOnly ? { mode: 'selected', ids: sel } : { mode: 'filtered', search: (apiS.list.params || {}).search, filters: exportFilters });
+      const m = /filename="([^"]+)"/.exec(r.disposition || '');
+      const url = URL.createObjectURL(r.blob); // giữ nguyên byte máy chủ trả (có BOM UTF-8)
+      const a = document.createElement('a'); a.href = url; a.download = m ? m[1] : 'KhachHang_' + U.today() + '.csv'; document.body.appendChild(a);
+      if (typeof a.click === 'function') a.click();
+      if (typeof a.remove === 'function') a.remove(); else if (a.parentNode) a.parentNode.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      ui.toast({ tone: 'success', title: 'Đã xuất ' + r.rows + ' khách hàng', message: EXPORT_PREFIX_NOTE });
+    } catch (e) { ui.toast({ tone: 'error', title: 'Không xuất được khách hàng', message: exportErrorMessage(e) }); }
     finally { setExporting(false); }
   };
   const rows = all.filter((c) => (tier === 'all' || c.tier === tier) && (industry === 'all' || c.industry === industry) && (owner === 'all' || c.owner === owner) && (city === 'all' || c.city === city));
@@ -95,7 +105,7 @@ function CustomerListPage({ ui }) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Tabs value={view} onChange={setView} items={[{ id: 'table', label: 'Bảng', icon: 'list' }, { id: 'grid', label: 'Thẻ', icon: 'layout-grid' }]} />
           <Button variant="secondary" icon="upload" disabled={apiOn || !ui.can('customer.import')} onClick={() => setIo('import')}>Nhập</Button>
-          <Button variant="secondary" icon="download" disabled={exporting || !canExport} onClick={() => (apiOn ? exportApi(false) : setIo('export'))}>{exporting ? 'Đang xuất…' : 'Xuất'}</Button>
+          {apiOn && !canExport ? null : <Button variant="secondary" icon="download" disabled={exporting || !canExport || !!exportBlock} title={exportBlock || undefined} onClick={() => (apiOn ? exportApi(false) : setIo('export'))}>{exporting ? 'Đang xuất…' : 'Xuất'}</Button>}
           <Button icon="plus" disabled={!ui.can('customer.create')} onClick={() => setForm('new')}>Thêm khách hàng</Button>
         </div>
       </div>
@@ -108,11 +118,12 @@ function CustomerListPage({ ui }) {
         <span style={{ flex: 1 }} />
         {sel.length ? (<>
           <span style={{ font: 'var(--type-sm)', color: 'var(--primary-text)', fontWeight: 600 }}>Đã chọn {sel.length}</span>
-          <Button size="sm" variant="secondary" icon="download" disabled={exporting || !canExport} onClick={() => (apiOn ? exportApi(true) : setIo('export'))}>Xuất đã chọn</Button>
+          {apiOn && !canExport ? null : <Button size="sm" variant="secondary" icon="download" disabled={exporting || !canExport} onClick={() => (apiOn ? exportApi(true) : setIo('export'))}>Xuất đã chọn</Button>}
           <Button size="sm" variant="danger" icon="trash-2" disabled={apiOn || !ui.can('customer.delete')} onClick={() => del(sel)}>Xoá</Button>
         </>) : null}
       </div>
-      {apiOn ? <ApiModeNote /> : null}
+      {apiOn ? <ApiModeNote canExport={canExport} /> : null}
+      {apiOn && canExport && exportBlock ? <div role="status" style={{ font: 'var(--type-caption)', color: 'var(--warning-text, var(--text-2))' }}>{exportBlock}</div> : null}
       {apiOn ? <ApiSearchBar key={(apiS.list.params && apiS.list.params.search) || ''} value={(apiS.list.params && apiS.list.params.search) || ''} busy={apiS.list.status === 'loading'} onSearch={(t) => apiCtl.search(t)} /> : null}
       {apiOn && apiS.list.status !== 'ready' ? <ApiListStatus s={apiS.list} onRetry={() => apiCtl.reload()} /> : view === 'table' ? (
         <DataTable key={ver + tier + industry + owner + city} itemLabel={apiOn ? 'khách hàng (trang này)' : 'khách hàng'} selectable onSelectionChange={setSel} pageSize={apiOn ? 100 : 10} rows={rows} columns={cols}

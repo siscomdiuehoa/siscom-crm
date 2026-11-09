@@ -1,11 +1,12 @@
 import React from 'react';
 import { Button, Icon, Input } from '../../ds/index.js';
 
-// Shown only when the customer API flag is ON.
-export function ApiModeNote() {
+// Shown only when the customer API flag is ON. F222-1 (FV-4A): nội dung về XUẤT theo quyền máy chủ cấp (customer.export).
+export function ApiModeNote({ canExport = false } = {}) {
   return (
     <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, font: 'var(--type-caption)', color: 'var(--text-2)' }}>
-      <Icon name="server" size={14} />Danh sách đang lấy từ máy chủ (API), không phải dữ liệu demo. Để sửa, mở chi tiết khách hàng (bấm vào dòng hoặc biểu tượng bút) rồi chọn "Sửa thông tin"; xoá, nhập, xuất chưa hỗ trợ ở chế độ này. Ô "Tìm trên máy chủ" tìm trên toàn bộ dữ liệu; các bộ lọc ngành/phụ trách/tỉnh/phân hạng chỉ lọc trong trang đang tải.
+      <Icon name="server" size={14} />Danh sách đang lấy từ máy chủ (API), không phải dữ liệu demo. Để sửa, mở chi tiết khách hàng (bấm vào dòng hoặc biểu tượng bút) rồi chọn "Sửa thông tin"; xoá, nhập chưa hỗ trợ ở chế độ này. Ô "Tìm trên máy chủ" tìm trên toàn bộ dữ liệu; các bộ lọc ngành/phụ trách/tỉnh/phân hạng chỉ lọc trong trang đang tải.
+      {canExport ? " Xuất CSV tối đa 5.000 dòng; mỗi lần xuất được ghi nhật ký. Ô có dấu ' ở đầu là ký hiệu chống lỗi Excel, không phải dữ liệu." : ''}
     </div>
   );
 }

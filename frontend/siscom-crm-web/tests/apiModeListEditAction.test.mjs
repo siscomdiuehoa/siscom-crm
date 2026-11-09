@@ -126,45 +126,60 @@ test('CT-FV4-1: tìm đầu trang debounce và phản hồi cũ', async () => {
   } finally { await l.unmount(); document.querySelector = () => null; }
 });
 
-test('CT-FV4-1: nút Xuất (API) gom đủ các trang theo bộ lọc hiện tại -> CSV UTF-8 có BOM, chặn công thức; lỗi giữa chừng -> không tải file', async () => {
-  // Toast tự ẩn sau 4,5 s và downloadCsv thu hồi URL sau 1 s: gom các hẹn giờ dài để huỷ khi kết thúc (không chạy sau khi DOM giả đã gỡ).
+test('FV-4A F-01/F-05: chỉ có customer.read (không có customer.export) => KHÔNG có nút Xuất / Xuất đã chọn; ghi chú không nhắc tới xuất', async () => {
+  fetchImpl = okServer;
+  const ST = { status: 'AUTHENTICATED', employeeId: 'e1', me: { employeeId: 'e1', fullName: 'Kế toán', roles: ['accountant'], permissions: { 'customer.read': 'ALL', 'lookup.read': 'ALL' }, mustChangePassword: false } };
+  const session = { getState: () => ST, subscribe: () => () => {}, getCsrfToken: () => 'csrf-1' };
+  const l = await mount(true, '#/customers', { session });
+  try {
+    assert.equal(byTag(l.container, 'button').filter((b) => /^Xuất/.test(text(b).trim())).length, 0, 'không có nút Xuất');
+    const note = text(l.container);
+    assert.match(note, /xoá, nhập chưa hỗ trợ ở chế độ này/);
+    assert.doesNotMatch(note, /xoá, nhập, xuất chưa hỗ trợ/, 'F222-1: không còn câu sai');
+    assert.doesNotMatch(note, /Xuất CSV tối đa/);
+  } finally { await l.unmount(); }
+});
+
+test('FV-4A F-02/F-04/F-05: có customer.export => POST /customers/export, tải đúng byte máy chủ trả (giữ BOM); lỗi 422/429 có thông báo, không tải file', async () => {
   const longTimers = []; const origST = globalThis.setTimeout;
   globalThis.setTimeout = (fn, ms, ...a) => { const t = origST(fn, ms, ...a); if (ms >= 1000) longTimers.push(t); return t; };
   const blobs = []; const origURL = globalThis.URL.createObjectURL; const origRevoke = globalThis.URL.revokeObjectURL;
   globalThis.URL.createObjectURL = (b) => { blobs.push(b); return 'blob:x'; }; globalThis.URL.revokeObjectURL = () => {};
-  const page = (p, n, total) => ({ data: { items: Array.from({ length: n }, (_, i) => ({ ...ROW, id: ID.slice(0, -3) + String(p * 100 + i).padStart(3, '0').slice(-3), code: 'KH-' + p + '-' + i, name: i === 0 ? '=HYPERLINK("x")' : 'Cty ' + i })), page: p, pageSize: 100, total, totalPages: Math.ceil(total / 100) } });
-  let failPage2 = false;
-  fetchImpl = async (url) => {
+  const csvBytes = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('"Mã KH"\r\n"KH-1"\r\n')]);
+  let mode = 'ok';
+  const hdr = (h) => ({ get: (k) => h[k.toLowerCase()] ?? null });
+  fetchImpl = async (url, init) => {
     const u = new URL(url);
-    if (u.pathname.endsWith('/customers') && u.searchParams.get('pageSize') === '100') {
-      const p = Number(u.searchParams.get('page'));
-      if (p === 2 && failPage2) return res(500, { error: { code: 'INTERNAL', message: 'lỗi' } });
-      return res(200, page(p, p === 1 ? 100 : 50, 150));
+    if (u.pathname.endsWith('/customers/export')) {
+      if (mode === '422') return { ok: false, status: 422, headers: hdr({}), json: async () => ({ error: { code: 'EXPORT_TOO_LARGE', message: 'x' } }) };
+      if (mode === '429') return { ok: false, status: 429, headers: hdr({ 'retry-after': '1200' }), json: async () => ({ error: { code: 'EXPORT_RATE_LIMITED', message: 'x' } }) };
+      return { ok: true, status: 200, headers: hdr({ 'x-export-rows': '1', 'x-export-skipped': '0', 'x-export-id': 'req-1', 'content-disposition': 'attachment; filename="KhachHang_2026-11-10.csv"' }), blob: async () => new Blob([csvBytes], { type: 'text/csv' }), json: async () => { throw new Error('không phải JSON'); } };
     }
-    return okServer(url);
+    return okServer(url, init);
   };
-  // Phiên có customer.read (máy chủ cấp) => được xuất; không có quyền thì khoá (apiModePermissionFailClosed).
-  const ST = { status: 'AUTHENTICATED', employeeId: 'e1', me: { employeeId: 'e1', fullName: 'Sale A', roles: ['sales'], permissions: { 'customer.read': 'OWN', 'lookup.read': 'ALL' }, mustChangePassword: false } };
-  const session = { getState: () => ST, subscribe: () => () => {} };
+  const ST = { status: 'AUTHENTICATED', employeeId: 'e1', me: { employeeId: 'e1', fullName: 'Admin', roles: ['crm_admin'], permissions: { 'customer.read': 'ALL', 'customer.export': 'ALL', 'lookup.read': 'ALL' }, mustChangePassword: false } };
+  const session = { getState: () => ST, subscribe: () => () => {}, getCsrfToken: () => 'csrf-1' };
   const l = await mount(true, '#/customers', { session });
   try {
+    assert.match(text(l.container), /Xuất CSV tối đa 5\.000 dòng; mỗi lần xuất được ghi nhật ký/, 'F222-1: ghi chú theo quyền');
     const btn = () => byTag(l.container, 'button').find((b) => /^Xuất$/.test(text(b).trim()));
-    assert.ok(btn() && !btn().disabled, 'nút Xuất bật ở chế độ API');
+    assert.ok(btn() && !btn().disabled, 'nút Xuất bật');
     await act(async () => { click(btn()); }); await settle();
-    const pages = fetchCalls.map(([u]) => new URL(u)).filter((u) => u.pathname.endsWith('/customers') && u.searchParams.get('pageSize') === '100').map((u) => u.searchParams.get('page'));
-    assert.deepEqual(pages, ['1', '2']);
+    const calls = fetchCalls.filter(([u]) => new URL(u).pathname.endsWith('/customers/export'));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][1].method, 'POST');
+    // CSRF của phiên cookie: kiểm ở test client (customerAdapter.test.mjs) và Chrome thật; ở đây App dựng client theo cấu hình test.
+    assert.deepEqual(JSON.parse(calls[0][1].body), { mode: 'filtered' });
+    assert.equal(fetchCalls.filter(([u]) => new URL(u).searchParams.get('pageSize') === '100').length, 0, 'F-06: không gom trang');
     assert.equal(blobs.length, 1);
-    const bytes = new Uint8Array(await blobs[0].arrayBuffer());
-    assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'có BOM UTF-8');
-    assert.match(blobs[0].type, /^text\/csv;charset=utf-8/);
-    const lines = (await blobs[0].text()).replace(/^﻿/, '').split('\r\n');
-    assert.match(lines[0], /^Mã KH,Tên công ty,Mã số thuế/);
-    assert.equal(lines.length, 151, 'tiêu đề + 150 dòng');
-    assert.ok(lines.some((x) => x.includes(`"'=HYPERLINK(""x"")"`)), 'ô bắt đầu bằng = được thêm dấu \'');
-    assert.equal(writeCalls().length, 0);
-    failPage2 = true; blobs.length = 0;
-    await act(async () => { click(btn()); }); await settle();
-    assert.equal(blobs.length, 0, 'lỗi trang 2: không tải file dở');
-    assert.match(text(dom.doc.body), /Không xuất được khách hàng/);
+    assert.deepEqual([...new Uint8Array(await blobs[0].arrayBuffer()).slice(0, 3)], [0xef, 0xbb, 0xbf], 'giữ BOM UTF-8');
+    assert.match(text(dom.doc.body), /Đã xuất 1 khách hàng/);
+    for (const [m, re] of [['422', /hơn 5\.000/], ['429', /10 lần trong 1 giờ.*20 phút/]]) {
+      mode = m; blobs.length = 0;
+      await act(async () => { click(btn()); }); await settle();
+      assert.equal(blobs.length, 0, m + ': không tải file');
+      assert.match(text(dom.doc.body), re, m);
+    }
   } finally { await l.unmount(); for (const t of longTimers) clearTimeout(t); globalThis.setTimeout = origST; globalThis.URL.createObjectURL = origURL; globalThis.URL.revokeObjectURL = origRevoke; }
 });
+

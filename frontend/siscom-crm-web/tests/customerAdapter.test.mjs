@@ -123,7 +123,7 @@ test('client: lỗi 409 giữ code + details từ backend', async () => {
   await assert.rejects(() => api.get(ID), (e) => e.status === 409 && e.code === 'VERSION_CONFLICT' && e.details[0] === 'd');
 });
 
-// R01: phản hồi API không đáng tin — trường chuỗi sai kiểu (null/object/mảng/số/boolean) -> '' (fail-closed), không ném, không làm lọt kiểu sai tới UI (c.website.replace)
+// R01: phản hồi API không đáng tin \u2014 trường chuỗi sai kiểu (null/object/mảng/số/boolean) -> '' (fail-closed), không ném, không làm lọt kiểu sai tới UI (c.website.replace)
 for (const [kind, bad] of [['null', null], ['object', { a: 1 }], ['array', ['b.vn']], ['number', 123], ['boolean', true], ['object có toString', { toString: () => 'javascript:alert(1)' }]]) {
   test('R01 fromApiCustomer: website/name/email/... kiểu ' + kind + ' -> chuỗi rỗng, không ném', () => {
     const ui = fromApiCustomer({ id: 'u1', code: bad, name: bad, shortName: bad, taxId: bad, address: bad, phone: bad, email: bad, website: bad, note: bad, owner: { id: 'o', fullName: bad } });
@@ -135,46 +135,71 @@ test('R01 fromApiCustomer: chuỗi hợp lệ giữ nguyên (không đổi hành
   assert.equal(ui.name, 'Công ty A'); assert.equal(ui.website, 'b.vn'); assert.equal(ui.email, 'a@b.vn');
 });
 
-test('CT-FV4-1: truy vấn độc lập và gom trang xuất, giới hạn 5000', async () => {
+test('FV-4A F-02/F-06: exportServer gọi MỘT lần POST /customers/export với đúng trường cho phép; KHÔNG gọi danh sách nhiều trang', async () => {
   const { createCustomerApiController } = await import('../src/features/customers/customerApiUi.js');
-  const calls = []; const ctl = createCustomerApiController({ mode: 'api', list: async (p) => { calls.push(p); return { items: Array.from({ length: 100 }, (_, i) => ({ id: `${p.page}-${i}` })), total: 5100, page: p.page, pageSize: 100, totalPages: 51 }; } });
+  const listCalls = []; const exp = [];
+  const maps = { tier: { toCode: (l) => ({ VIP: 'VIP' })[l] }, status: { toCode: (l) => ({ 'Đang giao dịch': 'ACTIVE' })[l] }, industry: { toCode: () => undefined }, city: { toCode: (l) => ({ 'Hà Nội': 'HN' })[l] } };
+  const repo = { mode: 'api', list: async (p) => { listCalls.push(p); return { items: [], total: 0 }; }, lookups: async () => maps, exportCustomers: async (b) => { exp.push(b); return { blob: {}, rows: 3, skipped: 0 }; } };
+  const ctl = createCustomerApiController(repo);
   await ctl.queryList({ search: 'ab', pageSize: 6 });
-  assert.deepEqual(calls[0], { page: 1, pageSize: 6, search: 'ab' });
-  const result = await ctl.exportList({ search: 'ab' });
-  assert.equal(result.items.length, 5000); assert.equal(result.truncated, true); assert.equal(calls.length, 52);
-  assert.equal(calls[1].search, 'ab');
+  assert.deepEqual(listCalls[0], { page: 1, pageSize: 6, search: 'ab' });
+  const r = await ctl.exportServer({ mode: 'filtered', search: '  ab ', filters: { tier: 'VIP', status: 'Đang giao dịch', city: 'Hà Nội', industry: null }, scope: 'ALL', pageSize: 100000 });
+  assert.equal(r.rows, 3);
+  assert.deepEqual(exp[0], { mode: 'filtered', search: 'ab', tier: 'VIP', status: 'ACTIVE', province: 'HN' });
+  assert.equal(listCalls.length, 1, 'xuất không gọi GET /customers');
+  await ctl.exportServer({ mode: 'selected', ids: ['a', 'a', 'b'], search: 'zz', filters: { tier: 'VIP' } });
+  assert.deepEqual(exp[1], { mode: 'selected', ids: ['a', 'b'] }, 'xuất đã chọn: chỉ ids, không kèm bộ lọc/tìm kiếm');
+  await ctl.exportServer({ mode: 'filtered', search: 'a' });
+  assert.deepEqual(exp[2], { mode: 'filtered' }, 'tìm kiếm < 2 ký tự không gửi');
 });
 
-test('CT-FV4-1: csvSafe chặn chèn công thức Excel, giữ nguyên số điện thoại/số', async () => {
+test('FV-4A F-03: bộ lọc không đổi được sang mã => ExportFilterError, KHÔNG gửi yêu cầu xuất; exportFilterBlock báo đúng trường', async () => {
+  const { createCustomerApiController, exportFilterBlock, ExportFilterError } = await import('../src/features/customers/customerApiUi.js');
+  const exp = [];
+  const maps = { tier: { toCode: () => undefined }, industry: { toCode: () => undefined }, status: { toCode: () => undefined }, city: { toCode: () => undefined } };
+  const ctl = createCustomerApiController({ mode: 'api', lookups: async () => maps, exportCustomers: async (b) => { exp.push(b); return { blob: {}, rows: 0 }; } });
+  await assert.rejects(ctl.exportServer({ mode: 'filtered', filters: { industry: 'Ngành lạ' } }), (e) => e instanceof ExportFilterError && e.field === 'industry' && /Ngành nghề/.test(e.message));
+  assert.equal(exp.length, 0);
+  assert.equal(exportFilterBlock({ tier: 'VIP' }, null), 'tier', 'chưa có maps => khoá');
+  assert.equal(exportFilterBlock({ tier: null, industry: null }, null), null, 'không có bộ lọc => không khoá');
+  const lookupFail = createCustomerApiController({ mode: 'api', lookups: async () => { throw new Error('403'); }, exportCustomers: async (b) => { exp.push(b); } });
+  await assert.rejects(lookupFail.exportServer({ mode: 'filtered', filters: { tier: 'VIP' } }), ExportFilterError);
+  assert.equal(exp.length, 0);
+});
+
+test('FV-4A F-04: thông báo theo mã lỗi máy chủ (403/422/429 Retry-After/503/500)', async () => {
+  const { exportErrorMessage, ExportFilterError } = await import('../src/features/customers/customerApiUi.js');
+  assert.match(exportErrorMessage({ status: 403, code: 'FORBIDDEN' }), /không có quyền xuất/);
+  assert.match(exportErrorMessage({ status: 422, code: 'EXPORT_TOO_LARGE' }), /hơn 5\.000.*thu hẹp bộ lọc/);
+  assert.match(exportErrorMessage({ status: 429, code: 'EXPORT_RATE_LIMITED', retryAfter: 600 }), /10 lần trong 1 giờ.*10 phút/);
+  assert.match(exportErrorMessage({ status: 429, code: 'EXPORT_IN_PROGRESS' }), /bận/);
+  assert.match(exportErrorMessage({ status: 503, code: 'EXPORT_BUSY' }), /bận/);
+  assert.match(exportErrorMessage({ status: 500, code: 'EXPORT_FAILED' }), /Không xuất được/);
+  assert.match(exportErrorMessage(new ExportFilterError('city')), /Tỉnh\/thành/);
+});
+
+test('CT-FV4-1: csvSafe (chỉ còn dùng cho chế độ demo cục bộ) chặn chèn công thức Excel', async () => {
   const { csvSafe } = await import('../src/features/customers/customerApiUi.js');
   for (const bad of ['=HYPERLINK("x")', '@SUM(A1)', '+cmd|x', '-2+3+cmd', '\t=1', '\r=1']) assert.equal(csvSafe(bad), "'" + bad, bad);
   for (const ok of ['+84 903 123 456', '-1', '0903.123.456', 'Công ty A', '', 'a=b']) assert.equal(csvSafe(ok), ok, ok);
   assert.equal(csvSafe(null), ''); assert.equal(csvSafe(undefined), '');
 });
 
-test('CT-FV4-1 phạm vi (Owner 08/11/2026): xuất KHÔNG vượt phạm vi máy chủ — chỉ gửi page/pageSize/search (tham số lạ bị bỏ), chỉ xuất đúng dòng máy chủ trả, bộ lọc giao diện chỉ thu hẹp', async () => {
-  const { createCustomerApiController } = await import('../src/features/customers/customerApiUi.js');
-  const served = [];
-  const calls = []; const ctl = createCustomerApiController({ mode: 'api', list: async (p) => {
-    calls.push(p);
-    const items = Array.from({ length: p.page === 1 ? 100 : 30 }, (_, i) => ({ id: p.page + '-' + i, tier: i % 2 ? 'VIP' : 'Thường' }));
-    served.push(...items);
-    return { items, total: 130, page: p.page, pageSize: 100, totalPages: 2 };
-  } });
-  // Cố tình truyền tham số mở rộng phạm vi: không tham số nào được gửi đi (máy chủ tự lọc theo quyền của phiên).
-  const r = await ctl.exportList({ search: 'ab', scope: 'ALL', ownerId: 'x', deleted: 'only', all: true, pageSize: 100000 }, (c) => c.tier === 'VIP');
-  assert.equal(calls.length, 2);
-  for (const c of calls) assert.deepEqual(Object.keys(c).sort(), ['page', 'pageSize', 'search'], 'chỉ page/pageSize/search');
-  assert.ok(calls.every((c) => c.pageSize === 100), 'pageSize bị chặn ở mức tối đa API (100)');
-  const ids = new Set(served.map((x) => x.id));
-  assert.ok(r.items.every((x) => ids.has(x.id)), 'mọi dòng xuất đều do máy chủ trả');
-  assert.equal(r.items.length, served.filter((x) => x.tier === 'VIP').length, 'bộ lọc giao diện chỉ thu hẹp');
-  assert.ok(r.items.every((x) => x.tier === 'VIP'));
-});
 
-test('CT-FV4-1: lỗi ở trang sau không trả dữ liệu xuất dở', async () => {
-  const { createCustomerApiController } = await import('../src/features/customers/customerApiUi.js');
-  const ctl = createCustomerApiController({ mode: 'api', list: async (p) => { if (p.page === 2) throw Error('lỗi'); return { items: Array.from({ length: 100 }, () => ({})), total: 200, page: 1, pageSize: 100, totalPages: 2 }; } });
-  await assert.rejects(ctl.exportList({}), /lỗi/);
+test('FV-4A F-02: client xuất dùng phiên cookie => POST kèm X-CSRF-Token, credentials include; thiếu CSRF => không gọi mạng; trả Blob nguyên byte + header', async () => {
+  const { createCustomerApi } = await import('../src/data/api/customerApiClient.js');
+  const calls = [];
+  const bytes = new Uint8Array([0xef, 0xbb, 0xbf, 65]);
+  const f = async (url, init) => { calls.push({ url, init }); return { ok: true, status: 200, headers: { get: (k) => ({ 'x-export-rows': '7', 'x-export-skipped': '2', 'x-export-id': 'r1' })[k.toLowerCase()] ?? null }, blob: async () => new Blob([bytes]) }; };
+  const session = (csrf) => ({ getState: () => ({ status: 'AUTHENTICATED', employeeId: 'e1' }), getCsrfToken: () => csrf, handleUnauthorized() {} });
+  const api = createCustomerApi({ enabled: true, baseUrl: 'http://x/api/v1' }, f, { session: session('tok') });
+  const r = await api.exportCustomers({ mode: 'filtered' });
+  assert.equal(calls[0].url, 'http://x/api/v1/customers/export');
+  assert.equal(calls[0].init.method, 'POST'); assert.equal(calls[0].init.credentials, 'include');
+  assert.equal(calls[0].init.headers['X-CSRF-Token'], 'tok');
+  assert.deepEqual([r.rows, r.skipped, r.exportId], [7, 2, 'r1']);
+  assert.deepEqual([...new Uint8Array(await r.blob.arrayBuffer())], [0xef, 0xbb, 0xbf, 65]);
+  const api2 = createCustomerApi({ enabled: true, baseUrl: 'http://x/api/v1' }, f, { session: session(null) });
+  await assert.rejects(api2.exportCustomers({ mode: 'filtered' }));
+  assert.equal(calls.length, 1, 'thiếu CSRF: không gọi mạng');
 });
-
