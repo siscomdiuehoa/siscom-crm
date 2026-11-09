@@ -12,7 +12,9 @@ export const RANK: Record<Scope, number> = { OWN: 1, DEPARTMENT: 2, ALL: 3 };
 const SCOPES = new Set<string>(['ALL', 'DEPARTMENT', 'OWN']);
 export const KNOWN: ReadonlySet<string> = new Set<Permission>(['customer.read', 'customer.create', 'customer.update', 'customer.delete', 'customer.restore', 'contact.read', 'contact.create', 'lookup.read',
   // B3 A4
-  'activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request']);
+  'activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request',
+  // FV-4A
+  'customer.export']);
 
 export interface RoleGrantRow {
   role: { code: string; isConfirmed: boolean; permissions: ReadonlyArray<{ scope: unknown; permission: { code: string } }> };
