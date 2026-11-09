@@ -1,0 +1,118 @@
+-- SISCOM CRM - FV-4A: DIEN TAP script cap quyen 2 nguoi FV4_EXPORT_PERMISSION.sql.txt (+ REMOVE) tren DB TAM. Mau: B3_ACTIVITY_PERMISSIONS_TEST.sql.txt.
+-- CHI CHAY TREN BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) bang chu so huu (siscom_migrator sau tach role), TRUOC bootstrap:
+--   tien dieu kien RBAC rong + chua co auth_bootstrap_done. Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu).
+-- Ca phu (V5 trong dac ta): 01 cap dung + audit; 05 chay lai idempotent; 04 SoD admin; REMOVE tu choi khi cap ngoai ma tran;
+--   11 REMOVE go sach + bao toan quyen khac; 13 ROLLBACK cuoi. Cac ca tu choi o muc file (02 cung nguoi, 03 nguoi duyet thieu quyen,
+--   06 lech scope, 07 bootstrap mo, 08 ten DB cam, 09 sai role) chay rieng tung lan psql trong dien tap (moi lan mot transaction).
+-- In "PASS|n" / "FAIL|n".
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF to_regprocedure('public.fn_auth_api_role_permission_change(uuid, uuid)') IS NULL THEN RAISE EXCEPTION 'Chua ap M1.2.'; END IF;
+  IF NOT has_function_privilege(current_user, 'public.fn_auth_bootstrap_close(text)', 'EXECUTE') THEN RAISE EXCEPTION 'Phai chay bang chu so huu.'; END IF;
+  IF EXISTS (SELECT 1 FROM role) OR EXISTS (SELECT 1 FROM permission) OR EXISTS (SELECT 1 FROM employee_role)
+     OR EXISTS (SELECT 1 FROM privileged_change_request) OR EXISTS (SELECT 1 FROM app_meta WHERE key = 'auth_bootstrap_done') THEN
+    RAISE EXCEPTION 'Tien dieu kien: bang RBAC/auth phai rong va chua co auth_bootstrap_done.';
+  END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text) ON COMMIT DROP;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_sql text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v boolean;
+BEGIN
+  EXECUTE 'SELECT (' || p_sql || ')' INTO v;
+  INSERT INTO res VALUES (coalesce(v, false), p_label);
+EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQLSTATE || ' ' || left(SQLERRM, 80) || ']');
+END $$;
+
+-- Seed toi thieu: quyen he thong + 1 quyen BIZ khac (phai duoc giu nguyen), 5 vai tro that + 1 vai tro ngoai ma tran, 2 nguoi co credential
+INSERT INTO permission (id, code) VALUES ('f4a00000-0000-4000-8000-000000000001', 'access.approve'), ('f4a00000-0000-4000-8000-000000000002', 'access.request'),
+ ('f4a00000-0000-4000-8000-000000000003', 'customer.read');
+INSERT INTO role (id, code, name, is_system, is_confirmed) VALUES
+ ('f4a01000-0000-4000-8000-000000000001', 'admin',      'FV4A sysadmin',   true, true),
+ ('f4a01000-0000-4000-8000-000000000002', 'crm_admin',  'FV4A crm_admin',  true, true),
+ ('f4a01000-0000-4000-8000-000000000003', 'sales',      'FV4A sales',      true, true),
+ ('f4a01000-0000-4000-8000-000000000004', 'technician', 'FV4A technician', true, true),
+ ('f4a01000-0000-4000-8000-000000000005', 'accountant', 'FV4A accountant', true, true),
+ ('f4a01000-0000-4000-8000-000000000006', 'director',   'FV4A vai tro ngoai ma tran', false, true);
+INSERT INTO role_permission (role_id, permission_id, scope) VALUES
+ ('f4a01000-0000-4000-8000-000000000001', 'f4a00000-0000-4000-8000-000000000002', 'ALL'),
+ ('f4a01000-0000-4000-8000-000000000002', 'f4a00000-0000-4000-8000-000000000001', 'ALL');
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('f4a02000-0000-4000-8000-000000000001', 'FV4A Sysadmin', 'fv4a.sys@example.invalid', 'ACTIVE', true),
+ ('f4a02000-0000-4000-8000-000000000002', 'FV4A CRM admin', 'fv4a.crm@example.invalid', 'ACTIVE', true);
+INSERT INTO employee_credential (employee_id, password_hash, password_algo, password_params) VALUES
+ ('f4a02000-0000-4000-8000-000000000001', '$argon2id$v=19$thu-f4as', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('f4a02000-0000-4000-8000-000000000002', '$argon2id$v=19$thu-f4ac', 'argon2id', '{"m":65536,"t":3,"p":1}');
+INSERT INTO employee_role (employee_id, role_id) VALUES
+ ('f4a02000-0000-4000-8000-000000000001', 'f4a01000-0000-4000-8000-000000000001'),
+ ('f4a02000-0000-4000-8000-000000000002', 'f4a01000-0000-4000-8000-000000000002');
+SELECT fn_auth_bootstrap_close('fv4a') AS dong_khoi_tao;
+SELECT pg_temp.expect_true('T01 bootstrap da dong', $q$ NOT fn_auth_bootstrap_open() $q$);
+CREATE TEMP TABLE fv4_base ON COMMIT DROP AS SELECT (SELECT count(*) FROM privileged_change_request) AS yeu_cau_truoc, 0::bigint AS yeu_cau_sau1;
+
+-- 1. ADD (V5-01)
+\set fv4_nested 1
+\set fv4_sysadmin f4a02000-0000-4000-8000-000000000001
+\set fv4_approver f4a02000-0000-4000-8000-000000000002
+\ir FV4_EXPORT_PERMISSION.sql.txt
+SELECT pg_temp.expect_true('T02 co dung 1 ma customer.export', $q$ (SELECT count(*) = 1 FROM permission WHERE code = 'customer.export') $q$);
+SELECT pg_temp.expect_true('T03 dung 1 dong: crm_admin / customer.export / ALL', $q$ (SELECT array_agg(r.code || ':' || rp.scope::text) = ARRAY['crm_admin:ALL'] FROM role_permission rp JOIN permission p ON p.id = rp.permission_id JOIN role r ON r.id = rp.role_id WHERE p.code = 'customer.export') $q$);
+SELECT pg_temp.expect_true('T04 admin/sales/technician/accountant/director KHONG co customer.export', $q$ NOT EXISTS (SELECT 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id JOIN role r ON r.id = rp.role_id WHERE p.code = 'customer.export' AND r.code <> 'crm_admin') $q$);
+SELECT pg_temp.expect_true('T05 1 yeu cau ROLE_PERMISSION_CHANGE EXECUTED', $q$ (SELECT count(*) = (SELECT yeu_cau_truoc FROM fv4_base) + 1 FROM privileged_change_request WHERE type = 'ROLE_PERMISSION_CHANGE' AND status = 'EXECUTED') $q$);
+SELECT pg_temp.expect_true('T06 audit_log co dong ROLE_PERMISSION_CHANGE', $q$ (SELECT count(*) = 1 FROM audit_log WHERE action = 'ROLE_PERMISSION_CHANGE') $q$);
+SELECT pg_temp.expect_true('T07 customer.export thuoc nhom BIZ (SoD)', $q$ fn_auth_perm_class('customer.export') = 'BIZ' $q$);
+-- 2. ADD lan 2 (V5-05): idempotent
+UPDATE fv4_base SET yeu_cau_sau1 = (SELECT count(*) FROM privileged_change_request);
+\ir FV4_EXPORT_PERMISSION.sql.txt
+SELECT pg_temp.expect_true('T08 chay lai: van 1 dong, khong tao them yeu cau', $q$ (SELECT count(*) = 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code = 'customer.export') AND (SELECT count(*) = (SELECT yeu_cau_sau1 FROM fv4_base) FROM privileged_change_request) $q$);
+-- 3. SoD (V5-04): cap customer.export cho admin (sysadmin) qua API bi tu choi
+CREATE FUNCTION pg_temp.sod_try() RETURNS text LANGUAGE plpgsql AS $$
+DECLARE v_req uuid;
+BEGIN
+  v_req := fn_auth_api_request_create('f4a02000-0000-4000-8000-000000000001', 'ROLE_PERMISSION_CHANGE', NULL, 'f4a01000-0000-4000-8000-000000000001',
+             jsonb_build_object('op', 'ADD', 'permissionId', (SELECT id FROM permission WHERE code = 'customer.export'), 'scope', 'ALL'), 60);
+  PERFORM fn_auth_api_request_decide('f4a02000-0000-4000-8000-000000000002', v_req, true);
+  PERFORM fn_auth_api_role_permission_change('f4a02000-0000-4000-8000-000000000001', v_req);
+  RETURN 'CHAY DUOC';
+EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE;
+END $$;
+SELECT pg_temp.expect_true('T09 SoD: cap customer.export cho admin bi tu choi (23514/42501), khong de lai dong', $q$ (pg_temp.sod_try() IN ('23514', '42501')) AND NOT EXISTS (SELECT 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id JOIN role r ON r.id = rp.role_id WHERE p.code = 'customer.export' AND r.code = 'admin') $q$);
+-- 3b. Quyen khac (sales:customer.read OWN) qua dung luong 2 nguoi => REMOVE phai GIU NGUYEN
+CREATE FUNCTION pg_temp.cap(p_role uuid, p_code text, p_scope text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_req uuid;
+BEGIN
+  v_req := fn_auth_api_request_create('f4a02000-0000-4000-8000-000000000001', 'ROLE_PERMISSION_CHANGE', NULL, p_role,
+             jsonb_build_object('op', 'ADD', 'permissionId', (SELECT id FROM permission WHERE code = p_code), 'scope', p_scope, 't', p_code), 60);
+  PERFORM fn_auth_api_request_decide('f4a02000-0000-4000-8000-000000000002', v_req, true);
+  PERFORM fn_auth_api_role_permission_change('f4a02000-0000-4000-8000-000000000001', v_req);
+END $$;
+SELECT pg_temp.cap('f4a01000-0000-4000-8000-000000000003', 'customer.read', 'OWN');
+CREATE TEMP TABLE fv4_keep ON COMMIT DROP AS
+  SELECT rp.role_id, rp.permission_id, rp.scope FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code <> 'customer.export';
+SELECT pg_temp.expect_true('T10 truoc REMOVE: 3 dong khac (2 access.* he thong, sales:customer.read)', $q$ (SELECT count(*) = 3 FROM fv4_keep) $q$);
+-- 3c. REMOVE phai TU CHOI khi customer.export bi cap NGOAI ma tran (director:customer.export:OWN)
+SAVEPOINT fv4_rf;
+SELECT pg_temp.cap('f4a01000-0000-4000-8000-000000000006', 'customer.export', 'OWN');
+\set ON_ERROR_STOP off
+\ir FV4_EXPORT_PERMISSION_REMOVE.sql.txt
+\set ON_ERROR_STOP on
+ROLLBACK TO SAVEPOINT fv4_rf;
+SELECT pg_temp.expect_true('T11 REMOVE TU CHOI khi cap ngoai ma tran (director:customer.export:OWN)', quote_literal(:'fv4_rm_unexpected') || '::boolean AND ' || quote_literal(:'fv4_rm_unexpected_list') || ' = ''director:customer.export:OWN''');
+SELECT pg_temp.expect_true('T12 sau tu choi: dong crm_admin + 3 dong khac con nguyen', $q$ (SELECT count(*) = 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code = 'customer.export') AND (SELECT count(*) = 3 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code <> 'customer.export') $q$);
+-- 4. REMOVE (V5-11)
+\ir FV4_EXPORT_PERMISSION_REMOVE.sql.txt
+SELECT pg_temp.expect_true('T13 REMOVE: khong con dong / ma customer.export', $q$ NOT EXISTS (SELECT 1 FROM permission WHERE code = 'customer.export') $q$);
+SELECT pg_temp.expect_true('T14 REMOVE: 1 yeu cau REMOVE EXECUTED', $q$ (SELECT count(*) = 1 FROM privileged_change_request WHERE type = 'ROLE_PERMISSION_CHANGE' AND payload->>'op' = 'REMOVE' AND status = 'EXECUTED') $q$);
+SELECT pg_temp.expect_true('T15 BAO TOAN: moi dong role_permission khac GIONG HET truoc REMOVE', $q$ NOT EXISTS ((SELECT role_id, permission_id, scope FROM fv4_keep) EXCEPT (SELECT role_id, permission_id, scope FROM role_permission)) AND (SELECT count(*) = 3 FROM role_permission) $q$);
+
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
+SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+ROLLBACK;

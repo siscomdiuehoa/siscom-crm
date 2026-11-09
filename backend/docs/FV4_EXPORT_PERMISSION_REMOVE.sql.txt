@@ -1,0 +1,108 @@
+-- SISCOM CRM - FV-4A: ROLLBACK cua FV4_EXPORT_PERMISSION.sql.txt - GO dong role_permission cua ma customer.export qua yeu cau 2 nguoi (op=REMOVE) ROI xoa ma.
+-- VIET SAN, KHONG TU CHAY. Chay bang siscom_migrator: psql -X -v ON_ERROR_STOP=1 -v fv4_sysadmin=<uuid> -v fv4_approver=<uuid> -d <db> -f FV4_EXPORT_PERMISSION_REMOVE.sql.txt
+-- PHAM VI: CHI ma customer.export. Moi quyen khac GIU NGUYEN; hau kiem so sanh dau van tay (md5) toan bo role_permission ngoai ma nay truoc/sau.
+-- TU CHOI (khong go gi) khi customer.export dang duoc cap NGOAI ma tran FV-4A (vai tro khac hoac scope khac) - xu ly tay qua yeu cau 2 nguoi rieng.
+-- FK role_permission.permission_id la ON DELETE CASCADE => truoc DELETE permission PHAI tien kiem "khong con dong role_permission". Audit do ham API ghi.
+-- Sau khi go: backend doc lai quyen MOI request (SessionActorProvider) => request xuat ke tiep nhan 403.
+\if :{?fv4_nested}
+\else
+\set ON_ERROR_STOP on
+\endif
+\pset pager off
+\if :{?fv4_sysadmin}
+\else
+\set fv4_sysadmin ''
+\endif
+\if :{?fv4_approver}
+\else
+\set fv4_approver ''
+\endif
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dich, current_user AS chay_bang;
+\if :{?fv4_nested}
+\else
+BEGIN;
+\endif
+-- CHI ma customer.export (FV-4A). Khong dung LIKE: moi ma khac duoc giu nguyen.
+SELECT set_config('fv4.sysadmin', :'fv4_sysadmin', true), set_config('fv4.approver', :'fv4_approver', true),
+       set_config('fv4.codes', 'customer.export', true);
+DO $$
+DECLARE v_sys uuid; v_app uuid;
+BEGIN
+  IF current_database() = 'siscom_crm_dev' AND coalesce(current_setting('s1.allow_dev', true), '') <> 'yes' THEN
+    RAISE EXCEPTION 'TU CHOI: siscom_crm_dev. Can phe duyet rieng (SET s1.allow_dev = yes trong cung phien).';
+  END IF;
+  IF current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % la baseline da khoa.', current_database();
+  END IF;
+  IF NOT has_function_privilege(current_user, 'public.fn_auth_api_role_permission_change(uuid, uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Phai chay bang chu so huu (siscom_migrator).';
+  END IF;
+  IF public.fn_auth_bootstrap_open() THEN RAISE EXCEPTION 'Bootstrap con MO: khong co gi de go qua API dac quyen.'; END IF;
+  BEGIN
+    v_sys := nullif(current_setting('fv4.sysadmin', true), '')::uuid; v_app := nullif(current_setting('fv4.approver', true), '')::uuid;
+  EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'fv4_sysadmin / fv4_approver phai la uuid.';
+  END;
+  IF v_sys IS NULL OR v_app IS NULL THEN RAISE EXCEPTION 'Thieu -v fv4_sysadmin=<uuid> va/hoac -v fv4_approver=<uuid>.'; END IF;
+  IF v_sys = v_app THEN RAISE EXCEPTION 'TU CHOI: nguoi yeu cau va nguoi duyet phai KHAC nhau (2 nguoi).'; END IF;
+END $$;
+
+-- 0a. Quyen NGOAI ma tran FV-4A tren ma customer.export => TU CHOI (khong go gi). Ma tran 1 dong = FV4_EXPORT_PERMISSION.sql.txt.
+SELECT (count(*) > 0) AS fv4_rm_unexpected, coalesce(string_agg(x, ', ' ORDER BY x), '') AS fv4_rm_unexpected_list FROM (
+  SELECT ro.code || ':' || p.code || ':' || rp.scope::text AS x
+  FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id JOIN public.role ro ON ro.id = rp.role_id
+  WHERE p.code = ANY (string_to_array(current_setting('fv4.codes'), ','))
+    AND (ro.code, p.code, rp.scope::text) NOT IN (SELECT m.role_code, m.perm_code, m.scope FROM (VALUES
+      ('crm_admin',  'customer.export',           'ALL')
+    ) AS m(role_code, perm_code, scope))
+) u \gset
+\if :fv4_rm_unexpected
+\echo 'TU CHOI REMOVE: ma customer.export dang duoc cap NGOAI ma tran (co the la thay doi co duyet sau FV-4A) - xu ly tay roi chay lai:' :fv4_rm_unexpected_list
+SELECT fv4_remove_tu_choi_quyen_ngoai_ma_tran();
+\endif
+-- 0c. Dau van tay moi role_permission NGOAI ma customer.export (bao toan quyen khac)
+SELECT set_config('fv4.keep_fp', (SELECT coalesce(md5(string_agg(rp.role_id::text || '/' || rp.permission_id::text || '/' || rp.scope::text, ',' ORDER BY rp.role_id, rp.permission_id)), '-')
+  FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id WHERE p.code <> ALL (string_to_array(current_setting('fv4.codes'), ','))), true);
+
+-- 1. Go TUNG dong role_permission cua ma customer.export (moi dong mot yeu cau REMOVE)
+DO $$
+DECLARE v_sys uuid := current_setting('fv4.sysadmin')::uuid; v_app uuid := current_setting('fv4.approver')::uuid; r record; v_req uuid; n int := 0;
+BEGIN
+  FOR r IN SELECT rp.role_id, rp.permission_id, ro.code AS role_code, p.code AS perm_code
+           FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id JOIN public.role ro ON ro.id = rp.role_id
+           WHERE p.code = ANY (string_to_array(current_setting('fv4.codes'), ',')) ORDER BY ro.code, p.code
+  LOOP
+    v_req := public.fn_auth_api_request_create(v_sys, 'ROLE_PERMISSION_CHANGE', NULL, r.role_id,
+               jsonb_build_object('op', 'REMOVE', 'permissionId', r.permission_id, 'fv4', r.role_code || ':' || r.perm_code), 60);
+    PERFORM public.fn_auth_api_request_decide(v_app, v_req, true);
+    PERFORM public.fn_auth_api_role_permission_change(v_sys, v_req);
+    n := n + 1;
+  END LOOP;
+  RAISE NOTICE 'FV-4A REMOVE: da go % dong role_permission cua ma customer.export', n;
+END $$;
+
+-- 2. Tien kiem roi xoa ma customer.export (FK la CASCADE => phai chac buoc 1 da sach, khong dua vao FK)
+DO $$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id
+   WHERE p.code = ANY (string_to_array(current_setting('fv4.codes'), ','));
+  IF n > 0 THEN RAISE EXCEPTION 'TU CHOI: con % dong role_permission cua ma customer.export sau buoc REMOVE - khong DELETE permission (FK CASCADE).', n; END IF;
+END $$;
+DELETE FROM public.permission WHERE code = ANY (string_to_array(current_setting('fv4.codes'), ','));
+-- 3. Hau kiem: ma customer.export da het; quyen khac KHONG doi (dau van tay)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM public.permission WHERE code = ANY (string_to_array(current_setting('fv4.codes'), ','))) THEN
+    RAISE EXCEPTION 'REMOVE chua sach: con ma customer.export trong permission.';
+  END IF;
+  IF (SELECT coalesce(md5(string_agg(rp.role_id::text || '/' || rp.permission_id::text || '/' || rp.scope::text, ',' ORDER BY rp.role_id, rp.permission_id)), '-')
+        FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id
+       WHERE p.code <> ALL (string_to_array(current_setting('fv4.codes'), ','))) <> current_setting('fv4.keep_fp') THEN
+    RAISE EXCEPTION 'REMOVE lam thay doi quyen NGOAI ma customer.export - huy toan bo.';
+  END IF;
+END $$;
+\if :{?fv4_nested}
+\else
+COMMIT;
+\endif
+SELECT 'FV4_EXPORT_PERMISSION_REMOVE XONG' AS ket_qua;

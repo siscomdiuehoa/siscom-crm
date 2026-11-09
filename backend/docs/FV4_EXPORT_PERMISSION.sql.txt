@@ -1,0 +1,94 @@
+-- SISCOM CRM - FV-4A: CAP ma quyen customer.export (1 dong role_permission: crm_admin ALL) cho DB DA BOOTSTRAP (demo / that) qua YEU CAU DAC QUYEN 2 NGUOI.
+-- Dich: D:\SISCOM-CRM\backend\docs\FV4_EXPORT_PERMISSION.sql.txt (file moi, 10/11/2026). Dac ta FV4A ban 5 §1, D-E1, D-E7. Mau: B3_ACTIVITY_PERMISSIONS.sql.txt.
+-- Chay bang psql -f voi siscom_migrator (chu so huu; cac ham fn_auth_api_* da REVOKE FROM PUBLIC) tren DATABASE DICH:
+--   psql -X -v ON_ERROR_STOP=1 -v fv4_sysadmin=<uuid nhan vien nhom REQUEST (vai tro admin)> -v fv4_approver=<uuid nhan vien co access.approve (crm_admin)> -d <db> -f FV4_EXPORT_PERMISSION.sql.txt
+-- Hai nguoi phai KHAC nhau, employee ACTIVE + credential ACTIVE (fn_auth_api_actor). Bootstrap phai DA DONG (DB moi tinh: ma tran BIZ trong bootstrap.ts).
+-- Dong = MOT yeu cau rieng: fn_auth_api_request_create (sysadmin, ROLE_PERMISSION_CHANGE, op=ADD) -> fn_auth_api_request_decide (approver)
+--   -> fn_auth_api_role_permission_change (sysadmin). IDEMPOTENT: dong da co DUNG scope thi BO QUA; lech scope => TU CHOI (khong tu SET_SCOPE).
+-- Audit: yeu cau/duyet/thuc thi do cac ham API ghi. admin (sysadmin) KHONG duoc cap BIZ (SoD, trigger M1). customer.* tu thuoc nhom BIZ.
+-- Rollback: FV4_EXPORT_PERMISSION_REMOVE.sql.txt. CHUA ap len DB demo/that nao: moi DB can Owner duyet rieng (D-E7).
+-- Dien tap: FV4_EXPORT_PERMISSION_TEST.sql.txt (\ir file nay voi fv4_nested=1: trong transaction ngoai va ROLLBACK).
+\set ON_ERROR_STOP on
+\pset pager off
+\if :{?fv4_sysadmin}
+\else
+\set fv4_sysadmin ''
+\endif
+\if :{?fv4_approver}
+\else
+\set fv4_approver ''
+\endif
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dich, current_user AS chay_bang;
+\if :{?fv4_nested}
+\else
+BEGIN;
+\endif
+SELECT set_config('fv4.sysadmin', :'fv4_sysadmin', true), set_config('fv4.approver', :'fv4_approver', true);
+DO $$
+DECLARE v_sys uuid; v_app uuid;
+BEGIN
+  IF current_database() = 'siscom_crm_dev' AND coalesce(current_setting('s1.allow_dev', true), '') <> 'yes' THEN
+    RAISE EXCEPTION 'TU CHOI: siscom_crm_dev. Can phe duyet rieng (SET s1.allow_dev = yes trong cung phien).';
+  END IF;
+  IF current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % la baseline da khoa.', current_database();
+  END IF;
+  IF to_regprocedure('public.fn_auth_api_role_permission_change(uuid, uuid)') IS NULL THEN RAISE EXCEPTION 'Chua ap M1.2 (thieu fn_auth_api_role_permission_change).'; END IF;
+  IF NOT has_function_privilege(current_user, 'public.fn_auth_api_role_permission_change(uuid, uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Phai chay bang chu so huu (siscom_migrator): % khong EXECUTE duoc ham API dac quyen.', current_user;
+  END IF;
+  IF public.fn_auth_bootstrap_open() THEN
+    RAISE EXCEPTION 'Bootstrap con MO: DB moi tinh lay ma tran tu bootstrap.ts (auth:bootstrap), khong dung file nay.';
+  END IF;
+  BEGIN
+    v_sys := nullif(current_setting('fv4.sysadmin', true), '')::uuid; v_app := nullif(current_setting('fv4.approver', true), '')::uuid;
+  EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'fv4_sysadmin / fv4_approver phai la uuid (psql -v fv4_sysadmin=... -v fv4_approver=...).';
+  END;
+  IF v_sys IS NULL OR v_app IS NULL THEN RAISE EXCEPTION 'Thieu -v fv4_sysadmin=<uuid> va/hoac -v fv4_approver=<uuid>.'; END IF;
+  IF v_sys = v_app THEN RAISE EXCEPTION 'TU CHOI: nguoi yeu cau va nguoi duyet phai KHAC nhau (2 nguoi).'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.role WHERE code IN ('crm_admin', 'sales', 'technician', 'accountant') HAVING count(*) = 4) THEN
+    RAISE EXCEPTION 'Thieu vai tro crm_admin/sales/technician/accountant (DB chua bootstrap dung).';
+  END IF;
+END $$;
+
+-- 1. Catalog quyen: 1 ma customer.export (bo qua neu da co)
+INSERT INTO public.permission (code) VALUES ('customer.export') ON CONFLICT (code) DO NOTHING;
+
+-- 2. 1 dong role_permission (D-E1: crm_admin ALL; sales/technician/accountant KHONG cap) - mot yeu cau 2 nguoi; da co => bo qua
+DO $$
+DECLARE v_sys uuid := current_setting('fv4.sysadmin')::uuid; v_app uuid := current_setting('fv4.approver')::uuid;
+        r record; v_role uuid; v_perm uuid; v_req uuid; n_added int := 0; n_skipped int := 0;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      ('crm_admin',  'customer.export',           'ALL')
+    ) AS m(role_code, perm_code, scope)
+  LOOP
+    SELECT id INTO v_role FROM public.role WHERE code = r.role_code;
+    SELECT id INTO v_perm FROM public.permission WHERE code = r.perm_code;
+    IF EXISTS (SELECT 1 FROM public.role_permission WHERE role_id = v_role AND permission_id = v_perm) THEN
+      -- dong da co: bo qua CHI KHI scope dung ma tran; lech scope => tu choi (khong tu SET_SCOPE, xu ly tay co duyet)
+      IF NOT EXISTS (SELECT 1 FROM public.role_permission WHERE role_id = v_role AND permission_id = v_perm AND scope::text = r.scope) THEN
+        RAISE EXCEPTION 'TU CHOI: %:% da co nhung scope khac ma tran (%), khong tu doi.', r.role_code, r.perm_code, r.scope;
+      END IF;
+      n_skipped := n_skipped + 1; CONTINUE;
+    END IF;
+    v_req := public.fn_auth_api_request_create(v_sys, 'ROLE_PERMISSION_CHANGE', NULL, v_role,
+               jsonb_build_object('op', 'ADD', 'permissionId', v_perm, 'scope', r.scope, 'fv4', r.role_code || ':' || r.perm_code), 60);
+    PERFORM public.fn_auth_api_request_decide(v_app, v_req, true);
+    PERFORM public.fn_auth_api_role_permission_change(v_sys, v_req);
+    n_added := n_added + 1;
+  END LOOP;
+  RAISE NOTICE 'FV-4A: da cap % dong, bo qua % dong da co.', n_added, n_skipped;
+END $$;
+
+-- 3. Tom tat (ky vong: 1 ma; crm_admin 1; admin/sales/technician/accountant 0)
+SELECT 'ma_customer_export (phai 1)' AS muc, count(*)::text AS gia_tri FROM public.permission WHERE code = 'customer.export'
+UNION ALL SELECT 'dong_' || r.code || ' (phai ' || CASE r.code WHEN 'crm_admin' THEN 1 ELSE 0 END || ')', count(p.id)::text
+  FROM public.role r LEFT JOIN public.role_permission rp ON rp.role_id = r.id LEFT JOIN public.permission p ON p.id = rp.permission_id AND p.code = 'customer.export'
+  WHERE r.code IN ('admin', 'crm_admin', 'sales', 'technician', 'accountant') GROUP BY r.code;
+\if :{?fv4_nested}
+\else
+COMMIT;
+\endif
+SELECT 'FV4_EXPORT_PERMISSION XONG' AS ket_qua;
