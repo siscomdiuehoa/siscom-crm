@@ -16,7 +16,7 @@ const act1 = (over = {}) => ({ id: 'a1', code: 'HD-000001', customerId: ID, type
 const page = (items, over = {}) => ({ data: { items, page: 1, pageSize: 20, total: items.length, totalPages: items.length ? 1 : 0, ...over } });
 
 // list(q): body cho GET /activities (q = URLSearchParams). post(body): response cho POST.
-const server = ({ list = () => page([act1()]), post, cands = () => res(200, { data: { items: [{ id: 'e2', code: 'NV-002', fullName: 'Lê Kỹ Thuật', departmentCode: 'KT' }] } }), contacts = () => [] } = {}) => {
+const server = ({ list = () => page([act1()]), post, cands = () => res(200, { data: { items: [{ id: 'e2', code: 'NV-002', fullName: 'Lê Kỹ Thuật', departmentCode: 'KT' }] } }), contacts = () => [], contactWrite } = {}) => {
   const calls = [];
   const f = async (url, init = {}) => {
     const method = init.method || 'GET'; const u = new URL(url); const p = u.pathname; const body = init.body ? JSON.parse(init.body) : null;
@@ -24,6 +24,7 @@ const server = ({ list = () => page([act1()]), post, cands = () => res(200, { da
     if (p.endsWith('/activities/assignee-candidates')) return cands(u.searchParams);
     if (p.endsWith('/activities') && method === 'GET') { const r = list(u.searchParams); return typeof r.status === 'number' ? r : res(200, r); }
     if (p.endsWith('/activities') && method === 'POST') return post ? post(body) : res(201, { data: act1({ id: 'a9', type: body.type, content: body.content }) });
+    if (p.includes('/contacts') && method !== 'GET') return contactWrite ? contactWrite(method, p, body) : res(500, { error: { code: 'INTERNAL', message: 'x' } });
     if (p.endsWith('/contacts')) return res(200, { data: { items: contacts() } });
     return res(200, { data: apiCust() });
   };
@@ -270,6 +271,213 @@ test('đóng drawer khi đã nhập => hỏi xác nhận (ui.confirm); chưa nh�
     type(inputByLabel(dialog(m.container), /^Nội dung/), 'Đang viết dở'); await flush();
     await doAct(() => click(buttonByText(dialog(m.container), /^Huỷ$/)));
     assert.equal(m.confirms.length, 1); assert.ok(dialog(m.container));
+  } finally { await m.unmount(); }
+});
+
+// ───── FV-3 (CT-FV3-1): thêm / sửa / xoá mềm người liên hệ trong tab "Người liên hệ" (API #223) ─────
+const K1 = '11111111-2222-4333-8444-555555555555';
+const U1 = '2026-11-01T00:00:00.000Z'; const U2 = '2026-11-01T00:05:00.000Z';
+const ct1 = (over = {}) => ({ id: K1, code: 'LH-000001', fullName: 'Nguyễn Văn A', title: 'Giám đốc', phone: '0903123456', email: null, isPrimary: true, note: null, createdAt: U1, updatedAt: U1, ...over });
+const CONTACT_EDIT = grants('customer.read', 'customer.update', 'contact.read', 'activity.read'); // sale: sửa/xoá liên hệ theo customer.update
+const CONTACT_FULL = grants('customer.read', 'customer.update', 'contact.read', 'contact.create', 'activity.read');
+const CONTACT_READ = grants('customer.read', 'contact.read', 'activity.read'); // kế toán/kỹ thuật: chỉ xem
+const openContacts = async (m) => { await doAct(() => click(tab(m.container, /^(Người liên hệ|Liên hệ)$/))); }; // điện thoại: nhãn ngắn "Liên hệ"
+const cdlg = (root) => findAll(root, (e) => e.attributes.role === 'dialog' && /người liên hệ/i.test(e.attributes['aria-label'] || ''))[0];
+const btnAria = (root, re) => findAll(root, (e) => e.tagName === 'BUTTON' && re.test(e.attributes['aria-label'] || ''))[0];
+const contactWrites = (f) => f.calls.filter((c) => c.p.includes('/contacts') && c.method !== 'GET');
+const contactGets = (f) => f.calls.filter((c) => c.method === 'GET' && c.p.endsWith('/contacts'));
+
+test('FV-3 quyền: customer.update => có Sửa/Xoá; thêm contact.create => có Thêm; chỉ đọc => không có nút ghi', async () => {
+  const ro = await mount(server({ contacts: () => [ct1()] }), CONTACT_READ);
+  try {
+    await openContacts(ro);
+    assert.match(text(ro.container), /Nguyễn Văn A/);
+    assert.equal(btnAria(ro.container, /^Sửa người liên hệ/), undefined); assert.equal(btnAria(ro.container, /^Xoá người liên hệ/), undefined);
+    assert.equal(buttonByText(ro.container, /Thêm người liên hệ/), undefined);
+  } finally { await ro.unmount(); }
+  const ed = await mount(server({ contacts: () => [ct1()] }), CONTACT_EDIT);
+  try {
+    await openContacts(ed);
+    assert.ok(btnAria(ed.container, /^Sửa người liên hệ Nguyễn Văn A$/)); assert.ok(btnAria(ed.container, /^Xoá người liên hệ Nguyễn Văn A$/));
+    assert.equal(buttonByText(ed.container, /Thêm người liên hệ/), undefined, 'không có contact.create => không có Thêm');
+  } finally { await ed.unmount(); }
+  const full = await mount(server({ contacts: () => [ct1()] }), CONTACT_FULL);
+  try { await openContacts(full); assert.ok(buttonByText(full.container, /Thêm người liên hệ/)); } finally { await full.unmount(); }
+});
+
+test('FV-3 sửa: PATCH đúng đường dẫn, CHỈ trường đổi + updatedAt; xong đóng hộp, đọc lại danh sách, báo toast', async () => {
+  let rows = [ct1()];
+  const f = server({ contacts: () => rows, contactWrite: (method, p, body) => { rows = [ct1({ phone: body.phone, updatedAt: U2 })]; return res(200, { data: rows[0] }); } });
+  const m = await mount(f, CONTACT_EDIT);
+  try {
+    await openContacts(m);
+    const before = contactGets(f).length;
+    await doAct(() => click(btnAria(m.container, /^Sửa người liên hệ/)));
+    const d = cdlg(m.container); assert.ok(d, 'mở hộp sửa');
+    assert.equal(inputByLabel(d, /^Họ tên/).value, 'Nguyễn Văn A');
+    type(inputByLabel(d, /^Điện thoại/), '0903 999 888'); await flush();
+    await doAct(() => click(buttonByText(d, /^Lưu$/)));
+    const w = contactWrites(f);
+    assert.equal(w.length, 1); assert.equal(w[0].method, 'PATCH'); assert.ok(w[0].p.endsWith('/customers/' + ID + '/contacts/' + K1));
+    assert.deepEqual(w[0].body, { updatedAt: U1, phone: '0903 999 888' });
+    assert.equal(cdlg(m.container), undefined, 'đóng hộp');
+    assert.ok(contactGets(f).length > before, 'đọc lại danh sách');
+    assert.match(text(m.container), /0903 999 888/);
+    assert.ok(m.toasts.some((t) => t.tone === 'success'));
+  } finally { await m.unmount(); }
+});
+
+test('FV-3 409 CONTACT_VERSION_CONFLICT: hộp vẫn mở, GIỮ nội dung, báo "Dữ liệu đã thay đổi", đọc lại; phải chọn trước khi lưu; "Giữ nội dung của tôi" => gửi mốc mới', async () => {
+  let rows = [ct1()]; let n = 0;
+  const f = server({ contacts: () => rows, contactWrite: (method, p, body) => {
+    n++;
+    if (n === 1) { rows = [ct1({ title: 'Phó giám đốc', updatedAt: U2 })]; return res(409, { error: { code: 'CONTACT_VERSION_CONFLICT', message: 'Người liên hệ đã được người khác cập nhật.', details: { currentUpdatedAt: U2 } } }); }
+    rows = [ct1({ title: 'Phó giám đốc', phone: body.phone, updatedAt: '2026-11-01T00:09:00.000Z' })]; return res(200, { data: rows[0] });
+  } });
+  const m = await mount(f, CONTACT_EDIT);
+  try {
+    await openContacts(m);
+    await doAct(() => click(btnAria(m.container, /^Sửa người liên hệ/)));
+    type(inputByLabel(cdlg(m.container), /^Điện thoại/), '0911 222 333'); await flush();
+    const gets = contactGets(f).length;
+    await doAct(() => click(buttonByText(cdlg(m.container), /^Lưu$/)));
+    const d = cdlg(m.container);
+    assert.ok(d, 'hộp vẫn mở');
+    assert.match(text(d), /Dữ liệu đã thay đổi/);
+    assert.equal(inputByLabel(d, /^Điện thoại/).value, '0911 222 333', 'giữ nội dung đã gõ');
+    assert.ok(contactGets(f).length > gets, 'đọc lại danh sách');
+    assert.ok(buttonByText(d, /^Lưu$/).disabled, 'chưa chọn cách xử lý => không lưu được');
+    await doAct(() => click(buttonByText(d, /Giữ nội dung của tôi/)));
+    await doAct(() => click(buttonByText(cdlg(m.container), /^Lưu$/)));
+    const w = contactWrites(f);
+    assert.equal(w.length, 2);
+    assert.deepEqual(w[1].body, { updatedAt: U2, phone: '0911 222 333' }, 'mốc mới; chỉ trường mình đổi (không ghi đè chức danh người khác vừa sửa)');
+    assert.equal(cdlg(m.container), undefined);
+  } finally { await m.unmount(); }
+});
+
+test('FV-3 409: "Dùng giá trị mới" => nạp lại bản mới nhất vào hộp, bỏ nội dung đang gõ', async () => {
+  let rows = [ct1()];
+  const f = server({ contacts: () => rows, contactWrite: () => { rows = [ct1({ phone: '0988 000 111', updatedAt: U2 })]; return res(409, { error: { code: 'CONTACT_VERSION_CONFLICT', message: 'x' } }); } });
+  const m = await mount(f, CONTACT_EDIT);
+  try {
+    await openContacts(m);
+    await doAct(() => click(btnAria(m.container, /^Sửa người liên hệ/)));
+    type(inputByLabel(cdlg(m.container), /^Điện thoại/), '0911 222 333'); await flush();
+    await doAct(() => click(buttonByText(cdlg(m.container), /^Lưu$/)));
+    await doAct(() => click(buttonByText(cdlg(m.container), /Dùng giá trị mới/)));
+    assert.equal(inputByLabel(cdlg(m.container), /^Điện thoại/).value, '0988 000 111');
+    assert.doesNotMatch(text(cdlg(m.container)), /Dữ liệu đã thay đổi/);
+  } finally { await m.unmount(); }
+});
+
+test('FV-3 400: hiện chi tiết lỗi từ máy chủ, hộp giữ nguyên; họ tên trống => báo tại ô, KHÔNG gửi', async () => {
+  const f = server({ contacts: () => [ct1()], contactWrite: () => res(400, { error: { code: 'VALIDATION_FAILED', message: 'Dữ liệu gửi lên không hợp lệ.', details: ['Số điện thoại không hợp lệ'] } }) });
+  const m = await mount(f, CONTACT_EDIT);
+  try {
+    await openContacts(m);
+    await doAct(() => click(btnAria(m.container, /^Sửa người liên hệ/)));
+    type(inputByLabel(cdlg(m.container), /^Họ tên/), '   '); await flush();
+    await doAct(() => click(buttonByText(cdlg(m.container), /^Lưu$/)));
+    assert.equal(contactWrites(f).length, 0, 'không gửi khi thiếu họ tên');
+    assert.match(text(cdlg(m.container)), /Vui lòng nhập họ tên/);
+    type(inputByLabel(cdlg(m.container), /^Họ tên/), 'Nguyễn Văn A'); type(inputByLabel(cdlg(m.container), /^Điện thoại/), '123'); await flush();
+    await doAct(() => click(buttonByText(cdlg(m.container), /^Lưu$/)));
+    assert.equal(contactWrites(f).length, 1);
+    assert.ok(cdlg(m.container)); assert.match(text(cdlg(m.container)), /Số điện thoại không hợp lệ/);
+  } finally { await m.unmount(); }
+});
+
+test('FV-3 xoá: hỏi xác nhận; huỷ => không gọi; đồng ý => DELETE đúng đường dẫn + updatedAt, đọc lại, báo toast', async () => {
+  let rows = [ct1()];
+  const f = server({ contacts: () => rows, contactWrite: (method) => { rows = []; return method === 'DELETE' ? res(200, { data: { id: K1, code: 'LH-000001' } }) : res(500, {}); } });
+  const m = await mount(f, CONTACT_EDIT);
+  try {
+    await openContacts(m);
+    await doAct(() => click(btnAria(m.container, /^Xoá người liên hệ/)));
+    assert.equal(m.confirms.length, 1); assert.match(m.confirms[0].title, /Nguyễn Văn A/);
+    assert.equal(contactWrites(f).length, 0, 'chưa đồng ý => chưa gọi');
+    await doAct(() => m.confirms[0].onConfirm());
+    const w = contactWrites(f);
+    assert.equal(w.length, 1); assert.equal(w[0].method, 'DELETE'); assert.ok(w[0].p.endsWith('/customers/' + ID + '/contacts/' + K1));
+    assert.deepEqual(w[0].body, { updatedAt: U1 });
+    assert.match(text(m.container), /Chưa có người liên hệ/);
+    assert.ok(m.toasts.some((t) => t.tone === 'success'));
+  } finally { await m.unmount(); }
+});
+
+test('FV-3 xoá bị 409 / 403: báo lỗi, đọc lại, không hiện như đã xoá', async () => {
+  for (const [st, code] of [[409, 'CONTACT_VERSION_CONFLICT'], [403, 'FORBIDDEN']]) {
+    const f = server({ contacts: () => [ct1()], contactWrite: () => res(st, { error: { code, message: 'x' } }) });
+    const m = await mount(f, CONTACT_EDIT);
+    try {
+      await openContacts(m);
+      await doAct(() => click(btnAria(m.container, /^Xoá người liên hệ/)));
+      const gets = contactGets(f).length;
+      await doAct(() => m.confirms[0].onConfirm());
+      assert.ok(m.toasts.some((t) => t.tone === 'error'), 'báo lỗi ' + st);
+      assert.ok(contactGets(f).length > gets, 'đọc lại ' + st);
+      assert.match(text(m.container), /Nguyễn Văn A/);
+    } finally { await m.unmount(); }
+  }
+});
+
+test('FV-3 thêm: POST họ tên + trường có giá trị; xong đọc lại', async () => {
+  let rows = [];
+  const f = server({ contacts: () => rows, contactWrite: (method, p, body) => { rows = [ct1({ fullName: body.fullName, title: null, phone: null, isPrimary: false })]; return res(201, { data: rows[0] }); } });
+  const m = await mount(f, CONTACT_FULL);
+  try {
+    await openContacts(m);
+    await doAct(() => click(buttonByText(m.container, /Thêm người liên hệ/)));
+    type(inputByLabel(cdlg(m.container), /^Họ tên/), 'Trần Thị B'); type(inputByLabel(cdlg(m.container), /^Email/), 'b@cty.vn'); await flush();
+    await doAct(() => click(buttonByText(cdlg(m.container), /^Lưu$/)));
+    const w = contactWrites(f);
+    assert.equal(w.length, 1); assert.equal(w[0].method, 'POST'); assert.ok(w[0].p.endsWith('/customers/' + ID + '/contacts'));
+    assert.deepEqual(w[0].body, { fullName: 'Trần Thị B', email: 'b@cty.vn', isPrimary: false });
+    assert.match(text(m.container), /Trần Thị B/);
+  } finally { await m.unmount(); }
+});
+
+test('FV-3 đang gửi (fetch chậm): nút Lưu bị khoá, bấm 2 lần chỉ 1 PATCH; xong mới đóng hộp', async () => {
+  let release; const gate = new Promise((r) => { release = r; });
+  let rows = [ct1()];
+  const f = server({ contacts: () => rows, contactWrite: async (method, p, body) => { await gate; rows = [ct1({ phone: body.phone, updatedAt: U2 })]; return res(200, { data: rows[0] }); } });
+  const m = await mount(f, CONTACT_EDIT);
+  try {
+    await openContacts(m);
+    await doAct(() => click(btnAria(m.container, /^Sửa người liên hệ/)));
+    type(inputByLabel(cdlg(m.container), /^Điện thoại/), '0903 777 666'); await flush();
+    await act(async () => { click(buttonByText(cdlg(m.container), /^Lưu$/)); }); await flush();
+    const b = buttonByText(cdlg(m.container), /Lưu/);
+    assert.ok(b.disabled, 'đang gửi => nút khoá');
+    await act(async () => { click(b); }); await flush();
+    assert.equal(contactWrites(f).length, 1, 'không gửi trùng');
+    assert.ok(cdlg(m.container), 'chưa xong => hộp còn mở');
+    await doAct(async () => { release(); });
+    assert.equal(cdlg(m.container), undefined);
+  } finally { await m.unmount(); }
+});
+
+test('FV-3 ô "Liên hệ chính" phản ánh đúng dữ liệu (liên hệ thường => không tích; liên hệ chính => tích)', async () => {
+  const K2 = '22222222-3333-4444-8555-666666666666';
+  const f = server({ contacts: () => [ct1(), ct1({ id: K2, code: 'LH-000002', fullName: 'Lê Văn Bình', isPrimary: false })] });
+  const m = await mount(f, CONTACT_EDIT);
+  const box = () => findAll(cdlg(m.container), (e) => e.tagName === 'INPUT' && e.attributes.type === 'checkbox')[0];
+  try {
+    await openContacts(m);
+    await doAct(() => click(btnAria(m.container, /^Sửa người liên hệ Lê Văn Bình$/)));
+    assert.equal(!!box().checked, false, 'liên hệ thường: ô không được tích');
+    await doAct(() => click(buttonByText(cdlg(m.container), /^Huỷ$/)));
+    await doAct(() => click(btnAria(m.container, /^Sửa người liên hệ Nguyễn Văn A$/)));
+    assert.equal(!!box().checked, true, 'liên hệ chính: ô được tích');
+  } finally { await m.unmount(); }
+});
+
+test('FV-3 điện thoại (ui.mobile): nút Sửa/Xoá dạng thẻ, đủ lớn để chạm (không size sm)', async () => {
+  const m = await mount(server({ contacts: () => [ct1()] }), CONTACT_EDIT, { mobile: true });
+  try {
+    await openContacts(m);
+    for (const re of [/^Sửa người liên hệ/, /^Xoá người liên hệ/]) { const b = btnAria(m.container, re); assert.ok(b); assert.doesNotMatch(b.attributes.class || '', /--sm\b/); }
   } finally { await m.unmount(); }
 });
 

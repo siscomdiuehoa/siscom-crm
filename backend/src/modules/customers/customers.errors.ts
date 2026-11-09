@@ -7,6 +7,9 @@ export const customerErrors = {
   ownerInvalid: () => new DomainException(400, 'OWNER_INVALID', 'Chủ sở hữu không hợp lệ: nhân viên không tồn tại, không còn làm việc hoặc đã bị xoá.', { field: 'ownerId' }),
   forbidden: (message = 'Không có quyền thực hiện thao tác này.') => new DomainException(403, 'FORBIDDEN', message),
   notFound: () => new DomainException(404, 'CUSTOMER_NOT_FOUND', 'Không tìm thấy khách hàng.'),
+  contactNotFound: () => new DomainException(404, 'CONTACT_NOT_FOUND', 'Không tìm thấy người liên hệ.'),
+  contactVersionConflict: (currentUpdatedAt: string) =>
+    new DomainException(409, 'CONTACT_VERSION_CONFLICT', 'Người liên hệ đã được người khác cập nhật. Vui lòng tải lại.', { currentUpdatedAt }),
   duplicateTaxId: (visibleConflict: { code: string; name: string } | null) =>
     new DomainException(409, 'CUSTOMER_DUPLICATE_TAX_ID', 'Mã số thuế đã được dùng bởi một khách hàng khác.', { visibleConflict }),
   versionConflict: (currentVersion: number) =>
