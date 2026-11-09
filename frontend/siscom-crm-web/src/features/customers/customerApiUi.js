@@ -45,6 +45,13 @@ export function describeRepoError(err) {
     staleVersion: e.kind === 'conflict' && e.code === VERSION_CONFLICT_CODE, denied: e.kind === 'unauthenticated' || e.kind === 'forbidden' };
 }
 
+// FV-3: lỗi ghi người liên hệ. 409 CONTACT_VERSION_CONFLICT = người khác vừa sửa/xoá; 404 CONTACT_NOT_FOUND = liên hệ không còn.
+export const CONTACT_VERSION_CONFLICT_CODE = 'CONTACT_VERSION_CONFLICT';
+export function contactError(e) {
+  const d = describeRepoError(e);
+  return { ...d, contactConflict: d.kind === 'conflict' && d.code === CONTACT_VERSION_CONFLICT_CODE, contactGone: d.kind === 'not_found' };
+}
+
 // Business code shown to people. The backend UUID (`id`) is never displayed; a record without code shows a dash.
 export const customerDisplayCode = (c) => (c && c.code) || '—';
 
@@ -264,6 +271,22 @@ export function createCustomerApiController(repo) {
       set({ contact: { status: 'loading', id, item: null, error: null } });
       try { const items = await repo.contacts(id); if (my === ctseq) set({ contact: { status: 'ready', id, item: pickPrimaryContact(items), error: null } }); }
       catch (e) { if (my === ctseq) set({ contact: { status: 'error', id, item: null, error: describeRepoError(e) } }); }
+    },
+    // FV-3: thêm / sửa / xoá mềm người liên hệ -> { ok, contact } | { ok:false, error } (error = describeRepoError; 409 CONTACT_VERSION_CONFLICT => error.contactConflict).
+    // Thành công: nếu ô "Người liên hệ" (người chính) của khách này đang hiển thị thì đọc lại. Danh sách ở tab do giao diện tự đọc lại.
+    async saveContact(customerId, contactId, body) {
+      try {
+        const contact = contactId ? await repo.updateContact(customerId, contactId, body) : await repo.addContact(customerId, body);
+        if (state.contact.id === customerId) await this.loadContact(customerId);
+        return { ok: true, contact };
+      } catch (e) { return { ok: false, error: contactError(e) }; }
+    },
+    async deleteContact(customerId, contactId, updatedAt) {
+      try {
+        await repo.deleteContact(customerId, contactId, updatedAt);
+        if (state.contact.id === customerId) await this.loadContact(customerId);
+        return { ok: true };
+      } catch (e) { return { ok: false, error: contactError(e) }; }
     },
     // Detail by backend UUID. Stale responses (user moved to another id) are dropped; a failed load never shows the previous customer.
     async loadDetail(id) {
