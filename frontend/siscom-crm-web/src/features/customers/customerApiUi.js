@@ -136,6 +136,40 @@ export function searchCustomers(items, q) {
 // page >= 1 integer; pageSize 1..100 (default 20); search is trimmed and the server rejects < 2 chars (400), so a shorter query is simply NOT sent.
 // The server also rejects page * pageSize > 100000 (400); that error is surfaced as-is, never hidden. Response: { items, page, pageSize, total, totalPages }.
 export const LIST_PAGE_SIZE = 20; export const LIST_PAGE_SIZE_MAX = 100; export const SEARCH_MIN_CHARS = 2;
+export const EXPORT_MAX_ROWS = 5000;
+// FV-4A: nhãn bộ lọc giao diện -> trường gửi máy chủ (city ở giao diện = province ở máy chủ).
+export const EXPORT_FILTER_FIELD = { tier: 'tier', status: 'status', industry: 'industry', city: 'province' };
+const EXPORT_FILTER_LABEL = { tier: 'Phân hạng', status: 'Trạng thái', industry: 'Ngành nghề', city: 'Tỉnh/thành' };
+export class ExportFilterError extends Error {
+  constructor(field) { super('Bộ lọc "' + (EXPORT_FILTER_LABEL[field] || field) + '" chưa áp dụng được khi xuất.'); this.name = 'ExportFilterError'; this.field = field; }
+}
+// D-E6: trả tên trường của bộ lọc KHÔNG đổi được sang mã (=> khoá nút Xuất), hoặc null. maps chưa có => coi như chưa đổi được.
+export function exportFilterBlock(filters, maps) {
+  for (const [k, v] of Object.entries(filters || {})) {
+    if (!EXPORT_FILTER_FIELD[k] || !v) continue;
+    if (!maps || !maps[k] || typeof maps[k].toCode !== 'function' || !maps[k].toCode(v)) return k;
+  }
+  return null;
+}
+// FV-4A §5: thông báo theo mã lỗi máy chủ.
+export function exportErrorMessage(e) {
+  if (e instanceof ExportFilterError) return e.message;
+  const code = e && e.code; const st = e && e.status;
+  if (code === 'EXPORT_TOO_LARGE' || st === 422) return 'Có hơn 5.000 khách hàng phù hợp. Vui lòng thu hẹp bộ lọc (tìm kiếm, phân hạng, trạng thái, ngành, tỉnh, phụ trách) rồi xuất lại.';
+  if (code === 'EXPORT_RATE_LIMITED') return 'Bạn đã xuất 10 lần trong 1 giờ. Thử lại sau ' + Math.max(1, Math.ceil(((e && e.retryAfter) || 60) / 60)) + ' phút.';
+  if (code === 'EXPORT_IN_PROGRESS' || code === 'EXPORT_RBAC_BUSY' || code === 'EXPORT_BUSY' || st === 503) return 'Hệ thống đang bận xuất dữ liệu. Vui lòng thử lại sau ít giây.';
+  if (st === 403) return 'Bạn không có quyền xuất dữ liệu khách hàng.';
+  return 'Không xuất được. Vui lòng thử lại.';
+}
+export const EXPORT_PREFIX_NOTE = "Ô có dấu ' ở đầu là ký hiệu chống lỗi Excel, không phải dữ liệu.";
+// FV-4: dữ liệu xuất là dữ liệu người dùng nhập => chặn chèn công thức khi mở bằng Excel (CSV/formula injection).
+// Ô bắt đầu bằng = @ TAB CR, hoặc + / - mà KHÔNG phải số điện thoại/số thuần, được thêm dấu ' phía trước.
+export function csvSafe(v) {
+  const s = v == null ? '' : String(v);
+  if (/^[=@\t\r]/.test(s)) return "'" + s;
+  if (/^[+-]/.test(s) && !/^[+-][\d\s().-]*$/.test(s)) return "'" + s;
+  return s;
+}
 const toInt = (v, d, lo, hi) => { const n = Math.trunc(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
 export function buildListParams({ page, pageSize, search } = {}) {
   const out = { page: toInt(page, 1, 1, Number.MAX_SAFE_INTEGER), pageSize: toInt(pageSize, LIST_PAGE_SIZE, 1, LIST_PAGE_SIZE_MAX) };
@@ -183,6 +217,25 @@ export function createCustomerApiController(repo) {
   };
   return {
     mode: repo.mode,
+    queryList(params) { return repo.list(buildListParams(params)); },
+    // FV-4A: xuất CSV do MÁY CHỦ tạo (POST /customers/export) — không còn ghép nhiều trang ở trình duyệt. Bộ lọc giao diện (nhãn) đổi sang mã
+    // danh mục qua GET /lookups; nhãn không đổi được => ExportFilterError (không gửi, không xuất lệch với màn hình). Chỉ gửi đúng các trường cho phép.
+    async exportServer({ mode, ids, search, filters } = {}) {
+      const body = { mode: mode === 'selected' ? 'selected' : 'filtered' };
+      if (body.mode === 'selected') body.ids = Array.isArray(ids) ? [...new Set(ids)] : [];
+      const term = typeof search === 'string' ? search.trim() : '';
+      if (body.mode === 'filtered' && term.length >= SEARCH_MIN_CHARS) body.search = term.slice(0, 100);
+      const active = body.mode === 'filtered' ? Object.entries(filters || {}).filter(([k, v]) => EXPORT_FILTER_FIELD[k] && v) : [];
+      if (active.length) {
+        if (state.lookups.status !== 'ready') {
+          try { const maps = await repo.lookups(); set({ lookups: { status: 'ready', maps, error: null } }); } catch (e) { throw new ExportFilterError(active[0][0]); }
+        }
+        const block = exportFilterBlock(Object.fromEntries(active), state.lookups.maps);
+        if (block) throw new ExportFilterError(block);
+        for (const [k, label] of active) body[EXPORT_FILTER_FIELD[k]] = state.lookups.maps[k].toCode(label);
+      }
+      return repo.exportCustomers(body);
+    },
     getState: () => state,
     subscribe: (f) => { subs.add(f); return () => subs.delete(f); },
     // Canonical GET /lookups choices for the form. Loaded once and cached; `force` (retry) refetches. Failure leaves maps null (selects stay disabled, no demo choices).

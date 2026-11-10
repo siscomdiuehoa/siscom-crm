@@ -60,19 +60,32 @@ function ThemeSwitch({ mode, setMode }) {
   );
 }
 
-function SearchResults({ q, db, onPick }) {
+function SearchResults({ q, db, api, onPick }) {
+  // FV-4 chế độ API: GET /customers?search= (máy chủ lọc theo quyền), chờ 250 ms sau lần gõ cuối, bỏ phản hồi cũ.
+  const [result, setResult] = React.useState({ status: 'idle', items: [] });
+  React.useEffect(() => {
+    if (!api) return undefined;
+    let active = true;
+    const term = q.trim();
+    if (term.length < 2) { setResult({ status: 'idle', items: [] }); return () => { active = false; }; }
+    setResult({ status: 'loading', items: [] });
+    const timer = setTimeout(() => { api.queryList({ search: term, pageSize: 6 }).then((r) => { if (active) setResult({ status: 'ready', items: ((r && r.items) || []).slice(0, 6) }); }).catch(() => { if (active) setResult({ status: 'error', items: [] }); }); }, 250);
+    return () => { active = false; clearTimeout(timer); };
+  }, [api, q]);
   const [pos, setPos] = React.useState(null);
   React.useEffect(() => { const el = document.querySelector('.sg-search'); if (el) { const r = el.getBoundingClientRect(); setPos({ left: r.left, top: r.bottom + 6, width: Math.max(r.width, 340) }); } }, [q]);
   if (!pos || q.trim().length < 2) return null;
   const n = U.norm(q.trim());
-  const hits = db.customers.filter((c) => [c.name, c.short, c.id, c.taxId, c.city].some((v) => U.norm(v).includes(n))).slice(0, 6);
+  const hits = api ? result.items : db.customers.filter((c) => [c.name, c.short, c.id, c.taxId, c.city].some((v) => U.norm(v).includes(n))).slice(0, 6);
   return (
     <div className="sg-glass-strong" style={{ position: 'fixed', zIndex: 70, left: pos.left, top: pos.top, width: pos.width, maxWidth: 'calc(100vw - 32px)', borderRadius: 12, padding: 6, animation: 'sg-scale-in var(--dur-fast) var(--ease-out)' }}>
       <div style={{ font: 'var(--type-overline)', letterSpacing: 'var(--tracking-label)', textTransform: 'uppercase', color: 'var(--text-3)', padding: '6px 10px' }}>Khách hàng</div>
-      {hits.length ? hits.map((c) => (
+      {api && result.status === 'loading' ? <div style={{ padding: '10px', font: 'var(--type-sm)', color: 'var(--text-3)' }}>Đang tìm…</div>
+        : api && result.status === 'error' ? <div role="alert" style={{ padding: '10px', font: 'var(--type-sm)', color: 'var(--error-text)' }}>Không tìm được khách hàng. Vui lòng thử lại.</div>
+        : hits.length ? hits.map((c) => (
         <div key={c.id} className="sg-menu__item" onMouseDown={(e) => { e.preventDefault(); onPick(c.id); }}>
-          <Avatar name={c.short} square size={28} />
-          <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.short}</div><div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>{c.id} · MST {c.taxId}</div></div>
+          <Avatar name={c.short || c.name} square size={28} />
+          <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.short || c.name}</div><div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>{api ? c.code : c.id}{c.taxId ? ' · MST ' + c.taxId : ''}</div></div>
         </div>
       )) : <div style={{ padding: '10px', font: 'var(--type-sm)', color: 'var(--text-3)' }}>Không tìm thấy khách hàng phù hợp.</div>}
     </div>
@@ -197,7 +210,7 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
         {boot.report.error && ro ? <div role="alert" style={{ padding: '8px var(--page-gutter)', font: 'var(--type-caption)', color: 'var(--error-text)', background: 'var(--error-soft)', borderBottom: '1px solid var(--error-border)' }}><b>Chế độ chỉ đọc — không ghi dữ liệu.</b> {boot.report.error} Có thể dùng "Nhập sao lưu" hoặc "Khôi phục dữ liệu mẫu" (có sao lưu tự động) để tiếp tục.</div> : null}
         <div key={route.page + (route.id || '')} style={{ padding: 'var(--page-gutter)', maxWidth: 'var(--content-max)', margin: '0 auto', animation: 'sg-fade-up var(--dur-page) var(--ease-out)' }}>{body}</div>
       </main>
-      {CUSTOMER_API ? null : <SearchResults q={q} db={db} onPick={(id) => { setQ(''); navigate('/customers/' + id); }} />}
+      <SearchResults q={q} db={db} api={CUSTOMER_API} onPick={(id) => { setQ(''); navigate('/customers/' + id); }} />
       {chat && !API_ON ? (
         <div style={{ position: 'fixed', right: 16, top: 16, bottom: 16, width: 'min(420px, calc(100% - 32px))', zIndex: 66, animation: 'sg-toast-in var(--dur-slow) var(--ease-out)' }}>
           <ChatPanel height="100%" onClose={() => setChat(false)} agent={{ name: 'Trợ lý SISCOM', role: 'AI tổng hợp · bản demo', icon: 'sparkles' }}

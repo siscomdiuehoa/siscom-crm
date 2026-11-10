@@ -12,6 +12,8 @@ import { ActivitiesModule } from '../../src/modules/activities/activities.module
 import { ACTIVE_LINKS_CHECKER, ActiveLinksChecker } from '../../src/modules/customers/customers.deletion-guard';
 import { CustomersModule } from '../../src/modules/customers/customers.module';
 import { LookupsModule } from '../../src/modules/lookups/lookups.module';
+import { DbAuditPort } from '../../src/common/audit/db-audit.port';
+import { EXPORT_ACCESS, EXPORT_CONFIG, ExportAccessReader, ExportConfig, exportConfigFromEnv } from '../../src/modules/customers/export/customers-export.service';
 import { AuthPrismaService } from '../../src/prisma/auth-prisma.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import type { Fixtures } from './fixtures';
@@ -20,9 +22,11 @@ import type { Fixtures } from './fixtures';
 export const ACTOR_HEADER = 'x-test-actor';
 const ALL_PERMS: Permission[] = ['customer.read', 'customer.create', 'customer.update', 'customer.delete', 'customer.restore', 'contact.read', 'contact.create', 'lookup.read',
   // B3 A4
-  'activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request'];
+  'activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request',
+  // FV-4A
+  'customer.export'];
 const uniform = (s: Scope): Partial<Record<Permission, Scope>> => Object.fromEntries(ALL_PERMS.map((p) => [p, s]));
-// B3 A5: phạm vi theo vai trò thật (bootstrap.ts BIZ) — dùng cho preset và cho người được giao việc (TestEmployeeAccess).
+// B3 A5: phạm vi theo vai trò thật (bootstrap.ts BIZ) \u2014 dùng cho preset và cho người được giao việc (TestEmployeeAccess).
 export const SALES: Partial<Record<Permission, Scope>> = { 'customer.read': 'OWN', 'customer.create': 'OWN', 'customer.update': 'OWN', 'contact.read': 'OWN', 'contact.create': 'OWN', 'lookup.read': 'ALL',
   'activity.read': 'OWN', 'activity.create': 'OWN', 'activity.update': 'OWN', 'activity.assign': 'OWN', 'activity.assign_external': 'OWN' };
 export const TECH: Partial<Record<Permission, Scope>> = { 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'lookup.read': 'ALL',
@@ -42,7 +46,7 @@ export class TestActorProvider implements ActorProvider {
       createReadOwn: { actor: { ...a }, scopes: { 'customer.create': 'ALL', 'customer.read': 'OWN', 'customer.update': 'ALL', 'lookup.read': 'ALL' } },
       readonly: { actor: { ...a }, scopes: { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL' } },
       none: { actor: { ...a }, scopes: {} },
-      // B3 A5 — giống ma trận thật §5 (sales/technician/accountant), để kiểm hoạt động theo vai trò:
+      // B3 A5 \u2014 giống ma trận thật §5 (sales/technician/accountant), để kiểm hoạt động theo vai trò:
       salesA: { actor: { ...a }, scopes: { ...SALES } },
       techB: { actor: { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { ...TECH } },
       techC: { actor: { employeeId: fx.empC, departmentId: fx.d2 }, scopes: { ...TECH } },
@@ -73,7 +77,7 @@ export class TestLinksChecker implements ActiveLinksChecker {
   async check(): Promise<{ verified: boolean; unchecked: string[] }> { return { verified: true, unchecked: [] }; }
 }
 
-// B3 A5 — CHỈ TRONG TEST: phạm vi của NGƯỜI ĐƯỢC GIAO lấy từ bảng do test đặt (DB thử có thể đã đóng bootstrap => không chèn vai trò thật).
+// B3 A5 \u2014 CHỈ TRONG TEST: phạm vi của NGƯỜI ĐƯỢC GIAO lấy từ bảng do test đặt (DB thử có thể đã đóng bootstrap => không chèn vai trò thật).
 // Trạng thái/phòng ban vẫn đọc từ DB thật (DbEmployeeAccess). Người không có trong bảng => phạm vi lấy từ vai trò thật trong DB (thường rỗng).
 // Đường đọc vai trò THẬT được kiểm bằng phiên đăng nhập thật ở auth.int-spec (bootstrap cấp ma trận BIZ).
 export class TestEmployeeAccess extends DbEmployeeAccess {
@@ -85,13 +89,27 @@ export class TestEmployeeAccess extends DbEmployeeAccess {
   }
 }
 
+// FV-4A \u2014 CHỈ TRONG TEST: quyền "trong DB" của người xuất do test đặt (DB thử không có vai trò thật); trạng thái/phòng ban vẫn đọc DB thật.
+// Test đổi map giữa chừng để mô phỏng thu hồi quyền sau khi phiên đã nạp quyền (I-19/I-20).
+export class TestExportAccess implements ExportAccessReader {
+  readonly scopes = new Map<string, Partial<Record<Permission, Scope>>>();
+  async load(tx: Pick<Prisma.TransactionClient, 'employee'>, employeeId: string): Promise<EmployeeAccess | null> {
+    const e = await tx.employee.findUnique({ where: { id: employeeId }, select: { id: true, departmentId: true, status: true, deletedAt: true } });
+    if (!e) return null;
+    return { id: e.id, departmentId: e.departmentId, active: e.status === 'ACTIVE' && e.deletedAt === null, scopes: Object.freeze({ ...(this.scopes.get(employeeId) ?? {}) }) };
+  }
+}
+
 // B3 A6: actors (null khi denyAll) để test thêm preset cho nhân viên tạo trong beforeAll.
-export interface TestApp { app: INestApplication; audit: RecordingAuditPort; access: TestEmployeeAccess; actors: TestActorProvider | null }
-export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verifiedLinks?: boolean; denyAll?: boolean } = {}): Promise<TestApp> {
+export interface TestApp { app: INestApplication; audit: RecordingAuditPort; access: TestEmployeeAccess; actors: TestActorProvider | null; exportAccess: TestExportAccess }
+export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verifiedLinks?: boolean; denyAll?: boolean; realAudit?: boolean; exportConfig?: Partial<ExportConfig> } = {}): Promise<TestApp> {
   const audit = new RecordingAuditPort();
   const access = new TestEmployeeAccess();
-  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule, ActivitiesModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(AUDIT_PORT).useValue(audit)
-    .overrideProvider(EMPLOYEE_ACCESS).useValue(access);
+  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule, ActivitiesModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(EMPLOYEE_ACCESS).useValue(access);
+  // FV-4A: realAudit => DbAuditPort thật (hạn mức xuất đếm từ audit_log trong DB).
+  b = opts.realAudit ? b.overrideProvider(AUDIT_PORT).useValue(new DbAuditPort()) : b.overrideProvider(AUDIT_PORT).useValue(audit);
+  const exportAccess = new TestExportAccess();
+  b = b.overrideProvider(EXPORT_ACCESS).useValue(exportAccess).overrideProvider(EXPORT_CONFIG).useValue({ ...exportConfigFromEnv(), ...(opts.exportConfig ?? {}) });
   const actors = opts.denyAll ? null : new TestActorProvider(fx);
   if (actors) b = b.overrideProvider(ACTOR_PROVIDER).useValue(actors);
   if (opts.verifiedLinks) b = b.overrideProvider(ACTIVE_LINKS_CHECKER).useValue(new TestLinksChecker());
@@ -105,7 +123,7 @@ export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verif
   // Lắng nghe sẵn cổng tạm 127.0.0.1: nếu không, supertest gọi server.listen(0) cho MỖI yêu cầu trên cùng http.Server chưa lắng nghe;
   // nhiều yêu cầu song song cộng dồn listener 'listening'/'close' -> MaxListenersExceededWarning. app.close() đóng server này.
   await app.listen(0, '127.0.0.1');
-  return { app, audit, access, actors };
+  return { app, audit, access, actors, exportAccess };
 }
 
 export function as(app: INestApplication, who?: string) {

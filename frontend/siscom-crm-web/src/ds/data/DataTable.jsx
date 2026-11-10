@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../core/Icon.jsx';
 import { Checkbox } from '../forms/Checkbox.jsx';
 import { Skeleton } from '../feedback/Skeleton.jsx';
@@ -17,12 +17,20 @@ function pages(cur, total) {
   return out;
 }
 
-export function DataTable({ columns = [], rows = [], rowKey = 'id', searchable = true, searchPlaceholder = 'Tìm kiếm…', searchKeys, filter, pageSize = 8, selectable = false, onSelectionChange, toolbar, title, onRowClick, itemLabel = 'bản ghi', loading = false, emptyTitle = 'Chưa có dữ liệu', compact = false, variant = 'solid' }) {
+export function DataTable({ columns = [], rows = [], rowKey = 'id', searchable = true, searchPlaceholder = 'Tìm kiếm…', searchKeys, filter, pageSize = 8, selectable = false, onSelectionChange, onFilterChange, toolbar, title, onRowClick, itemLabel = 'bản ghi', loading = false, emptyTitle = 'Chưa có dữ liệu', compact = false, variant = 'solid' }) {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState(null);
   const [page, setPage] = useState(1);
   const [sel, setSel] = useState([]);
   const [fv, setFv] = useState(null);
+  // F222-A: bộ lọc nằm trong state của bảng => khi bảng bị gỡ (đổi key, đổi chế độ xem, tải lại) phải báo cha về rỗng,
+  // nếu không cha giữ giá trị cũ trong khi bảng dựng lại hiển thị "Tất cả".
+  const filterCb = useRef(onFilterChange); filterCb.current = onFilterChange;
+  useEffect(() => () => { if (filterCb.current) filterCb.current(null); }, []);
+  // F222-R2: ô tick cũng nằm trong state của bảng => khi bảng bị gỡ phải báo cha danh sách chọn RỖNG,
+  // nếu không cha vẫn hiện "Đã chọn N" và "Xuất đã chọn" gửi id của bảng cũ.
+  const selCb = useRef(onSelectionChange); selCb.current = onSelectionChange;
+  useEffect(() => () => { if (selCb.current) selCb.current([]); }, []);
 
   const data = useMemo(() => {
     let r = rows;
@@ -65,8 +73,8 @@ export function DataTable({ columns = [], rows = [], rowKey = 'id', searchable =
           ) : null}
           {filter ? (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button type="button" className="sg-chip" aria-pressed={fv == null} onClick={() => { setFv(null); setPage(1); }}>Tất cả</button>
-              {filter.options.map((o) => <button key={o} type="button" className="sg-chip" aria-pressed={fv === o} onClick={() => { setFv(fv === o ? null : o); setPage(1); }}>{o}</button>)}
+              <button type="button" className="sg-chip" aria-pressed={fv == null} onClick={() => { setFv(null); onFilterChange && onFilterChange(null); setPage(1); }}>Tất cả</button>
+              {filter.options.map((o) => <button key={o} type="button" className="sg-chip" aria-pressed={fv === o} onClick={() => { setFv(fv === o ? null : o); onFilterChange && onFilterChange(fv === o ? null : o); setPage(1); }}>{o}</button>)}
             </div>
           ) : null}
           <div style={{ flex: 1 }} />

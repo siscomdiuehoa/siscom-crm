@@ -6,7 +6,7 @@ import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import React from 'react';
-import { installDom, text, byTag, click } from './helpers/miniDom.mjs';
+import { installDom, text, byTag, click, type, submit, inputByLabel } from './helpers/miniDom.mjs';
 
 const BASE = 'http://127.0.0.1:3000/api/v1';
 const ID = '0b9f1c52-3a0e-4c3e-9d6f-0a1b2c3d4e5f';
@@ -48,12 +48,12 @@ after(async () => { for (const s of servers) await s.close(); if (dom) dom.resto
 beforeEach(() => { store = {}; fetchCalls = []; fetchImpl = async () => { throw new TypeError('network down'); }; });
 
 const settle = async () => { for (let i = 0; i < 6; i += 1) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
-async function mount(apiOn, hash) {
+async function mount(apiOn, hash, props = undefined) {
   globalThis.location.hash = hash;
   const container = dom.doc.createElement('div'); dom.doc.body.appendChild(container);
   const root = createRoot(container);
   const App = await loadApp(apiOn);
-  await act(async () => { root.render(React.createElement(App)); });
+  await act(async () => { root.render(React.createElement(App, props)); });
   await settle();
   return { container, unmount: async () => { await act(async () => root.unmount()); } };
 }
@@ -99,4 +99,198 @@ test('OFF (demo): giữ nguyên nút Sửa/Xoá tại dòng, không có nút "M�
     assert.equal(byLabel(l.container, /^Mở chi tiết để sửa$/).length, 0);
     assert.ok(byLabel(l.container, /^Sửa$/).length > 0 && byLabel(l.container, /^Xoá$/).length > 0, 'demo vẫn có Sửa/Xoá tại dòng');
   } finally { await l.unmount(); }
+});
+
+
+test('CT-FV4-1: tìm đầu trang debounce và phản hồi cũ', async () => {
+  const pending = [];
+  fetchImpl = (url) => { const u = new URL(url); if (u.searchParams.has('search')) return new Promise((resolve) => pending.push({ q: u.searchParams.get('search'), resolve })); return okServer(url); };
+  document.querySelector = (s) => s === '.sg-search' ? { getBoundingClientRect: () => ({ left: 0, bottom: 40, width: 400 }) } : null;
+  const l = await mount(true, '#/dashboard');
+  try {
+    const input = byTag(l.container, 'input').find((e) => e.getAttribute('aria-label') === 'Tìm kiếm toàn hệ thống');
+    await act(async () => { type(input, 'ab'); type(input, 'abc'); await new Promise((r) => setTimeout(r, 300)); });
+    assert.deepEqual(pending.map((x) => x.q), ['abc']);
+    await act(async () => { type(input, 'abcd'); await new Promise((r) => setTimeout(r, 300)); });
+    assert.deepEqual(pending.map((x) => x.q), ['abc', 'abcd']);
+    await act(async () => { pending[1].resolve(res(200, { data: { items: [ROW], page: 1, pageSize: 6, total: 1, totalPages: 1 } })); });
+    await act(async () => { pending[0].resolve(res(200, { data: { items: [{ ...ROW, shortName: 'Kết quả cũ' }], page: 1, pageSize: 6, total: 1, totalPages: 1 } })); });
+    assert.match(text(l.container), /Máy Chủ/); assert.doesNotMatch(text(l.container), /Kết quả cũ/);
+    const hit = l.container.querySelectorAll((e) => (e.getAttribute('class') || '') === 'sg-menu__item')[0];
+    await act(async () => { const ev = { type: 'mousedown', target: hit, bubbles: true, preventDefault() {}, stopPropagation() {}, timeStamp: Date.now() }; for (let n = hit; n; n = n.parentNode) for (const f of (n.listeners && n.listeners.mousedown || [])) f(ev); });
+    assert.equal(location.hash, '/customers/' + ID);
+    await act(async () => { type(input, 'loi'); });
+    assert.match(text(l.container), /Đang tìm…/, 'đang chờ gõ xong: không báo "không tìm thấy" sai');
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); pending[2].resolve(res(403, { error: { code: 'FORBIDDEN', message: 'Không có quyền' } })); });
+    assert.match(text(l.container), /Không tìm được khách hàng\. Vui lòng thử lại\./);
+  } finally { await l.unmount(); document.querySelector = () => null; }
+});
+
+test('FV-4A F-01/F-05: chỉ có customer.read (không có customer.export) => KHÔNG có nút Xuất / Xuất đã chọn; ghi chú không nhắc tới xuất', async () => {
+  fetchImpl = okServer;
+  const ST = { status: 'AUTHENTICATED', employeeId: 'e1', me: { employeeId: 'e1', fullName: 'Kế toán', roles: ['accountant'], permissions: { 'customer.read': 'ALL', 'lookup.read': 'ALL' }, mustChangePassword: false } };
+  const session = { getState: () => ST, subscribe: () => () => {}, getCsrfToken: () => 'csrf-1' };
+  const l = await mount(true, '#/customers', { session });
+  try {
+    assert.equal(byTag(l.container, 'button').filter((b) => /^Xuất/.test(text(b).trim())).length, 0, 'không có nút Xuất');
+    const note = text(l.container);
+    assert.match(note, /xoá, nhập chưa hỗ trợ ở chế độ này/);
+    assert.doesNotMatch(note, /xoá, nhập, xuất chưa hỗ trợ/, 'F222-1: không còn câu sai');
+    assert.doesNotMatch(note, /Xuất CSV tối đa/);
+  } finally { await l.unmount(); }
+});
+
+test('FV-4A F-02/F-04/F-05: có customer.export => POST /customers/export, tải đúng byte máy chủ trả (giữ BOM); lỗi 422/429 có thông báo, không tải file', async () => {
+  const longTimers = []; const origST = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { const t = origST(fn, ms, ...a); if (ms >= 1000) longTimers.push(t); return t; };
+  const blobs = []; const origURL = globalThis.URL.createObjectURL; const origRevoke = globalThis.URL.revokeObjectURL;
+  globalThis.URL.createObjectURL = (b) => { blobs.push(b); return 'blob:x'; }; globalThis.URL.revokeObjectURL = () => {};
+  const csvBytes = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('"Mã KH"\r\n"KH-1"\r\n')]);
+  let mode = 'ok';
+  const hdr = (h) => ({ get: (k) => h[k.toLowerCase()] ?? null });
+  fetchImpl = async (url, init) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/customers/export')) {
+      if (mode === '422') return { ok: false, status: 422, headers: hdr({}), json: async () => ({ error: { code: 'EXPORT_TOO_LARGE', message: 'x' } }) };
+      if (mode === '429') return { ok: false, status: 429, headers: hdr({ 'retry-after': '1200' }), json: async () => ({ error: { code: 'EXPORT_RATE_LIMITED', message: 'x' } }) };
+      return { ok: true, status: 200, headers: hdr({ 'x-export-rows': '1', 'x-export-skipped': '0', 'x-export-id': 'req-1', 'content-disposition': 'attachment; filename="KhachHang_2026-11-10.csv"' }), blob: async () => new Blob([csvBytes], { type: 'text/csv' }), json: async () => { throw new Error('không phải JSON'); } };
+    }
+    return okServer(url, init);
+  };
+  const ST = { status: 'AUTHENTICATED', employeeId: 'e1', me: { employeeId: 'e1', fullName: 'Admin', roles: ['crm_admin'], permissions: { 'customer.read': 'ALL', 'customer.export': 'ALL', 'lookup.read': 'ALL' }, mustChangePassword: false } };
+  const session = { getState: () => ST, subscribe: () => () => {}, getCsrfToken: () => 'csrf-1' };
+  const l = await mount(true, '#/customers', { session });
+  try {
+    assert.match(text(l.container), /Xuất CSV tối đa 5\.000 dòng; mỗi lần xuất được ghi nhật ký/, 'F222-1: ghi chú theo quyền');
+    const btn = () => byTag(l.container, 'button').find((b) => /^Xuất$/.test(text(b).trim()));
+    assert.ok(btn() && !btn().disabled, 'nút Xuất bật');
+    await act(async () => { click(btn()); }); await settle();
+    const calls = fetchCalls.filter(([u]) => new URL(u).pathname.endsWith('/customers/export'));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][1].method, 'POST');
+    // CSRF của phiên cookie: kiểm ở test client (customerAdapter.test.mjs) và Chrome thật; ở đây App dựng client theo cấu hình test.
+    assert.deepEqual(JSON.parse(calls[0][1].body), { mode: 'filtered' });
+    assert.equal(fetchCalls.filter(([u]) => new URL(u).searchParams.get('pageSize') === '100').length, 0, 'F-06: không gom trang');
+    assert.equal(blobs.length, 1);
+    assert.deepEqual([...new Uint8Array(await blobs[0].arrayBuffer()).slice(0, 3)], [0xef, 0xbb, 0xbf], 'giữ BOM UTF-8');
+    assert.match(text(dom.doc.body), /Đã xuất 1 khách hàng/);
+    for (const [m, re] of [['422', /hơn 5\.000/], ['429', /10 lần trong 1 giờ.*20 phút/]]) {
+      mode = m; blobs.length = 0;
+      await act(async () => { click(btn()); }); await settle();
+      assert.equal(blobs.length, 0, m + ': không tải file');
+      assert.match(text(dom.doc.body), re, m);
+    }
+  } finally { await l.unmount(); for (const t of longTimers) clearTimeout(t); globalThis.setTimeout = origST; globalThis.URL.createObjectURL = origURL; globalThis.URL.revokeObjectURL = origRevoke; }
+});
+
+
+// F222-A (10/11/2026): DataTable giữ bộ lọc trạng thái trong state riêng; khi bảng bị dựng lại (đổi phân hạng/ngành/tỉnh => đổi key, hoặc Bảng -> Thẻ -> Bảng)
+// chip quay về "Tất cả" nhưng trang vẫn giữ trạng thái cũ và gửi kèm khi xuất => file lệch màn hình. Bảng dựng lại => bộ lọc trạng thái của trang phải về rỗng.
+async function mountExportFilters() {
+  const bodies = [];
+  const origURL = globalThis.URL.createObjectURL; const origRevoke = globalThis.URL.revokeObjectURL;
+  globalThis.URL.createObjectURL = () => 'blob:x'; globalThis.URL.revokeObjectURL = () => {};
+  const longTimers = []; const origST = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { const t = origST(fn, ms, ...a); if (ms >= 1000) longTimers.push(t); return t; };
+  const hdr = (h) => ({ get: (k) => h[k.toLowerCase()] ?? null });
+  const LK = { ...LOOKUPS, customer_tier: [{ code: 'VIP', label: 'VIP' }], customer_status: [{ code: 'ACTIVE', label: 'Đang giao dịch' }] };
+  fetchImpl = async (url, init) => {
+    const p = new URL(url).pathname;
+    if (p.endsWith('/customers/export')) { bodies.push(JSON.parse(init.body)); return { ok: true, status: 200, headers: hdr({ 'x-export-rows': '1', 'x-export-skipped': '0', 'x-export-id': 'r', 'content-disposition': 'attachment; filename="K.csv"' }), blob: async () => new Blob(['x'], { type: 'text/csv' }), json: async () => { throw new Error('không phải JSON'); } }; }
+    if (p.endsWith('/lookups')) return res(200, { data: LK });
+    return okServer(url, init);
+  };
+  const ST = { status: 'AUTHENTICATED', employeeId: 'e1', me: { employeeId: 'e1', fullName: 'Admin', roles: ['crm_admin'], permissions: { 'customer.read': 'ALL', 'customer.export': 'ALL', 'lookup.read': 'ALL' }, mustChangePassword: false } };
+  const l = await mount(true, '#/customers', { session: { getState: () => ST, subscribe: () => () => {}, getCsrfToken: () => 'csrf-1' } });
+  const btn = (re) => byTag(l.container, 'button').find((b) => re.test(text(b).trim()));
+  const press = async (re) => { const b = btn(re); assert.ok(b, 'có nút ' + re); await act(async () => { click(b); }); await settle(); };
+  const chip = (label) => byTag(l.container, 'button').find((b) => /sg-chip/.test(b.getAttribute('class') || '') && text(b).trim() === label);
+  const done = async () => { await l.unmount(); for (const t of longTimers) clearTimeout(t); globalThis.setTimeout = origST; globalThis.URL.createObjectURL = origURL; globalThis.URL.revokeObjectURL = origRevoke; };
+  return { bodies, press, chip, done, container: l.container };
+}
+
+test('F222-A: chọn trạng thái rồi đổi phân hạng (bảng dựng lại, chip về "Tất cả") => xuất KHÔNG gửi trạng thái cũ', async () => {
+  const h = await mountExportFilters();
+  try {
+    await act(async () => { click(h.chip('Đang giao dịch')); }); await settle();
+    await h.press(/^Xuất$/);
+    assert.deepEqual(h.bodies[0], { mode: 'filtered', status: 'ACTIVE' }, 'tiền đề: chip trạng thái được gửi khi xuất');
+    await h.press(/^VIP/);
+    assert.equal(h.chip('Tất cả').getAttribute('aria-pressed'), 'true', 'tiền đề: bảng dựng lại, chip về "Tất cả"');
+    await h.press(/^Xuất$/);
+    assert.deepEqual(h.bodies[1], { mode: 'filtered', tier: 'VIP' });
+  } finally { await h.done(); }
+});
+
+test('F222-A: chọn trạng thái rồi Bảng -> Thẻ -> Bảng (chip về "Tất cả") => xuất KHÔNG gửi trạng thái cũ', async () => {
+  const h = await mountExportFilters();
+  try {
+    await act(async () => { click(h.chip('Đang giao dịch')); }); await settle();
+    await h.press(/^Thẻ$/); await h.press(/^Bảng$/);
+    assert.equal(h.chip('Tất cả').getAttribute('aria-pressed'), 'true', 'tiền đề: bảng dựng lại, chip về "Tất cả"');
+    await h.press(/^Xuất$/);
+    assert.deepEqual(h.bodies[0], { mode: 'filtered' });
+  } finally { await h.done(); }
+});
+
+// F222-R2 (FV4A-R2-FIX, 10/11/2026): trang giữ danh sách dòng đã chọn, còn DataTable giữ ô tick trong state riêng. Khi bảng bị dựng lại
+// (đổi phân hạng, Bảng -> Thẻ -> Bảng, tìm trên máy chủ / đổi trang) ô tick biến mất nhưng trang vẫn hiện "Đã chọn N" và "Xuất đã chọn"
+// gửi id CŨ => file lệch màn hình. Nay DataTable báo danh sách chọn rỗng khi bị gỡ.
+const tickFirstRow = async (h) => {
+  const boxes = byTag(h.container, 'input').filter((i) => i.getAttribute('type') === 'checkbox');
+  assert.ok(boxes.length >= 2, 'có ô chọn tất cả + ít nhất một ô chọn dòng');
+  const cb = boxes[1]; cb.checked = true;
+  await act(async () => { click(cb); }); await settle();
+};
+const selectedBar = (h) => ({ label: /Đã chọn \d+/.test(text(h.container)), button: !!byTag(h.container, 'button').find((b) => /^Xuất đã chọn$/.test(text(b).trim())) });
+
+test('F222-R2: chọn dòng hợp lệ => "Xuất đã chọn" gửi đúng id đang tick (không làm mất chức năng chọn)', async () => {
+  const h = await mountExportFilters();
+  try {
+    await tickFirstRow(h);
+    assert.deepEqual(selectedBar(h), { label: true, button: true });
+    await h.press(/^Xuất đã chọn$/);
+    assert.deepEqual(h.bodies[0], { mode: 'selected', ids: [ID] });
+    assert.deepEqual(selectedBar(h), { label: true, button: true }, 'xuất xong vẫn giữ lựa chọn trên bảng đang hiển thị');
+  } finally { await h.done(); }
+});
+
+test('F222-R2: chọn dòng rồi đổi phân hạng (bảng dựng lại) => không còn "Đã chọn", không còn nút "Xuất đã chọn", không gửi id cũ', async () => {
+  const h = await mountExportFilters();
+  try {
+    await tickFirstRow(h);
+    assert.deepEqual(selectedBar(h), { label: true, button: true }, 'tiền đề: đã chọn 1 dòng');
+    await h.press(/^VIP/);
+    assert.deepEqual(selectedBar(h), { label: false, button: false });
+    assert.equal(h.bodies.filter((b) => b.mode === 'selected').length, 0);
+  } finally { await h.done(); }
+});
+
+test('F222-R2: chọn dòng rồi Bảng -> Thẻ -> Bảng => lựa chọn cũ không còn', async () => {
+  const h = await mountExportFilters();
+  try {
+    await tickFirstRow(h);
+    await h.press(/^Thẻ$/);
+    assert.deepEqual(selectedBar(h), { label: false, button: false }, 'chế độ Thẻ: không còn lựa chọn của bảng');
+    await h.press(/^Bảng$/);
+    assert.deepEqual(selectedBar(h), { label: false, button: false });
+  } finally { await h.done(); }
+});
+
+test('F222-R2: chọn dòng rồi tìm trên máy chủ (danh sách tải lại, bảng dựng lại) => lựa chọn cũ không còn', async () => {
+  const h = await mountExportFilters();
+  try {
+    await tickFirstRow(h);
+    const box = byTag(h.container, 'input').find((i) => i.getAttribute('aria-label') === 'Tìm kiếm khách hàng trên máy chủ');
+    assert.ok(box, 'có ô tìm trên máy chủ');
+    await act(async () => { type(box, 'May Chu'); }); await settle();
+    // Mạng thật luôn trả lời ở một nhịp sau => trang hiện 'Đang tải' và bảng bị gỡ. fetch giả trả lời tức thì sẽ gộp hai trạng thái, nên làm chậm 20 ms.
+    const instant = fetchImpl; fetchImpl = async (...a) => { await new Promise((r) => setTimeout(r, 20)); return instant(...a); };
+    await act(async () => { let f = box; while (f && f.tagName !== 'FORM') f = f.parentNode; assert.ok(f, 'có form tìm kiếm'); submit(f); }); // miniDom: bấm nút không tự gửi form
+    await act(async () => { await new Promise((r) => setTimeout(r, 80)); }); await settle();
+    assert.ok(fetchCalls.some(([u]) => new URL(u).searchParams.get('search') === 'May Chu'), 'tiền đề: đã gửi tìm kiếm lên máy chủ');
+    assert.ok(byTag(h.container, 'input').filter((i) => i.getAttribute('type') === 'checkbox').length >= 2, 'tiền đề: bảng đã tải lại');
+    assert.equal(byTag(h.container, 'input').filter((i) => i.getAttribute('type') === 'checkbox').some((i) => i.checked), false, 'bảng mới không còn ô nào được tick');
+    assert.deepEqual(selectedBar(h), { label: false, button: false });
+  } finally { await h.done(); }
 });

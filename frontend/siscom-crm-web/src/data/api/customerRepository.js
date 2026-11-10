@@ -25,7 +25,7 @@ function wrap(e) {
   if (e instanceof ApiError) {
     const kind = HTTP_KIND[e.status] || (e.status >= 500 ? 'server' : 'http');
     const base = HTTP_MSG[e.status] || 'Máy chủ từ chối yêu cầu (' + e.status + ').';
-    return new CustomerRepoError(kind, e.message && e.message !== base ? base + ' ' + e.message : base, { status: e.status, code: e.code, details: e.details });
+    return new CustomerRepoError(kind, e.message && e.message !== base ? base + ' ' + e.message : base, { status: e.status, code: e.code, details: e.details, ...(e.retryAfter ? { retryAfter: e.retryAfter } : {}) });
   }
   if (e instanceof AdapterError) return new CustomerRepoError('validation', e.message, { field: e.field });
   return new CustomerRepoError('unknown', 'Lỗi không xác định. Dữ liệu không được lưu.', { cause: e });
@@ -63,12 +63,13 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
       async createActivity() { throw new CustomerRepoError('config', 'Chế độ demo: hoạt động chỉ có ở chế độ API.'); },
       async assigneeCandidates() { throw new CustomerRepoError('config', 'Chế độ demo: hoạt động chỉ có ở chế độ API.'); },
       async tasks() { throw new CustomerRepoError('config', 'Chế độ demo: công việc chỉ có ở chế độ API.'); },
+      async exportCustomers() { throw new CustomerRepoError('config', 'Chế độ demo: xuất dùng hộp thoại cục bộ.'); },
     };
   }
 
   if (!config.enabled) {
     const err = () => new CustomerRepoError('config', 'Đã bật VITE_CRM_API_ENABLED nhưng thiếu VITE_CRM_API_BASE. Không dùng dữ liệu cục bộ thay thế.');
-    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); }, async contacts() { throw err(); }, async setPrimaryContact() { throw err(); }, async addContact() { throw err(); }, async updateContact() { throw err(); }, async deleteContact() { throw err(); }, async activities() { throw err(); }, async createActivity() { throw err(); }, async assigneeCandidates() { throw err(); }, async tasks() { throw err(); } };
+    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); }, async contacts() { throw err(); }, async setPrimaryContact() { throw err(); }, async addContact() { throw err(); }, async updateContact() { throw err(); }, async deleteContact() { throw err(); }, async activities() { throw err(); }, async createActivity() { throw err(); }, async assigneeCandidates() { throw err(); }, async tasks() { throw err(); }, async exportCustomers() { throw err(); } };
   }
 
   // Wrap fetch: transport failures become kind 'network', and we know whether a request was sent
@@ -91,6 +92,15 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
   const sameId = (c, id) => { if (c.id.toLowerCase() !== id.toLowerCase()) throw malformed('id khách hàng không khớp'); return c; };
   return {
     mode: 'api',
+    // FV-4A: xuất CSV phía máy chủ. Trả { blob, rows, skipped, exportId, disposition }; lỗi giữ status/code/retryAfter để giao diện báo đúng.
+    async exportCustomers(body) {
+      sent = false;
+      try {
+        const r = await api.exportCustomers(body);
+        if (!r || !r.blob || !Number.isInteger(r.rows) || r.rows < 0) throw malformed('file xuất');
+        return r;
+      } catch (err) { throw classify(err); }
+    },
     // Canonical server choices for the form selects: { tier|status|industry|source|city: { options: [label], missing, toCode, toLabel } }.
     async lookups() {
       sent = false;
