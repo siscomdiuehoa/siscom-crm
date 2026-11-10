@@ -298,3 +298,36 @@ describe('phạm vi truy cập và bảo mật', () => {
     expect(before2[0]).toBe((before[0] as number) + 1); // chỉ khách do fixture tạo
   });
 });
+
+describe('R2-230: null trên trường không được xoá và ownerId viết HOA (API thật trên DB tạm)', () => {
+  it('tags = null => 400 (không phải 500), version không đổi; tags = [] vẫn hợp lệ', async () => {
+    const c = await makeCustomer(prisma, fx, { ownerId: fx.empA });
+    const r = await a().patch(URL + '/' + c.id, { version: c.version, tags: null });
+    expect(r.status).toBe(400);
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: c.id } })).version).toBe(c.version);
+    expect((await a().patch(URL + '/' + c.id, { version: c.version, tags: [] })).status).toBe(200);
+  });
+  it('OWN: tạo với ownerId là CHÍNH MÌNH viết HOA => 201 (trước đây 403), chủ sở hữu lưu chữ thường', async () => {
+    const r = await a('ownA').post(URL, { name: 'Khách UUID hoa ' + uniq(), phone: '0903123456', ownerId: fx.empA.toUpperCase() });
+    expect(r.status).toBe(201);
+    expect(r.body.data.owner.id).toBe(fx.empA);
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: r.body.data.id } })).ownerId).toBe(fx.empA);
+  });
+  it('sửa: gửi ownerId của chủ HIỆN TẠI viết HOA => không coi là đổi chủ (version giữ nguyên, không thêm phân công)', async () => {
+    const c = (await a().post(URL, { name: 'Khách giữ chủ ' + uniq(), phone: '0903123456', ownerId: fx.empB })).body.data;
+    const n = await prisma.customerAssignment.count({ where: { customerId: c.id } });
+    const r = await a().patch(URL + '/' + c.id, { version: c.version, ownerId: fx.empB.toUpperCase() });
+    expect(r.status).toBe(200);
+    expect(r.body.data.version).toBe(c.version);
+    expect(r.body.data.owner.id).toBe(fx.empB);
+    expect(await prisma.customerAssignment.count({ where: { customerId: c.id } })).toBe(n);
+  });
+  it('sửa: đổi sang người khác bằng ownerId viết HOA => 200, phân công mới trỏ đúng id chữ thường', async () => {
+    const c = (await a().post(URL, { name: 'Khách đổi chủ ' + uniq(), phone: '0903123456', ownerId: fx.empB })).body.data;
+    const r = await a().patch(URL + '/' + c.id, { version: c.version, ownerId: fx.empC.toUpperCase() });
+    expect(r.status).toBe(200);
+    expect(r.body.data.owner.id).toBe(fx.empC);
+    const open = await prisma.customerAssignment.findMany({ where: { customerId: c.id, endedAt: null } });
+    expect(open).toHaveLength(1); expect(open[0].employeeId).toBe(fx.empC);
+  });
+});
