@@ -7,7 +7,7 @@ import type { ConfigService } from '@nestjs/config';
 import { AccountAdmin, AccountAdminError, assertTargetUrl, handoverText, parseArgs, ParsedArgs } from '../modules/auth/account-admin';
 import { PrismaService } from '../prisma/prisma.service';
 
-// FV-5: node dist/cli/account-admin.js <add|reset-password|disable|list> [tham số]  (sau npm run build; xem docs/FV5_ACCOUNT_ADMIN.md).
+// FV-5: node dist/cli/account-admin.js <add|reset-password|disable|unlock|list> [tham số]  (sau npm run build; xem docs/FV5_ACCOUNT_ADMIN.md).
 // Kết nối: MIGRATE_DATABASE_URL (chủ sở hữu, siscom_migrator). Không đọc .env, không in mật khẩu/URL. DB thật chỉ khi Owner duyệt riêng (--allow-db).
 
 // Tạo file bàn giao MỚI (không ghi đè), chỉ người chạy có quyền: tạo rỗng -> khoá ACL (Windows: icacls) -> mới ghi nội dung.
@@ -60,11 +60,11 @@ async function main(): Promise<void> {
       return;
     }
     out = createPrivateFile(a.out!);
-    const issued = a.command === 'add' ? await tool.add(a) : await tool.resetPassword(a);
+    const issued = a.command === 'add' ? await tool.add(a) : a.command === 'unlock' ? await tool.unlock(a) : await tool.resetPassword(a);
     writeSync(out.fd, handoverText(issued, dbName), null, 'utf8');
     closeSync(out.fd);
     const saved = out.path; out = null;
-    console.log((a.command === 'add' ? 'Đã tạo tài khoản ' : 'Đã đặt lại mật khẩu ') + issued.code + ' (' + issued.email + ') trên ' + dbName + '. Mật khẩu tạm KHÔNG in; đã ghi vào: ' + saved);
+    console.log((a.command === 'add' ? 'Đã tạo tài khoản ' : a.command === 'unlock' ? 'Đã MỞ KHOÁ và cấp mật khẩu tạm mới cho ' : 'Đã đặt lại mật khẩu ') + issued.code + ' (' + issued.email + ') trên ' + dbName + '. Mật khẩu tạm KHÔNG in; đã ghi vào: ' + saved);
   } finally {
     if (out) { try { closeSync(out.fd); } catch { /* bỏ qua */ } try { unlinkSync(out.path); } catch { /* bỏ qua */ } } // thao tác lỗi => không để file rỗng/dở
     await prisma.$disconnect();

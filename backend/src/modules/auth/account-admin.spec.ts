@@ -69,7 +69,7 @@ describe('FV-5 parseArgs', () => {
 });
 
 // Giả lập Prisma: ghi lại thứ tự lời gọi SQL (chỉ phần chữ của template) để kiểm luồng gọi đúng hàm đặc quyền.
-function fakeDb(o: { db?: string; can?: boolean; open?: boolean; emp?: Record<string, unknown>[]; reset?: string; dup?: number; markRows?: number; noCred?: boolean } = {}) {
+function fakeDb(o: { db?: string; can?: boolean; open?: boolean; emp?: Record<string, unknown>[]; reset?: string; dup?: number; markRows?: number; noCred?: boolean; credStatus?: string } = {}) {
   const calls: string[] = []; const values: unknown[][] = [];
   const run = async (strings: TemplateStringsArray, ...v: unknown[]) => {
     const sql = strings.join('?').replace(/\s+/g, ' ').trim(); calls.push(sql); values.push(v);
@@ -87,6 +87,7 @@ function fakeDb(o: { db?: string; can?: boolean; open?: boolean; emp?: Record<st
     if (sql.includes('fn_auth_api_request_decide')) return [{ s: 'APPROVED' }];
     if (sql.includes('fn_auth_api_reset_password')) return [{ r: o.reset ?? 'OK' }];
     if (sql.includes('SELECT token_version FROM public.employee_credential')) return o.noCred ? [] : [{ token_version: 4 }];
+    if (sql.includes('SELECT status::text AS status FROM public.employee_credential')) return [{ status: o.credStatus ?? 'ACTIVE' }];
     if (sql.startsWith('UPDATE public.employee_credential')) return o.markRows ?? 1;
     return [];
   };
@@ -166,6 +167,45 @@ describe('FV-5 AccountAdmin (giả lập DB)', () => {
     const nc = fakeDb({ noCred: true });
     await expect(new AccountAdmin(nc.db as never, hasher).resetPassword(parseArgs(['reset-password', '--requester', 'NV-0001', '--approver', 'NV-0002', '--employee', 'NV-0009', '--out', 'x']))).rejects.toThrow('INTERNAL');
     expect(idx(nc.calls, 'fn_auth_api_request_create')).toBe(-1);
+  });
+  // F225-C (FV5-C-FIX, Owner 10/11/2026): reset-password KHÔNG được mở khoá; mở khoá là lệnh riêng `unlock` có xác nhận rõ ràng.
+  const RESET9 = ['reset-password', '--requester', 'NV-0001', '--approver', 'NV-0002', '--employee', 'NV-0009', '--out', 'x'];
+  const UNLOCK9 = ['unlock', '--requester', 'NV-0001', '--approver', 'NV-0002', '--employee', 'NV-0009', '--reason', 'Đi làm lại', '--confirm-unlock', 'NV-0009', '--out', 'x'];
+  it('F225-C: reset-password trên tài khoản ĐANG KHOÁ => ACCOUNT_DISABLED, không tạo yêu cầu, không đặt mật khẩu, không mở khoá', async () => {
+    const f = fakeDb({ credStatus: 'DISABLED' });
+    await expect(new AccountAdmin(f.db as never, hasher).resetPassword(parseArgs(RESET9))).rejects.toThrow('ACCOUNT_DISABLED');
+    for (const s of ['fn_auth_api_request_create', 'fn_auth_api_reset_token_issue', 'fn_auth_api_reset_password', 'must_change_password = true']) expect(idx(f.calls, s)).toBe(-1);
+    expect(idx(f.calls, 'SELECT status::text AS status FROM public.employee_credential')).toBeGreaterThan(idx(f.calls, 'FOR UPDATE')); // đọc trạng thái SAU khi khoá dòng
+  });
+  it('F225-C: unlock trên tài khoản đang khoá => PASSWORD_RESET 2 người + buộc đổi mật khẩu + audit ACCOUNT_UNLOCK kèm lý do', async () => {
+    const f = fakeDb({ credStatus: 'DISABLED' });
+    const r = await new AccountAdmin(f.db as never, hasher).unlock(parseArgs(UNLOCK9));
+    expect(r.code).toBe('NV-0009');
+    const order = ['fn_auth_api_request_create', 'fn_auth_api_request_decide', 'fn_auth_api_reset_password', 'must_change_password = true', 'ACCOUNT_UNLOCK'];
+    const pos = order.map((s) => idx(f.calls, s));
+    expect(pos.every((p) => p >= 0)).toBe(true); expect([...pos].sort((a, b) => a - b)).toEqual(pos);
+    const au = f.values[idx(f.calls, 'ACCOUNT_UNLOCK')];
+    expect(au[0]).toBe('req-1'); expect(au[1]).toBe('emp-9'); expect(String(au[2])).toContain('Đi làm lại');
+    expect(JSON.stringify(f.values)).not.toContain(r.password);
+  });
+  it('F225-C: unlock từ chối khi tài khoản KHÔNG khoá, khi mã xác nhận không khớp đúng mã nhân viên, khi requester = approver', async () => {
+    const act = fakeDb();
+    await expect(new AccountAdmin(act.db as never, hasher).unlock(parseArgs(UNLOCK9))).rejects.toThrow('NOT_DISABLED');
+    expect(idx(act.calls, 'fn_auth_api_request_create')).toBe(-1);
+    const wrong = fakeDb({ credStatus: 'DISABLED' });
+    await expect(new AccountAdmin(wrong.db as never, hasher).unlock(parseArgs(UNLOCK9.map((v, i) => (i === 10 ? 'b@x.vn' : v))))).rejects.toThrow('CONFIRM_UNLOCK');
+    expect(idx(wrong.calls, 'FOR UPDATE')).toBe(-1); expect(idx(wrong.calls, 'fn_auth_api_request_create')).toBe(-1);
+    await expect(new AccountAdmin(fakeDb({ credStatus: 'DISABLED' }).db as never, hasher).unlock(parseArgs(UNLOCK9.map((v) => (v === 'NV-0002' ? 'sys@x.vn' : v))))).rejects.toThrow('TWO_PERSON');
+  });
+  it('F225-C: parseArgs — unlock bắt buộc --reason, --confirm-unlock, --approver, --out; --confirm-unlock không dùng cho lệnh khác', () => {
+    expect(parseArgs(UNLOCK9)).toMatchObject({ command: 'unlock', employee: 'NV-0009', reason: 'Đi làm lại', confirmUnlock: 'NV-0009' });
+    for (const drop of ['--reason', '--confirm-unlock', '--approver', '--out']) { const i = UNLOCK9.indexOf(drop); expect(code(() => parseArgs(UNLOCK9.filter((_, k) => k !== i && k !== i + 1)))).toBe('INPUT'); }
+    expect(code(() => parseArgs([...RESET9, '--confirm-unlock', 'NV-0009']))).toBe('INPUT');
+  });
+  it('F225-C: add vẫn tạo được tài khoản dù placeholder credential ở trạng thái DISABLED (không bị chặn nhầm)', async () => {
+    const f = fakeDb({ credStatus: 'DISABLED' });
+    const r = await new AccountAdmin(f.db as never, hasher).add(parseArgs(['add', '--requester', 'NV-0001', '--approver', 'NV-0002', '--email', 'moi2@siscom.vn', '--full-name', 'Mới', '--department', 'KD', '--role', 'sales', '--out', 'x']));
+    expect(r.code).toBe('NV-0007'); expect(idx(f.calls, 'must_change_password = true')).toBeGreaterThan(-1);
   });
   it('disable: gọi fn_auth_api_credential_disable(requester, nhân viên, lý do); nhân viên không tồn tại -> NOT_FOUND', async () => {
     const f = fakeDb();

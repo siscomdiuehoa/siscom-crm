@@ -9,7 +9,9 @@ import type { PrismaService } from '../../prisma/prisma.service';
 //   add            : employee (owner INSERT) -> fn_auth_api_credential_create (placeholder DISABLED/none)
 //                    -> ROLE_GRANT [request_create(requester) -> request_decide(approver) -> role_grant(requester)]
 //                    -> PASSWORD_RESET [request_create -> request_decide -> reset_token_issue -> reset_password] -> bật must_change_password.
-//   reset-password : PASSWORD_RESET như trên (đồng thời mở lại tài khoản đang khoá — M1.2 chỉ cho mở lại kèm mật khẩu mới) -> bật must_change_password.
+//   reset-password : PASSWORD_RESET như trên -> bật must_change_password. CHỈ cho tài khoản đang ACTIVE: tài khoản đang khoá => ACCOUNT_DISABLED (F225-C).
+//   unlock         : thao tác RIÊNG để mở khoá (F225-C, Owner 10/11/2026): chỉ tài khoản đang DISABLED, bắt buộc lý do + gõ lại đúng MÃ nhân viên
+//                    (--confirm-unlock). M1.2 chỉ cho mở lại kèm mật khẩu mới => cấp mật khẩu tạm mới + must_change_password + audit ACCOUNT_UNLOCK.
 //   disable        : fn_auth_api_credential_disable (tăng token_version => thu hồi mọi phiên; DB chặn khoá admin/người duyệt cuối cùng).
 //   list           : chỉ đọc; không trả hash.
 // GIỚI HẠN (như B3_ACTIVITY_PERMISSIONS.sql.txt): requester/approver do NGƯỜI VẬN HÀNH khai báo; DB kiểm 2 người KHÁC nhau, đúng nhóm quyền,
@@ -67,25 +69,26 @@ export function generatePassword(ctx: { email?: string | null; code?: string | n
   throw new AccountAdminError('INTERNAL', 'không sinh được mật khẩu đạt chính sách.');
 }
 
-export type Command = 'add' | 'reset-password' | 'disable' | 'list';
+export type Command = 'add' | 'reset-password' | 'disable' | 'unlock' | 'list';
 export interface ParsedArgs {
   command: Command; requester?: string; approver?: string; employee?: string; email?: string; fullName?: string; department?: string;
-  role?: string; phone?: string; title?: string; reason?: string; out?: string; allowDb?: string; demo: boolean; yes: boolean;
+  role?: string; phone?: string; title?: string; reason?: string; out?: string; allowDb?: string; confirmUnlock?: string; demo: boolean; yes: boolean;
 }
 const FLAGS: Record<string, keyof ParsedArgs> = {
   '--requester': 'requester', '--approver': 'approver', '--employee': 'employee', '--email': 'email', '--full-name': 'fullName', '--department': 'department',
-  '--role': 'role', '--phone': 'phone', '--title': 'title', '--reason': 'reason', '--out': 'out', '--allow-db': 'allowDb',
+  '--role': 'role', '--phone': 'phone', '--title': 'title', '--reason': 'reason', '--out': 'out', '--allow-db': 'allowDb', '--confirm-unlock': 'confirmUnlock',
 };
 const NEEDS: Record<Command, Array<keyof ParsedArgs>> = {
   add: ['requester', 'approver', 'email', 'fullName', 'department', 'role', 'out'],
   'reset-password': ['requester', 'approver', 'employee', 'out'],
   disable: ['requester', 'employee', 'reason'],
+  unlock: ['requester', 'approver', 'employee', 'reason', 'confirmUnlock', 'out'],
   list: [],
 };
 // Không nhận mật khẩu qua tham số (mật khẩu chỉ do CLI sinh). Cờ lạ => từ chối (tránh gõ nhầm làm đổi ý nghĩa).
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [cmd, ...rest] = argv;
-  if (!cmd || !(cmd in NEEDS)) throw new AccountAdminError('INPUT', 'lệnh phải là add | reset-password | disable | list.');
+  if (!cmd || !(cmd in NEEDS)) throw new AccountAdminError('INPUT', 'lệnh phải là add | reset-password | disable | unlock | list.');
   const out: ParsedArgs = { command: cmd as Command, demo: false, yes: false };
   for (let i = 0; i < rest.length; i++) {
     const f = rest[i];
@@ -100,6 +103,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   }
   const missing = NEEDS[out.command].filter((k) => !out[k]);
   if (missing.length) throw new AccountAdminError('INPUT', 'thiếu tham số: ' + missing.map((k) => '--' + String(k).replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())).join(', '));
+  if (out.confirmUnlock && out.command !== 'unlock') throw new AccountAdminError('INPUT', '--confirm-unlock chỉ dùng cho lệnh unlock.');
   if (out.requester && out.approver && out.requester.toLowerCase() === out.approver.toLowerCase()) throw new AccountAdminError('TWO_PERSON', 'người yêu cầu và người duyệt phải KHÁC nhau.');
   if (out.role && !GRANTABLE_ROLES.includes(out.role)) throw new AccountAdminError('INPUT', 'vai trò phải là một trong: ' + GRANTABLE_ROLES.join(', ') + '.');
   if (out.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(out.email)) throw new AccountAdminError('INPUT', 'email không hợp lệ.');
@@ -150,7 +154,7 @@ export class AccountAdmin {
       await tx.$executeRaw`SELECT public.fn_auth_api_credential_create(${req}::uuid, ${e.id}::uuid)`;
       const g = await this.approved(tx, req, appr, 'ROLE_GRANT', e.id, role[0].id);
       await tx.$executeRaw`SELECT public.fn_auth_api_role_grant(${req}::uuid, ${g}::uuid)`;
-      await this.setPassword(tx, req, appr, e.id, hash);
+      await this.setPassword(tx, req, appr, e.id, hash, null); // placeholder vừa tạo trong CHÍNH transaction này (DISABLED/none)
       return { code: e.code, email, fullName: a.fullName!, role: a.role, password };
     });
   }
@@ -163,7 +167,23 @@ export class AccountAdmin {
       if (!e.cred_status) throw new AccountAdminError('INPUT', 'nhân viên ' + e.code + ' chưa có thông tin đăng nhập (dùng lệnh add).');
       const password = generatePassword({ email: e.email, code: e.code });
       const hash = await this.hasher.hash(password);
-      await this.setPassword(tx, req, appr, e.id, hash);
+      await this.setPassword(tx, req, appr, e.id, hash, 'ACTIVE'); // F225-C: không bao giờ mở khoá
+      return { code: e.code, email: e.email ?? '', fullName: e.full_name, password };
+    });
+  }
+
+  // F225-C: mở khoá là thao tác RIÊNG, hai người, có lý do, và người vận hành phải gõ lại ĐÚNG mã nhân viên (không nhận email/viết khác).
+  async unlock(a: ParsedArgs): Promise<IssuedAccount> {
+    return this.tx(async (tx) => {
+      const req = await this.actor(tx, a.requester!); const appr = await this.actor(tx, a.approver!);
+      if (req === appr) throw new AccountAdminError('TWO_PERSON', 'người yêu cầu và người duyệt phải KHÁC nhau.');
+      const e = await this.employee(tx, a.employee!);
+      if (a.confirmUnlock !== e.code) throw new AccountAdminError('CONFIRM_UNLOCK', '--confirm-unlock phải đúng mã nhân viên ' + e.code + '; huỷ, không ghi gì.');
+      if (!e.cred_status) throw new AccountAdminError('INPUT', 'nhân viên ' + e.code + ' chưa có thông tin đăng nhập (dùng lệnh add).');
+      const password = generatePassword({ email: e.email, code: e.code });
+      const hash = await this.hasher.hash(password);
+      await this.setPassword(tx, req, appr, e.id, hash, 'DISABLED');
+      await tx.$executeRaw`SELECT public.fn_auth_api_audit('USER', ${req}::uuid, 'ACCOUNT_UNLOCK', 'employee', ${e.id}::uuid, ${'FV-5 account-admin unlock: ' + (a.reason ?? '')}, NULL)`;
       return { code: e.code, email: e.email ?? '', fullName: e.full_name, password };
     });
   }
@@ -194,11 +214,19 @@ export class AccountAdmin {
 
   // PASSWORD_RESET hai người: request -> duyệt -> phát hành mã reset (chỉ gửi SHA-256) -> đặt mật khẩu bằng mã gốc (DB tự băm & so).
   // fn_auth_api_reset_password đặt must_change_password = false => bật lại (chủ sở hữu; cột không thuộc nhóm bí mật) + ghi nhật ký.
-  private async setPassword(tx: Tx, req: string, appr: string, employeeId: string, hash: string): Promise<void> {
+  // expect (F225-C): trạng thái credential BẮT BUỘC trước khi đặt mật khẩu — 'ACTIVE' (reset-password), 'DISABLED' (unlock), null (add: placeholder mới).
+  private async setPassword(tx: Tx, req: string, appr: string, employeeId: string, hash: string, expect: 'ACTIVE' | 'DISABLED' | null): Promise<void> {
     // M1 (Owner 08/11/2026): khoá dòng credential và ghi nhớ token_version TRƯỚC khi đặt mật khẩu; sau reset, cờ chỉ được bật khi
     // token_version = cũ + 1 VÀ password_hash = đúng hash vừa đặt (đúng tài khoản, đúng lần reset này, không bị đổi chen giữa).
     const cur = await tx.$queryRaw<{ token_version: number }[]>`SELECT token_version FROM public.employee_credential WHERE employee_id = ${employeeId}::uuid FOR UPDATE`;
     if (cur.length !== 1) throw new AccountAdminError('INTERNAL', 'nhân viên chưa có thông tin đăng nhập.');
+    if (expect) {
+      // Đọc SAU khi đã khoá dòng (FOR UPDATE ở trên) => không ai đổi trạng thái chen giữa; fn_auth_api_reset_password luôn đặt status = ACTIVE.
+      const st = await tx.$queryRaw<{ status: string }[]>`SELECT status::text AS status FROM public.employee_credential WHERE employee_id = ${employeeId}::uuid`;
+      const status = st[0]?.status;
+      if (expect === 'ACTIVE' && status !== 'ACTIVE') throw new AccountAdminError('ACCOUNT_DISABLED', 'tài khoản đang bị khoá; reset-password KHÔNG mở khoá. Mở khoá là thao tác riêng: lệnh unlock.');
+      if (expect === 'DISABLED' && status !== 'DISABLED') throw new AccountAdminError('NOT_DISABLED', 'tài khoản không ở trạng thái khoá; không có gì để mở (đặt lại mật khẩu: reset-password).');
+    }
     const r = await this.approved(tx, req, appr, 'PASSWORD_RESET', employeeId, null);
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token, 'utf8').digest('hex');

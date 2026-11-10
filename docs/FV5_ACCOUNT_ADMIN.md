@@ -1,8 +1,10 @@
 # FV-5 — Công cụ quản lý tài khoản nhân viên (account-admin)
 
-Dành cho **Owner / quản trị kỹ thuật**. Công cụ dòng lệnh để **thêm nhân viên**, **đặt lại mật khẩu**, **khoá đăng nhập** và **liệt kê** tài khoản **sau khi** `auth:bootstrap` đã chạy. Bootstrap chỉ chạy được một lần cho mỗi database.
+Dành cho **Owner / quản trị kỹ thuật**. Công cụ dòng lệnh để **thêm nhân viên**, **đặt lại mật khẩu**, **khoá đăng nhập**, **mở khoá** và **liệt kê** tài khoản **sau khi** `auth:bootstrap` đã chạy. Bootstrap chỉ chạy được một lần cho mỗi database.
 
-> ⚠️ **TRẠNG THÁI (08/11/2026): CHỈ DÙNG TRÊN DATABASE THỬ.**
+> ⚠️ **TRẠNG THÁI (cập nhật 10/11/2026): CHỈ DÙNG TRÊN DATABASE THỬ (PostgreSQL tạm cách ly).**
+> - **Owner 10/11/2026:** phê duyệt hai người **chỉ bằng khai báo** (mục 2) **không được chấp nhận cho sử dụng thực tế**; cần cơ chế xác nhận độc lập trước khi dùng thật (F225-A).
+> - Cách bật cờ “bắt buộc đổi mật khẩu” hiện nay (ghi trực tiếp một cột bằng chủ sở hữu DB) **chỉ được chấp nhận trên DB thử**; vận hành chính thức cần hàm database chuyên dụng, chưa được duyệt (F225-B).
 > - **Chưa** dùng trên database thật hoặc DB demo 55433. Việc cấp tài khoản thật cần Owner **duyệt riêng** bằng văn bản, và nên chờ có cơ chế phê duyệt hai người thật (thiết kế A1 + A3, đang chờ duyệt).
 > - **Tạm cấm** cấp vai trò `crm_admin` (vai trò xem toàn bộ khách hàng và là người duyệt). Vai trò kỹ thuật `admin` cũng không cấp được qua công cụ này.
 
@@ -13,7 +15,8 @@ Dành cho **Owner / quản trị kỹ thuật**. Công cụ dòng lệnh để *
 | Lệnh | Kết quả |
 |---|---|
 | `add` | Tạo nhân viên mới (họ tên, email, phòng ban, SĐT/chức danh tuỳ chọn) và tài khoản đăng nhập; gán **một** vai trò `sales`, `technician` hoặc `accountant`. Mật khẩu tạm sinh ngẫu nhiên; **lần đăng nhập đầu bắt buộc đổi mật khẩu**. |
-| `reset-password` | Đặt mật khẩu tạm mới (bắt buộc đổi ở lần đăng nhập sau). Mật khẩu cũ hết hiệu lực, mọi phiên đăng nhập bị thu hồi. Lệnh này cũng **mở lại** tài khoản đang bị khoá. |
+| `reset-password` | Đặt mật khẩu tạm mới (bắt buộc đổi ở lần đăng nhập sau). Mật khẩu cũ hết hiệu lực, mọi phiên đăng nhập bị thu hồi. **Không mở khoá:** tài khoản đang bị khoá ⇒ lệnh từ chối (`ACCOUNT_DISABLED`), không thay đổi gì. |
+| `unlock` | **Thao tác riêng** để mở lại tài khoản đang bị khoá. Bắt buộc: hai người (yêu cầu + duyệt), **lý do**, và gõ lại **đúng mã nhân viên** ở `--confirm-unlock`. Database chỉ cho mở lại kèm mật khẩu mới ⇒ lệnh cấp mật khẩu tạm mới (bắt buộc đổi ở lần đăng nhập sau) và ghi nhật ký `ACCOUNT_UNLOCK` kèm lý do. Tài khoản không bị khoá ⇒ từ chối (`NOT_DISABLED`). |
 | `disable` | Khoá đăng nhập: mọi phiên đang mở bị thu hồi ngay. Database không cho khoá admin hoặc người duyệt **cuối cùng**. |
 | `list` | Liệt kê nhân viên: mã, tên, email, phòng, vai trò, trạng thái, tình trạng đăng nhập. Không hiện mật khẩu hay hash. |
 
@@ -86,19 +89,20 @@ account-admin.bat -Command disable -DatabaseName siscom_crm_test_20261108_122026
 
 ### Gọi trực tiếp CLI
 ```
-node dist\cli\account-admin.js <add|reset-password|disable|list> [tham số]
+node dist\cli\account-admin.js <add|reset-password|disable|unlock|list> [tham số]
 ```
 Biến môi trường bắt buộc: `MIGRATE_DATABASE_URL` (kết nối bằng `siscom_migrator`). Tham số:
 
 | Tham số | Dùng cho | Ghi chú |
 |---|---|---|
-| `--requester <mã NV/email>` | add, reset-password, disable | Quản trị kỹ thuật |
-| `--approver <mã NV/email>` | add, reset-password | Người duyệt, khác người yêu cầu |
+| `--requester <mã NV/email>` | add, reset-password, disable, unlock | Quản trị kỹ thuật |
+| `--approver <mã NV/email>` | add, reset-password, unlock | Người duyệt, khác người yêu cầu |
 | `--email`, `--full-name`, `--department <mã phòng>`, `--role` | add | Vai trò: `sales` / `technician` / `accountant` |
 | `--phone`, `--title` | add (tuỳ chọn) | |
-| `--employee <mã NV/email>` | reset-password, disable | |
-| `--reason` | disable | Ghi vào nhật ký (tối đa 200 ký tự) |
-| `--out <đường dẫn>` | add, reset-password | File bàn giao mới, không ghi đè |
+| `--employee <mã NV/email>` | reset-password, disable, unlock | |
+| `--reason` | disable, unlock | Ghi vào nhật ký (tối đa 200 ký tự) |
+| `--confirm-unlock <mã NV>` | unlock | Gõ lại **đúng mã nhân viên** cần mở khoá (không nhận email); sai ⇒ `CONFIRM_UNLOCK`, không ghi gì. Wrapper: `-ConfirmUnlock` |
+| `--out <đường dẫn>` | add, reset-password, unlock | File bàn giao mới, không ghi đè |
 | `--allow-db <tên>` | mọi lệnh | **Chỉ khi Owner duyệt riêng** cho DB không phải DB thử |
 | `--yes` | lệnh ghi | Bỏ bước gõ lại tên DB (chỉ cho kịch bản đã duyệt) |
 | `--demo` | add | Đánh dấu nhân viên là dữ liệu demo |
@@ -116,6 +120,7 @@ Không có tham số nhập mật khẩu: mật khẩu luôn do công cụ sinh 
 
 ## 7. Rollback / sự cố
 - **Tạo nhầm tài khoản:** `disable` (khoá đăng nhập, thu hồi phiên). Database **không cho xoá** nhân viên; muốn ẩn hẳn thì làm việc riêng với Owner.
+- **Khoá nhầm tài khoản:** dùng `unlock` (cần người duyệt, lý do và `--confirm-unlock <mã NV>`). `reset-password` **không** mở khoá.
 - **Lộ file mật khẩu tạm:** chạy `reset-password` ngay (mật khẩu cũ hết hiệu lực, phiên bị thu hồi) rồi giao file mới.
 - **Lệnh báo lỗi:** database không thay đổi gì (một transaction). Đọc mã lỗi:
 
@@ -123,6 +128,9 @@ Không có tham số nhập mật khẩu: mật khẩu luôn do công cụ sinh 
 |---|---|
 | `DB_REFUSED` | Sai database / cổng / thiếu `--allow-db` |
 | `NOT_OWNER` | Không chạy bằng `siscom_migrator` |
+| `ACCOUNT_DISABLED` | `reset-password` trên tài khoản đang khoá: không mở khoá, không đổi gì. Muốn mở: `unlock` |
+| `NOT_DISABLED` | `unlock` trên tài khoản không bị khoá |
+| `CONFIRM_UNLOCK` | `--confirm-unlock` không đúng mã nhân viên |
 | `BOOTSTRAP_OPEN` | DB chưa bootstrap (dùng `auth:bootstrap`) |
 | `TWO_PERSON` | Người yêu cầu trùng người duyệt |
 | `APPROVAL_REQUIRED` (từ DB) | Sai nhóm quyền, hoặc người yêu cầu/duyệt không hoạt động |

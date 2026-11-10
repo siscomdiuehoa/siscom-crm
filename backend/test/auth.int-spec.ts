@@ -1210,14 +1210,30 @@ describe('FV-5 — account-admin (thêm / đặt lại mật khẩu / khoá) qua
     const res = await login(empCode, r.password);
     expect(res.status).toBe(200); expect(res.body.data.me.mustChangePassword).toBe(true);
   });
-  it('FV5-5. disable: phiên đang mở bị thu hồi, không đăng nhập được; reset-password mở lại (M1.2 chỉ cho mở lại kèm mật khẩu mới)', async () => {
+  it('FV5-5 (F225-C). disable: phiên bị thu hồi; reset-password KHÔNG mở khoá (ACCOUNT_DISABLED, không đổi gì); chỉ unlock có xác nhận mới mở', async () => {
     const r0 = await tool.resetPassword(parseArgs(['reset-password', ...base(), '--employee', empCode, '--out', 'khong-dung']));
     const live = await login(email, r0.password); expect(live.status).toBe(200);
     await tool.disable(parseArgs(['disable', '--requester', codes.sysadmin, '--employee', empCode, '--reason', 'FV5 thử khoá']));
     expect((await srv().get(ME5).set('Cookie', cookieOf(live))).status).toBe(401);
     expect((await login(email, r0.password)).status).toBe(401);
-    const r1 = await tool.resetPassword(parseArgs(['reset-password', ...base(), '--employee', empCode, '--out', 'khong-dung']));
-    expect((await login(email, r1.password)).status).toBe(200);
+    const e = await adminPrisma.employee.findFirstOrThrow({ where: { email }, select: { id: true } });
+    const snap = async () => (await adminPrisma.$queryRaw<{ status: string; token_version: number; password_hash: string }[]>`SELECT status::text AS status, token_version, password_hash FROM public.employee_credential WHERE employee_id = ${e.id}::uuid`)[0];
+    const before = await snap(); expect(before.status).toBe('DISABLED');
+    const nReq = await adminPrisma.privilegedChangeRequest.count({ where: { subjectEmployeeId: e.id } });
+    await expect(tool.resetPassword(parseArgs(['reset-password', ...base(), '--employee', empCode, '--out', 'khong-dung']))).rejects.toThrow(/ACCOUNT_DISABLED/);
+    expect(await snap()).toEqual(before); // vẫn khoá, mật khẩu & token_version không đổi
+    expect(await adminPrisma.privilegedChangeRequest.count({ where: { subjectEmployeeId: e.id } })).toBe(nReq); // không để lại yêu cầu dở dang
+    expect((await login(email, r0.password)).status).toBe(401);
+    const un = ['unlock', ...base(), '--employee', empCode, '--reason', 'FV5 thử mở khoá', '--out', 'khong-dung'];
+    await expect(tool.unlock(parseArgs([...un, '--confirm-unlock', email]))).rejects.toThrow(/CONFIRM_UNLOCK/); // phải gõ đúng MÃ nhân viên
+    expect(await snap()).toEqual(before);
+    const r1 = await tool.unlock(parseArgs([...un, '--confirm-unlock', empCode]));
+    const back = await login(email, r1.password);
+    expect(back.status).toBe(200); expect(back.body.data.me.mustChangePassword).toBe(true);
+    expect((await login(email, r0.password)).status).toBe(401);
+    const logs = await adminPrisma.auditLog.findMany({ where: { entityId: e.id, action: 'ACCOUNT_UNLOCK' }, select: { summary: true } });
+    expect(logs).toHaveLength(1); expect(logs[0].summary).toContain('FV5 thử mở khoá'); expect(JSON.stringify(logs)).not.toContain(r1.password);
+    await expect(tool.unlock(parseArgs([...un, '--confirm-unlock', empCode]))).rejects.toThrow(/NOT_DISABLED/); // đang hoạt động: không có gì để mở
   });
   it('FV5-6. người duyệt KHÔNG có quyền duyệt (sale) => DB từ chối, KHÔNG tạo nhân viên dở dang (một transaction)', async () => {
     const e2 = 'fv5-x-' + Date.now().toString(36) + '@' + DOMAIN;

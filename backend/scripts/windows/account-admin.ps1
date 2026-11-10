@@ -12,7 +12,7 @@
 # Rollback: tai khoan tao nham => "-Command disable" (khoa dang nhap, thu hoi moi phien). Khong xoa nhan vien (DB chan DELETE employee).
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][ValidateSet('add', 'reset-password', 'disable', 'list')][string]$Command,
+  [Parameter(Mandatory = $true)][ValidateSet('add', 'reset-password', 'disable', 'unlock', 'list')][string]$Command,
   [string]$DatabaseName,
   [ValidateRange(1024, 65535)][int]$PgPort = 55433,
   [string]$Requester, [string]$Approver, [string]$Employee,
@@ -20,6 +20,7 @@ param(
   [ValidateSet('', 'sales', 'technician', 'accountant')][string]$Role = '', # crm_admin: tam cam (Owner 08/11/2026)
   [string]$Phone, [string]$Title, [string]$Reason, [string]$Out,
   [string]$AllowDb,
+  [string]$ConfirmUnlock, # chi cho -Command unlock: go lai DUNG ma nhan vien can mo khoa (F225-C)
   [switch]$AllowMainCluster,
   [switch]$Demo
 )
@@ -52,7 +53,7 @@ if (-not $url) {
 
 $a = @($Command)
 $map = [ordered]@{ '--requester' = $Requester; '--approver' = $Approver; '--employee' = $Employee; '--email' = $Email; '--full-name' = $FullName;
-  '--department' = $Department; '--role' = $Role; '--phone' = $Phone; '--title' = $Title; '--reason' = $Reason; '--out' = $Out; '--allow-db' = $AllowDb }
+  '--department' = $Department; '--role' = $Role; '--phone' = $Phone; '--title' = $Title; '--reason' = $Reason; '--out' = $Out; '--allow-db' = $AllowDb; '--confirm-unlock' = $ConfirmUnlock }
 foreach ($k in $map.Keys) { if ($map[$k]) { $a += $k; $a += [string]$map[$k] } }
 if ($Demo) { $a += '--demo' }
 
