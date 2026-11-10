@@ -191,6 +191,37 @@ describe('đăng nhập', () => {
     const after = await adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: cred.employeeId } });
     expect(after.failedCount).toBe(0); expect(after.lockedUntil).toBeNull(); expect(after.lastLoginAt).not.toBeNull();
   });
+  it('R2-228: ĐANG khoá mà thử tiếp (sai quá ngưỡng + đúng mật khẩu) => vẫn 401, lock_level / locked_until / failed_count KHÔNG đổi, không khoá thêm; hết hạn => 200', async () => {
+    const u = USERS[3];
+    // Tài khoản dùng chung với các ca khác => LUÔN trả về trạng thái sạch, kể cả khi ca này thất bại (không gây lỗi dây chuyền).
+    const resetCred = () => adminPrisma.employeeCredential.updateMany({ where: { employee: { email: u.email } }, data: { failedCount: 0, windowStartedAt: null, lockedUntil: null, lockLevel: 0 } });
+    try {
+      for (let i = 0; i < cfg.lockAfterFailures; i++) expect((await login(u.email, 'sai-r2-' + i)).status).toBe(401);
+      const c0 = await adminPrisma.employeeCredential.findFirstOrThrow({ where: { employee: { email: u.email } } });
+      expect(c0.lockedUntil).not.toBeNull(); expect(c0.lockLevel).toBe(1);
+      const lockedBefore = await prisma.auditLog.count({ where: { action: 'auth.login_locked', entityId: c0.employeeId } });
+      const failedBefore = await prisma.auditLog.count({ where: { action: 'auth.login_failed', entityId: c0.employeeId } });
+      const tries = cfg.lockAfterFailures * 2 + 1; // quá ngưỡng hai lần
+      for (let i = 0; i < tries; i++) {
+        const r = await login(u.email, 'sai-khi-khoa-' + i);
+        expect(r.status).toBe(401); expect(r.body.error.code).toBe('LOGIN_INVALID');
+      }
+      const ok = await login(u.email, u.password); // đúng mật khẩu khi đang khoá
+      expect(ok.status).toBe(401); expect(ok.body.error.code).toBe('LOGIN_INVALID');
+      const c1 = await adminPrisma.employeeCredential.findUniqueOrThrow({ where: { employeeId: c0.employeeId } });
+      expect(c1.lockLevel).toBe(1);
+      expect(c1.lockedUntil!.getTime()).toBe(c0.lockedUntil!.getTime());
+      expect(c1.failedCount).toBe(0); expect(c1.windowStartedAt).toBeNull();
+      expect(await prisma.auditLog.count({ where: { action: 'auth.login_locked', entityId: c0.employeeId } })).toBe(lockedBefore);
+      expect(await prisma.auditLog.count({ where: { action: 'auth.login_failed', entityId: c0.employeeId } })).toBe(failedBefore + tries + 1); // vẫn còn dấu vết
+      await adminPrisma.employeeCredential.update({ where: { employeeId: c0.employeeId }, data: { lockedUntil: new Date(Date.now() - 1000) } });
+      expect((await login(u.email, u.password)).status).toBe(200);
+    } finally {
+      await resetCred();
+    }
+    const clean = await adminPrisma.employeeCredential.findFirstOrThrow({ where: { employee: { email: u.email } } });
+    expect([clean.failedCount, clean.lockLevel, clean.lockedUntil, clean.windowStartedAt]).toEqual([0, 0, null, null]);
+  });
 });
 
 describe('phiên, /auth/me, logout', () => {

@@ -92,7 +92,11 @@ export class AuthService {
       && (cred.lockedUntil === null || cred.lockedUntil <= now);
     const ok = await this.hasher.verify(usable ? cred!.passwordHash : null, input.password);
     if (!usable || !ok) {
-      if (row !== null && cred !== null) await this.recordFailure(row.id, cred, now, input.requestId);
+      // Đang khoá tạm: từ chối nhưng KHÔNG đếm (kể cả khi mật khẩu đúng) — nếu đếm, một nguồn cứ thử trong lúc khoá sẽ làm lock_level leo thang
+      // và giữ khoá vô thời hạn. Vẫn ghi nhật ký để còn dấu vết.
+      const lockedNow = cred !== null && cred.lockedUntil !== null && cred.lockedUntil > now;
+      if (row !== null && cred !== null && lockedNow) await this.auditLockedAttempt(row.id, input.requestId);
+      else if (row !== null && cred !== null) await this.recordFailure(row.id, cred, now, input.requestId);
       throw LOGIN_FAILED();
     }
 
@@ -271,6 +275,14 @@ export class AuthService {
       await this.prisma.auditLog.create({ data: { actorType: 'USER', actorId: employeeId, action: 'auth.password_change_failed', entityType: 'employee', entityId: employeeId, summary: 'Đổi mật khẩu thất bại (mật khẩu hiện tại sai)', requestId: rid(requestId) } });
     } catch (e) {
       this.log.warn('Không ghi được lần đổi mật khẩu sai: ' + (e instanceof Error ? e.message : 'lỗi'));
+    }
+  }
+
+  private async auditLockedAttempt(employeeId: string, requestId?: string): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({ data: { actorType: 'ANONYMOUS', action: 'auth.login_failed', entityType: 'employee', entityId: employeeId, summary: 'Đăng nhập khi đang bị khoá tạm', requestId: rid(requestId) } });
+    } catch (e) {
+      this.log.warn('Không ghi được nhật ký lần thử khi đang khoá: ' + (e instanceof Error ? e.message : 'lỗi'));
     }
   }
 
