@@ -183,3 +183,52 @@ test('FV-4A F-02/F-04/F-05: có customer.export => POST /customers/export, tải
   } finally { await l.unmount(); for (const t of longTimers) clearTimeout(t); globalThis.setTimeout = origST; globalThis.URL.createObjectURL = origURL; globalThis.URL.revokeObjectURL = origRevoke; }
 });
 
+
+// F222-A (10/11/2026): DataTable giữ bộ lọc trạng thái trong state riêng; khi bảng bị dựng lại (đổi phân hạng/ngành/tỉnh => đổi key, hoặc Bảng -> Thẻ -> Bảng)
+// chip quay về "Tất cả" nhưng trang vẫn giữ trạng thái cũ và gửi kèm khi xuất => file lệch màn hình. Bảng dựng lại => bộ lọc trạng thái của trang phải về rỗng.
+async function mountExportFilters() {
+  const bodies = [];
+  const origURL = globalThis.URL.createObjectURL; const origRevoke = globalThis.URL.revokeObjectURL;
+  globalThis.URL.createObjectURL = () => 'blob:x'; globalThis.URL.revokeObjectURL = () => {};
+  const longTimers = []; const origST = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { const t = origST(fn, ms, ...a); if (ms >= 1000) longTimers.push(t); return t; };
+  const hdr = (h) => ({ get: (k) => h[k.toLowerCase()] ?? null });
+  const LK = { ...LOOKUPS, customer_tier: [{ code: 'VIP', label: 'VIP' }], customer_status: [{ code: 'ACTIVE', label: 'Đang giao dịch' }] };
+  fetchImpl = async (url, init) => {
+    const p = new URL(url).pathname;
+    if (p.endsWith('/customers/export')) { bodies.push(JSON.parse(init.body)); return { ok: true, status: 200, headers: hdr({ 'x-export-rows': '1', 'x-export-skipped': '0', 'x-export-id': 'r', 'content-disposition': 'attachment; filename="K.csv"' }), blob: async () => new Blob(['x'], { type: 'text/csv' }), json: async () => { throw new Error('không phải JSON'); } }; }
+    if (p.endsWith('/lookups')) return res(200, { data: LK });
+    return okServer(url, init);
+  };
+  const ST = { status: 'AUTHENTICATED', employeeId: 'e1', me: { employeeId: 'e1', fullName: 'Admin', roles: ['crm_admin'], permissions: { 'customer.read': 'ALL', 'customer.export': 'ALL', 'lookup.read': 'ALL' }, mustChangePassword: false } };
+  const l = await mount(true, '#/customers', { session: { getState: () => ST, subscribe: () => () => {}, getCsrfToken: () => 'csrf-1' } });
+  const btn = (re) => byTag(l.container, 'button').find((b) => re.test(text(b).trim()));
+  const press = async (re) => { const b = btn(re); assert.ok(b, 'có nút ' + re); await act(async () => { click(b); }); await settle(); };
+  const chip = (label) => byTag(l.container, 'button').find((b) => /sg-chip/.test(b.getAttribute('class') || '') && text(b).trim() === label);
+  const done = async () => { await l.unmount(); for (const t of longTimers) clearTimeout(t); globalThis.setTimeout = origST; globalThis.URL.createObjectURL = origURL; globalThis.URL.revokeObjectURL = origRevoke; };
+  return { bodies, press, chip, done };
+}
+
+test('F222-A: chọn trạng thái rồi đổi phân hạng (bảng dựng lại, chip về "Tất cả") => xuất KHÔNG gửi trạng thái cũ', async () => {
+  const h = await mountExportFilters();
+  try {
+    await act(async () => { click(h.chip('Đang giao dịch')); }); await settle();
+    await h.press(/^Xuất$/);
+    assert.deepEqual(h.bodies[0], { mode: 'filtered', status: 'ACTIVE' }, 'tiền đề: chip trạng thái được gửi khi xuất');
+    await h.press(/^VIP/);
+    assert.equal(h.chip('Tất cả').getAttribute('aria-pressed'), 'true', 'tiền đề: bảng dựng lại, chip về "Tất cả"');
+    await h.press(/^Xuất$/);
+    assert.deepEqual(h.bodies[1], { mode: 'filtered', tier: 'VIP' });
+  } finally { await h.done(); }
+});
+
+test('F222-A: chọn trạng thái rồi Bảng -> Thẻ -> Bảng (chip về "Tất cả") => xuất KHÔNG gửi trạng thái cũ', async () => {
+  const h = await mountExportFilters();
+  try {
+    await act(async () => { click(h.chip('Đang giao dịch')); }); await settle();
+    await h.press(/^Thẻ$/); await h.press(/^Bảng$/);
+    assert.equal(h.chip('Tất cả').getAttribute('aria-pressed'), 'true', 'tiền đề: bảng dựng lại, chip về "Tất cả"');
+    await h.press(/^Xuất$/);
+    assert.deepEqual(h.bodies[0], { mode: 'filtered' });
+  } finally { await h.done(); }
+});

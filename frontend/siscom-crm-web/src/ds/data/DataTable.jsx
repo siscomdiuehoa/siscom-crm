@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../core/Icon.jsx';
 import { Checkbox } from '../forms/Checkbox.jsx';
 import { Skeleton } from '../feedback/Skeleton.jsx';
@@ -23,6 +23,10 @@ export function DataTable({ columns = [], rows = [], rowKey = 'id', searchable =
   const [page, setPage] = useState(1);
   const [sel, setSel] = useState([]);
   const [fv, setFv] = useState(null);
+  // F222-A: bộ lọc nằm trong state của bảng => khi bảng bị gỡ (đổi key, đổi chế độ xem, tải lại) phải báo cha về rỗng,
+  // nếu không cha giữ giá trị cũ trong khi bảng dựng lại hiển thị "Tất cả".
+  const filterCb = useRef(onFilterChange); filterCb.current = onFilterChange;
+  useEffect(() => () => { if (filterCb.current) filterCb.current(null); }, []);
 
   const data = useMemo(() => {
     let r = rows;
