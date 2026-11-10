@@ -107,9 +107,9 @@ textarea.sg-input{resize:vertical;min-height:72px}
 /* Checkbox / Radio / Switch */
 .sg-check{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font:var(--type-body);color:var(--text-1);user-select:none}
 .sg-check input{position:absolute;opacity:0;width:0;height:0}
-.sg-check__box{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border-strong);background:var(--surface-input);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:12px;transition:all var(--dur-fast) var(--ease-out);flex:none}
+.sg-check__box{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border-strong);background:var(--surface-input);display:inline-flex;align-items:center;justify-content:center;color:transparent;font-size:12px;transition:all var(--dur-fast) var(--ease-out);flex:none}
 .sg-check__box--radio{border-radius:50%}
-.sg-check input:checked + .sg-check__box{background:var(--primary);border-color:var(--primary)}
+.sg-check input:checked + .sg-check__box{background:var(--primary);border-color:var(--primary);color:#fff}
 .sg-check input:checked + .sg-check__box--radio{background:var(--surface-input);border:5px solid var(--primary)}
 .sg-check input:focus-visible + .sg-check__box{box-shadow:var(--focus-ring)}
 .sg-check--disabled{opacity:.5;pointer-events:none}
