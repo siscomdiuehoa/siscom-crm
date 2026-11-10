@@ -264,3 +264,98 @@ describe('FV-4A thời hạn transaction và khoá RBAC (số đo thật)', () =
     } finally { await unslow(); }
   }, 60000);
 });
+
+// ───── Bổ sung 10/11/2026 (hoàn thiện bằng chứng): hai "tiến trình", ghi đồng thời quanh ngưỡng, khoá nhân viên qua trigger thật ─────
+describe('FV-4A hai tiến trình (hai ứng dụng Nest, chung DB): chỉ khoá tư vấn của DB phân xử', () => {
+  let t2: TestApp;
+  beforeAll(async () => { t2 = await makeApp(prisma, fx, { realAudit: true }); }, 60000);
+  afterAll(async () => { await t2.app.close(); });
+  const share = (a: { key: string; id: string }, scopes: Scopes) => {
+    t2.actors!.presets[a.key] = { actor: { employeeId: a.id, departmentId: fx.d1 }, scopes: { ...scopes } };
+    t2.exportAccess.scopes.set(a.id, { ...scopes });
+  };
+
+  it('I-16: 8 lượt tuần tự rồi 2 × 15 request đồng thời qua HAI ứng dụng => tổng SUCCESS ≤ 10; số 200 = số SUCCESS', async () => {
+    const a = await newActor(t, EXP_ALL); share(a, EXP_ALL);
+    for (let i = 0; i < 8; i++) expect((await post(i % 2 ? t2 : t, a.key, { mode: 'filtered', ownerId: a.id })).status).toBe(200);
+    const rs = await Promise.all(Array.from({ length: 30 }, (_, i) => post(i % 2 ? t2 : t, a.key, { mode: 'filtered', ownerId: a.id })));
+    const ok = 8 + rs.filter((r) => r.status === 200).length;
+    const succ = (await results(a.id)).filter((x) => x === 'SUCCESS').length;
+    const by = rs.reduce<Record<number, number>>((m, r) => { m[r.status] = (m[r.status] ?? 0) + 1; return m; }, {});
+    console.log('SO_DO I-16 dong_thoi=' + JSON.stringify(by) + ' tong_success=' + succ);
+    expect(succ).toBeLessThanOrEqual(10); expect(succ).toBeGreaterThanOrEqual(8); expect(ok).toBe(succ);
+    expect(rs.every((r) => [200, 429, 503].includes(r.status))).toBe(true);
+    // Đã đủ 10 thì lượt kế tiếp bị chặn hạn mức, kể cả qua ứng dụng thứ hai.
+    if (succ === 10) expect((await post(t2, a.key, { mode: 'filtered', ownerId: a.id })).status).toBe(429);
+  }, 90000);
+
+  it('I-24: 2 × 50 lần từ chối đồng thời qua HAI ứng dụng => mọi lần 403; tổng dòng nhật ký không thành công ≤ 20', async () => {
+    const s = await newActor(t, SALES_NOEXP); share(s, SALES_NOEXP);
+    const rs = await Promise.all(Array.from({ length: 100 }, (_, i) => post(i % 2 ? t2 : t, s.key, { mode: 'filtered' })));
+    expect(rs.every((r) => r.status === 403)).toBe(true);
+    for (let i = 0; i < 20; i++) expect((await post(i % 2 ? t2 : t, s.key, { mode: 'filtered' })).status).toBe(403);
+    const n = (await results(s.id)).length;
+    console.log('SO_DO I-24 dong_nhat_ky_tu_choi=' + n);
+    expect(n).toBeLessThanOrEqual(20); expect(n).toBeGreaterThanOrEqual(1);
+  }, 90000);
+});
+
+describe('FV-4A nhất quán khi dữ liệu / trạng thái đổi đồng thời', () => {
+  it('I-21: ghi liên tục quanh ngưỡng 5.000 trong lúc xuất => mỗi phản hồi tự nhất quán (200: dòng CSV = X-Export-Rows = rowCount ≤ 5.000; 422: không có CSV)', async () => {
+    const a = await newActor(t, { 'customer.read': 'OWN', 'customer.export': 'OWN', 'lookup.read': 'ALL' });
+    const base = { tierId: fx.tier.POTENTIAL as string, statusId: fx.status.POTENTIAL as string, ownerId: a.id, isDemo: true, createdById: fx.empA, updatedById: fx.empA };
+    await prisma.customer.createMany({ data: Array.from({ length: 4998 }, (_, i) => ({ ...base, name: 'FV4A nguong ' + i + ' ' + uniq() })) });
+    let stop = false; let writes = 0;
+    const writer = (async () => {
+      while (!stop) {
+        const tag = 'FV4A dao dong ' + uniq();
+        await prisma.customer.createMany({ data: Array.from({ length: 4 }, (_, i) => ({ ...base, name: tag + ' ' + i })) }); // 5.002
+        await new Promise((r) => setTimeout(r, 15));
+        await prisma.customer.updateMany({ where: { ownerId: a.id, name: { startsWith: tag } }, data: { deletedAt: new Date(), deletedById: fx.empA } }); // 4.998
+        await new Promise((r) => setTimeout(r, 15));
+        writes++;
+      }
+    })();
+    const seen: Record<number, number> = {}; let success = 0;
+    try {
+      for (let i = 0; i < 16 && success < 8; i++) {
+        const r = await post(t, a.key, { mode: 'filtered' });
+        seen[r.status] = (seen[r.status] ?? 0) + 1;
+        if (r.status === 200) {
+          success++;
+          const n = csvLines(r.text).length - 1;
+          expect(n).toBeLessThanOrEqual(5000);
+          expect(String(n)).toBe(r.headers['x-export-rows']);
+          const row = await prisma.auditLog.findFirst({ where: { requestId: r.headers['x-export-id'], action: 'customer.export' }, select: { changes: true } });
+          expect((row!.changes as { rowCount: number; result: string })).toMatchObject({ rowCount: n, result: 'SUCCESS' });
+        } else {
+          expect(r.status).toBe(422);
+          expect(r.headers['content-type']).not.toMatch(/csv/);
+        }
+      }
+    } finally { stop = true; await writer; }
+    console.log('SO_DO I-21 phan_hoi=' + JSON.stringify(seen) + ' vong_ghi=' + writes);
+    expect(writes).toBeGreaterThan(3);
+    expect((await results(a.id)).filter((x) => x === 'SUCCESS')).toHaveLength(success);
+  }, 180000);
+
+  it('I-31: khoá nhân viên (UPDATE employee.status, trigger thật lấy khoá siscom.rbac) trong lúc xuất => lệnh khoá CHỜ lượt xuất commit; lượt sau 403', async () => {
+    const a = await newActor(t, EXP_ALL); await makeCustomer(prisma, fx, { ownerId: a.id });
+    await admin.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION fv4a_slow_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'customer.export' AND NEW.changes->>'result' = 'SUCCESS' THEN PERFORM pg_sleep(3); END IF; RETURN NEW; END $$`);
+    await admin.$executeRawUnsafe('DROP TRIGGER IF EXISTS trg_fv4a_slow_audit ON audit_log');
+    await admin.$executeRawUnsafe('CREATE TRIGGER trg_fv4a_slow_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION fv4a_slow_audit()');
+    try {
+      const pExport = post(t, a.key, { mode: 'filtered', ownerId: a.id }).then((r) => ({ r, end: ms() }));
+      await new Promise((res) => setTimeout(res, 700));
+      const t0 = ms();
+      await admin.employee.update({ where: { id: a.id }, data: { status: 'RESIGNED' } });
+      const waited = ms() - t0; const lockedAt = ms();
+      const { r, end } = await pExport;
+      console.log('SO_DO I-31 lenh_khoa_NV_cho_ms=' + waited + ' xuat_status=' + r.status);
+      expect(r.status).toBe(200);
+      expect(waited).toBeGreaterThan(1000);
+      expect(end).toBeLessThanOrEqual(lockedAt + 50);
+    } finally { await admin.$executeRawUnsafe('DROP TRIGGER IF EXISTS trg_fv4a_slow_audit ON audit_log'); }
+    expect((await post(t, a.key, { mode: 'filtered', ownerId: a.id })).status).toBe(403);
+  }, 60000);
+});
