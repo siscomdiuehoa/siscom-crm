@@ -4,11 +4,12 @@ import { closeSync, existsSync, openSync, unlinkSync, writeSync } from 'node:fs'
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { ConfigService } from '@nestjs/config';
-import { AccountAdmin, AccountAdminError, assertTargetUrl, handoverText, parseArgs, ParsedArgs } from '../modules/auth/account-admin';
+import { AccountAdmin, AccountAdminError, assertTargetUrl, handoverText, parseArgs, ParsedArgs, TEST_PG_PORT } from '../modules/auth/account-admin';
 import { PrismaService } from '../prisma/prisma.service';
 
 // FV-5: node dist/cli/account-admin.js <add|reset-password|disable|unlock|list> [tham số]  (sau npm run build; xem docs/FV5_ACCOUNT_ADMIN.md).
-// Kết nối: MIGRATE_DATABASE_URL (chủ sở hữu, siscom_migrator). Không đọc .env, không in mật khẩu/URL. DB thật chỉ khi Owner duyệt riêng (--allow-db).
+// Kết nối: MIGRATE_DATABASE_URL (chủ sở hữu, siscom_migrator). Không đọc .env, không in mật khẩu/URL.
+// FV5-DB-GUARD: CHỈ PostgreSQL thử tại 127.0.0.1/localhost:55470, DB siscom_crm_(test|restore)_<stamp>; không có cờ nào nới giới hạn này.
 
 // Tạo file bàn giao MỚI (không ghi đè), chỉ người chạy có quyền: tạo rỗng -> khoá ACL (Windows: icacls) -> mới ghi nội dung.
 export function createPrivateFile(path: string): { path: string; fd: number } {
@@ -42,12 +43,12 @@ async function main(): Promise<void> {
   const a = parseArgs(process.argv.slice(2));
   const url = process.env.MIGRATE_DATABASE_URL;
   if (!url) throw new AccountAdminError('INPUT', 'thiếu biến môi trường MIGRATE_DATABASE_URL (chủ sở hữu DB).');
-  const target = assertTargetUrl(url, a.allowDb);
+  const target = assertTargetUrl(url); // từ chối TRƯỚC khi tạo kết nối
   const prisma = new PrismaService({ getOrThrow: () => url } as unknown as ConfigService);
   let out: { path: string; fd: number } | null = null;
   try {
     const tool = new AccountAdmin(prisma);
-    const dbName = await tool.preflight(a.allowDb);
+    const dbName = await tool.preflight({ serverPort: TEST_PG_PORT });
     if (dbName !== target.dbName) throw new AccountAdminError('DB_REFUSED', 'database thực tế khác URL.');
     if (a.command === 'list') {
       for (const r of await tool.list()) console.log([r.code, r.fullName, r.email ?? '', r.department ?? '', r.roles, r.status, r.login ?? 'chưa có', r.mustChange ? 'phải đổi MK' : ''].join(' | '));

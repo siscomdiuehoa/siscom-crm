@@ -29,29 +29,31 @@ export class AccountAdminError extends Error {
   constructor(readonly code: string, message: string) { super(code + ': ' + message); }
 }
 
-// Từ chối DB không được phép TRƯỚC khi ghi. DB thử (siscom_crm_test_/restore_<stamp>) được phép; DB khác (kể cả DB thật) chỉ khi người vận hành
-// ghi đúng tên bằng --allow-db (sau khi Owner duyệt riêng). Baseline đã khoá: luôn từ chối. siscom_crm_dev: chỉ khi --allow-db siscom_crm_dev.
-export function assertTargetDb(name: string, allowDb?: string | null): void {
+// FV5-DB-GUARD (Owner 10/11/2026): ALLOWLIST cứng trong mã — công cụ CHỈ chạy trên PostgreSQL thử cách ly: host 127.0.0.1/localhost, cổng 55470,
+// tên DB siscom_crm_(test|restore)_<stamp>. KHÔNG có cờ/biến nào nới giới hạn này (đã bỏ --allow-db): F225-A (hai người chỉ là khai báo) và
+// F225-B (bật must_change_password bằng UPDATE trực tiếp) chưa được duyệt cho vận hành thực tế. Baseline đã khoá: luôn từ chối.
+export const TEST_PG_HOSTS: readonly string[] = ['127.0.0.1', 'localhost'];
+export const TEST_PG_PORT = 55470;
+export function assertTargetDb(name: string): void {
   if (!name) throw new AccountAdminError('DB_REFUSED', 'không xác định được tên database.');
   if (LOCKED_DBS.includes(name)) throw new AccountAdminError('DB_REFUSED', name + ' là baseline đã khoá.');
-  if (allowDb !== undefined && allowDb !== null && allowDb !== '') {
-    if (allowDb !== name) throw new AccountAdminError('DB_REFUSED', '--allow-db "' + allowDb + '" không khớp database đang kết nối "' + name + '".');
-    return;
-  }
-  if (name === 'siscom_crm_dev' || !TEST_DB_RE.test(name)) {
-    throw new AccountAdminError('DB_REFUSED', '"' + name + '" không phải database thử (siscom_crm_test_*/siscom_crm_restore_*). Cần Owner duyệt riêng và ghi --allow-db ' + name + '.');
-  }
+  if (!TEST_DB_RE.test(name)) throw new AccountAdminError('DB_REFUSED', '"' + name + '" không phải database thử (siscom_crm_test_*/siscom_crm_restore_*). Công cụ chỉ chạy trên PostgreSQL thử.');
 }
 
-// Cổng 5432 (cụm PostgreSQL chính) chỉ khi có --allow-db; cổng khác/127.0.0.1 vẫn qua assertTargetDb theo tên.
-export function assertTargetUrl(url: string, allowDb?: string | null): { dbName: string; port: string; user: string } {
+// Kiểm URL TRƯỚC khi mở kết nối: đúng giao thức, host cục bộ, cổng ghi rõ = 55470, tên DB thử. Tham số truy vấn host/hostaddr/port/service
+// (libpq cho phép đổi đích kết nối) bị từ chối. Thông điệp lỗi không bao giờ chứa URL/mật khẩu.
+export function assertTargetUrl(url: string): { dbName: string; port: string; user: string } {
   let u: URL;
   try { u = new URL(url); } catch { throw new AccountAdminError('DB_REFUSED', 'MIGRATE_DATABASE_URL không hợp lệ.'); }
+  if (u.protocol !== 'postgresql:' && u.protocol !== 'postgres:') throw new AccountAdminError('DB_REFUSED', 'MIGRATE_DATABASE_URL phải là postgresql://.');
+  if (!TEST_PG_HOSTS.includes(u.hostname)) throw new AccountAdminError('DB_REFUSED', 'chỉ kết nối PostgreSQL thử trên máy cục bộ (127.0.0.1 / localhost).');
+  if (u.port !== String(TEST_PG_PORT)) throw new AccountAdminError('DB_REFUSED', 'chỉ kết nối PostgreSQL thử ở cổng ' + TEST_PG_PORT + ' (cổng khác, kể cả 5432 và cụm demo, bị từ chối).');
+  for (const k of u.searchParams.keys()) {
+    if (['host', 'hostaddr', 'port', 'service', 'dbname'].includes(k.toLowerCase())) throw new AccountAdminError('DB_REFUSED', 'MIGRATE_DATABASE_URL không được chứa tham số "' + k + '".');
+  }
   const dbName = decodeURIComponent(u.pathname.replace(/^\//, ''));
-  const port = u.port || '5432';
-  if (port === '5432' && !allowDb) throw new AccountAdminError('DB_REFUSED', 'cổng 5432 (cụm chính) cần --allow-db <tên database> (Owner duyệt riêng).');
-  assertTargetDb(dbName, allowDb);
-  return { dbName, port, user: decodeURIComponent(u.username) };
+  assertTargetDb(dbName);
+  return { dbName, port: u.port, user: decodeURIComponent(u.username) };
 }
 
 // Mật khẩu ngẫu nhiên (CSPRNG) đạt chính sách D17; bảng chữ bỏ ký tự dễ nhầm (0/O, 1/l/I) và ký tự gây rắc rối khi gõ/CSV/shell.
@@ -72,11 +74,11 @@ export function generatePassword(ctx: { email?: string | null; code?: string | n
 export type Command = 'add' | 'reset-password' | 'disable' | 'unlock' | 'list';
 export interface ParsedArgs {
   command: Command; requester?: string; approver?: string; employee?: string; email?: string; fullName?: string; department?: string;
-  role?: string; phone?: string; title?: string; reason?: string; out?: string; allowDb?: string; confirmUnlock?: string; demo: boolean; yes: boolean;
+  role?: string; phone?: string; title?: string; reason?: string; out?: string; confirmUnlock?: string; demo: boolean; yes: boolean;
 }
 const FLAGS: Record<string, keyof ParsedArgs> = {
   '--requester': 'requester', '--approver': 'approver', '--employee': 'employee', '--email': 'email', '--full-name': 'fullName', '--department': 'department',
-  '--role': 'role', '--phone': 'phone', '--title': 'title', '--reason': 'reason', '--out': 'out', '--allow-db': 'allowDb', '--confirm-unlock': 'confirmUnlock',
+  '--role': 'role', '--phone': 'phone', '--title': 'title', '--reason': 'reason', '--out': 'out', '--confirm-unlock': 'confirmUnlock',
 };
 const NEEDS: Record<Command, Array<keyof ParsedArgs>> = {
   add: ['requester', 'approver', 'email', 'fullName', 'department', 'role', 'out'],
@@ -119,14 +121,20 @@ interface EmpRow { id: string; code: string; email: string | null; full_name: st
 export class AccountAdmin {
   constructor(private readonly db: Db, private readonly hasher: Hasher = new Argon2PasswordHasher()) {}
 
-  // Kiểm môi trường TRƯỚC mọi ghi: đúng DB, có quyền EXECUTE hàm đặc quyền (chủ sở hữu), bootstrap đã đóng.
-  async preflight(allowDb?: string | null): Promise<string> {
-    const r = await this.db.$queryRaw<{ db: string; can: boolean; open: boolean }[]>`
+  // Kiểm môi trường TRƯỚC mọi ghi: đúng DB thử, có quyền EXECUTE hàm đặc quyền (chủ sở hữu), bootstrap đã đóng.
+  // serverPort (CLI luôn truyền TEST_PG_PORT — FV5-DB-GUARD): cổng THẬT của máy chủ theo inet_server_port() phải khớp; khác hoặc không xác minh
+  // được (NULL, vd kết nối socket/qua trung gian) => từ chối. Không truyền (test tích hợp gọi thẳng lớp này trên PostgreSQL của CI) => không kiểm cổng.
+  async preflight(opts: { serverPort?: number } = {}): Promise<string> {
+    const r = await this.db.$queryRaw<{ db: string; can: boolean; open: boolean; port: number | null }[]>`
       SELECT current_database() AS db,
              has_function_privilege(current_user, 'public.fn_auth_api_credential_create(uuid, uuid)', 'EXECUTE') AS can,
-             public.fn_auth_bootstrap_open() AS open`;
+             public.fn_auth_bootstrap_open() AS open,
+             inet_server_port() AS port`;
     const row = r[0];
-    assertTargetDb(row?.db ?? '', allowDb);
+    assertTargetDb(row?.db ?? '');
+    if (opts.serverPort !== undefined && Number(row.port) !== opts.serverPort) {
+      throw new AccountAdminError('DB_REFUSED', 'máy chủ PostgreSQL không ở cổng thử ' + opts.serverPort + ' (hoặc không xác minh được cổng); huỷ trước khi ghi.');
+    }
     if (!row.can) throw new AccountAdminError('NOT_OWNER', 'phải chạy bằng chủ sở hữu DB (siscom_migrator): không EXECUTE được hàm đặc quyền.');
     if (row.open) throw new AccountAdminError('BOOTSTRAP_OPEN', 'khởi tạo chưa đóng — DB mới dùng auth:bootstrap, không dùng công cụ này.');
     return row.db;

@@ -8,25 +8,40 @@ import { AccountAdmin, AccountAdminError, assertTargetDb, assertTargetUrl, gener
 const T = 'siscom_crm_test_20261108_145925';
 const code = (f: () => unknown): string => { try { f(); } catch (e) { if (e instanceof AccountAdminError) return e.code; throw e; } return 'NO_ERROR'; };
 
-describe('FV-5 assertTargetDb / assertTargetUrl', () => {
-  it('DB thử được phép; siscom_crm_dev, baseline khoá, tên lạ bị từ chối khi không có --allow-db', () => {
+// FV5-DB-GUARD (Owner 10/11/2026): ALLOWLIST — chỉ PostgreSQL thử tại 127.0.0.1:55470 / localhost:55470, tên siscom_crm_(test|restore)_<stamp>.
+// KHÔNG còn --allow-db hay bất kỳ cách nào vượt giới hạn (F225-A/B chưa được duyệt cho vận hành thực tế).
+describe('FV-5 assertTargetDb / assertTargetUrl (FV5-DB-GUARD)', () => {
+  const U = (hostPort: string, db: string = T) => 'postgresql://siscom_migrator:s3cr3tX@' + hostPort + '/' + db;
+  it('tên DB: chỉ mẫu thử; siscom_crm_dev, DB thật, tên lạ, baseline khoá luôn bị từ chối', () => {
     expect(code(() => assertTargetDb(T))).toBe('NO_ERROR');
     expect(code(() => assertTargetDb('siscom_crm_restore_20261101_101010'))).toBe('NO_ERROR');
-    for (const n of ['siscom_crm_dev', 'siscom_crm', 'siscom_crm_test_x', 'postgres', '']) expect(code(() => assertTargetDb(n))).toBe('DB_REFUSED');
-    expect(code(() => assertTargetDb('siscom_crm_restore_20261014_214105'))).toBe('DB_REFUSED');
-    expect(code(() => assertTargetDb('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261014_214105'))).toBe('DB_REFUSED'); // baseline: không bao giờ
+    for (const n of ['siscom_crm_dev', 'siscom_crm', 'siscom_crm_test_x', 'postgres', '', 'siscom_crm_restore_20261014_214105']) expect(code(() => assertTargetDb(n))).toBe('DB_REFUSED');
   });
-  it('--allow-db phải khớp ĐÚNG tên DB đang kết nối', () => {
-    expect(code(() => assertTargetDb('siscom_crm', 'siscom_crm'))).toBe('NO_ERROR');
-    expect(code(() => assertTargetDb('siscom_crm', 'siscom_crm_dev'))).toBe('DB_REFUSED');
-    expect(code(() => assertTargetDb('siscom_crm_dev', 'siscom_crm_dev'))).toBe('NO_ERROR');
+  it('không còn đường vượt: tham số thứ hai (allow-db cũ) không có tác dụng; parseArgs từ chối --allow-db ở mọi lệnh', () => {
+    const loose = assertTargetDb as unknown as (n: string, allow?: string) => void;
+    expect(code(() => loose('siscom_crm', 'siscom_crm'))).toBe('DB_REFUSED');
+    expect(code(() => loose('siscom_crm_dev', 'siscom_crm_dev'))).toBe('DB_REFUSED');
+    const looseUrl = assertTargetUrl as unknown as (u: string, allow?: string) => unknown;
+    expect(code(() => looseUrl(U('127.0.0.1:5432', 'siscom_crm'), 'siscom_crm'))).toBe('DB_REFUSED');
+    expect(code(() => looseUrl(U('127.0.0.1:55470', 'siscom_crm'), 'siscom_crm'))).toBe('DB_REFUSED');
+    expect(code(() => parseArgs(['list', '--allow-db', T]))).toBe('INPUT');
+    expect(code(() => parseArgs(['disable', '--requester', 'NV-0001', '--employee', 'NV-0009', '--reason', 'x', '--allow-db', 'siscom_crm']))).toBe('INPUT');
   });
-  it('cổng 5432 (hoặc không ghi cổng) cần --allow-db; URL hỏng bị từ chối; không lộ mật khẩu trong thông điệp', () => {
-    expect(code(() => assertTargetUrl('postgresql://siscom_migrator:s3cr3tX@127.0.0.1:5432/' + T))).toBe('DB_REFUSED');
-    expect(code(() => assertTargetUrl('postgresql://siscom_migrator:s3cr3tX@127.0.0.1/' + T))).toBe('DB_REFUSED');
-    expect(assertTargetUrl('postgresql://siscom_migrator:s3cr3tX@127.0.0.1:55470/' + T)).toEqual({ dbName: T, port: '55470', user: 'siscom_migrator' });
+  it('cổng: chỉ 55470; 5432, 55433 (cụm demo), cổng khác, không ghi cổng đều bị từ chối dù tên DB là tên thử', () => {
+    expect(assertTargetUrl(U('127.0.0.1:55470'))).toEqual({ dbName: T, port: '55470', user: 'siscom_migrator' });
+    expect(assertTargetUrl(U('localhost:55470'))).toEqual({ dbName: T, port: '55470', user: 'siscom_migrator' });
+    for (const hp of ['127.0.0.1:5432', '127.0.0.1:55433', '127.0.0.1:55471', '127.0.0.1:5547', '127.0.0.1', 'localhost']) expect(code(() => assertTargetUrl(U(hp)))).toBe('DB_REFUSED');
+  });
+  it('host: chỉ 127.0.0.1 / localhost; IP LAN, tên miền, ::1, 127.0.0.2, 0.0.0.0, host kèm ?host= bị từ chối', () => {
+    for (const hp of ['192.168.1.10:55470', 'db.siscom.vn:55470', '[::1]:55470', '127.0.0.2:55470', '0.0.0.0:55470', 'localhost.evil.com:55470', '127.0.0.1.evil.com:55470']) expect(code(() => assertTargetUrl(U(hp)))).toBe('DB_REFUSED');
+    expect(code(() => assertTargetUrl(U('127.0.0.1:55470') + '?host=192.168.1.10'))).toBe('DB_REFUSED');
+    expect(code(() => assertTargetUrl(U('127.0.0.1:55470') + '?port=5432'))).toBe('DB_REFUSED');
+    expect(code(() => assertTargetUrl(U('127.0.0.1:55470') + '?sslmode=disable'))).toBe('NO_ERROR');
+  });
+  it('URL hỏng / giao thức lạ bị từ chối; thông điệp không lộ mật khẩu', () => {
     expect(code(() => assertTargetUrl('khong-phai-url'))).toBe('DB_REFUSED');
-    try { assertTargetUrl('postgresql://u:s3cr3tX@127.0.0.1:5432/x'); } catch (e) { expect(String((e as Error).message)).not.toContain('s3cr3tX'); }
+    expect(code(() => assertTargetUrl('mysql://u:p@127.0.0.1:55470/' + T))).toBe('DB_REFUSED');
+    for (const u of [U('127.0.0.1:5432', 'x'), U('10.0.0.5:55470'), U('127.0.0.1:55433')]) { try { assertTargetUrl(u); throw new Error('phai tu choi'); } catch (e) { expect(String((e as Error).message)).not.toContain('s3cr3tX'); expect(e).toBeInstanceOf(AccountAdminError); } }
   });
 });
 
@@ -69,11 +84,11 @@ describe('FV-5 parseArgs', () => {
 });
 
 // Giả lập Prisma: ghi lại thứ tự lời gọi SQL (chỉ phần chữ của template) để kiểm luồng gọi đúng hàm đặc quyền.
-function fakeDb(o: { db?: string; can?: boolean; open?: boolean; emp?: Record<string, unknown>[]; reset?: string; dup?: number; markRows?: number; noCred?: boolean; credStatus?: string } = {}) {
+function fakeDb(o: { db?: string; can?: boolean; open?: boolean; port?: number | null; emp?: Record<string, unknown>[]; reset?: string; dup?: number; markRows?: number; noCred?: boolean; credStatus?: string } = {}) {
   const calls: string[] = []; const values: unknown[][] = [];
   const run = async (strings: TemplateStringsArray, ...v: unknown[]) => {
     const sql = strings.join('?').replace(/\s+/g, ' ').trim(); calls.push(sql); values.push(v);
-    if (sql.includes('current_database()')) return [{ db: o.db ?? T, can: o.can ?? true, open: o.open ?? false }];
+    if (sql.includes('current_database()')) return [{ db: o.db ?? T, can: o.can ?? true, open: o.open ?? false, port: o.port === undefined ? 55470 : o.port }];
     if (sql.includes('FROM public.employee e LEFT JOIN')) {
       const k = String(v[0]);
       const rows = o.emp ?? [{ id: 'req-1', code: 'NV-0001', email: 'sys@x.vn', full_name: 'Sys', status: 'ACTIVE', cred_status: 'ACTIVE' }, { id: 'appr-2', code: 'NV-0002', email: 'adm@x.vn', full_name: 'Adm', status: 'ACTIVE', cred_status: 'ACTIVE' }, { id: 'emp-9', code: 'NV-0009', email: 'b@x.vn', full_name: 'B', status: 'ACTIVE', cred_status: 'ACTIVE' }];
@@ -104,6 +119,13 @@ describe('FV-5 AccountAdmin (giả lập DB)', () => {
     await expect(new AccountAdmin(fakeDb({ db: 'siscom_crm_dev' }).db as never, hasher).preflight()).rejects.toThrow('DB_REFUSED');
     await expect(new AccountAdmin(fakeDb({ can: false }).db as never, hasher).preflight()).rejects.toThrow('NOT_OWNER');
     await expect(new AccountAdmin(fakeDb({ open: true }).db as never, hasher).preflight()).rejects.toThrow('BOOTSTRAP_OPEN');
+  });
+  it('FV5-DB-GUARD preflight: CLI yêu cầu cổng THẬT của máy chủ (inet_server_port) = 55470; khác / không xác minh được (null) => DB_REFUSED', async () => {
+    const ok = fakeDb();
+    await expect(new AccountAdmin(ok.db as never, hasher).preflight({ serverPort: 55470 })).resolves.toBe(T);
+    expect(ok.calls[0]).toContain('inet_server_port()');
+    for (const port of [5432, 55433, null]) await expect(new AccountAdmin(fakeDb({ port }).db as never, hasher).preflight({ serverPort: 55470 })).rejects.toThrow('DB_REFUSED');
+    await expect(new AccountAdmin(fakeDb({ db: 'siscom_crm' }).db as never, hasher).preflight({ serverPort: 55470 })).rejects.toThrow('DB_REFUSED');
   });
   it('add: một transaction; employee -> credential placeholder -> ROLE_GRANT 2 người -> PASSWORD_RESET 2 người -> bật must_change; không lộ mật khẩu trong SQL', async () => {
     const f = fakeDb();

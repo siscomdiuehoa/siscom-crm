@@ -5,7 +5,7 @@ Dành cho **Owner / quản trị kỹ thuật**. Công cụ dòng lệnh để *
 > ⚠️ **TRẠNG THÁI (cập nhật 10/11/2026): CHỈ DÙNG TRÊN DATABASE THỬ (PostgreSQL tạm cách ly).**
 > - **Owner 10/11/2026:** phê duyệt hai người **chỉ bằng khai báo** (mục 2) **không được chấp nhận cho sử dụng thực tế**; cần cơ chế xác nhận độc lập trước khi dùng thật (F225-A).
 > - Cách bật cờ “bắt buộc đổi mật khẩu” hiện nay (ghi trực tiếp một cột bằng chủ sở hữu DB) **chỉ được chấp nhận trên DB thử**; vận hành chính thức cần hàm database chuyên dụng, chưa được duyệt (F225-B).
-> - **Chưa** dùng trên database thật hoặc DB demo 55433. Việc cấp tài khoản thật cần Owner **duyệt riêng** bằng văn bản, và nên chờ có cơ chế phê duyệt hai người thật (thiết kế A1 + A3, đang chờ duyệt).
+> - **Không thể** dùng trên database thật hoặc DB demo 55433: từ 10/11/2026 (FV5-DB-GUARD) công cụ bị **khoá cứng trong mã** vào PostgreSQL thử tại `127.0.0.1:55470` / `localhost:55470`, tên DB dạng `siscom_crm_test_*` / `siscom_crm_restore_*`. Không có cờ nào nới giới hạn này (đã bỏ `--allow-db`). Chỉ gỡ khi Owner duyệt riêng sau khi F225-A/B được xử lý.
 > - **Tạm cấm** cấp vai trò `crm_admin` (vai trò xem toàn bộ khách hàng và là người duyệt). Vai trò kỹ thuật `admin` cũng không cấp được qua công cụ này.
 
 ---
@@ -37,8 +37,8 @@ Mọi thay đổi đi qua **các hàm đặc quyền có sẵn trong database** 
    - giao trực tiếp cho nhân viên rồi **xoá file ngay**;
    - không chụp màn hình, không dán vào chat/email/GitHub.
 4. **Chỉ database được phép.** Mặc định chỉ nhận DB thử (`siscom_crm_test_YYYYMMDD_HHMMSS` hoặc `siscom_crm_restore_…`).
-   - Database khác chỉ khi có `--allow-db <đúng tên DB>`, mà cờ này **chỉ dùng khi Owner đã duyệt riêng**.
-   - Cổng 5432 (cụm PostgreSQL chính) cần thêm cờ riêng.
+   - **Không có** cách nào trỏ sang database khác: host phải là `127.0.0.1` hoặc `localhost`, cổng phải là `55470`, tên DB phải đúng mẫu thử. Cổng 5432 (cụm chính), 55433 (cụm demo) và mọi cổng/host khác bị từ chối **trước khi mở kết nối**.
+   - Sau khi kết nối, công cụ đối chiếu **cổng thật của máy chủ** (`inet_server_port()`); khác 55470 hoặc không xác minh được thì dừng trước mọi thao tác ghi.
    - `siscom_crm_dev` và các baseline đã khoá luôn bị từ chối.
 5. **Xác nhận trước khi ghi.** Mỗi lệnh ghi yêu cầu **gõ lại tên database**. `--yes` (bỏ bước gõ lại) chỉ dùng trong kịch bản đã được duyệt.
 
@@ -66,23 +66,23 @@ Mọi thay đổi đi qua **các hàm đặc quyền có sẵn trong database** 
 ### Qua wrapper Windows (khuyến nghị)
 `backend\scripts\windows\account-admin.bat` (hoặc `.ps1`):
 - Kiểm Node 24 và tên database.
-- Từ chối cổng 5432 nếu không có `-AllowMainCluster`.
-- Mật khẩu `siscom_migrator` lấy từ biến môi trường `MIGRATE_DATABASE_URL` nếu đã đặt; nếu không, đọc từ `D:\SISCOM-CRM-demo-pg\private\roles-<cổng>.secrets` (file do `demo-split` tạo, chỉ Owner đọc được). Không in mật khẩu.
+- **Bắt buộc** đặt sẵn biến môi trường `MIGRATE_DATABASE_URL` trỏ vào database thử (`postgresql://siscom_migrator:<mật khẩu>@127.0.0.1:55470/<tên DB thử>`). Wrapper **không** đọc file bí mật nào, không in URL/mật khẩu.
+- Từ chối ngay nếu URL không đúng máy cục bộ, cổng 55470 và mẫu tên DB thử. Không còn `-DatabaseName`, `-PgPort`, `-AllowDb`, `-AllowMainCluster`.
 
 ```bat
 :: Liệt kê
-account-admin.bat -Command list -DatabaseName siscom_crm_test_20261108_122026
+account-admin.bat -Command list
 
 :: Thêm nhân viên kinh doanh
-account-admin.bat -Command add -DatabaseName siscom_crm_test_20261108_122026 -Requester NV-0001 -Approver NV-0002 ^
+account-admin.bat -Command add -Requester NV-0001 -Approver NV-0002 ^
   -Email nguyenvana@siscom.vn -FullName "Nguyễn Văn A" -Department KD -Role sales -Out D:\SISCOM-CRM-demo-pg\private\NV-moi.txt
 
 :: Đặt lại mật khẩu
-account-admin.bat -Command reset-password -DatabaseName siscom_crm_test_20261108_122026 -Requester NV-0001 -Approver NV-0002 ^
+account-admin.bat -Command reset-password -Requester NV-0001 -Approver NV-0002 ^
   -Employee NV-0012 -Out D:\SISCOM-CRM-demo-pg\private\NV-0012-reset.txt
 
 :: Khoá đăng nhập (chỉ cần người yêu cầu)
-account-admin.bat -Command disable -DatabaseName siscom_crm_test_20261108_122026 -Requester NV-0001 -Employee NV-0012 -Reason "Nghỉ việc"
+account-admin.bat -Command disable -Requester NV-0001 -Employee NV-0012 -Reason "Nghỉ việc"
 ```
 
 `-Out` nên trỏ vào một thư mục chỉ Owner truy cập được, **ngoài** thư mục mã nguồn.
@@ -103,7 +103,6 @@ Biến môi trường bắt buộc: `MIGRATE_DATABASE_URL` (kết nối bằng `
 | `--reason` | disable, unlock | Ghi vào nhật ký (tối đa 200 ký tự) |
 | `--confirm-unlock <mã NV>` | unlock | Gõ lại **đúng mã nhân viên** cần mở khoá (không nhận email); sai ⇒ `CONFIRM_UNLOCK`, không ghi gì. Wrapper: `-ConfirmUnlock` |
 | `--out <đường dẫn>` | add, reset-password, unlock | File bàn giao mới, không ghi đè |
-| `--allow-db <tên>` | mọi lệnh | **Chỉ khi Owner duyệt riêng** cho DB không phải DB thử |
 | `--yes` | lệnh ghi | Bỏ bước gõ lại tên DB (chỉ cho kịch bản đã duyệt) |
 | `--demo` | add | Đánh dấu nhân viên là dữ liệu demo |
 
@@ -126,7 +125,7 @@ Không có tham số nhập mật khẩu: mật khẩu luôn do công cụ sinh 
 
 | Mã lỗi | Ý nghĩa |
 |---|---|
-| `DB_REFUSED` | Sai database / cổng / thiếu `--allow-db` |
+| `DB_REFUSED` | Không phải PostgreSQL thử: host khác `127.0.0.1`/`localhost`, cổng khác `55470`, tên DB không đúng mẫu thử, baseline đã khoá, hoặc không xác minh được cổng máy chủ |
 | `NOT_OWNER` | Không chạy bằng `siscom_migrator` |
 | `ACCOUNT_DISABLED` | `reset-password` trên tài khoản đang khoá: không mở khoá, không đổi gì. Muốn mở: `unlock` |
 | `NOT_DISABLED` | `unlock` trên tài khoản không bị khoá |
