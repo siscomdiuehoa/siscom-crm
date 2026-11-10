@@ -1,9 +1,9 @@
 # Bảo mật PostgreSQL và backend (B1.1)
 
-- **Tài khoản:** `postgres` (superuser) chỉ dùng một lần trong `setup-db`. CRM chạy bằng `siscom_app`: `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`. Backend **từ chối khởi động** nếu `DATABASE_URL` dùng `postgres` hoặc còn mật khẩu mẫu `CHANGE_ME`.
+- **Tài khoản:** `postgres` (superuser) chỉ dùng cho bước cài đặt (`setup-db`, và hai script tạo role `B1.3_S1_ROLE_SPLIT.sql.txt`, `B1.3_S1_AUTH_ROLE.sql.txt`). CRM dùng **ba role**, đều `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`: `siscom_app` — backend chạy nghiệp vụ (`DATABASE_URL`); `siscom_auth` — pool xác thực của backend (`AUTH_DATABASE_URL`, bắt buộc ở production); `siscom_migrator` — chủ sở hữu database/bảng/hàm, chỉ dùng cho migration, `auth:bootstrap`, `seed-lookups` (`MIGRATE_DATABASE_URL`, đặt tạm trong phiên thao tác), backend đang chạy không dùng role này. Máy Windows chưa tách role (tuỳ chọn) thì chỉ có `siscom_app`. Chi tiết quyền từng role ở các mục "Tách role S1", "Quyền tối thiểu" và "Pool xác thực riêng" bên dưới. Backend **từ chối khởi động** nếu `DATABASE_URL` dùng `postgres` hoặc còn mật khẩu mẫu `CHANGE_ME`.
 - **Mật khẩu:** nhập ẩn / tự sinh 32 ký tự ngẫu nhiên; chỉ nằm trong `.env` (ACL chỉ tài khoản Windows hiện tại; `.gitignore` chặn). Không có trong mã, `.env.example`, log, báo cáo. Backend không in `DATABASE_URL`.
 - **Mạng:** PostgreSQL nghe `localhost`; không mở cổng 5432 trên Firewall; backend nghe `127.0.0.1`. Kiểm tra `pg_hba.conf` chỉ có dòng `127.0.0.1/32` và `::1/128` (không `0.0.0.0/0`).
-- **Phân quyền DB:** `REVOKE ALL ... FROM PUBLIC`, chỉ `siscom_app` được `CONNECT`.
+- **Phân quyền DB:** `REVOKE ALL ... FROM PUBLIC` (PUBLIC không được `CONNECT`). Chưa tách role (`setup-db`): chỉ `siscom_app` được `CONNECT`. Sau khi tách role: `siscom_migrator` là chủ sở hữu database; `siscom_app` được `CONNECT, TEMP` (`B1.3_S1_ROLE_SPLIT.sql.txt`); `siscom_auth` được `CONNECT`, không `TEMP` (`B1.3_S1_AUTH_ROLE.sql.txt`).
 - **CORS:** danh sách cho phép từ `CORS_ORIGINS`; `*` bị từ chối khi khởi động; production bắt buộc khai báo.
 - **Lỗi:** 5xx và lỗi database trả thông báo chung; chi tiết chỉ ghi log máy chủ (kèm `X-Request-Id`). Log không ghi query string, header, body.
 - **Header bảo mật:** `helmet`.
