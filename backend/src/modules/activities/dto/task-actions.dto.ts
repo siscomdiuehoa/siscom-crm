@@ -17,7 +17,8 @@ export class UpdateActivityDto {
   @IsOptional() @Trim() @SkipIfBlank() @IsString() @MaxLength(200)
   title?: string | null;
 
-  @IsOptional() @Trim() @IsString() @MinLength(1, { message: 'Vui lòng nhập nội dung' }) @MaxLength(4000)
+  // Không gửi = không sửa; null bị từ chối (cột NOT NULL).
+  @ValidateIf((_o: unknown, v: unknown) => v !== undefined) @Trim() @IsString() @MinLength(1, { message: 'Vui lòng nhập nội dung' }) @MaxLength(4000)
   content?: string;
 
   @IsOptional() @Trim() @SkipIfBlank() @IsString() @MaxLength(2000)

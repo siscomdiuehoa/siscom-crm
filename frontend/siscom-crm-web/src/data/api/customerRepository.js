@@ -25,7 +25,7 @@ function wrap(e) {
   if (e instanceof ApiError) {
     const kind = HTTP_KIND[e.status] || (e.status >= 500 ? 'server' : 'http');
     const base = HTTP_MSG[e.status] || 'Máy chủ từ chối yêu cầu (' + e.status + ').';
-    return new CustomerRepoError(kind, e.message && e.message !== base ? base + ' ' + e.message : base, { status: e.status, code: e.code, details: e.details });
+    return new CustomerRepoError(kind, e.message && e.message !== base ? base + ' ' + e.message : base, { status: e.status, code: e.code, details: e.details, ...(e.retryAfter ? { retryAfter: e.retryAfter } : {}) });
   }
   if (e instanceof AdapterError) return new CustomerRepoError('validation', e.message, { field: e.field });
   return new CustomerRepoError('unknown', 'Lỗi không xác định. Dữ liệu không được lưu.', { cause: e });
@@ -56,16 +56,20 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
       async update(id, ui, ...rest) { const l = need(); if (typeof l.update !== 'function') throw new CustomerRepoError('config', 'Nguồn cục bộ không hỗ trợ cập nhật.'); return l.update(id, ui, ...rest); },
       async contacts() { throw new CustomerRepoError('config', 'Chế độ demo: người liên hệ dùng dữ liệu cục bộ.'); },
       async setPrimaryContact() { throw new CustomerRepoError('config', 'Chế độ demo: người liên hệ dùng dữ liệu cục bộ.'); },
+      async addContact() { throw new CustomerRepoError('config', 'Chế độ demo: người liên hệ dùng dữ liệu cục bộ.'); },
+      async updateContact() { throw new CustomerRepoError('config', 'Chế độ demo: người liên hệ dùng dữ liệu cục bộ.'); },
+      async deleteContact() { throw new CustomerRepoError('config', 'Chế độ demo: người liên hệ dùng dữ liệu cục bộ.'); },
       async activities() { throw new CustomerRepoError('config', 'Chế độ demo: hoạt động chỉ có ở chế độ API.'); },
       async createActivity() { throw new CustomerRepoError('config', 'Chế độ demo: hoạt động chỉ có ở chế độ API.'); },
       async assigneeCandidates() { throw new CustomerRepoError('config', 'Chế độ demo: hoạt động chỉ có ở chế độ API.'); },
       async tasks() { throw new CustomerRepoError('config', 'Chế độ demo: công việc chỉ có ở chế độ API.'); },
+      async exportCustomers() { throw new CustomerRepoError('config', 'Chế độ demo: xuất dùng hộp thoại cục bộ.'); },
     };
   }
 
   if (!config.enabled) {
     const err = () => new CustomerRepoError('config', 'Đã bật VITE_CRM_API_ENABLED nhưng thiếu VITE_CRM_API_BASE. Không dùng dữ liệu cục bộ thay thế.');
-    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); }, async contacts() { throw err(); }, async setPrimaryContact() { throw err(); }, async activities() { throw err(); }, async createActivity() { throw err(); }, async assigneeCandidates() { throw err(); }, async tasks() { throw err(); } };
+    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); }, async contacts() { throw err(); }, async setPrimaryContact() { throw err(); }, async addContact() { throw err(); }, async updateContact() { throw err(); }, async deleteContact() { throw err(); }, async activities() { throw err(); }, async createActivity() { throw err(); }, async assigneeCandidates() { throw err(); }, async tasks() { throw err(); }, async exportCustomers() { throw err(); } };
   }
 
   // Wrap fetch: transport failures become kind 'network', and we know whether a request was sent
@@ -88,6 +92,15 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
   const sameId = (c, id) => { if (c.id.toLowerCase() !== id.toLowerCase()) throw malformed('id khách hàng không khớp'); return c; };
   return {
     mode: 'api',
+    // FV-4A: xuất CSV phía máy chủ. Trả { blob, rows, skipped, exportId, disposition }; lỗi giữ status/code/retryAfter để giao diện báo đúng.
+    async exportCustomers(body) {
+      sent = false;
+      try {
+        const r = await api.exportCustomers(body);
+        if (!r || !r.blob || !Number.isInteger(r.rows) || r.rows < 0) throw malformed('file xuất');
+        return r;
+      } catch (err) { throw classify(err); }
+    },
     // Canonical server choices for the form selects: { tier|status|industry|source|city: { options: [label], missing, toCode, toLabel } }.
     async lookups() {
       sent = false;
@@ -154,6 +167,35 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
         const c = await api.createContact(id, body);
         if (!c || typeof c.fullName !== 'string') throw malformed('người liên hệ');
         return c;
+      } catch (err) { throw classify(err); }
+    },
+    // FV-3: thêm / sửa / xoá mềm người liên hệ. Thân gửi đã được giao diện chuẩn hoá (chỉ trường đổi + updatedAt); máy chủ kiểm quyền theo khách.
+    async addContact(id, body) {
+      sent = false;
+      try {
+        checkId(id);
+        if (!body || blank(body.fullName)) throw new AdapterError('Vui lòng nhập họ tên người liên hệ', 'fullName');
+        const c = await api.createContact(id, body);
+        if (!c || typeof c.id !== 'string') throw malformed('người liên hệ');
+        return c;
+      } catch (err) { throw classify(err); }
+    },
+    async updateContact(id, contactId, body) {
+      sent = false;
+      try {
+        checkId(id); checkId(contactId);
+        if (!body || typeof body.updatedAt !== 'string' || !body.updatedAt) throw new AdapterError('Thiếu mốc cập nhật của người liên hệ.', 'updatedAt');
+        const c = await api.updateContact(id, contactId, body);
+        if (!c || c.id !== contactId) throw malformed('người liên hệ');
+        return c;
+      } catch (err) { throw classify(err); }
+    },
+    async deleteContact(id, contactId, updatedAt) {
+      sent = false;
+      try {
+        checkId(id); checkId(contactId);
+        if (typeof updatedAt !== 'string' || !updatedAt) throw new AdapterError('Thiếu mốc cập nhật của người liên hệ.', 'updatedAt');
+        return await api.deleteContact(id, contactId, { updatedAt });
       } catch (err) { throw classify(err); }
     },
     // B3 A7: dòng thời gian hoạt động của khách (GET /customers/:id/activities) -> { items, page, pageSize, total, totalPages }.

@@ -111,7 +111,8 @@ export function chooseSearchPath(folded: string, deletedOnly: boolean): SearchPa
 
 export interface SearchSort { sortBy: string; order: 'asc' | 'desc' }
 
-function matchedFrom(p: SearchWhereInput, path: SearchPath): { from: Prisma.Sql; where: Prisma.Sql } {
+// FV-4A: export để xuất CSV dùng đúng điều kiện tìm kiếm của danh sách trong MỘT câu truy vấn (không đổi SQL).
+export function matchedFrom(p: SearchWhereInput, path: SearchPath): { from: Prisma.Sql; where: Prisma.Sql } {
   if (path === 'or') return { from: Prisma.sql`customer c`, where: buildSearchWhere(p) };
   if (p.deletedOnly) throw new Error('Đường UNION không dùng cho deleted=only (dùng đường OR).');
   const selects = textBranches(p).flatMap((b) => b.union);

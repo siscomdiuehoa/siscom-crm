@@ -16,6 +16,7 @@ Tóm tắt: cài Node.js 24 LTS + PostgreSQL → đặt thư mục này **ngoài
 | `docs/BACKUP_RESTORE.md` | Sao lưu và khôi phục |
 | `docs/PRISMA7_NOTES.md` | Cấu hình Prisma 7 + các điểm cần kiểm chứng |
 | `docs/VPS_LINUX_NOTES.md` | Chuẩn bị triển khai VPS Linux |
+| `docs/FV4_EXPORT_RUNBOOK.md` | FV-4A xuất CSV: biến `EXPORT_GAP_LOG_DIR` (bắt buộc ở production), cấp quyền `customer.export` |
 
 ## Lệnh
 `npm run build` · `npm run start:dev` · `npm run db:migrate` (prisma migrate deploy, không xoá dữ liệu) · `npm run db:status` · `npm run test:e2e` (cần DB đang chạy)

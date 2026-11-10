@@ -47,7 +47,9 @@ export function createCustomerApi(config, fetchImpl, options) {
   const session = options && options.session ? options.session : null;
   const cfg = config || { enabled: false, baseUrl: '' };
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
-  async function call(method, path, body) {
+  // opts.raw (FV-4A): phản hồi thành công là FILE (text/csv) => trả Blob nguyên byte (Response.text() sẽ bỏ BOM UTF-8) kèm header X-Export-*.
+  async function call(method, path, body, opts) {
+    const raw = !!(opts && opts.raw);
     if (!cfg.enabled) throw new ApiDisabledError();
     if (!doFetch) throw new Error('fetch không khả dụng.');
     let authHeader = null;
@@ -63,8 +65,9 @@ export function createCustomerApi(config, fetchImpl, options) {
       headers: { Accept: 'application/json', ...(authHeader ? { Authorization: authHeader } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
-    let json = null;
-    try { json = await res.json(); } catch (e) { /* non-JSON body */ }
+    let json = null; let blob = null;
+    if (raw && res.ok) blob = await res.blob();
+    else { try { json = await res.json(); } catch (e) { /* non-JSON body */ } }
     if (session) {
       if (res.status === 401) { try { session.handleUnauthorized(); } catch (e) { /* không che lỗi 401 gốc */ } }
       else if (sessionKey(session) !== sessKey) throw new StaleSessionError();
@@ -76,10 +79,15 @@ export function createCustomerApi(config, fetchImpl, options) {
     }
     if (!res.ok) {
       const er = (json && json.error) || {};
-      throw new ApiError(res.status, er.code || 'REQUEST_FAILED', er.message || (json && json.message) || 'Yêu cầu thất bại (' + res.status + ').', er.details);
+      const e = new ApiError(res.status, er.code || 'REQUEST_FAILED', er.message || (json && json.message) || 'Yêu cầu thất bại (' + res.status + ').', er.details);
+      const ra = Number(header(res, 'Retry-After'));
+      if (Number.isFinite(ra) && ra > 0) e.retryAfter = ra;
+      throw e;
     }
+    if (raw) return { blob, rows: Number(header(res, 'X-Export-Rows')), skipped: Number(header(res, 'X-Export-Skipped') || 0), exportId: header(res, 'X-Export-Id'), disposition: header(res, 'Content-Disposition') };
     return json ? json.data : null;
   }
+  function header(res, name) { try { return res.headers && typeof res.headers.get === 'function' ? res.headers.get(name) : null; } catch (e) { return null; } }
   const qs = (o) => { const p = new URLSearchParams(); for (const [k, v] of Object.entries(o || {})) if (v !== undefined && v !== null && v !== '') p.set(k, String(v)); const t = p.toString(); return t ? '?' + t : ''; };
   return {
     enabled: cfg.enabled,
@@ -87,11 +95,16 @@ export function createCustomerApi(config, fetchImpl, options) {
     async getOwnerCandidates() { return normalizeOwnerCandidates(await call('GET', '/customers/owner-candidates')); },
     async list(params) { const d = await call('GET', '/customers' + qs(params)); return { ...d, items: d.items.map(fromApiCustomer) }; },
     async get(id) { return fromApiCustomer(await call('GET', '/customers/' + encodeURIComponent(id))); },
+    // FV-4A: máy chủ kiểm quyền customer.export + phạm vi, tạo CSV và ghi nhật ký. Body: { mode, search?, ids?, tier?, status?, industry?, source?, province? }.
+    async exportCustomers(body) { return await call('POST', '/customers/export', body, { raw: true }); },
     async create(ui, maps) { return fromApiCustomer(await call('POST', '/customers', toApiCustomer(ui, maps, { mode: 'create' }))); },
     async update(id, ui, maps, version) { return fromApiCustomer(await call('PATCH', '/customers/' + encodeURIComponent(id), toApiCustomer(ui, maps, { mode: 'update', version }))); },
     // B1.4 người liên hệ: API Contact có sẵn (GET/POST /customers/:id/contacts). Server sắp người chính lên đầu; POST isPrimary gỡ cờ người chính cũ.
     async listContacts(id) { return await call('GET', '/customers/' + encodeURIComponent(id) + '/contacts'); },
     async createContact(id, body) { return await call('POST', '/customers/' + encodeURIComponent(id) + '/contacts', body); },
+    // FV-3: sửa / xoá mềm (quyền customer.update trên khách — máy chủ kiểm); body luôn kèm updatedAt đã tải (khoá lạc quan).
+    async updateContact(id, contactId, body) { return await call('PATCH', '/customers/' + encodeURIComponent(id) + '/contacts/' + encodeURIComponent(contactId), body); },
+    async deleteContact(id, contactId, body) { return await call('DELETE', '/customers/' + encodeURIComponent(id) + '/contacts/' + encodeURIComponent(contactId), body); },
     // B3 A7 hoạt động (API A5): dòng thời gian theo khách, ghi nhận hoạt động, ứng viên phụ trách. Người tạo/khách do máy chủ xác định.
     async listActivities(id, params) { return await call('GET', '/customers/' + encodeURIComponent(id) + '/activities' + qs(params)); },
     async createActivity(id, body) { return await call('POST', '/customers/' + encodeURIComponent(id) + '/activities', body); },
