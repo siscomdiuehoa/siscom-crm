@@ -6,7 +6,7 @@ import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import React from 'react';
-import { installDom, text, byTag, click, type, inputByLabel } from './helpers/miniDom.mjs';
+import { installDom, text, byTag, click, type, submit, inputByLabel } from './helpers/miniDom.mjs';
 
 const BASE = 'http://127.0.0.1:3000/api/v1';
 const ID = '0b9f1c52-3a0e-4c3e-9d6f-0a1b2c3d4e5f';
@@ -206,7 +206,7 @@ async function mountExportFilters() {
   const press = async (re) => { const b = btn(re); assert.ok(b, 'có nút ' + re); await act(async () => { click(b); }); await settle(); };
   const chip = (label) => byTag(l.container, 'button').find((b) => /sg-chip/.test(b.getAttribute('class') || '') && text(b).trim() === label);
   const done = async () => { await l.unmount(); for (const t of longTimers) clearTimeout(t); globalThis.setTimeout = origST; globalThis.URL.createObjectURL = origURL; globalThis.URL.revokeObjectURL = origRevoke; };
-  return { bodies, press, chip, done };
+  return { bodies, press, chip, done, container: l.container };
 }
 
 test('F222-A: chọn trạng thái rồi đổi phân hạng (bảng dựng lại, chip về "Tất cả") => xuất KHÔNG gửi trạng thái cũ', async () => {
@@ -230,5 +230,67 @@ test('F222-A: chọn trạng thái rồi Bảng -> Thẻ -> Bảng (chip về "T
     assert.equal(h.chip('Tất cả').getAttribute('aria-pressed'), 'true', 'tiền đề: bảng dựng lại, chip về "Tất cả"');
     await h.press(/^Xuất$/);
     assert.deepEqual(h.bodies[0], { mode: 'filtered' });
+  } finally { await h.done(); }
+});
+
+// F222-R2 (FV4A-R2-FIX, 10/11/2026): trang giữ danh sách dòng đã chọn, còn DataTable giữ ô tick trong state riêng. Khi bảng bị dựng lại
+// (đổi phân hạng, Bảng -> Thẻ -> Bảng, tìm trên máy chủ / đổi trang) ô tick biến mất nhưng trang vẫn hiện "Đã chọn N" và "Xuất đã chọn"
+// gửi id CŨ => file lệch màn hình. Nay DataTable báo danh sách chọn rỗng khi bị gỡ.
+const tickFirstRow = async (h) => {
+  const boxes = byTag(h.container, 'input').filter((i) => i.getAttribute('type') === 'checkbox');
+  assert.ok(boxes.length >= 2, 'có ô chọn tất cả + ít nhất một ô chọn dòng');
+  const cb = boxes[1]; cb.checked = true;
+  await act(async () => { click(cb); }); await settle();
+};
+const selectedBar = (h) => ({ label: /Đã chọn \d+/.test(text(h.container)), button: !!byTag(h.container, 'button').find((b) => /^Xuất đã chọn$/.test(text(b).trim())) });
+
+test('F222-R2: chọn dòng hợp lệ => "Xuất đã chọn" gửi đúng id đang tick (không làm mất chức năng chọn)', async () => {
+  const h = await mountExportFilters();
+  try {
+    await tickFirstRow(h);
+    assert.deepEqual(selectedBar(h), { label: true, button: true });
+    await h.press(/^Xuất đã chọn$/);
+    assert.deepEqual(h.bodies[0], { mode: 'selected', ids: [ID] });
+    assert.deepEqual(selectedBar(h), { label: true, button: true }, 'xuất xong vẫn giữ lựa chọn trên bảng đang hiển thị');
+  } finally { await h.done(); }
+});
+
+test('F222-R2: chọn dòng rồi đổi phân hạng (bảng dựng lại) => không còn "Đã chọn", không còn nút "Xuất đã chọn", không gửi id cũ', async () => {
+  const h = await mountExportFilters();
+  try {
+    await tickFirstRow(h);
+    assert.deepEqual(selectedBar(h), { label: true, button: true }, 'tiền đề: đã chọn 1 dòng');
+    await h.press(/^VIP/);
+    assert.deepEqual(selectedBar(h), { label: false, button: false });
+    assert.equal(h.bodies.filter((b) => b.mode === 'selected').length, 0);
+  } finally { await h.done(); }
+});
+
+test('F222-R2: chọn dòng rồi Bảng -> Thẻ -> Bảng => lựa chọn cũ không còn', async () => {
+  const h = await mountExportFilters();
+  try {
+    await tickFirstRow(h);
+    await h.press(/^Thẻ$/);
+    assert.deepEqual(selectedBar(h), { label: false, button: false }, 'chế độ Thẻ: không còn lựa chọn của bảng');
+    await h.press(/^Bảng$/);
+    assert.deepEqual(selectedBar(h), { label: false, button: false });
+  } finally { await h.done(); }
+});
+
+test('F222-R2: chọn dòng rồi tìm trên máy chủ (danh sách tải lại, bảng dựng lại) => lựa chọn cũ không còn', async () => {
+  const h = await mountExportFilters();
+  try {
+    await tickFirstRow(h);
+    const box = byTag(h.container, 'input').find((i) => i.getAttribute('aria-label') === 'Tìm kiếm khách hàng trên máy chủ');
+    assert.ok(box, 'có ô tìm trên máy chủ');
+    await act(async () => { type(box, 'May Chu'); }); await settle();
+    // Mạng thật luôn trả lời ở một nhịp sau => trang hiện 'Đang tải' và bảng bị gỡ. fetch giả trả lời tức thì sẽ gộp hai trạng thái, nên làm chậm 20 ms.
+    const instant = fetchImpl; fetchImpl = async (...a) => { await new Promise((r) => setTimeout(r, 20)); return instant(...a); };
+    await act(async () => { let f = box; while (f && f.tagName !== 'FORM') f = f.parentNode; assert.ok(f, 'có form tìm kiếm'); submit(f); }); // miniDom: bấm nút không tự gửi form
+    await act(async () => { await new Promise((r) => setTimeout(r, 80)); }); await settle();
+    assert.ok(fetchCalls.some(([u]) => new URL(u).searchParams.get('search') === 'May Chu'), 'tiền đề: đã gửi tìm kiếm lên máy chủ');
+    assert.ok(byTag(h.container, 'input').filter((i) => i.getAttribute('type') === 'checkbox').length >= 2, 'tiền đề: bảng đã tải lại');
+    assert.equal(byTag(h.container, 'input').filter((i) => i.getAttribute('type') === 'checkbox').some((i) => i.checked), false, 'bảng mới không còn ô nào được tick');
+    assert.deepEqual(selectedBar(h), { label: false, button: false });
   } finally { await h.done(); }
 });

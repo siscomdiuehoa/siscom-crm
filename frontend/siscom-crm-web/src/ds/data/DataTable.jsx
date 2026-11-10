@@ -27,6 +27,10 @@ export function DataTable({ columns = [], rows = [], rowKey = 'id', searchable =
   // nếu không cha giữ giá trị cũ trong khi bảng dựng lại hiển thị "Tất cả".
   const filterCb = useRef(onFilterChange); filterCb.current = onFilterChange;
   useEffect(() => () => { if (filterCb.current) filterCb.current(null); }, []);
+  // F222-R2: ô tick cũng nằm trong state của bảng => khi bảng bị gỡ phải báo cha danh sách chọn RỖNG,
+  // nếu không cha vẫn hiện "Đã chọn N" và "Xuất đã chọn" gửi id của bảng cũ.
+  const selCb = useRef(onSelectionChange); selCb.current = onSelectionChange;
+  useEffect(() => () => { if (selCb.current) selCb.current([]); }, []);
 
   const data = useMemo(() => {
     let r = rows;
