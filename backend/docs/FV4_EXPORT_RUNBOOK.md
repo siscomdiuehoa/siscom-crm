@@ -6,10 +6,12 @@
 
 Chức năng xuất ghi nhật ký vào `audit_log`. Những lần từ chối vượt hạn mức ghi (không ghi vào DB) được đếm và ghi bền ra file JSONL trong thư mục này, để không mất dấu.
 
-| Môi trường | Thiếu biến | Thư mục không tạo được |
-|---|---|---|
-| `NODE_ENV=production` | **Backend từ chối khởi động** (lỗi `Thiếu EXPORT_GAP_LOG_DIR…`) | **Backend từ chối khởi động** |
-| development / test | Dùng `<thư mục tạm của hệ điều hành>/siscom-export-gap` | Backend từ chối khởi động |
+| Môi trường | Thiếu biến | Thư mục không tạo được | Thư mục có nhưng **không ghi được** |
+|---|---|---|---|
+| `NODE_ENV=production` | **Backend từ chối khởi động** (lỗi `Thiếu EXPORT_GAP_LOG_DIR…`) | **Backend từ chối khởi động** | **Backend từ chối khởi động** (lỗi `EXPORT_GAP_LOG_DIR không ghi được (<mã lỗi>)…`) |
+| development / test | Dùng `<thư mục tạm của hệ điều hành>/siscom-export-gap` | Backend từ chối khởi động | Backend từ chối khởi động |
+
+Khi khởi động, backend ghi và `fsync` một dòng `"event":"startup"` vào file của ngày; không ghi được (thiếu quyền, ổ đầy, đường dẫn bị chiếm) thì dừng ngay (FV4A-R1-FIX). File của ngày đã đạt trần dung lượng **không** chặn khởi động.
 
 Đây là hành vi cố ý (fail-closed). Hệ quả: bản backend có FV-4A **không khởi động được ở production nếu chưa đặt biến này**, kể cả khi chưa ai dùng chức năng xuất. Phải đặt biến **trước** khi cập nhật backend.
 

@@ -130,9 +130,12 @@ export class ExportGapMonitor {
   private onFsError(e: unknown): void {
     this.degraded = true;
     const code = e instanceof GapWriteError ? e.stage + ':' + e.code : 'unknown';
+    this.lastFsError = code;
     const t = this.now(); const last = this.lastLog.get('FILE') ?? 0;
     if (t - last >= 60_000) { this.lastLog.set('FILE', t); this.log('error', JSON.stringify({ event: 'export_gap_log_degraded', code, instanceId: this.instanceId })); }
   }
+
+  private lastFsError = 'unknown';
 
   private bump(m: Map<string, number>, actor: string, n: number): void { m.set(actor, (m.get(actor) ?? 0) + n); }
 
@@ -198,7 +201,11 @@ export class ExportGapMonitor {
     let prevId: string | null = null; let prevShut = false; let lastAt: string | null = null;
     for (const l of lines) { try { const o = JSON.parse(l) as { event?: string; instanceId?: string; at?: string }; if (o.event === 'startup') { prevId = o.instanceId ?? null; prevShut = false; } if (o.event === 'shutdown' && o.instanceId === prevId) prevShut = true; if (o.instanceId === prevId) lastAt = o.at ?? lastAt; } catch { /* dòng hỏng: bỏ qua */ } }
     if (prevId && !prevShut) await this.writeLine({ event: 'abnormal_stop_detected', previousInstanceId: prevId, lastDurableAt: lastAt });
-    await this.writeLine({ event: 'startup' });
+    // FV4A-R1-FIX (F222-R1): thư mục tồn tại nhưng KHÔNG ghi được => từ chối khởi động (fail-closed), không chạy khi thiếu kênh ghi bền.
+    // force = true: file của ngày đã đầy không phải lý do chặn khởi động; chỉ lỗi ghi / fsync thật mới chặn.
+    if (!(await this.writeLine({ event: 'startup' }, true))) {
+      throw new Error('EXPORT_GAP_LOG_DIR không ghi được (' + this.lastFsError + '): ' + this.opts.dir + '. Backend từ chối khởi động khi thiếu kênh ghi bền của chức năng xuất CSV.');
+    }
   }
 
   async shutdown(): Promise<void> {
