@@ -89,6 +89,14 @@ describe('Contact API — sửa / xoá mềm (FV-3)', () => {
   const add = async (cid: string, body: object = {}, who = 'all') => (await a(who).post(C + cid + '/contacts', { fullName: 'Người ' + uniq(), phone: '0903123456', ...body })).body.data as { id: string; code: string; updatedAt: string; isPrimary: boolean };
   const U = (cid: string, id: string) => C + cid + '/contacts/' + id;
 
+  it('R2-230: isPrimary = null => 400 (không phải 500), không đổi dòng', async () => {
+    const c = await makeCustomer(prisma, fx);
+    const k = await add(c.id, {});
+    const r = await a().patch(U(c.id, k.id), { updatedAt: k.updatedAt, isPrimary: null });
+    expect(r.status).toBe(400);
+    const row = await prisma.contact.findUniqueOrThrow({ where: { id: k.id } });
+    expect(row.isPrimary).toBe(k.isPrimary); expect(row.updatedAt.toISOString()).toBe(k.updatedAt);
+  });
   it('FV3-1. sửa đúng phạm vi: 200, chỉ đổi trường gửi, updatedAt tăng; nhật ký chỉ có tên trường', async () => {
     const c = await makeCustomer(prisma, fx);
     const k = await add(c.id, { email: 'cu@x.vn' });

@@ -234,6 +234,14 @@ describe('GET /activities/:id, work-card, history', () => {
 });
 
 describe('PATCH /activities/:id', () => {
+  it('R2-230: content = null => 400 (không phải 500), không đổi dòng; không gửi content vẫn sửa được', async () => {
+    const x = await mkTask('salesA', cA.id);
+    const r = await a('salesA').patch(A + x.id, { version: x.version, content: null });
+    expect(r.status).toBe(400);
+    const row = await prisma.activity.findUniqueOrThrow({ where: { id: x.id } });
+    expect(row.version).toBe(x.version); expect(row.content).not.toBeNull();
+    expect((await a('salesA').patch(A + x.id, { version: x.version, title: 'Chỉ đổi tiêu đề' })).status).toBe(200);
+  });
   it('version cũ => 409 ACTIVITY_VERSION_CONFLICT {currentVersion}; đúng version => 200, version+1; nhật ký che nội dung + diff hạn', async () => {
     const x = await mkTask('salesA', cA.id);
     const bad = await a('salesA').patch(A + x.id, { version: x.version + 5, title: 'Mới' });
