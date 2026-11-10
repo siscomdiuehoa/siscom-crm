@@ -1,4 +1,4 @@
-import { IsBoolean, IsISO8601, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsISO8601, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import { IsEmailB1 } from '../validators/vn-email';
 import { IsVnPhone } from '../validators/vn-phone';
 import { SkipIfBlank, SkipIfUndefined, Trim } from './dto-helpers';
@@ -23,7 +23,7 @@ export class UpdateContactDto {
   @SkipIfBlank() @Trim() @IsString() @MaxLength(120)
   title?: string | null;
 
-  @IsOptional() @IsBoolean({ message: 'isPrimary phải là true/false' })
+  @SkipIfUndefined() @IsBoolean({ message: 'isPrimary phải là true/false' })
   isPrimary?: boolean;
 
   @SkipIfBlank() @Trim() @IsString() @MaxLength(5000)

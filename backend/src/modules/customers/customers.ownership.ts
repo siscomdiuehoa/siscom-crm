@@ -12,7 +12,11 @@ export interface OwnerCandidate { id: string; departmentId: string | null }
 
 // Chủ sở hữu mong muốn khi TẠO. requested: undefined/null = không gửi. Trả về id ứng viên (chưa kiểm tồn tại) hoặc null (không có chủ).
 // OWN: gửi khác mình => 403. DEPARTMENT: người tạo không có phòng ban thì không thể tự làm chủ => 403 (fail-closed).
-export function ownerIdForCreate(actor: Actor, scope: Scope, requested: string | null | undefined): string | null {
+// IsUUID chấp nhận chữ HOA; id trong DB và actor luôn là chữ thường => chuẩn hoá trước khi so sánh.
+const lower = <T extends string | null | undefined>(v: T): T => (typeof v === 'string' ? (v.toLowerCase() as T) : v);
+
+export function ownerIdForCreate(actor: Actor, scope: Scope, requestedRaw: string | null | undefined): string | null {
+  const requested = lower(requestedRaw);
   switch (scope) {
     case 'ALL': return requested ?? null;
     case 'OWN':
@@ -30,7 +34,8 @@ export function ownerIdForCreate(actor: Actor, scope: Scope, requested: string |
 
 // Có đổi chủ sở hữu khi SỬA không? requested undefined = không gửi; null = xoá chủ; '' đã được DTO/blank() đưa về null.
 // Trả về undefined (không đổi) hoặc id mới (string | null). OWN: chỉ chính mình (người khác/null => 403). DEPARTMENT: null => 403.
-export function ownerIdForUpdate(actor: Actor, scope: Scope, currentOwnerId: string | null, requested: string | null | undefined): string | null | undefined {
+export function ownerIdForUpdate(actor: Actor, scope: Scope, currentOwnerId: string | null, requestedRaw: string | null | undefined): string | null | undefined {
+  const requested = lower(requestedRaw);
   if (requested === undefined || requested === currentOwnerId) return undefined;
   if (scope === 'OWN' && requested !== actor.employeeId) throw customerErrors.forbidden('Phạm vi OWN chỉ được đặt chủ sở hữu là chính mình.');
   if (scope === 'DEPARTMENT' && requested === null) throw customerErrors.forbidden('Phạm vi DEPARTMENT không được bỏ trống chủ sở hữu.');

@@ -72,3 +72,21 @@ describe('thao tác DB', () => {
     expect(create.mock.calls[0][0].data).toEqual({ customerId: 'c1', employeeId: 'e2', role: 'OWNER', assignedById: 'e1', reason: 'bàn giao' });
   });
 });
+
+// Rà soát 10/11/2026 (B12): IsUUID chấp nhận chữ HOA, còn id trong DB/actor là chữ thường => so sánh chuỗi lệch.
+describe('ownerId viết HOA được coi như chữ thường', () => {
+  const U = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const meU: Actor = { employeeId: U, departmentId: 'd1' };
+  it('OWN: gửi id của chính mình viết HOA => không bị 403 (tạo và sửa)', () => {
+    expect(ownerIdForCreate(meU, 'OWN', U.toUpperCase())).toBe(U);
+    expect(ownerIdForUpdate(meU, 'OWN', 'e2', U.toUpperCase())).toBe(U);
+  });
+  it('gửi id chủ hiện tại viết HOA => không coi là đổi chủ', () => {
+    expect(ownerIdForUpdate(me, 'ALL', U, U.toUpperCase())).toBeUndefined();
+  });
+  it('ALL/DEPARTMENT: id trả về luôn là chữ thường', () => {
+    expect(ownerIdForCreate(me, 'ALL', U.toUpperCase())).toBe(U);
+    expect(ownerIdForCreate(me, 'DEPARTMENT', U.toUpperCase())).toBe(U);
+    expect(ownerIdForUpdate(me, 'ALL', 'e2', U.toUpperCase())).toBe(U);
+  });
+});
