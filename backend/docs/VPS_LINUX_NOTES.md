@@ -9,5 +9,5 @@ Thiết kế hiện tại đã theo 12-factor nên chuyển lên Linux không c�
 - **Reverse proxy:** Nginx/Caddy nhận HTTPS (80/443) → `127.0.0.1:3000`; backend không mở trực tiếp. Frontend là file tĩnh từ `npm run build` của Vite (`dist/`), `CORS_ORIGINS` = domain thật.
 - **Tường lửa:** chỉ SSH, 80, 443. Không mở 5432/3000.
 - **Sao lưu:** `pg_dump -Fc` theo cron hằng đêm + sao chép ra ngoài máy chủ; thử khôi phục định kỳ.
-- **Chưa có (B1.2+):** xác thực, phân quyền, giới hạn tốc độ — **bắt buộc xong trước khi mở Internet**.
+- **Xác thực và phân quyền đã có (B1.3–B1.4).** Chưa có giới hạn tốc độ cho các API ngoài đăng nhập/đổi mật khẩu; mở Internet vẫn cần Owner duyệt phương án triển khai.
 - Có thể đóng gói Docker sau (Prisma 7 không cần engine Rust nên image nhẹ); cần đặt `DATABASE_URL` giả khi `prisma generate` trong bước build.
