@@ -44,7 +44,7 @@ Chỉ chạy phần liên quan tới thay đổi; không chạy lại bài đã 
 - Thay đổi cấu trúc = **migration mới** (cộng thêm, tương thích ngược), khai báo đồng thời trong `schema.prisma`, có test ràng buộc và kế hoạch rollback.
 - Migration chỉ chứa cấu trúc (DDL), ràng buộc, trigger. Không chứa dữ liệu thật, mật khẩu, email, số điện thoại. Dữ liệu mẫu (seed) tách riêng, đánh dấu `is_demo`.
 - Mọi migration thử trên bản sao database mới trước; áp dụng lên `siscom_crm_dev` hoặc production cần phê duyệt riêng, có sao lưu và kiểm tra khôi phục.
-- Hai Prisma Migration hiện có (`20261011000000_init` và `20261012000000_b1_2_crm_core`) đã được đưa vào Git qua **PR #1**. `.gitignore` cho phép theo dõi `backend/prisma/migrations/**/migration.sql`, còn `.gitattributes` đặt `-text` để giữ nguyên byte của migration. **Không sửa migration đã áp dụng và không dùng `git add -f` để vượt qua quy tắc ignore/bảo mật**.
+- Các Prisma Migration nằm trong Git tại `backend/prisma/migrations/` (hai bản đầu `20261011000000_init` và `20261012000000_b1_2_crm_core` vào qua **PR #1**; các bản sau qua PR riêng). `.gitignore` cho phép theo dõi `backend/prisma/migrations/**/migration.sql`, còn `.gitattributes` đặt `-text` để giữ nguyên byte của migration. **Không sửa migration đã áp dụng và không dùng `git add -f` để vượt qua quy tắc ignore/bảo mật**.
 
 ## 6. Kiến trúc
 
