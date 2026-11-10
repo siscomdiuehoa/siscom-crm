@@ -56,4 +56,4 @@ Không commit `.env`, khóa, mật khẩu, JWT secret, bản sao lưu/dump, dữ
 
 ## 8. Tài liệu đi kèm thay đổi
 
-Cập nhật [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md) hoặc tài liệu giai đoạn tương ứng khi PR thay đổi trạng thái nghiệm thu, kèm đường dẫn đích rõ ràng của các tệp cần chép/chép đè.
+Cập nhật [`docs/STATUS.md`](docs/STATUS.md) (khi đổi module, bộ quyền DB, cấu trúc CI) hoặc tài liệu giai đoạn tương ứng khi PR thay đổi trạng thái nghiệm thu, kèm đường dẫn đích rõ ràng của các tệp cần chép/chép đè.

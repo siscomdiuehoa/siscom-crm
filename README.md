@@ -2,7 +2,7 @@
 
 CRM nội bộ của SISCOM: quản lý khách hàng, người liên hệ, danh mục, nhật ký thay đổi; phát triển theo từng giai đoạn nghiệm thu.
 
-> Trạng thái nghiệm thu từng giai đoạn **không** ghi ở đây (để không lỗi thời). Nguồn sự thật: [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md) và các báo cáo trong [`backend/docs/`](backend/docs/).
+> Trạng thái nghiệm thu từng giai đoạn **không** ghi ở đây (để không lỗi thời). Hiện trạng: [`docs/STATUS.md`](docs/STATUS.md); nhật ký giai đoạn tìm kiếm B1.2.3: [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md); cùng các báo cáo trong [`backend/docs/`](backend/docs/).
 
 ## Kiến trúc
 
@@ -63,7 +63,8 @@ Frontend (`frontend/siscom-crm-web/`): `npm install`, `npm run dev` (http://loca
 | Chủ đề | Tài liệu |
 |---|---|
 | Cài đặt Windows | [`docs/WINDOWS_SETUP.md`](docs/WINDOWS_SETUP.md) |
-| Tiến độ và quyết định kỹ thuật | [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md) |
+| Hiện trạng dự án | [`docs/STATUS.md`](docs/STATUS.md) |
+| Nhật ký và baseline tìm kiếm B1.2.3 (tới 20/10/2026) | [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md) |
 | Kế hoạch dữ liệu nghiệp vụ | [`backend/docs/B1.2_PLAN.md`](backend/docs/B1.2_PLAN.md) |
 | Hợp đồng Customer API | [`backend/docs/B1.2.3_API_CONTRACT.md`](backend/docs/B1.2.3_API_CONTRACT.md) |
 | Bảo mật và quyết định | [`backend/docs/B1.2.3_SECURITY_DECISIONS.md`](backend/docs/B1.2.3_SECURITY_DECISIONS.md), [`backend/docs/DB_SECURITY.md`](backend/docs/DB_SECURITY.md) |

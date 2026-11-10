@@ -1,5 +1,7 @@
 # Tiến độ B1.2.3-B2 – Customer Search Performance (cập nhật 2026-10-16, cuối ngày)
 
+> **LƯU TRỮ.** Nhật ký giai đoạn tìm kiếm B1.2.3, ngừng cập nhật từ 20/10/2026. Đây **không** phải trạng thái dự án hiện tại — xem [`STATUS.md`](STATUS.md). Các baseline và ràng buộc tìm kiếm ghi dưới đây vẫn có hiệu lực.
+
 ## Trạng thái một dòng
 **P1 ĐẠT, baseline khóa. P2-1, P2-2, P2-3b-0 ĐẠT (unit 165/165, integration 69/69). P2-3 KHÔNG nghiệm thu hoàn toàn: 26/30 ca đạt; 4 ca còn vượt ngưỡng (list p100 150,0 ms; relevance nguyen van/mi/an). P2-3c (cột fold STORED) đã nghiên cứu xong và KHÔNG triển khai. Không migration production, không sửa src thêm. Không đo lặp. Ngưỡng giữ nguyên.**
 
