@@ -25,9 +25,15 @@ describe('mergeScopes', () => {
     const r = mergeScopes([role('x', true, [['employee.manage', 'ALL'], ['customer.read', 'GLOBAL'], ['activity.read', 'OWN']])]);
     expect(r.scopes).toEqual({ 'activity.read': 'OWN' });
   });
-  it('KNOWN gồm 8 quyền B1 + 9 quyền activity.* (A4)', () => {
-    expect(KNOWN.size).toBe(17);
+  it('KNOWN gồm 8 quyền B1 + 9 quyền activity.* (A4) + customer.export (FV-4A)', () => {
+    expect(KNOWN.size).toBe(18);
     expect(KNOWN.has('activity.assign_external')).toBe(true);
+    expect(KNOWN.has('customer.export')).toBe(true);
+  });
+  it('U-02 (FV-4A): customer.export chỉ có khi vai trò được cấp; có customer.read ALL không suy ra quyền xuất', () => {
+    expect(mergeScopes([role('accountant', true, [['customer.read', 'ALL']])]).scopes['customer.export']).toBeUndefined();
+    expect(mergeScopes([role('crm_admin', true, [['customer.read', 'ALL'], ['customer.export', 'ALL']])]).scopes['customer.export']).toBe('ALL');
+    expect(mergeScopes([role('x', true, [['customer.exportx', 'ALL']])]).scopes).toEqual({});
   });
   it('kết quả bị đóng băng (không ai sửa được phạm vi sau khi tính)', () => {
     const r = mergeScopes([role('sales', true, [['customer.read', 'OWN']])]);

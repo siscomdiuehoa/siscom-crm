@@ -1,6 +1,6 @@
 # Quy trình phối hợp AI — SISCOM CRM
 
-Phiên bản 1.1 · đề xuất 07/11/2026 · trạng thái: **chờ Owner phê duyệt** (có hiệu lực khi PR chứa bản 1.1 được merge). Bản 1.0 đã có hiệu lực từ PR #214 và vẫn áp dụng cho tới lúc đó.
+Phiên bản 1.1 · đề xuất 07/11/2026 · trạng thái: **có hiệu lực** từ khi PR #216 được merge (07/11/2026), thay bản 1.0 (PR #214).
 
 **Thay đổi so với 1.0** (giữ nguyên toàn bộ quy tắc 1.0: tối đa 3 vòng, chỉ review diff mới, gom lỗi theo nhóm, không báo lại lỗi cũ, cổng phê duyệt của Owner):
 - Thêm **Codex** (Developer hỗ trợ) và **Gemini** (QA độc lập) vào vai trò, kèm giới hạn quyền (mục 10, 11).

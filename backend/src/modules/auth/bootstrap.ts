@@ -34,6 +34,8 @@ export const BIZ: Record<string, Partial<Record<Exclude<BootstrapRoleCode, 'sysa
   'activity.delete':           { admin: 'ALL' },
   'activity.assign_external':  { admin: 'ALL', sale: 'OWN' },
   'activity.transfer_request': { technician: 'DEPARTMENT' },
+  // FV-4A (D-E1): chỉ crm_admin ALL; sales/technician/accountant KHÔNG cấp (mặc định từ chối). DB đã bootstrap: docs/FV4_EXPORT_PERMISSION.sql.txt (2 người).
+  'customer.export':           { admin: 'ALL' },
 };
 // Quyền hệ thống của M1: sysadmin (mã vai trò `admin`) = nhóm REQUEST; crm_admin = APPROVE (access.approve) + đọc.
 const SYS_ADMIN = ['employee.read', 'employee.manage', 'role.read', 'role.manage', 'auth.credential.manage', 'auth.reset.request', 'access.request', 'audit.read'];

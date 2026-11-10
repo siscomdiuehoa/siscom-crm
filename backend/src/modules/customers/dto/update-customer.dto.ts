@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsInt, IsNotEmpty, IsString, IsUUID, Matches, MaxLength, Min, MinLength } from 'class-validator';
 import { IsTaxId } from '../validators/vn-tax-id';
 import { CODE_MESSAGE, CODE_RE, SkipIfBlank, SkipIfUndefined, Trim, TrimEach } from './dto-helpers';
 
@@ -56,6 +56,6 @@ export class UpdateCustomerDto {
   @SkipIfBlank() @Trim() @IsString() @MaxLength(255)
   website?: string | null;
 
-  @IsOptional() @TrimEach() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(40, { each: true }) @Matches(/\S/, { each: true, message: 'Thẻ không được để trống' })
+  @SkipIfUndefined() @TrimEach() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(40, { each: true }) @Matches(/\S/, { each: true, message: 'Thẻ không được để trống' })
   tags?: string[];
 }
