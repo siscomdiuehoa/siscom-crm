@@ -1,2 +1,4 @@
 # Preserve Prisma migration bytes and checksums
 /backend/prisma/migrations/** -text
+# Script Linux cho VPS: luon LF (copy tu Windows len VPS khong duoc mang CRLF)
+/backend/scripts/linux/** text eol=lf

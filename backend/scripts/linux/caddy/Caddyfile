@@ -1,0 +1,37 @@
+# SISCOM CRM - Caddy: HTTPS (Let's Encrypt tu dong), cung origin: /api/* -> backend 127.0.0.1:3000, con lai la file tinh (dist cua Vite).
+# Bien moi truong (qua EnvironmentFile cua caddy.service, xem provision.sh): SISCOM_DOMAIN (bat buoc), SISCOM_ACME_CA (tuy chon).
+# Caddy tu them X-Forwarded-For/Proto/Host va tu GHI DE X-Forwarded-For do khach gui (khach khong thuoc trusted_proxies) =>
+# backend dung TRUST_PROXY=loopback chi tin chang proxy cung may. Header Origin duoc giu nguyen (CsrfOriginGuard can).
+{
+	acme_ca {$SISCOM_ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+}
+
+{$SISCOM_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	handle /api/* {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy 127.0.0.1:3000 {
+			header_up X-Request-Id {http.request.uuid}
+		}
+	}
+
+	handle {
+		root * /opt/siscom-crm/current/web
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@shell not path /assets/*
+		header @shell Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}

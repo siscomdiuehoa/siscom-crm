@@ -1,0 +1,52 @@
+[Unit]
+Description=SISCOM CRM backend (NestJS)
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=siscom
+Group=siscom
+WorkingDirectory=/opt/siscom-crm/current/backend
+# File bi mat: root:root 600. systemd doc file TRUOC khi ha quyen, nen user dich vu khong can (va khong doc duoc) file nay.
+EnvironmentFile=/etc/siscom-crm/backend.env
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=TRUST_PROXY=loopback
+Environment=COOKIE_SECURE=true
+Environment=NODE_OPTIONS=--max-old-space-size=768
+# FV-4A: bat buoc o production (backend tu choi khoi dong neu thieu/khong ghi duoc). LogsDirectory tu tao thu muc cho user siscom (0700) va cho phep ghi du ProtectSystem=strict.
+Environment=EXPORT_GAP_LOG_DIR=/var/log/siscom-crm/export-gap
+LogsDirectory=siscom-crm
+LogsDirectoryMode=0700
+ExecStart=/usr/bin/node dist/main.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+# Gioi han bo nho de khong lam chet PostgreSQL tren VPS 3 GB.
+MemoryMax=1G
+
+# Cung co
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadOnlyPaths=/opt/siscom-crm
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
