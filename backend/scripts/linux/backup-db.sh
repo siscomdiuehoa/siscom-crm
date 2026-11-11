@@ -4,10 +4,13 @@
 # DB lay tu $SISCOM_ETC/migrate.env (MIGRATE_DATABASE_URL = siscom_migrator, doc duoc moi bang). Tu choi tai khoan postgres.
 # Dau ra trong $SISCOM_BACKUP_DIR (700):
 #   <db>_<YYYYMMDD_HHMMSS UTC>.dump.age          ban sao luu DA MA HOA (chi khoa RIENG cua Owner giai ma duoc)
-#   <db>_<...>.dump.age.sha256                   SHA-256 cua file .age (kiem toan ven khi chep ra ngoai may chu)
-#   <db>_<...>.manifest                          SHA-256 ban ro, phien ban, so dong tung bang LUC CHUP (cung anh chup voi pg_dump)
+#   <db>_<...>.dump.age.sha256                   SHA-256 cua file .age - CHI kiem loi chep file, KHONG phai xac thuc (khong co khoa)
+#   <db>_<...>.manifest                          db, file, file_sha256, SHA-256 ban ro, so dong tung bang LUC CHUP (cung anh chup voi pg_dump)
+#   <db>_<...>.manifest.sig                      CHU KY ed25519 (ssh-keygen -Y, namespace siscom-crm-backup) cua manifest - F1 (PR232-R1)
 # Khoa age: danh sach KHOA CONG KHAI (age1...) o $SISCOM_ETC/backup.age-recipients (moi dong 1 khoa). Khoa RIENG khong bao gio nam tren VPS.
-# Khong ma hoa chi khi dat SISCOM_BACKUP_NO_ENCRYPT=yes (tu chiu rui ro; ban .dump ro, 600).
+# Khoa ky: $SISCOM_ETC/backup-signing.key (root 600) + backup-signing.allowed_signers (cong khai). Tao 1 lan: backup-db.sh --init-signing-key
+#   (Owner chep allowed_signers ra ngoai VPS de kiem ban sao ngoai may chu). Thieu khoa ky => TU CHOI sao luu (fail-closed).
+# Khong ma hoa chi khi dat SISCOM_BACKUP_NO_ENCRYPT=yes (tu chiu rui ro; ban .dump ro, 600) - van ky manifest.
 # Khong ghi de, khong xoa gi truoc khi ban moi hop le. Ma thoat khac 0 neu bat ky buoc nao loi. Khong in mat khau/URL.
 set -euo pipefail
 
@@ -15,9 +18,28 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "$here/lib.sh"
 
+sign_key="$SISCOM_ETC/backup-signing.key"
+allowed="$SISCOM_ETC/backup-signing.allowed_signers"
+if [ "${1:-}" = --init-signing-key ]; then
+  [ "${SISCOM_REHEARSAL:-}" = 1 ] || require_root
+  require_cmd ssh-keygen
+  [ ! -e "$sign_key" ] || die "Da co $sign_key (khong ghi de: doi khoa la quy trinh rieng, can giu khoa cong khai cu de kiem ban cu)."
+  private_dir "$SISCOM_ETC"
+  ( umask 077; ssh-keygen -q -t ed25519 -N '' -C "$BACKUP_SIG_NS" -f "$sign_key" )
+  chmod 600 "$sign_key"
+  printf '%s namespaces="%s" %s\n' "$BACKUP_SIG_NS" "$BACKUP_SIG_NS" "$(cut -d' ' -f1,2 "$sign_key.pub")" > "$allowed"
+  chmod 644 "$allowed" "$sign_key.pub"
+  info "Da tao khoa ky sao luu $sign_key (600). Khoa CONG KHAI (chep ra ngoai VPS, giu cung khoa rieng age):"
+  cat "$allowed"
+  exit 0
+fi
+[ $# -eq 0 ] || die "Tham so la: $1 (dung: backup-db.sh | backup-db.sh --init-signing-key)"
+
 [ "${SISCOM_REHEARSAL:-}" = 1 ] || require_root
-require_cmd pg_dump pg_restore psql sha256sum
+require_cmd pg_dump pg_restore psql sha256sum ssh-keygen
 umask 077
+assert_private_file "$sign_key"
+[ -s "$allowed" ] || die "Thieu $allowed. Chay: backup-db.sh --init-signing-key"
 
 migrate_env="$SISCOM_ETC/migrate.env"
 assert_private_file "$migrate_env"
@@ -44,7 +66,12 @@ stamp="$(date -u +%Y%m%d_%H%M%S)"
 base="$SISCOM_BACKUP_DIR/${db}_${stamp}"
 part="$base.dump.partial"; man="$base.manifest.partial"
 [ ! -e "$base.dump" ] && [ ! -e "$base.dump.age" ] && [ ! -e "$part" ] || die "File dich da ton tai (khong ghi de). Doi vai giay roi chay lai."
-cleanup() { rm -f "$part" "$man" "$base.dump.age.partial" 2>/dev/null || true; }
+done_ok=0
+# That bai o bat ky buoc nao (ke ca sau khi da tao file cuoi) => khong de lai bo sao luu do dang/chua ky.
+cleanup() {
+  rm -f "$part" "$man" "$base.dump.age.partial" 2>/dev/null || true
+  [ "$done_ok" = 1 ] || rm -f "$base.dump.age" "$base.dump" "$base.manifest" "$base.manifest.sig" "$base.dump.age.sha256" "$base.dump.sha256" 2>/dev/null || true
+}
 trap cleanup EXIT
 
 free_kb="$(df -Pk "$SISCOM_BACKUP_DIR" | awk 'NR==2 {print $4}')"
@@ -111,10 +138,18 @@ else
   final="$base.dump"
   mv "$part" "$final"
 fi
+{
+  echo "encrypted=$encrypt"
+  echo "file=$(basename "$final")"
+  echo "file_sha256=$(sha256sum "$final" | cut -d' ' -f1)"
+} >> "$man"
 mv "$man" "$base.manifest"
+backup_sign "$base.manifest" "$sign_key" || die "Ky manifest that bai."
+verify_backup_set "$final" "$allowed" "$db" || die "Tu kiem bo sao luu vua tao KHONG dat (khoa ky / allowed_signers khong khop?)."
 ( cd "$SISCOM_BACKUP_DIR" && sha256sum "$(basename "$final")" > "$(basename "$final").sha256" )
+done_ok=1
 trap - EXIT
-info "Da sao luu: $final ($(stat -c '%s' "$final") byte, $items muc, ma hoa=$encrypt)"
+info "Da sao luu: $final ($(stat -c '%s' "$final") byte, $items muc, ma hoa=$encrypt); manifest da ky va tu kiem dat."
 info "SHA-256 (file luu): $(cut -d' ' -f1 "$final.sha256")"
 
 # --- Giu ban: 14 ban moi nhat + moi tuan 1 ban (8 tuan gan nhat). CHI xoa trong thu muc sao luu, CHI ten dung mau, CHI cua DB nay. ---
@@ -125,7 +160,7 @@ mapfile -t keep < <(printf '%s\n' "${all[@]}" | retention_keep 14 8)
 for f in "${all[@]}"; do
   if ! printf '%s\n' "${keep[@]}" | grep -qxF "$f"; then
     stem="${f%."$ext"}"
-    rm -f -- "$SISCOM_BACKUP_DIR/$f" "$SISCOM_BACKUP_DIR/$f.sha256" "$SISCOM_BACKUP_DIR/$stem.manifest" "$SISCOM_BACKUP_DIR/$f.restore-ok.txt"
+    rm -f -- "$SISCOM_BACKUP_DIR/$f" "$SISCOM_BACKUP_DIR/$f.sha256" "$SISCOM_BACKUP_DIR/$stem.manifest" "$SISCOM_BACKUP_DIR/$stem.manifest.sig" "$SISCOM_BACKUP_DIR/$f.restore-ok.txt"
     info "Da xoa ban cu: $f"
   fi
 done

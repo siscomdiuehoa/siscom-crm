@@ -340,16 +340,81 @@ jobs:
       - name: Quet lich su Git (an gia tri bi mat trong log)
         run: ./gitleaks git --config .gitleaks.toml --redact --no-banner --verbose .
 
+  # B1.4 P4 (PR #232, F3): script trien khai Linux tren Ubuntu 24.04 (cung ban voi VPS). Chi dung PostgreSQL TAM do script tu initdb
+  # (cong 55871, xoa sau khi chay); cluster mac dinh cua goi postgresql-18 bi dung ngay. Khong cham may chu/DB nao ngoai runner.
+  linux-scripts:
+    name: Linux scripts (shellcheck, guard, dien tap PG18, argon2, systemd, Caddy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CADDY_IMAGE: "caddy:2.10.2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Bao dam npm 11.x
+        run: npm install -g npm@11
+      - name: Cai PostgreSQL 18 (PGDG, nhu provision.sh), age, shellcheck
+        run: |
+          set -euo pipefail
+          if ! grep -rqs 'apt.postgresql.org' /etc/apt/sources.list /etc/apt/sources.list.d/; then
+            sudo install -d -m 755 /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg-ci.list >/dev/null
+          fi
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-client-18 age shellcheck
+          sudo systemctl stop postgresql || true
+          /usr/lib/postgresql/18/bin/postgres --version; age --version; shellcheck --version | head -2; ssh -V
+      - name: bash -n + ShellCheck (-S warning)
+        run: |
+          set -euo pipefail
+          for f in backend/scripts/linux/*.sh backend/scripts/linux/tests/*.sh; do bash -n "$f"; done
+          shellcheck -x -S warning -e SC1091 backend/scripts/linux/*.sh backend/scripts/linux/tests/*.sh
+      - name: Test guard (khong can PostgreSQL)
+        run: bash backend/scripts/linux/tests/test-guards.sh
+      - name: npm ci --ignore-scripts + build + argon2 hash/verify + Prisma CLI (dung quy trinh deploy.sh)
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          env -u MIGRATE_DATABASE_URL DATABASE_URL=postgresql://ci_placeholder@127.0.0.1:1/x npm run build
+          bash -c '. scripts/linux/lib.sh; backend_runtime_smoke .'
+      - name: Dien tap PostgreSQL 18 tam (create-db, migrate, grants+VERIFY, seed, bootstrap, backup ky+age, restore-test, F1 negative, backend production)
+        run: PG_BIN=/usr/lib/postgresql/18/bin bash backend/scripts/linux/tests/rehearse-pg.sh
+      - name: provision.sh --dry-run tren Ubuntu 24.04 that
+        run: SISCOM_DOMAIN=crm.example.vn bash backend/scripts/linux/provision.sh --dry-run
+      - name: systemd-analyze verify (ban sao tam, chi doi duong dan ExecStart cho runner)
+        run: |
+          set -euo pipefail
+          id siscom >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin siscom
+          d="$(mktemp -d)"; cp backend/scripts/linux/systemd/* "$d/"
+          sed -i "s#^ExecStart=/usr/bin/node #ExecStart=$(command -v node) #" "$d/siscom-crm-backend.service"
+          sed -i "s#^ExecStart=.*backup-db.sh#ExecStart=/usr/bin/true#" "$d/siscom-crm-backup.service"
+          systemd-analyze verify "$d/siscom-crm-backend.service" "$d/siscom-crm-backup.service" "$d/siscom-crm-backup.timer"
+          systemd-analyze security --offline=true "$d/siscom-crm-backend.service" | tail -n 1 || true   # chi de tham khao
+      - name: caddy validate (anh chinh thuc, ghim phien ban)
+        run: |
+          set -euo pipefail
+          docker run --rm -e SISCOM_DOMAIN=crm.example.vn -v "$PWD/backend/scripts/linux/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
   ci-gate:
     name: CI gate
     if: ${{ always() }}
-    needs: [backend, backend-pg, frontend, secret-scan]
+    needs: [backend, backend-pg, frontend, secret-scan, linux-scripts]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Tat ca kiem tra bat buoc phai dat
         run: |
-          echo "backend=${{ needs.backend.result }} backend-pg=${{ needs.backend-pg.result }} frontend=${{ needs.frontend.result }} secret-scan=${{ needs.secret-scan.result }}"
+          echo "backend=${{ needs.backend.result }} backend-pg=${{ needs.backend-pg.result }} frontend=${{ needs.frontend.result }} secret-scan=${{ needs.secret-scan.result }} linux-scripts=${{ needs.linux-scripts.result }}"
+          test "${{ needs.linux-scripts.result }}" = "success"
           test "${{ needs.backend.result }}" = "success"
           test "${{ needs.backend-pg.result }}" = "success"
           test "${{ needs.frontend.result }}" = "success"

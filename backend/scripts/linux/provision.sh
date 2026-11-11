@@ -9,7 +9,7 @@
 #   --harden-ssh  tat dang nhap SSH bang mat khau + root chi bang khoa. CHI dung SAU khi da thu dang nhap bang khoa
 #                 (script tu choi neu /root/.ssh/authorized_keys rong, va kiem `sshd -t` truoc khi nap lai).
 # Bien (tuy chon): SISCOM_DOMAIN (ten mien; thieu => bo qua cau hinh Caddy), SISCOM_ACME_CA (mac dinh Let's Encrypt that;
-#   dat https://acme-staging-v02.api.letsencrypt.org/directory de thu), SISCOM_SSH_PORT (22), SISCOM_SWAP_GB (2).
+#   dat https://acme-staging-v02.api.letsencrypt.org/directory de thu), SISCOM_SSH_PORT (CHI 22 - gia tri khac bi tu choi, F2), SISCOM_SWAP_GB (2).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,7 +26,9 @@ for a in "$@"; do
 done
 
 SSH_PORT="${SISCOM_SSH_PORT:-22}"; SWAP_GB="${SISCOM_SWAP_GB:-2}"
-[[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] || die "SISCOM_SSH_PORT khong hop le."
+# F2 (PR232-R1): script KHONG doi cong cua sshd. Neu nhan cong khac 22, ufw se chi mo cong do roi `ufw --force enable` CHAN 22
+# (sshd van nghe 22) => mat truy cap SSH. Phien ban nay fail-closed: chi nhan 22, tu choi TRUOC khi doi bat cu gi.
+[ "$SSH_PORT" = 22 ] || die "SISCOM_SSH_PORT=$SSH_PORT: phien ban nay chi ho tro cong SSH 22 (doi cong can quy trinh rieng: cau hinh sshd, mo cong moi, thu dang nhap, roi moi dong 22)."
 [[ "$SWAP_GB" =~ ^[1-8]$ ]] || die "SISCOM_SWAP_GB phai tu 1 den 8."
 DOMAIN="${SISCOM_DOMAIN:-}"
 if [ -n "$DOMAIN" ] && ! [[ "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]]; then die "SISCOM_DOMAIN khong hop le: $DOMAIN"; fi
@@ -36,7 +38,7 @@ ACME_CA="${SISCOM_ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}"
 run() { if [ "$DRY" = 1 ]; then printf '[DRY] %s\n' "$*"; else "$@"; fi; }
 # write_file <path> <mode>  (noi dung tu stdin)
 write_file() {
-  if [ "$DRY" = 1 ]; then printf '[DRY] ghi %s (mode %s)\n' "$1" "$2"; cat >/dev/null; return 0; fi
+  if [ "$DRY" = 1 ]; then printf '[DRY] ghi %s (mode %s):\n' "$1" "$2"; sed 's/^/[DRY]   | /'; return 0; fi
   install -d -m 755 "$(dirname "$1")"
   local tmp; tmp="$(mktemp "$1.XXXXXX")"
   cat >"$tmp"; chmod "$2" "$tmp"; mv -f "$tmp" "$1"

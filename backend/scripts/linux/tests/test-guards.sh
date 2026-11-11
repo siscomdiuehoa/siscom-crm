@@ -144,6 +144,84 @@ check "env mau dung CHANGE_ME" grep -q CHANGE_ME "$lin/env/backend.env.example"
 check_not "env mau khong co MIGRATE_DATABASE_URL (dong gia tri)" grep -Eq '^MIGRATE_DATABASE_URL=' "$lin/env/backend.env.example"
 check_not "khong co mat khau that trong script" grep -REq 'postgres(ql)?://[a-z_]+:[0-9a-f]{32,}@' "$lin"
 
+echo "== 7. F1 (PR232-R1): manifest sao luu phai duoc KY (ssh-keygen -Y) va rang buoc vao file sao luu =="
+if ! command -v ssh-keygen >/dev/null 2>&1; then
+  bad "thieu ssh-keygen (OpenSSH) - khong kiem duoc F1"
+else
+  bk="$tmp/f1"; mkdir -p "$bk"
+  ssh-keygen -q -t ed25519 -N '' -C siscom-crm-backup -f "$tmp/sk" >/dev/null
+  printf 'siscom-crm-backup namespaces="siscom-crm-backup" %s\n' "$(cat "$tmp/sk.pub")" > "$tmp/allowed"
+  ssh-keygen -q -t ed25519 -N '' -C attacker -f "$tmp/evil" >/dev/null
+  mkset() { # mkset <stamp> <noi dung>: tao 1 bo sao luu gia (file + manifest da ky bang khoa that)
+    local f="$bk/siscom_crm_prod_$1.dump.age"
+    printf '%s' "$2" > "$f"
+    { echo "db=siscom_crm_prod"; echo "taken_utc=$1"; echo "rows|customer|3"; echo "plain_sha256=$(printf 'plain-%s' "$2" | sha256sum | cut -d' ' -f1)"
+      echo "file=$(basename "$f")"; echo "file_sha256=$(sha256sum "$f" | cut -d' ' -f1)"; } > "$bk/siscom_crm_prod_$1.manifest"
+    backup_sign "$bk/siscom_crm_prod_$1.manifest" "$tmp/sk"
+  }
+  vset() { verify_backup_set "$bk/siscom_crm_prod_$1.dump.age" "$tmp/allowed" "${2:-siscom_crm_prod}"; }
+  if ! declare -F backup_sign >/dev/null || ! declare -F verify_backup_set >/dev/null; then
+    bad "lib.sh chua co backup_sign/verify_backup_set (F1 chua sua)"
+  else
+    mkset 20261110_190000 AAAA; mkset 20261111_190000 BBBB
+    check "bo sao luu nguyen ven duoc chap nhan" vset 20261110_190000
+    check_not "ten DB mong doi khac => tu choi" vset 20261110_190000 siscom_crm_staging
+    m="$bk/siscom_crm_prod_20261110_190000.manifest"; cp "$m" "$m.orig"
+    sed -i 's/^rows|customer|3/rows|customer|4/' "$m"; check_not "sua so dong trong manifest => tu choi" vset 20261110_190000; cp "$m.orig" "$m"
+    sed -i 's/^db=siscom_crm_prod/db=siscom_crm_staging/' "$m"; check_not "sua ten DB trong manifest => tu choi" vset 20261110_190000; cp "$m.orig" "$m"
+    sed -i 's/^plain_sha256=./plain_sha256=0/' "$m"; check_not "sua hash trong manifest => tu choi" vset 20261110_190000; cp "$m.orig" "$m"
+    printf 'X' >> "$bk/siscom_crm_prod_20261110_190000.dump.age"; check_not "file sao luu bi sua => tu choi" vset 20261110_190000
+    printf 'AAAA' > "$bk/siscom_crm_prod_20261110_190000.dump.age"; check "khoi phuc file goc => lai chap nhan" vset 20261110_190000
+    # thay CA file + manifest + chu ky bang bo B (hop le, cung khoa) duoi ten A => file= trong manifest khong khop ten
+    for s in .dump.age .manifest .manifest.sig; do cp "$bk/siscom_crm_prod_20261110_190000$s" "$tmp/a$s"; cp "$bk/siscom_crm_prod_20261111_190000$s" "$bk/siscom_crm_prod_20261110_190000$s"; done
+    check_not "thay ca bo bang bo sao luu khac => tu choi" vset 20261110_190000
+    for s in .dump.age .manifest .manifest.sig; do cp "$tmp/a$s" "$bk/siscom_crm_prod_20261110_190000$s"; done
+    cp "$bk/siscom_crm_prod_20261111_190000.dump.age" "$bk/siscom_crm_prod_20261110_190000.dump.age"
+    check_not "chi thay file sao luu (giu manifest) => tu choi" vset 20261110_190000
+    printf 'AAAA' > "$bk/siscom_crm_prod_20261110_190000.dump.age"
+    # ke tan cong co khoa CONG KHAI age (tu tao ban sao luu hop le) va tu ky bang khoa rieng cua minh => khong nam trong allowed_signers
+    sed -i 's/^rows|customer|3/rows|customer|9/' "$m"; rm -f "$m.sig"; ssh-keygen -q -Y sign -f "$tmp/evil" -n siscom-crm-backup "$m" >/dev/null 2>&1
+    check_not "manifest ky bang khoa la => tu choi" vset 20261110_190000
+    cp "$m.orig" "$m"; rm -f "$m.sig"; check_not "thieu chu ky => tu choi" vset 20261110_190000
+    backup_sign "$m" "$tmp/sk"; check "ky lai bang khoa that => chap nhan" vset 20261110_190000
+    mv "$m" "$m.x"; check_not "thieu manifest => tu choi" vset 20261110_190000; mv "$m.x" "$m"
+    check_not "allowed_signers rong => tu choi" verify_backup_set "$bk/siscom_crm_prod_20261110_190000.dump.age" /dev/null siscom_crm_prod
+  fi
+  # restore-test KHONG duoc con nhanh "khong co manifest => so voi DB nguon hien tai"
+  check_not "restore-test khong con nhanh du phong thieu manifest" grep -q 'Khong co manifest: se so voi DB nguon' "$lin/restore-test.sh"
+  check "backup-db.sh ky manifest" grep -q 'backup_sign' "$lin/backup-db.sh"
+  check "restore-test.sh xac thuc bo sao luu" grep -q 'verify_backup_set' "$lin/restore-test.sh"
+fi
+
+echo "== 8. F2 (PR232-R1): cong SSH chi 22 (fail-closed) =="
+for p in 2222 23 0 65535 abc ''; do
+  out="$(SISCOM_SSH_PORT="$p" bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
+  if [ -z "$p" ]; then
+    [ "$rc" -eq 0 ] && contains "$out" "ufw allow 22/tcp" && ok "SISCOM_SSH_PORT rong => mac dinh 22" || bad "SISCOM_SSH_PORT rong (rc=$rc)"
+  elif [ "$rc" -ne 0 ] && ! contains "$out" "ufw allow ${p}/tcp"; then ok "SISCOM_SSH_PORT=$p bi tu choi truoc khi doi gi"; else bad "SISCOM_SSH_PORT=$p KHONG bi tu choi (rc=$rc)"; fi
+done
+out="$(SISCOM_SSH_PORT=22 bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && contains "$out" "ufw allow 22/tcp" && contains "$out" "port = 22"; then ok "SISCOM_SSH_PORT=22: ufw + fail2ban dung 22"; else bad "SISCOM_SSH_PORT=22 (rc=$rc)"; fi
+
+echo "== 9. F3 (PR232-R1): deploy.sh kiem argon2 hash/verify + Prisma CLI tren ban build TRUOC khi doi lien ket =="
+check "lib.sh co backend_runtime_smoke" grep -q '^backend_runtime_smoke()' "$lin/lib.sh"
+check "deploy.sh goi backend_runtime_smoke" grep -q 'backend_runtime_smoke "\$rel/backend"' "$lin/deploy.sh"
+check "deploy.sh van dung npm ci --ignore-scripts" grep -q 'npm ci --ignore-scripts' "$lin/deploy.sh"
+# deploy that bai bang `die` (build khong ra dist/main.js) TRUOC khi doi lien ket => khong de lai ban phat hanh do dang
+if command -v npm >/dev/null 2>&1; then
+  d3="$tmp/d3"; mkdir -p "$d3/etc" "$d3/opt/releases" "$d3/src/backend"
+  printf 'DATABASE_URL=postgresql://siscom_app:%048d@127.0.0.1:5432/siscom_crm_staging\n' 0 > "$d3/etc/backend.env"; chmod 600 "$d3/etc/backend.env"
+  printf '{"name":"x","version":"1.0.0","private":true,"scripts":{"build":"node -e 0"}}\n' > "$d3/src/backend/package.json"
+  printf '{"name":"x","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"x","version":"1.0.0"}}}\n' > "$d3/src/backend/package-lock.json"
+  mkdir -p "$d3/fe"; echo '<html/>' > "$d3/fe/index.html"
+  out="$(SISCOM_REHEARSAL=1 SISCOM_ETC="$d3/etc" SISCOM_OPT="$d3/opt" bash "$lin/deploy.sh" --src "$d3/src" --frontend "$d3/fe" 2>&1)"; rc=$?
+  left="$(find "$d3/opt/releases" -mindepth 1 -maxdepth 1 | wc -l)"
+  if [ "$rc" -ne 0 ] && contains "$out" "dist/main.js" && [ "$left" -eq 0 ]; then ok "deploy die truoc doi lien ket => da xoa ban do dang"; else bad "deploy die de lai $left ban do dang (rc=$rc)"; fi
+  check_not "khong tao lien ket current khi that bai" test -e "$d3/opt/current"
+else
+  bad "thieu npm - khong kiem duoc don ban do dang"
+fi
+
 echo
 echo "Ket qua: $pass dat, $fail loi."
 [ "$fail" -eq 0 ]

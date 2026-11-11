@@ -172,6 +172,10 @@ cat <<PLAN
 PLAN
 
 # --- 4. Tao ban phat hanh ---
+# Moi lan thoat truoc khi doi lien ket (ke ca `die`: exit KHONG kich hoat trap ERR) => bo ban phat hanh do dang.
+[ "$DRY" = 1 ] || [ ! -e "$rel" ] || die "Ban phat hanh $rel da ton tai."
+cleanup_failed() { [ "$DRY" = 1 ] || [ ! -d "$rel" ] || { warn "Dung truoc khi doi lien ket: bo ban phat hanh do dang $rel (ban hien tai KHONG bi dong cham)."; rm -rf "$rel"; }; }
+trap 'cleanup_failed' EXIT
 run install -d -m 755 "$rel"
 if [ -n "$tag" ]; then
   if [ "$DRY" = 1 ]; then echo "[DRY] git archive $tag backend | tar -x -C $rel"; else git -C "$repo" archive --format=tar "$commit" backend | tar -x -C "$rel"; fi
@@ -180,11 +184,9 @@ else
     tar -C "$src" --exclude=node_modules --exclude=.git --exclude=dist --exclude='.env*' -cf - backend | tar -x -C "$rel"
   fi
 fi
-cleanup_failed() { [ "$DRY" = 1 ] || { warn "Loi: bo ban phat hanh do dang $rel (ban hien tai KHONG bi dong cham)."; rm -rf "$rel"; }; }
-trap 'cleanup_failed' ERR
 
 if [ "$DRY" = 1 ]; then
-  echo "[DRY] cd $rel/backend && npm ci --ignore-scripts && npm run build (DATABASE_URL gia, khong MIGRATE)"
+  echo "[DRY] cd $rel/backend && npm ci --ignore-scripts && npm run build (DATABASE_URL gia, khong MIGRATE) && kiem argon2 hash/verify + Prisma CLI"
 else
   require_cmd node npm curl
   ( cd "$rel/backend"
@@ -192,6 +194,9 @@ else
     npm ci --ignore-scripts --no-audit --no-fund
     env -u MIGRATE_DATABASE_URL -u AUTH_DATABASE_URL DATABASE_URL=postgresql://ci_placeholder@127.0.0.1:1/x npm run build )
   [ -f "$rel/backend/dist/main.js" ] || die "Build khong tao dist/main.js."
+  # F3: --ignore-scripts chan lifecycle script cua dependency (khong chay ma cai dat duoi root). argon2 dung prebuild N-API co san trong goi
+  # (linux-x64 glibc); kiem hash/verify that + Prisma CLI tren CHINH ban build nay, TRUOC khi dua vao chay.
+  backend_runtime_smoke "$rel/backend" || die "Ban build khong chay duoc tren may nay (argon2/Prisma). Khong doi gi."
 fi
 
 # --- 5. Web ---
@@ -234,7 +239,7 @@ else
 fi
 
 # --- 8. Doi lien ket + khoi dong + suc khoe ---
-trap - ERR
+trap - EXIT
 old="$(cur_id)"
 switch_to "$id"
 if restart_and_check; then

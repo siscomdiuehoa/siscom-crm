@@ -91,6 +91,60 @@ retention_keep() {
   for f in "${!keep[@]}"; do printf '%s\n' "$f"; done | sort
 }
 
+# --- F1 (PR232-R1): XAC THUC bo sao luu. ---
+# age chi ma hoa (ai co khoa CONG KHAI cung tao duoc ban .age hop le) va SHA-256 khong khoa khong chong sua doi => manifest duoc KY bang
+# khoa rieng ed25519 cua MAY CHU (ssh-keygen -Y sign, namespace rieng); manifest chua ten + SHA-256 cua file sao luu nen chu ky rang buoc
+# ca file lan manifest. Xac thuc bang allowed_signers (khoa cong khai; Owner giu them 1 ban ngoai VPS de kiem ban sao ngoai may chu).
+# Gioi han: ai co root tren VPS doc duoc khoa ky => chu ky chong sua o kho sao luu/ban sao ngoai, KHONG chong may chu bi chiem quyen.
+BACKUP_SIG_NS=siscom-crm-backup
+backup_sign() { # backup_sign <manifest> <khoa rieng> -> <manifest>.sig
+  rm -f "$1.sig"
+  ssh-keygen -q -Y sign -f "$2" -n "$BACKUP_SIG_NS" "$1" >/dev/null 2>&1 && [ -s "$1.sig" ]
+}
+# verify_backup_set <file .dump.age|.dump> <allowed_signers> <ten DB mong doi>: 0 = hop le; ly do tu choi in ra stderr.
+verify_backup_set() {
+  local f="$1" allowed="$2" want="$3" dir base stem man got
+  dir="$(dirname "$f")"; base="$(basename "$f")"
+  case "$base" in *.dump.age) stem="${base%.dump.age}" ;; *.dump) stem="${base%.dump}" ;; *) printf '[LOI] duoi file la: %s\n' "$base" >&2; return 1 ;; esac
+  is_ops_db "$want" || { printf '[LOI] ten DB mong doi khong hop le\n' >&2; return 1; }
+  [[ "$stem" =~ ^${want}_[0-9]{8}_[0-9]{6}$ ]] || { printf '[LOI] ten file %s khong thuoc DB %s\n' "$base" "$want" >&2; return 1; }
+  man="$dir/$stem.manifest"
+  [ -f "$f" ] || { printf '[LOI] thieu file sao luu\n' >&2; return 1; }
+  [ -f "$man" ] || { printf '[LOI] thieu manifest %s\n' "$(basename "$man")" >&2; return 1; }
+  [ -f "$man.sig" ] || { printf '[LOI] thieu chu ky %s.sig\n' "$(basename "$man")" >&2; return 1; }
+  [ -s "$allowed" ] || { printf '[LOI] thieu/rong allowed_signers: %s\n' "$allowed" >&2; return 1; }
+  ssh-keygen -q -Y verify -f "$allowed" -I "$BACKUP_SIG_NS" -n "$BACKUP_SIG_NS" -s "$man.sig" < "$man" >/dev/null 2>&1 \
+    || { printf '[LOI] chu ky manifest KHONG hop le (manifest bi sua hoac ky bang khoa khong duoc tin)\n' >&2; return 1; }
+  # Tu day manifest da xac thuc: doi chieu voi file thuc te va DB mong doi. Moi truong khoa xuat hien dung 1 lan.
+  [ "$(grep -c '^db=' "$man")" = 1 ] && [ "$(grep -c '^file=' "$man")" = 1 ] && [ "$(grep -c '^file_sha256=' "$man")" = 1 ] \
+    || { printf '[LOI] manifest thieu/trung truong db/file/file_sha256\n' >&2; return 1; }
+  [ "$(env_get "$man" db)" = "$want" ] || { printf '[LOI] manifest thuoc DB khac\n' >&2; return 1; }
+  [ "$(env_get "$man" file)" = "$base" ] || { printf '[LOI] manifest mo ta file khac\n' >&2; return 1; }
+  got="$(sha256sum "$f" | cut -d' ' -f1)"
+  [ "$(env_get "$man" file_sha256)" = "$got" ] || { printf '[LOI] SHA-256 file sao luu khac manifest da ky\n' >&2; return 1; }
+  return 0
+}
+
+# --- F3 (PR232-R1): kiem ban build TRUOC khi dua vao chay: argon2 (prebuild, cai bang npm ci --ignore-scripts) phai hash + verify
+# duoc tren chinh may nay; Prisma CLI chay duoc. Khong cham DB, khong doc env bi mat.
+backend_runtime_smoke() { # backend_runtime_smoke <thu muc backend>
+  ( cd "$1" || exit 1
+    node -e '
+      const a = require("argon2");
+      const pw = "siscom-smoke-" + process.pid;
+      (async () => {
+        const h = await a.hash(pw);
+        if (!h.startsWith("$argon2id$")) throw new Error("hash khong phai argon2id");
+        if (!(await a.verify(h, pw))) throw new Error("verify mat khau dung that bai");
+        if (await a.verify(h, pw + "x")) throw new Error("verify mat khau sai van dung");
+        console.log("[OK] argon2 hash/verify (" + process.platform + "-" + process.arch + ", node " + process.versions.node + ")");
+      })().catch((e) => { console.error("[LOI] argon2: " + e.message); process.exit(1); });
+    ' || exit 1
+    v="$(env -u MIGRATE_DATABASE_URL DATABASE_URL=postgresql://ci_placeholder@127.0.0.1:1/x npx --no-install prisma --version 2>/dev/null | grep -Ei '^prisma ' | head -n1)" || true
+    [ -n "$v" ] || { echo "[LOI] Prisma CLI khong chay duoc." >&2; exit 1; }
+    echo "[OK] $v" )
+}
+
 # Tao thu muc rieng tu (700). Dien tap tren Windows/Git Bash: install -m khong doi duoc ACL => chi khi SISCOM_REHEARSAL=1 moi chap nhan mkdir -p.
 private_dir() {
   install -d -m 700 "$1" 2>/dev/null && return 0
