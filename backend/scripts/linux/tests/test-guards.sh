@@ -148,6 +148,7 @@ chmod +x "$stub/dig" "$stub/ip" "$stub/caddy"
 cat > "$stub/ufw" <<'STUB'
 #!/usr/bin/env bash
 d="${STUB_UFW_DIR:-}"
+[ "${STUB_UFW_SHOW_FAIL:-}" = 1 ] && [ "${1:-} ${2:-}" = "show added" ] && { echo "ERROR: problem running ufw-init" >&2; exit 1; }
 if [ -z "$d" ]; then [ "${1:-} ${2:-}" = "show added" ] && { echo "Added user rules (see 'ufw status' for running firewall):"; echo "(None)"; }; exit 0; fi
 mkdir -p "$d"; touch "$d/rules"; echo "$*" >> "$d/calls"
 st="$(cat "$d/active" 2>/dev/null || echo inactive)"; def="$(cat "$d/default" 2>/dev/null || echo 'deny (incoming), allow (outgoing), disabled (routed)')"
@@ -374,6 +375,11 @@ echo "== 10. SEC-01 (PR232-R2): ufw kiem ke rule CO SAN truoc khi bat, kiem TOAN
 u="$tmp/ufw-c"; mkdir -p "$u"; echo "allow 5432/tcp" > "$u/rules"
 out="$(STUB_UFW_DIR="$u" prov 26266)"; rc=$?
 if [ "$rc" -ne 0 ] && contains "$out" "5432" && ! contains "$out" "[DRY] ufw allow"; then ok "provision --dry-run: rule 5432 co san => dung truoc khi them/bat"; else bad "provision --dry-run voi rule 5432 co san van di tiep (rc=$rc)"; fi
+# R3-SEC01-01: preflight KHONG duoc bo qua loi khi doc `ufw show added` (ufw da cai nhung lenh loi) => dung truoc apt/moi thay doi
+out="$(STUB_UFW_SHOW_FAIL=1 prov 26266)"; rc=$?
+if [ "$rc" -ne 0 ] && contains "$out" "ufw show added" && ! contains "$out" "apt-get" && ! contains "$out" "[DRY] ufw allow" && ! contains "$out" "[OK] Xong"; then
+  ok "R3-SEC01-01: 'ufw show added' loi => dung o preflight, truoc apt/ufw, khong OK"
+else bad "R3-SEC01-01: loi doc ufw bi bo qua (rc=$rc)"; fi
 if declare -F ufw_apply >/dev/null; then
   ua() { # ua <ten ca> [rules co san...] : chay ufw_apply that (khong dry) tren ufw gia; dat UOUT/URC; thu muc trang thai $tmp/ufw-<ten>
     local name="$1"; shift; local dir="$tmp/ufw-$name"; rm -rf "$dir"; mkdir -p "$dir"; : > "$dir/rules"
@@ -477,6 +483,27 @@ if declare -F backup_prune >/dev/null && command -v ssh-keygen >/dev/null 2>&1; 
   # khong co plaintext + ma hoa => thoat 0
   rm -rf "$bp"; mkdir -p "$bp"; mkb "$bp" 20261111_190000 dump.age
   backup_prune "$bp" siscom_crm_prod 1 >/dev/null 2>&1 && ok "khong co plaintext => thoat 0" || bad "khong co plaintext ma van loi"
+  # --- R3-SEC02-01: .dump va .dump.age TRUNG stem dung chung <stem>.manifest / .manifest.sig => KHONG xoa gi cua stem do ---
+  mkconf() { # mkconf <stamp>: bo plaintext day du + bo .age cung stem (dung chung manifest/chu ky)
+    local s="$1" fa; mkb "$bp" "$s" dump
+    fa="$bp/siscom_crm_prod_$s.dump.age"; printf 'a%s' "$s" > "$fa"
+    ( cd "$bp" && sha256sum "$(basename "$fa")" > "$(basename "$fa").sha256" ); echo ok > "$fa.restore-ok.txt"
+  }
+  snapC() { (cd "$bp" && find . -maxdepth 1 -type f -name '*_170000*' -exec sha256sum {} + | sort); }   # moi tep cua cac stem xung dot (17:00)
+  rm -rf "$bp"; mkdir -p "$bp"
+  for i in $(seq 1 20); do d="$(date -u -d "2026-11-11 -$i day" +%Y%m%d)"; mkconf "${d}_170000"; mkb "$bp" "${d}_190000" dump.age; done
+  mkb "$bp" 20261112_190000 dump.age
+  beforeC="$(snapC)"; nC="$(printf '%s\n' "$beforeC" | grep -c .)"
+  out="$(backup_prune "$bp" siscom_crm_prod 1 2>&1)"; rc=$?
+  { [ "$rc" -ne 0 ] && [ "$(snapC)" = "$beforeC" ] && [ "$nC" -eq 160 ]; } && ok "R3-SEC02-01: 20 stem trung (.dump + .dump.age, qua han) => KHONG tep nao cua stem do bi xoa/sua ($nC tep, sha trung), thoat != 0" || bad "R3-SEC02-01: stem trung bi dong cham (rc=$rc, truoc $nC tep, sau $(snapC | grep -c .))"
+  contains "$out" "siscom_crm_prod_20261022_170000" && ok "R3-SEC02-01: liet ke stem xung dot" || bad "R3-SEC02-01: khong liet ke stem xung dot"
+  { [ ! -e "$bp/siscom_crm_prod_20261022_190000.dump.age" ] && [ ! -e "$bp/siscom_crm_prod_20261022_190000.manifest.sig" ] && [ -e "$bp/siscom_crm_prod_20261112_190000.dump.age" ]; } \
+    && ok "R3-SEC02-01 doi chung: bo .age qua han KHONG trung stem van bi xoa du sidecar" || bad "R3-SEC02-01 doi chung: retention .age khong xung dot bi yeu di"
+  backup_prune "$bp" siscom_crm_prod 1 >/dev/null 2>&1; rc=$?
+  { [ "$rc" -ne 0 ] && [ "$(snapC)" = "$beforeC" ]; } && ok "R3-SEC02-01: chay lai => van thoat != 0, stem trung nguyen ven" || bad "R3-SEC02-01: chay lai (rc=$rc)"
+  # lop phong thu trong chinh ham xoa
+  backup_rm_age_set "$bp" siscom_crm_prod_20261022_170000.dump.age >/dev/null 2>&1; rc=$?
+  { [ "$rc" -ne 0 ] && [ "$(snapC)" = "$beforeC" ]; } && ok "R3-SEC02-01: backup_rm_age_set tu choi khi co <stem>.dump, khong xoa gi" || bad "R3-SEC02-01: backup_rm_age_set van xoa khi trung stem (rc=$rc)"
   check "backup-db.sh goi backup_prune" grep -q 'backup_prune ' "$lin/backup-db.sh"
 else
   bad "lib.sh chua co backup_prune (SEC-02 chua sua) hoac thieu ssh-keygen"

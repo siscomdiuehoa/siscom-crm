@@ -2,7 +2,7 @@
 
 | Mục | Giá trị |
 |---|---|
-| Trạng thái | Xem **mục 12** (bảng 3 cột theo từng bước: ĐÃ CHẠY THẬT trên VPS / đã diễn tập PostgreSQL tạm hoặc CI / NOT_VERIFIED). Tóm tắt: `provision.sh` (kể cả `--ssh-key-only`) @`c7e74fa`, `create-db.sh` + `deploy.sh` lần đầu + `run-cli.sh` @`4c33ba6` **đã chạy thật** trên VPS 42.96.15.235 ngày 12/11/2026 (phiên điều phối chạy, Owner duyệt; reviewer chưa kiểm độc lập). Mã sửa R2 (ufw, retention, kiểm 3 URL) **chưa chạy trên VPS**. Sao lưu/khôi phục chưa chạy trên VPS. |
+| Trạng thái | Xem **mục 12** (bảng 3 cột theo từng bước: ĐÃ CHẠY THẬT trên VPS / đã diễn tập PostgreSQL tạm hoặc CI / NOT_VERIFIED). Tóm tắt: `provision.sh` (kể cả `--ssh-key-only`) @`c7e74fa`, `create-db.sh` + `deploy.sh` lần đầu + `run-cli.sh` @`4c33ba6` **đã chạy thật** trên VPS 42.96.15.235 ngày 12/11/2026 (phiên điều phối chạy, Owner duyệt; reviewer chưa kiểm độc lập). Mã sửa R2/R3 (ufw, retention, kiểm 3 URL, trùng stem) **chưa chạy trên VPS** — VPS vẫn chạy `4c33ba6`. Sao lưu/khôi phục chưa chạy trên VPS. |
 | Sửa sau review R1 | F1 manifest sao lưu được **ký** và ràng buộc vào file; F2 cổng SSH **đọc từ `sshd -T`** (VPS thật 26266) và mở đúng cổng đó trước khi bật ufw; F3 kiểm argon2/Prisma trên bản build + job CI Linux; `deploy.sh` dọn bản phát hành dở dang khi dừng (mục 10) |
 | Máy đích | BKNS Cloud VM, Ubuntu 24.04, 3 vCPU / 3 GB RAM / 40 GB (hạn dịch vụ 11/11/2027) |
 | Nền thiết kế | `docs/B1.4_VPS_DEPLOY_PLAN.md` (PR #176), `docs/B1.5_VPS_STAGING_PLAN.md`, `backend/docs/VPS_LINUX_NOTES.md`, `backend/docs/B1.4_P4_LINUX_SCRIPTS_DESIGN.md` (nhánh `docs/b1.4-p4-linux-scripts-design`) |
@@ -76,6 +76,7 @@ Làm: apt cập nhật, UTC + `systemd-timesyncd`, swap 2 GB (`/swapfile`, `swap
 **PASS khi**: `ufw status` chỉ có cổng SSH đang dùng (26266), 80, 443 — script tự kiểm sau khi bật, thiếu cổng SSH thì tự tắt lại ufw và dừng; `timedatectl` = UTC và đồng bộ; `free -m` có Swap 2 GB; `node -v` là 24.x (≥ 24.11); `ss -ltn | grep 5432` chỉ `127.0.0.1`/`[::1]`; `sudo -u postgres psql -tAc 'SHOW TimeZone'` = `UTC`; `id siscom` có và không thuộc nhóm `sudo`/`admin`.
 **Cổng SSH (F2) và tường lửa (SEC-01, sửa sau R2):** script **không đổi** cổng của `sshd`; đọc cổng đang dùng bằng `sshd -T` (gộp cả `ssh.socket`; nhiều cổng thì lấy tất cả). Allowlist ufw = đúng `ufw allow <cổng SSH>/tcp`, `ufw allow 80/tcp`, `ufw allow 443/tcp`.
 - **Kiểm kê rule có sẵn** bằng `ufw show added` (chạy được cả khi ufw tắt) **ngay từ đầu script** (trước apt) và **lại trước khi thêm/bật**: có **bất kỳ** rule nào khác (allow cổng khác như 5432/3000, `deny`/`limit`/`reject` trên cổng SSH, `allow 22` khi SSH ở 26266, theo nguồn/giao diện…) ⇒ **dừng, không đổi gì, không tự xoá rule**, in danh sách để Owner tự xử lý (`ufw status numbered`, `ufw delete <số>`).
+- **Không đọc được trạng thái ufw** (R3-SEC01-01): `ufw show added` trả lỗi (vd không phải root, cấu hình ufw hỏng) ⇒ **dừng ngay** ở bước kiểm đầu, trước apt và mọi thay đổi. Nếu ufw **chưa cài**, bước kiểm đầu bỏ qua và `ufw_apply` (bước 4, sau apt) kiểm kê, cũng dừng nếu lỗi.
 - Thêm allowlist (idempotent) → `default deny incoming` / `allow outgoing` → kiểm kê lại → `ufw --force enable` → phân tích **toàn bộ** `ufw status verbose`: phải `Status: active`, `Default: deny (incoming)`, mọi rule (v4+v6) thuộc allowlist, đủ cổng SSH. Thiếu cổng SSH ⇒ `ufw --force disable` và dừng; có rule lạ ⇒ dừng, **không** in OK (ufw vẫn bật vì SSH còn mở). fail2ban dùng cùng cổng.
 **FAIL / dừng ngay** (trước khi đổi gì): thiếu/sai `SISCOM_HOST`; tên miền mà bản ghi A không phải **duy nhất** IP công khai của máy; IPv4 không phải IP của chính máy; không xác định được IP công khai (đặt `SISCOM_PUBLIC_IP`); `SISCOM_TLS_MODE=internal` với tên miền; `sshd -T` lỗi hoặc không có cổng hợp lệ (vd không chạy bằng root; script in dòng lỗi của `sshd -T` — gặp `Missing privilege separation directory: /run/sshd` thì chạy từ phiên SSH đang mở hoặc sau `systemctl start ssh`); `SISCOM_SSH_PORT` được đặt nhưng không trùng cổng đang nghe.
 **SSH chỉ bằng khoá** — cờ **riêng** `--ssh-key-only`, chỉ chạy khi Owner duyệt và **đã thử đăng nhập bằng khoá ở phiên MỚI** (cổng 26266):
@@ -198,6 +199,7 @@ shred -u /root/siscom-backup.key
 
 **Giữ bản và bản plaintext (SEC-02, sửa sau R2 theo điều kiện Owner 12/11):** retention (14 bộ mới nhất + mỗi tuần 1 bộ, 8 tuần) **chỉ tính và chỉ xoá các bộ `<db>_<ts>.dump.age`** của đúng DB, xoá đủ sidecar của bộ đó (`.sha256`, `.restore-ok.txt`, `.manifest`, `.manifest.sig`). **Bộ `.dump` (plaintext) không bao giờ bị script xoá hay sửa**, kể cả khi quá hạn giữ; script chỉ phát hiện và liệt kê.
 - **Chế độ mã hoá (mặc định) mà còn ≥ 1 bộ `.dump` của DB:** bản `.age` mới **vẫn được tạo, ký và tự kiểm**; sau đó script liệt kê đủ tên các bộ plaintext và **thoát ≠ 0 mỗi lần chạy** cho đến khi Owner xử lý bằng tay. **Không có cờ nào bỏ qua kiểm soát này và không có cờ tự xoá plaintext** (mã `keep`/`purge` của bản `ead6338` đã bị xoá hẳn; đặt biến cũ không có tác dụng gì).
+- **Trùng stem (R3-SEC02-01):** nếu cùng `<db>_<ts>` có cả `.dump` và `.dump.age` (vd sao chép/khôi phục bộ cũ bằng tay) thì hai bộ **dùng chung** `<stem>.manifest`/`.manifest.sig` ⇒ script **không xoá bất kỳ tệp nào** của stem đó (kể cả `.dump.age` quá hạn), liệt kê stem và thoát ≠ 0 ở mọi chế độ; hàm xoá còn tự từ chối khi thấy `<stem>.dump`. `backup-db.sh` tự nó không tạo trùng stem (từ chối nếu `<stem>.dump` hoặc `<stem>.dump.age` đã tồn tại). Owner quyết giữ bộ nào rồi xử lý tay như quy trình dưới.
 - **Tác động tới `deploy.sh`:** sao lưu thoát ≠ 0 ⇒ deploy dừng trước migrate (đúng thiết kế).
 - **Quy trình xoá plaintext bằng tay (chỉ khi Owner phê duyệt riêng bằng văn bản):**
   1. Có bộ `.age` thay thế **mới hơn** bộ plaintext: `restore-test.sh --dump <bộ .age> --identity <khoá riêng age>` in `Chữ ký manifest hợp lệ…` và `PASS: <n> bảng khớp số dòng`, có tệp `<bộ .age>.restore-ok.txt`.
@@ -308,7 +310,7 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 11. **Sao lưu plaintext (SEC-02):** script không bao giờ tự xoá bộ `.dump` (và tệp kèm); chế độ mã hoá còn plaintext ⇒ thoát ≠ 0 mỗi lần tới khi Owner xoá tay theo quy trình G6. `SISCOM_BACKUP_NO_ENCRYPT=yes` bị từ chối trên production và mọi DB vận hành (chỉ diễn tập cách ly). Nếu đã có bộ `.dump` trên VPS từ trước, lần sao lưu mã hoá đầu tiên sẽ thoát ≠ 0 (và chặn deploy) cho tới khi xử lý tay.
 12. **Tường lửa (SEC-01):** mọi rule ufw ngoài allowlist, kể cả rule có comment/`limit`/theo nguồn riêng, đều bị coi là lạ ⇒ dừng (chặt có chủ đích: không tự xoá/reset rule).
 
-## 10. Thay đổi sau review R1 và R2 (PR #232)
+## 10. Thay đổi sau review R1, R2 và R3 (PR #232)
 
 | ID | Vấn đề đã tái hiện trên `c34f602` | Sửa | Bằng chứng |
 |---|---|---|---|
@@ -318,6 +320,8 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 | F3 | `npm ci --ignore-scripts` chưa được kiểm trên Linux; deploy không kiểm argon2 lúc chạy. Kèm lỗi liên quan: `die` trước khi đổi liên kết để lại `releases/<id>` dở dang (trap ERR không bắt `exit`) | Giữ `--ignore-scripts`; `backend_runtime_smoke` trong deploy; trap EXIT dọn bản dở dang; job CI `linux-scripts` | `test-guards.sh` mục 9; CI `linux-scripts` |
 | SEC-01 (R2) | `provision.sh` chỉ thêm allow và grep cổng SSH: rule ufw có sẵn (allow 5432/3000, deny SSH đứng trước…) không bị phát hiện | `ufw_apply`/`ufw_foreign_added`/`ufw_status_problems` (lib.sh): kiểm kê `ufw show added` từ đầu và trước khi bật; rule lạ ⇒ dừng, không tự xoá; sau khi bật kiểm toàn bộ `ufw status verbose` | `test-guards.sh` mục 10 (13 ca: sạch, chạy lại, 5432, 3000, deny/limit SSH, allow 22, theo nguồn, rule lạ sau khi bật, mất SSH sau khi bật, dry-run) |
 | SEC-02 (R2) | Giữ bản chỉ nhìn phần mở rộng của lần chạy hiện tại ⇒ bộ `.dump` cũ còn mãi khi chuyển sang mã hoá (tái hiện trên `4c33ba6`: sao lưu mã hoá thoát 0, "Con 1 ban") | Bản cuối theo quyết định Owner (`33bc555` + commit này): retention chỉ xoá bộ `.age` (đủ sidecar); plaintext **không bao giờ bị xoá**, chỉ liệt kê; mã hoá còn plaintext ⇒ thoát ≠ 0 mỗi lần; **đã xoá mã `keep`/`purge`** (có ở `ead6338`) — không còn biến hay nhánh nào; **production bắt buộc mã hoá** (`NO_ENCRYPT` bị từ chối với `siscom_crm_prod` và mọi DB vận hành, kiểm trước dump) | `test-guards.sh` mục 11 (15 kiểm tra); `rehearse-pg.sh` trên PostgreSQL thật |
+| R3-SEC02-01 (R3) | `backup_rm_age_set` xoá `<stem>.manifest`/`.manifest.sig` khi xoá bộ `.age` quá hạn, kể cả khi có `<stem>.dump` cùng stem ⇒ mất sidecar của plaintext (tái hiện trên `7648ffd`: 20 stem trùng, 160 tệp còn 90) | Phát hiện stem trùng trước retention; không xoá gì của stem trùng; liệt kê + thoát ≠ 0; hàm xoá tự từ chối khi có `<stem>.dump` | `test-guards.sh` mục 11 (5 kiểm tra R3) |
+| R3-SEC01-01 (R3) | Bước kiểm ufw đầu script che lỗi `ufw show added` bằng `2>/dev/null … \|\| true` | Lỗi đọc ⇒ dừng ngay, trước apt/mọi thay đổi | `test-guards.sh` mục 10 (1 kiểm tra) |
 | DB-01 (R2) | `run-cli.sh`/`deploy.sh` không kiểm `AUTH_DATABASE_URL` (và deploy bỏ qua khi thiếu `migrate.env`) | `load_db_env_triplet`/`db_url_check` (lib.sh): 3 URL bắt buộc, đúng dạng, đúng tài khoản, host loopback, **cùng DB**, gọi trước mọi lệnh chạm DB/npm/CLI | `test-guards.sh` mục 12 (9 ca hàm + 2 tích hợp với `npm`/`psql`/`node` giả: không lời gọi nào khi env lệch + 1 đối chứng) |
 
 ## 11. Bằng chứng chạy thật trên VPS (12/11/2026)
@@ -346,7 +350,7 @@ Việc cần theo dõi: chạy `check-tls.sh` sau khoảng 16–17/11/2026 để
 **Nguồn bằng chứng (điều kiện 4 của Owner):**
 - **"Claude báo cáo (phiên điều phối thu)"**: đầu ra quan sát được ở phụ lục `docs/VPS_EVIDENCE_20261112.md`, Owner duyệt từng bước — **ChatGPT chưa kiểm độc lập** các kết quả VPS này ([REVIEW-R2] ghi là "Claude-reported").
 - **"ChatGPT đã kiểm độc lập" (R2 @`4c33ba6`)**: chỉ gồm việc đọc đủ 21 tệp và đối chiếu trạng thái CI run `43163436884` (6/6) đúng HEAD; ChatGPT không chạy lại script, không vào VPS.
-- Mã sửa sau R2 (SEC-01, SEC-02, DB-01) **chưa được ai kiểm độc lập** — chờ R3; chỉ có test/CI do Claude chạy.
+- Mã sửa sau R2 và R3 (SEC-01, SEC-02, DB-01, R3-SEC02-01, R3-SEC01-01) **chưa được ai kiểm độc lập** — R3 của ChatGPT kiểm mã @`7648ffd` (đọc mã + trạng thái CI, tự tái hiện lỗi trùng stem trong shell cách ly; không chạy lại RED trên SHA cũ); bản sửa R3 chờ ChatGPT kiểm lần cuối. Chỉ có test/CI do Claude chạy.
 
 Các bước VPS chạy bằng script ở SHA ghi trong ngoặc, **không phải** bản sau khi sửa R2.
 
@@ -372,3 +376,7 @@ Các bước VPS chạy bằng script ở SHA ghi trong ngoặc, **không phải
 | SEC-02 production bắt buộc mã hoá: `NO_ENCRYPT` + `siscom_crm_prod` ⇒ từ chối trước dump; DB vận hành ngoài diễn tập ⇒ từ chối | PASS ở mức test (không có lời gọi `pg_dump`/`psql`, không tạo thư mục sao lưu) | Claude chạy; ChatGPT **chưa** kiểm độc lập | NOT_VERIFIED |
 | DB-01 ba URL cùng DB | PASS ở mức test (9 ca hàm + 2 tích hợp + 1 đối chứng) | Claude chạy; ChatGPT **chưa** kiểm độc lập | NOT_VERIFIED |
 | DOC-01 tài liệu | Runbook mục 12 + phụ lục | Claude viết; bằng chứng VPS do phiên điều phối thu | — |
+| R3-SEC02-01: `.dump` và `.dump.age` trùng stem (dùng chung `<stem>.manifest`/`.manifest.sig`) ⇒ không xoá bất kỳ tệp nào của stem đó, liệt kê, thoát ≠ 0; bộ `.age` không trùng vẫn được dọn | PASS ở mức test (5 kiểm tra, 20 stem trùng × 8 tệp, SHA trước/sau trùng) | Claude chạy; ChatGPT R3 đã tự tái hiện **lỗi** (hành vi xoá của `backup_rm_age_set`) trong shell cách ly; **bản sửa chưa** được ChatGPT kiểm | NOT_VERIFIED |
+| R3-SEC01-01: preflight không đọc được `ufw show added` ⇒ dừng trước apt và mọi thay đổi | PASS ở mức test (`ufw` giả trả lỗi) | Claude chạy; ChatGPT chưa kiểm bản sửa | NOT_VERIFIED |
+
+**Trạng thái VPS:** VPS 42.96.15.235 **vẫn chạy mã `4c33ba6`** (Owner giữ nguyên để tiếp tục thử nghiệm). Mã sửa R2 và R3 **chưa lên VPS**.

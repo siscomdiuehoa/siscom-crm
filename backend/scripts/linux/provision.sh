@@ -68,8 +68,11 @@ fi
 SSH_PORTS_CSV="$(IFS=,; echo "${SSH_PORTS[*]}")"
 info "Cong SSH dang dung: ${SSH_PORTS_CSV}"
 # SEC-01: neu ufw da cai, kiem ke rule co san NGAY TU DAU (chi doc) => gap rule ngoai allowlist thi dung truoc apt/moi thay doi.
+# R3-SEC01-01: KHONG doc duoc `ufw show added` (ma != 0) => dung ngay, khong coi la "khong co rule". ufw chua cai => bo qua o day,
+#   ufw_apply (buoc 4, sau apt) se kiem ke va cung dung neu loi.
 if command -v ufw >/dev/null 2>&1; then
-  pre_foreign="$(ufw show added 2>/dev/null | ufw_foreign_added "$SSH_PORTS_CSV")" || true
+  pre_added="$(ufw show added 2>&1)" || { printf '%s\n' "$pre_added" | tail -n 3 | sed 's/^/    /' >&2; die "Khong doc duoc trang thai ufw (\`ufw show added\` loi - can root?). Dung truoc apt va moi thay doi."; }
+  pre_foreign="$(printf '%s\n' "$pre_added" | ufw_foreign_added "$SSH_PORTS_CSV")" || true
   if [ -n "$pre_foreign" ]; then
     printf '%s\n' "$pre_foreign" | sed 's/^/    /' >&2
     die "ufw da co rule NGOAI allowlist (${SSH_PORTS_CSV}/tcp, 80/tcp, 443/tcp) - liet ke o tren. KHONG doi gi, khong tu xoa rule. Owner tu xu ly (ufw status numbered; ufw delete <so>) roi chay lai."

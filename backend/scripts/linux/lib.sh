@@ -319,34 +319,51 @@ ufw_apply() {
 # --- SEC-02 (PR232-R2, dieu kien Owner 12/11): retention CHI tinh giu/xoa tren cac bo .dump.age cua DUNG DB (xoa du sidecar bo do).
 # Bo .dump (plaintext) KHONG BAO GIO bi script xoa hay sua - ke ca khi qua han giu; chi phat hien + liet ke.
 # backup_rm_age_set <thu muc> <ten file .dump.age>: xoa file + .sha256 + .restore-ok.txt + <stem>.manifest + <stem>.manifest.sig.
+# R3-SEC02-01: <stem>.manifest/.manifest.sig DUNG CHUNG voi <stem>.dump neu trung stem => co <stem>.dump thi TU CHOI, khong xoa gi.
 backup_rm_age_set() {
   local d="$1" f="$2" stem
   case "$f" in *.dump.age) stem="${f%.dump.age}" ;; *) return 1 ;; esac
+  if [ -e "$d/$stem.dump" ]; then
+    printf '[LOI] Khong xoa %s: co %s.dump cung stem (dung chung manifest/chu ky voi ban plaintext).\n' "$f" "$stem" >&2
+    return 1
+  fi
   rm -f -- "$d/$f" "$d/$f.sha256" "$d/$f.restore-ok.txt" "$d/$stem.manifest" "$d/$stem.manifest.sig"
 }
 # backup_prune <thu muc> <db> <ma hoa 0|1>
-#   ma thoat: 0 = xong; 3 = che do ma hoa ma CON >= 1 bo plaintext (da liet ke, KHONG xoa) - lap lai MOI LAN cho toi khi Owner xu ly tay.
+#   ma thoat: 0 = xong; 3 = (a) che do ma hoa ma CON >= 1 bo plaintext, hoac (b) co stem TRUNG (.dump va .dump.age cung ten goc) o bat ky
+#   che do nao (da liet ke, KHONG xoa gi cua stem do) - lap lai MOI LAN cho toi khi Owner xu ly tay.
 backup_prune() {
-  local d="$1" db="$2" enc="$3" f
-  local -a ages keep plains
+  local d="$1" db="$2" enc="$3" f stem
+  local -a ages keep plains conflicts=()
   mapfile -t ages < <(find "$d" -maxdepth 1 -type f -printf '%f\n' | grep -E "^${db}_[0-9]{8}_[0-9]{6}\.dump\.age\$" | sort || true)
+  [ -n "${ages[0]:-}" ] || ages=()
+  # R3-SEC02-01: phat hien stem trung TRUOC khi retention xoa bat cu gi.
+  for f in "${ages[@]}"; do stem="${f%.dump.age}"; [ -e "$d/$stem.dump" ] && conflicts+=("$stem"); done
   mapfile -t keep < <(printf '%s\n' "${ages[@]}" | retention_keep 14 8)
   for f in "${ages[@]}"; do
-    [ -n "$f" ] || continue
-    if ! printf '%s\n' "${keep[@]}" | grep -qxF "$f"; then backup_rm_age_set "$d" "$f"; info "Da xoa bo .age cu: $f"; fi
+    printf '%s\n' "${keep[@]}" | grep -qxF "$f" && continue
+    stem="${f%.dump.age}"
+    if printf '%s\n' "${conflicts[@]}" | grep -qxF "$stem"; then continue; fi   # trung stem: KHONG xoa gi (ke ca .age)
+    backup_rm_age_set "$d" "$f" && info "Da xoa bo .age cu: $f"
   done
   mapfile -t plains < <(find "$d" -maxdepth 1 -type f -printf '%f\n' | grep -E "^${db}_[0-9]{8}_[0-9]{6}\.dump\$" | sort || true)
   [ -n "${plains[0]:-}" ] || plains=()
-  info "Con ${#keep[@]} bo .age va ${#plains[@]} bo plaintext cua $db."
-  [ "${#plains[@]}" -eq 0 ] && return 0
-  if [ "$enc" = 0 ]; then
+  info "Con ${#keep[@]} bo .age (theo retention) va ${#plains[@]} bo plaintext cua $db; ${#conflicts[@]} stem trung."
+  if [ "${#conflicts[@]}" -gt 0 ]; then
+    printf '[LOI] %s stem co CA .dump va .dump.age (dung chung <stem>.manifest/.manifest.sig). Script KHONG xoa bat ky tep nao cua cac stem nay:\n' "${#conflicts[@]}" >&2
+    printf '    %s\n' "${conflicts[@]}" >&2
+  fi
+  [ "${#plains[@]}" -eq 0 ] && [ "${#conflicts[@]}" -eq 0 ] && return 0
+  if [ "$enc" = 0 ] && [ "${#conflicts[@]}" -eq 0 ]; then
     warn "Che do KHONG ma hoa: hien co ${#plains[@]} bo plaintext cua $db; retention KHONG xoa plaintext => se tich luy, can Owner xu ly tay (xem runbook)."
     return 0
   fi
-  printf '[LOI] Con %s bo sao luu KHONG ma hoa cua %s trong khi che do ma hoa dang bat. Script KHONG xoa va KHONG bo qua:\n' "${#plains[@]}" "$db" >&2
-  printf '    %s\n' "${plains[@]}" >&2
+  if [ "${#plains[@]}" -gt 0 ]; then
+    printf '[LOI] Con %s bo sao luu KHONG ma hoa cua %s. Script KHONG xoa va KHONG bo qua:\n' "${#plains[@]}" "$db" >&2
+    printf '    %s\n' "${plains[@]}" >&2
+  fi
   printf '  Xu ly TAY, chi khi Owner phe duyet rieng: (1) co bo .age thay the qua verify_backup_set; (2) restore-test.sh --dump <bo .age> dat;\n' >&2
-  printf '  (3) Owner xoa tay tung bo plaintext (.dump, .dump.sha256, .dump.restore-ok.txt, .manifest, .manifest.sig). Xem docs/VPS_RUNBOOK.md G6.\n' >&2
+  printf '  (3) Owner xoa tay tung bo plaintext (.dump, .dump.sha256, .dump.restore-ok.txt, .manifest, .manifest.sig). Stem trung: Owner quyet giu bo nao. Xem docs/VPS_RUNBOOK.md G6.\n' >&2
   return 3
 }
 
