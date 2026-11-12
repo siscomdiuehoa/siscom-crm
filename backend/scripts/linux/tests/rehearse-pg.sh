@@ -99,6 +99,25 @@ neg "thay CA bo (file+manifest+chu ky+sha256) bang ban B"; cp "$work/A" "$A"; cp
 step "khoi phuc lai bo goc => PASS"
 bash "$lin/restore-test.sh" "${ident[@]}" --dump "$A" 2>&1 | grep -E 'PASS|^\[LOI\]' | cut -c1-110
 
+if [ "${#ident[@]}" -gt 0 ]; then
+  step "SEC-02: con bo plaintext (.dump) khi dang ma hoa => ban .age moi van tao, nhung thoat != 0, khong xoa plaintext"
+  sleep 1; SISCOM_BACKUP_NO_ENCRYPT=yes bash "$lin/backup-db.sh" >/dev/null 2>&1 || { echo "KHONG DAT: khong tao duoc bo plaintext"; exit 1; }
+  P="$(find "$work/bk" -name "${db}_*.dump" | sort | tail -n1)"; [ -n "$P" ] || { echo "KHONG DAT: khong thay bo plaintext"; exit 1; }
+  sleep 1; nage_before="$(find "$work/bk" -name "${db}_*.dump.age" | wc -l)"
+  if bash "$lin/backup-db.sh" > "$work/sec02.out" 2>&1; then echo "KHONG DAT: sao luu ma hoa thoat 0 du con plaintext"; exit 1; fi
+  grep -qF "$(basename "$P")" "$work/sec02.out" || { echo "KHONG DAT: khong liet ke plaintext"; exit 1; }
+  [ -e "$P" ] || { echo "KHONG DAT: plaintext bi xoa ma khong co chinh sach"; exit 1; }
+  [ "$(find "$work/bk" -name "${db}_*.dump.age" | wc -l)" -gt "$nage_before" ] || { echo "KHONG DAT: khong tao ban .age moi"; exit 1; }
+  grep -E '^\[LOI\]' "$work/sec02.out" | head -n2 | cut -c1-140; echo "dat (thoat != 0, liet ke, giu plaintext, co ban .age moi)"
+  step "SEC-02: SISCOM_BACKUP_PLAINTEXT=keep => thoat 0 + canh bao; =purge => xoa du bo plaintext"
+  sleep 1; SISCOM_BACKUP_PLAINTEXT=keep bash "$lin/backup-db.sh" > "$work/keep.out" 2>&1 || { tail -5 "$work/keep.out"; echo "KHONG DAT: keep"; exit 1; }
+  grep -q 'CANH BAO' "$work/keep.out" && [ -e "$P" ] || { echo "KHONG DAT: keep khong canh bao/khong giu"; exit 1; }
+  sleep 1; SISCOM_BACKUP_PLAINTEXT=purge bash "$lin/backup-db.sh" > "$work/purge.out" 2>&1 || { tail -5 "$work/purge.out"; echo "KHONG DAT: purge"; exit 1; }
+  stemP="${P%.dump}"; for x in "$P" "$P.sha256" "$stemP.manifest" "$stemP.manifest.sig"; do [ ! -e "$x" ] || { echo "KHONG DAT: purge con $x"; exit 1; }; done
+  [ -z "$(find "$work/bk" -name "${db}_*.dump")" ] || { echo "KHONG DAT: van con plaintext sau purge"; exit 1; }
+  echo "dat (keep: canh bao + giu; purge: xoa du bo plaintext, con $(find "$work/bk" -name "${db}_*.dump.age" | wc -l) bo .age)"
+fi
+
 if [ -f "$work/opt/current/backend/dist/main.js" ] && [ -n "${BOOTSTRAP_PASSWORD_SYSADMIN:-}" ]; then
   bport="${BACKEND_PORT:-39171}"
   # backend_smoke <SISCOM_HOST>: ghi lai env bang create-db.sh (CORS/AUTH_ALLOWED_ORIGINS = https://<host>), chay backend production,

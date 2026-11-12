@@ -11,6 +11,9 @@
 # Khoa ky: $SISCOM_ETC/backup-signing.key (root 600) + backup-signing.allowed_signers (cong khai). Tao 1 lan: backup-db.sh --init-signing-key
 #   (Owner chep allowed_signers ra ngoai VPS de kiem ban sao ngoai may chu). Thieu khoa ky => TU CHOI sao luu (fail-closed).
 # Khong ma hoa chi khi dat SISCOM_BACKUP_NO_ENCRYPT=yes (tu chiu rui ro; ban .dump ro, 600) - van ky manifest.
+# Giu ban tren HOP .dump + .dump.age cua DB (SEC-02). Che do ma hoa ma con bo .dump (plaintext): ban .age moi van duoc tao + ky + tu kiem,
+#   roi THOAT != 0 va liet ke plaintext, tru khi Owner chon co chu dich SISCOM_BACKUP_PLAINTEXT=keep (giu, canh bao) hoac =purge
+#   (xoa bo plaintext chi khi co bo .age qua xac thuc). deploy.sh coi sao luu != 0 la loi => dung truoc migrate.
 # Khong ghi de, khong xoa gi truoc khi ban moi hop le. Ma thoat khac 0 neu bat ky buoc nao loi. Khong in mat khau/URL.
 set -euo pipefail
 
@@ -35,6 +38,9 @@ if [ "${1:-}" = --init-signing-key ]; then
 fi
 [ $# -eq 0 ] || die "Tham so la: $1 (dung: backup-db.sh | backup-db.sh --init-signing-key)"
 
+# SEC-02: chinh sach voi ban plaintext con lai khi ma hoa: '' (mac dinh: liet ke, thoat != 0) | keep | purge. Kiem TRUOC khi dump.
+PLAINTEXT_POLICY="${SISCOM_BACKUP_PLAINTEXT:-}"
+case "$PLAINTEXT_POLICY" in ''|keep|purge) ;; *) die "SISCOM_BACKUP_PLAINTEXT la: '$PLAINTEXT_POLICY' (chi keep | purge | de trong)." ;; esac
 [ "${SISCOM_REHEARSAL:-}" = 1 ] || require_root
 require_cmd pg_dump pg_restore psql sha256sum ssh-keygen
 umask 077
@@ -152,16 +158,8 @@ trap - EXIT
 info "Da sao luu: $final ($(stat -c '%s' "$final") byte, $items muc, ma hoa=$encrypt); manifest da ky va tu kiem dat."
 info "SHA-256 (file luu): $(cut -d' ' -f1 "$final.sha256")"
 
-# --- Giu ban: 14 ban moi nhat + moi tuan 1 ban (8 tuan gan nhat). CHI xoa trong thu muc sao luu, CHI ten dung mau, CHI cua DB nay. ---
-ext='dump.age'; [ "$encrypt" = 1 ] || ext='dump'
-ext_re="${ext//./\\.}"
-mapfile -t all < <(find "$SISCOM_BACKUP_DIR" -maxdepth 1 -type f -printf '%f\n' | grep -E "^${db}_[0-9]{8}_[0-9]{6}\\.${ext_re}\$" | sort || true)
-mapfile -t keep < <(printf '%s\n' "${all[@]}" | retention_keep 14 8)
-for f in "${all[@]}"; do
-  if ! printf '%s\n' "${keep[@]}" | grep -qxF "$f"; then
-    stem="${f%."$ext"}"
-    rm -f -- "$SISCOM_BACKUP_DIR/$f" "$SISCOM_BACKUP_DIR/$f.sha256" "$SISCOM_BACKUP_DIR/$stem.manifest" "$SISCOM_BACKUP_DIR/$stem.manifest.sig" "$SISCOM_BACKUP_DIR/$f.restore-ok.txt"
-    info "Da xoa ban cu: $f"
-  fi
-done
-info "Con ${#keep[@]} ban sao luu cua $db. Nho chep ra NGOAI may chu (Owner chon noi luu)."
+# --- Giu ban (SEC-02): 14 bo moi nhat + moi tuan 1 bo (8 tuan) tren HOP .dump va .dump.age; CHI trong thu muc sao luu, CHI ten dung mau,
+# CHI cua DB nay. Che do ma hoa ma con ban plaintext => ban .age moi DA tao + tu kiem, nhung thoat != 0 cho toi khi chon keep/purge. ---
+prc=0; backup_prune "$SISCOM_BACKUP_DIR" "$db" "$encrypt" "$PLAINTEXT_POLICY" "$allowed" || prc=$?
+[ "$prc" = 0 ] || die "Ban sao luu ma hoa moi DA tao va tu kiem dat ($final), nhung buoc giu ban/plaintext chua xong (ma $prc, chi tiet o tren)."
+info "Nho chep ra NGOAI may chu (Owner chon noi luu)."

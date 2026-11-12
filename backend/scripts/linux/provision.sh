@@ -67,6 +67,14 @@ if [ -n "${SISCOM_SSH_PORT:-}" ] && ! printf '%s\n' "${SSH_PORTS[@]}" | grep -qx
 fi
 SSH_PORTS_CSV="$(IFS=,; echo "${SSH_PORTS[*]}")"
 info "Cong SSH dang dung: ${SSH_PORTS_CSV}"
+# SEC-01: neu ufw da cai, kiem ke rule co san NGAY TU DAU (chi doc) => gap rule ngoai allowlist thi dung truoc apt/moi thay doi.
+if command -v ufw >/dev/null 2>&1; then
+  pre_foreign="$(ufw show added 2>/dev/null | ufw_foreign_added "$SSH_PORTS_CSV")" || true
+  if [ -n "$pre_foreign" ]; then
+    printf '%s\n' "$pre_foreign" | sed 's/^/    /' >&2
+    die "ufw da co rule NGOAI allowlist (${SSH_PORTS_CSV}/tcp, 80/tcp, 443/tcp) - liet ke o tren. KHONG doi gi, khong tu xoa rule. Owner tu xu ly (ufw status numbered; ufw delete <so>) roi chay lai."
+  fi
+fi
 ACME_CA="${SISCOM_ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}"
 [[ "$ACME_CA" =~ ^https://[A-Za-z0-9./_-]+$ ]] || die "SISCOM_ACME_CA khong hop le."
 
@@ -124,25 +132,8 @@ step "4. Tuong lua ufw: chi SSH (${SSH_PORTS_CSV})/80/443"
 if [ "$DRY" = 0 ]; then
   [ "$(sshd_ports | paste -sd, -)" = "$SSH_PORTS_CSV" ] || die "Cong SSH thay doi trong luc chay (nay: $(sshd_ports | paste -sd, - || true)). Dung, chua bat ufw."
 fi
-# Mo cong TRUOC (ke ca truong hop ufw da bat san: dat "deny" mac dinh truoc khi co quy tac SSH co the cat phien moi).
-for p in "${SSH_PORTS[@]}"; do run ufw allow "${p}/tcp"; done
-run ufw allow 80/tcp
-run ufw allow 443/tcp
-run ufw default deny incoming
-run ufw default allow outgoing
-run ufw --force enable
-if [ "$DRY" = 1 ]; then
-  echo "[DRY] kiem ufw status: phai co ${SSH_PORTS_CSV}/tcp ALLOW (khong => ufw --force disable va dung)"
-else
-  st="$(ufw status)"
-  for p in "${SSH_PORTS[@]}"; do
-    if ! printf '%s\n' "$st" | grep -Eq "^${p}/tcp[[:space:]]+ALLOW"; then
-      ufw --force disable || true
-      die "Sau khi bat, ufw KHONG cho phep cong SSH ${p}/tcp => da TAT lai ufw de giu truy cap. Kiem tra quy tac ufw roi chay lai."
-    fi
-  done
-  info "ufw dang bat, cong SSH ${SSH_PORTS_CSV} van ALLOW."
-fi
+# SEC-01: kiem ke rule co san -> mo cong TRUOC (ke ca khi ufw da bat san) -> default -> kiem ke lai -> bat -> kiem TOAN BO trang thai.
+ufw_apply "$DRY" "$SSH_PORTS_CSV" || die "Buoc tuong lua ufw khong dat (chi tiet o tren)."
 
 step "5. fail2ban (SSH, cung cong)"
 write_file /etc/fail2ban/jail.d/siscom.local 644 <<CONF

@@ -58,13 +58,9 @@ fi
 [ "$DRY" = 1 ] && [ ! -f "$backend_env" ] && warn "dry-run: chua co $backend_env (bo qua kiem DB)."
 db=""
 if [ -f "$backend_env" ]; then
-  assert_private_file "$backend_env"
-  db="$(url_dbname "$(env_get "$backend_env" DATABASE_URL)")"
-  require_ops_db "$db"
-  if [ -f "$migrate_env" ]; then
-    assert_private_file "$migrate_env"
-    [ "$(url_dbname "$(env_get "$migrate_env" MIGRATE_DATABASE_URL)")" = "$db" ] || die "backend.env va migrate.env tro DB khac nhau."
-  fi
+  # DB-01: DATABASE_URL + AUTH_DATABASE_URL + MIGRATE_DATABASE_URL bat buoc, hop le, CUNG DB - TRUOC moi lenh cham DB/npm/build.
+  load_db_env_triplet "$backend_env" "$migrate_env" || die "Cau hinh ket noi DB khong hop le (chi tiet o tren). Khong doi gi."
+  db="$DB_NAME"
 else
   [ "$DRY" = 1 ] || die "Thieu $backend_env (chay create-db.sh $db env truoc)."
 fi
@@ -155,7 +151,7 @@ fi
 # --- 3. DB hien trang (chi doc) ---
 fresh_db=0
 if [ -f "$migrate_env" ] && [ "$DRY" = 0 ]; then
-  murl="$(env_get "$migrate_env" MIGRATE_DATABASE_URL)"
+  murl="$MIG_URL"
   mpw="${murl#*://*:}"; mpw="${mpw%%@*}"
   has_mig="$(PGPASSWORD="$mpw" psql -X -q -tA -w -h "$SISCOM_PG_HOST" -p "$SISCOM_PG_PORT" -U "$ROLE_MIGRATOR" -d "$db" -c "SELECT to_regclass('public._prisma_migrations') IS NOT NULL" 2>/dev/null)" \
     || die "Khong ket noi duoc $db bang $ROLE_MIGRATOR (PostgreSQL chay chua? migrate.env dung chua?)."
@@ -221,7 +217,7 @@ fi
 if [ "$DRY" = 1 ]; then
   echo "[DRY] prisma migrate status (migrator) ${do_migrate:+; neu --migrate: migrate deploy + create-db.sh grants}"
 else
-  murl="$(env_get "$migrate_env" MIGRATE_DATABASE_URL)"; appurl="$(env_get "$backend_env" DATABASE_URL)"
+  murl="$MIG_URL"; appurl="$APP_URL"
   pr() { ( cd "$rel/backend"; unset AUTH_DATABASE_URL; export DATABASE_URL="$appurl" MIGRATE_DATABASE_URL="$murl"; npx --no-install prisma "$@" ); }
   status_out="$(pr migrate status 2>&1 || true)"
   if printf '%s' "$status_out" | grep -qi 'have not yet been applied\|not yet been applied'; then pending=1

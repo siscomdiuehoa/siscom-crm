@@ -2,7 +2,7 @@
 
 | Mục | Giá trị |
 |---|---|
-| Trạng thái | **`provision.sh` @`c7e74fa` ĐÃ CHẠY THẬT trên VPS 42.96.15.235 (12/11/2026, Owner duyệt, phiên điều phối chạy): 12/12 bước đạt, Let's Encrypt đã cấp chứng chỉ cho IP (mục 11).** Chưa chạy trên VPS: `--ssh-key-only`, `create-db.sh`, `deploy.sh`, `run-cli.sh`, sao lưu/khôi phục, timer sao lưu, tự gia hạn chứng chỉ. Phần SQL/vận hành đã diễn tập trên PostgreSQL tạm (Windows và job CI `linux-scripts` Ubuntu 24.04). Xem mục 9 |
+| Trạng thái | Xem **mục 12** (bảng 3 cột theo từng bước: ĐÃ CHẠY THẬT trên VPS / đã diễn tập PostgreSQL tạm hoặc CI / NOT_VERIFIED). Tóm tắt: `provision.sh` (kể cả `--ssh-key-only`) @`c7e74fa`, `create-db.sh` + `deploy.sh` lần đầu + `run-cli.sh` @`4c33ba6` **đã chạy thật** trên VPS 42.96.15.235 ngày 12/11/2026 (phiên điều phối chạy, Owner duyệt; reviewer chưa kiểm độc lập). Mã sửa R2 (ufw, retention, kiểm 3 URL) **chưa chạy trên VPS**. Sao lưu/khôi phục chưa chạy trên VPS. |
 | Sửa sau review R1 | F1 manifest sao lưu được **ký** và ràng buộc vào file; F2 cổng SSH **đọc từ `sshd -T`** (VPS thật 26266) và mở đúng cổng đó trước khi bật ufw; F3 kiểm argon2/Prisma trên bản build + job CI Linux; `deploy.sh` dọn bản phát hành dở dang khi dừng (mục 10) |
 | Máy đích | BKNS Cloud VM, Ubuntu 24.04, 3 vCPU / 3 GB RAM / 40 GB (hạn dịch vụ 11/11/2027) |
 | Nền thiết kế | `docs/B1.4_VPS_DEPLOY_PLAN.md` (PR #176), `docs/B1.5_VPS_STAGING_PLAN.md`, `backend/docs/VPS_LINUX_NOTES.md`, `backend/docs/B1.4_P4_LINUX_SCRIPTS_DESIGN.md` (nhánh `docs/b1.4-p4-linux-scripts-design`) |
@@ -74,7 +74,9 @@ SISCOM_HOST=42.96.15.235 bash provision.sh
 Làm: apt cập nhật, UTC + `systemd-timesyncd`, swap 2 GB (`/swapfile`, `swappiness=10`), `ufw` mặc định chặn vào và chỉ mở **cổng SSH đang dùng** (đọc từ `sshd -T`, VPS thật là 26266) + 80 + 443, fail2ban cho SSH cùng cổng, unattended-upgrades (**không** tự khởi động lại), Node 24 (NodeSource), PostgreSQL 18 (PGDG, `listen_addresses='localhost'`, `timezone='UTC'`, kiểm `pg_hba` chỉ loopback), Caddy, user `siscom`, journald `SystemMaxUse=500M`, cài 3 unit systemd và `Caddyfile`.
 
 **PASS khi**: `ufw status` chỉ có cổng SSH đang dùng (26266), 80, 443 — script tự kiểm sau khi bật, thiếu cổng SSH thì tự tắt lại ufw và dừng; `timedatectl` = UTC và đồng bộ; `free -m` có Swap 2 GB; `node -v` là 24.x (≥ 24.11); `ss -ltn | grep 5432` chỉ `127.0.0.1`/`[::1]`; `sudo -u postgres psql -tAc 'SHOW TimeZone'` = `UTC`; `id siscom` có và không thuộc nhóm `sudo`/`admin`.
-**Cổng SSH (F2):** script **không đổi** cổng của `sshd`. Trước mọi thay đổi, nó đọc cổng đang dùng bằng `sshd -T` (gộp cả cổng `ssh.socket` nếu đang chạy; nhiều cổng thì lấy tất cả), đọc lại ngay trước khi bật ufw, **mở các cổng đó trước** rồi mới đặt `deny` mặc định và `ufw --force enable`, sau đó kiểm `ufw status` còn `<cổng>/tcp ALLOW`. Thiếu ⇒ `ufw --force disable` và dừng. fail2ban dùng cùng cổng.
+**Cổng SSH (F2) và tường lửa (SEC-01, sửa sau R2):** script **không đổi** cổng của `sshd`; đọc cổng đang dùng bằng `sshd -T` (gộp cả `ssh.socket`; nhiều cổng thì lấy tất cả). Allowlist ufw = đúng `ufw allow <cổng SSH>/tcp`, `ufw allow 80/tcp`, `ufw allow 443/tcp`.
+- **Kiểm kê rule có sẵn** bằng `ufw show added` (chạy được cả khi ufw tắt) **ngay từ đầu script** (trước apt) và **lại trước khi thêm/bật**: có **bất kỳ** rule nào khác (allow cổng khác như 5432/3000, `deny`/`limit`/`reject` trên cổng SSH, `allow 22` khi SSH ở 26266, theo nguồn/giao diện…) ⇒ **dừng, không đổi gì, không tự xoá rule**, in danh sách để Owner tự xử lý (`ufw status numbered`, `ufw delete <số>`).
+- Thêm allowlist (idempotent) → `default deny incoming` / `allow outgoing` → kiểm kê lại → `ufw --force enable` → phân tích **toàn bộ** `ufw status verbose`: phải `Status: active`, `Default: deny (incoming)`, mọi rule (v4+v6) thuộc allowlist, đủ cổng SSH. Thiếu cổng SSH ⇒ `ufw --force disable` và dừng; có rule lạ ⇒ dừng, **không** in OK (ufw vẫn bật vì SSH còn mở). fail2ban dùng cùng cổng.
 **FAIL / dừng ngay** (trước khi đổi gì): thiếu/sai `SISCOM_HOST`; tên miền mà bản ghi A không phải **duy nhất** IP công khai của máy; IPv4 không phải IP của chính máy; không xác định được IP công khai (đặt `SISCOM_PUBLIC_IP`); `SISCOM_TLS_MODE=internal` với tên miền; `sshd -T` lỗi hoặc không có cổng hợp lệ (vd không chạy bằng root; script in dòng lỗi của `sshd -T` — gặp `Missing privilege separation directory: /run/sshd` thì chạy từ phiên SSH đang mở hoặc sau `systemctl start ssh`); `SISCOM_SSH_PORT` được đặt nhưng không trùng cổng đang nghe.
 **SSH chỉ bằng khoá** — cờ **riêng** `--ssh-key-only`, chỉ chạy khi Owner duyệt và **đã thử đăng nhập bằng khoá ở phiên MỚI** (cổng 26266):
 
@@ -124,11 +126,14 @@ bash /opt/siscom-crm/current/backend/scripts/linux/run-cli.sh bootstrap-auth
 unset BOOTSTRAP_PASSWORD_{SYSADMIN,ADMIN,SALE,TECHNICIAN,ACCOUNTANT} v
 ```
 
+**Điểm lệch đã ghi nhận (staging 12/11):** với staging dữ liệu giả, Owner duyệt cho `bootstrap-auth` dùng 5 mật khẩu **sinh ngẫu nhiên trên VPS** (truyền qua biến môi trường của tiến trình, lưu tệp root 600, không in, không qua chat) thay vì Owner tự gõ. **Production vẫn theo hướng dẫn trên** (Owner tự gõ).
+
 **Lưu ý cho VPS này trước khi chạy G2–G3:**
 - Thứ tự: `create-db.sh … create` → `create-db.sh … env` (cần `SISCOM_HOST=42.96.15.235` ⇒ origin `https://42.96.15.235`) → `deploy.sh --src … --frontend … --migrate` (DB rỗng: tự bỏ qua sao lưu, migrate bằng `siscom_migrator`, rồi `grants` + VERIFY) → `run-cli.sh seed-lookups` → `run-cli.sh bootstrap-auth`.
 - `run-cli.sh` dùng bản đã triển khai (`/opt/siscom-crm/current/…`), không phải thư mục giải nén.
 - **Trước lần deploy THỨ HAI**: DB đã có dữ liệu nên `deploy.sh` **bắt buộc** sao lưu thành công ⇒ phải có `backup-db.sh --init-signing-key` và `/etc/siscom-crm/backup.age-recipients` (khoá công khai age của Owner) trước, nếu không deploy sẽ dừng ở bước sao lưu (đúng thiết kế, không đổi gì).
 - Build backend chạy trên VPS (2,9 GB RAM + swap 2 GB; `NODE_OPTIONS=--max-old-space-size=1536`) và cần mạng ra npm registry. Frontend build trên Windows.
+- `deploy.sh` và `run-cli.sh` (sau R2, DB-01) dừng ngay nếu `DATABASE_URL`, `AUTH_DATABASE_URL` (backend.env) và `MIGRATE_DATABASE_URL` (migrate.env) không đủ, sai dạng/tài khoản, hoặc không cùng một DB — trước mọi lệnh chạm DB, npm hay CLI. Tệp do `create-db.sh … env` sinh luôn đạt; chỉ lỗi khi sửa tay.
 - `--tag` cần `/opt/siscom-crm/repo` (git clone; kho riêng tư cần deploy key do Owner cấp) và chỉ nhận tag dạng `vX.Y.Z[-hậu-tố]` **thuộc lịch sử `origin/main`**.
 
 Nếu chưa có tag, dùng `--src <thư mục có backend/>` (vd giải nén `git archive <commit đã review> backend`) thay `--tag`. `--tag` cần `/opt/siscom-crm/repo` (git clone; kho riêng tư cần deploy key do Owner cấp) và chỉ nhận tag dạng `vX.Y.Z[-hậu-tố]` **thuộc lịch sử `origin/main`**.
@@ -190,6 +195,13 @@ shred -u /root/siscom-backup.key
 ```
 
 `backup-db.sh`: `pg_dump -Fc` bằng `siscom_migrator` trên **ảnh chụp nhất quán** (`--snapshot`; số dòng từng bảng trong `.manifest` đếm cùng ảnh chụp) → kiểm `pg_restore -l` → mã hoá age → ghi `file`, `file_sha256` vào manifest → **ký manifest** (`ssh-keygen -Y sign`, ed25519, namespace `siscom-crm-backup`) → tự kiểm chữ ký → giữ **14 bản mới nhất + mỗi tuần 1 bản (8 tuần)**, chỉ xoá file đúng mẫu tên của DB đó trong thư mục sao lưu. Từ chối nếu thiếu khoá ký, thiếu khoá age (trừ khi tự đặt `SISCOM_BACKUP_NO_ENCRYPT=yes`), ổ còn < 1 GB, hoặc tài khoản là `postgres`. Lỗi ở bất kỳ bước nào ⇒ không để lại bộ sao lưu dở dang/chưa ký.
+
+**Giữ bản và bản plaintext (SEC-02, sửa sau R2):** giữ bản tính trên **hợp** `<db>_<ts>.dump` và `<db>_<ts>.dump.age` của đúng DB; xoá bộ nào thì xoá đủ sidecar của bộ đó (`.sha256`, `.restore-ok.txt`, `.manifest`, `.manifest.sig`). Khi chạy **mã hoá** mà vẫn còn bộ `.dump` (plaintext, vd từng chạy `SISCOM_BACKUP_NO_ENCRYPT=yes`): bản `.age` mới **vẫn được tạo, ký và tự kiểm**, nhưng script **liệt kê plaintext và thoát ≠ 0** — không xoá, không bỏ qua — cho đến khi Owner chọn có chủ đích:
+- `SISCOM_BACKUP_PLAINTEXT=keep`: giữ, cảnh báo mỗi lần, thoát 0;
+- `SISCOM_BACKUP_PLAINTEXT=purge`: xoá các bộ plaintext **chỉ khi** có ít nhất một bộ `.age` qua xác thực chữ ký;
+- giá trị khác ⇒ dừng **trước** khi dump.
+
+Vì sao dừng **sau** khi dump: để lúc nào cũng có bản sao lưu mới hợp lệ (đặc biệt trước migrate). **Tác động tới `deploy.sh`:** sao lưu thoát ≠ 0 ⇒ deploy dừng trước migrate (đúng thiết kế); xử lý plaintext rồi deploy lại. Chiều ngược (đang có `.age`, chạy `NO_ENCRYPT=yes`): giữ bản vẫn quản cả hai loại.
 `restore-test.sh`: **xác thực trước** (chữ ký manifest bằng `allowed_signers`; `db` = DB mong đợi; `file` = đúng tên file; `file_sha256` = SHA-256 thật) — sai bất kỳ điểm nào ⇒ dừng, **chưa tạo DB thử** → giải mã → SHA-256 bản rõ phải khớp manifest đã ký → tạo DB `siscom_crm_restore_<UTC>` → `pg_restore` → so **số dòng từng bảng** và **tập bảng** với manifest + `_prisma_migrations` → ghi `<dump>.restore-ok.txt`; **không tự xoá** DB thử (in lệnh `DROP`). Không còn nhánh "thiếu manifest thì so với DB nguồn hiện tại".
 
 Vì sao ký (F1): age chỉ **mã hoá**, ai có khoá **công khai** age cũng tạo được một bản `.age` hợp lệ; `.sha256` không có khoá nên ai sửa file cũng tính lại được. Chữ ký ed25519 trên manifest (chứa SHA-256 của file) ràng buộc file + manifest với khoá riêng chỉ nằm trên VPS. **Giới hạn**: ai có root trên VPS đọc được khoá ký ⇒ chữ ký chống sửa ở kho sao lưu và bản sao ngoài VPS, **không** chống máy chủ đã bị chiếm quyền. Muốn chống cả trường hợp đó cần ký ở máy khác (ngoài phạm vi PR này).
@@ -280,7 +292,7 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 
 ## 9. Giới hạn đã biết và việc cần Owner quyết
 
-1. **Đã kiểm trên VPS thật (12/11)**: `provision.sh` (dry-run rồi chạy thật): đọc cổng SSH 26266, ufw, swap, fail2ban, unattended-upgrades, Node 24, PostgreSQL 18 chỉ localhost, Caddy 2.11.9, chứng chỉ Let's Encrypt cho IP, `curl https://42.96.15.235/` không `-k` (mục 11). **NOT_VERIFIED trên VPS thật**: `--ssh-key-only`; `create-db.sh`; `deploy.sh` chế độ thật (đổi liên kết `current`, `systemctl restart`, kiểm health, rollback, build với 2,9 GB RAM); `run-cli.sh`; `backup-db.sh`/`restore-test.sh` và timer sao lưu dưới systemd; `ProtectSystem=strict`/`LogsDirectory` khi backend chạy thật; **tự gia hạn** chứng chỉ IP (~6 ngày) và gia hạn thủ công. Trên Linux (CI Ubuntu 24.04) đã kiểm: ShellCheck, test guard, `provision.sh --dry-run`, `npm ci --ignore-scripts` + build + argon2/Prisma, diễn tập PostgreSQL 18 + age + backend production đăng nhập thật, `systemd-analyze verify`, `caddy validate`/`adapt`.
+1. **Phạm vi kiểm chứng**: xem bảng mục 12. Bằng chứng VPS là đầu ra do phiên điều phối thu (phụ lục `docs/VPS_EVIDENCE_20261112.md`), **chưa được reviewer kiểm độc lập**. Mã sửa sau R2 (SEC-01 ufw, SEC-02 retention, DB-01 kiểm 3 URL) chỉ có test/CI, **chưa chạy trên VPS**.
 2. **`account-admin` (FV5) khoá cứng vào PostgreSQL thử cổng 55470** (`FV5-DB-GUARD`) nên **không chạy được trên VPS**. Bước V6 (tài khoản thật sau bootstrap: thêm nhân viên, đặt lại mật khẩu, khoá/mở) cần một PR/quyết định riêng; trước đó chỉ có 5 tài khoản bootstrap.
 3. **Staging và prod dùng chung 3 role/mật khẩu** (role cấp cluster, `REASSIGN OWNED` của `ROLE_SPLIT` cũng cấp cluster). Chấp nhận được khi cùng một VPS, một người quản trị; nếu cần tách hẳn cần hậu tố role theo DB (sửa các file SQL S1 — ngoài phạm vi).
 4. **Chưa có chép bản sao lưu ra ngoài VPS** và chưa có healthcheck ngoài: chờ Owner chọn nơi lưu (Q9).
@@ -291,7 +303,7 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 9. **Chứng chỉ cho IP**: Let's Encrypt **đã cấp** qua Caddy 2.11.9 với profile `shortlived` trên VPS (mục 11). **Chưa kiểm chứng**: Caddy tự gia hạn trước hạn (lần đầu dự kiến khoảng 16–17/11, chứng chỉ hết hạn 18/11/2026 20:31 UTC) — cần chạy `check-tls.sh` sau mốc đó. Chưa có cảnh báo tự động khi chứng chỉ sắp hết hạn (chỉ có `check-tls.sh` chạy tay).
 10. **Cloud-init đặt lại mật khẩu root mỗi lần boot**: chưa chặn (xem mục 2).
 
-## 10. Thay đổi sau review R1 (PR #232)
+## 10. Thay đổi sau review R1 và R2 (PR #232)
 
 | ID | Vấn đề đã tái hiện trên `c34f602` | Sửa | Bằng chứng |
 |---|---|---|---|
@@ -299,6 +311,9 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 | F2 | `SISCOM_SSH_PORT=2222` ⇒ `ufw allow 2222/tcp` nhưng `sshd` vẫn ở 22 và `ufw --force enable` chặn 22 ⇒ mất SSH | Lần 1 (f304d45): chỉ nhận 22. **Lần 2** (theo VPS thật cổng 26266): đọc cổng từ `sshd -T` (+ `ssh.socket`), mở đúng các cổng đó trước `ufw --force enable`, kiểm `ufw status` sau khi bật (thiếu ⇒ tắt ufw, dừng); không đọc được ⇒ từ chối trước khi đổi gì; fail2ban cùng cổng | `test-guards.sh` mục 5, 8, 8b, 8c, 8d |
 | Host | (yêu cầu mới, không phải lỗi R1) Owner có tên miền `siscom.io.vn`; cũng cần chạy được bằng IP | `SISCOM_HOST` (tên miền mặc định / IPv4 phụ) thay `SISCOM_DOMAIN`; kiểm DNS A = duy nhất IP công khai của máy (hoặc IPv4 = IP của máy) **trước** mọi thay đổi; 3 tệp TLS (`tls-domain`, `tls-ip-shortlived`, `tls-ip-internal`) được `import` vào Caddyfile; kiểm phiên bản Caddy; `check-tls.sh`; `create-db.sh env` đặt origin `https://<host>` | `test-guards.sh` mục 8b; diễn tập backend với tên miền và với IP (đăng xuất Origin lạ ⇒ 403, `https://<host>` ⇒ 200); CI `caddy validate`/`adapt` 3 chế độ, kiểm DNS thật |
 | F3 | `npm ci --ignore-scripts` chưa được kiểm trên Linux; deploy không kiểm argon2 lúc chạy. Kèm lỗi liên quan: `die` trước khi đổi liên kết để lại `releases/<id>` dở dang (trap ERR không bắt `exit`) | Giữ `--ignore-scripts`; `backend_runtime_smoke` trong deploy; trap EXIT dọn bản dở dang; job CI `linux-scripts` | `test-guards.sh` mục 9; CI `linux-scripts` |
+| SEC-01 (R2) | `provision.sh` chỉ thêm allow và grep cổng SSH: rule ufw có sẵn (allow 5432/3000, deny SSH đứng trước…) không bị phát hiện | `ufw_apply`/`ufw_foreign_added`/`ufw_status_problems` (lib.sh): kiểm kê `ufw show added` từ đầu và trước khi bật; rule lạ ⇒ dừng, không tự xoá; sau khi bật kiểm toàn bộ `ufw status verbose` | `test-guards.sh` mục 10 (13 ca: sạch, chạy lại, 5432, 3000, deny/limit SSH, allow 22, theo nguồn, rule lạ sau khi bật, mất SSH sau khi bật, dry-run) |
+| SEC-02 (R2) | Giữ bản chỉ nhìn phần mở rộng của lần chạy hiện tại ⇒ bộ `.dump` cũ còn mãi khi chuyển sang mã hoá (tái hiện: sao lưu mã hoá thoát 0, "Con 1 ban") | `backup_prune`/`backup_rm_set` (lib.sh): giữ bản trên hợp hai định dạng, xoá đủ sidecar; plaintext còn lại khi mã hoá ⇒ thoát ≠ 0 trừ khi `SISCOM_BACKUP_PLAINTEXT=keep|purge` | `test-guards.sh` mục 11 (8 ca); `rehearse-pg.sh` bước SEC-02 trên PostgreSQL thật |
+| DB-01 (R2) | `run-cli.sh`/`deploy.sh` không kiểm `AUTH_DATABASE_URL` (và deploy bỏ qua khi thiếu `migrate.env`) | `load_db_env_triplet`/`db_url_check` (lib.sh): 3 URL bắt buộc, đúng dạng, đúng tài khoản, host loopback, **cùng DB**, gọi trước mọi lệnh chạm DB/npm/CLI | `test-guards.sh` mục 12 (9 ca hàm + 2 tích hợp với `npm`/`psql`/`node` giả: không lời gọi nào khi env lệch + 1 đối chứng) |
 
 ## 11. Bằng chứng chạy thật trên VPS (12/11/2026)
 
@@ -320,3 +335,20 @@ Owner duyệt; phiên điều phối chạy `provision.sh` @`c7e74fa` trên VPS 
 | Chưa chạy | `--ssh-key-only`, `create-db.sh`, `deploy.sh`, `run-cli.sh`, sao lưu/khôi phục |
 
 Việc cần theo dõi: chạy `check-tls.sh` sau khoảng 16–17/11/2026 để xác nhận Caddy đã tự gia hạn (chứng chỉ hiện tại hết hạn 18/11/2026 20:31 UTC).
+
+## 12. Bảng kiểm chứng theo từng bước (cập nhật sau R2)
+
+Cột 1 chỉ ghi khi có đầu ra quan sát được (phụ lục `docs/VPS_EVIDENCE_20261112.md`); bằng chứng VPS do **phiên điều phối thu, Owner duyệt từng bước — reviewer chưa kiểm độc lập**. Các bước VPS chạy bằng script ở SHA ghi trong ngoặc, **không phải** bản sau khi sửa R2.
+
+| Script / bước | (1) ĐÃ CHẠY THẬT trên VPS 42.96.15.235 (SHA script, giờ UTC 12/11/2026, kết quả) | (2) Đã diễn tập PostgreSQL tạm / CI | (3) NOT_VERIFIED |
+|---|---|---|---|
+| `provision.sh` 12 bước | `c7e74fa`, khoảng 04:30: 12/12 đạt; cổng 26266; ufw 26266/80/443, từ ngoài 22/3000/3389/5432 đóng; swap 2 GB; fail2ban; Node 24.22.3; PostgreSQL 18.6 chỉ loopback; Caddy 2.11.9 | dry-run trên Ubuntu 24.04 (CI) | Kiểm kê ufw mới (SEC-01) trên VPS; trạng thái sau reboot |
+| Chứng chỉ IP (Caddy, profile shortlived) | `c7e74fa`: Let's Encrypt YE1, SAN IP 42.96.15.235, 12/11 04:31 → 18/11 20:31; `curl https://42.96.15.235/` không `-k` đạt | `caddy validate`/`adapt` 3 chế độ (CI) | Tự gia hạn; `check-tls.sh` trên VPS; gia hạn thủ công |
+| `provision.sh --ssh-key-only` | `c7e74fa`, 05:40–05:50: `sshd -T` → `passwordauthentication no`, `kbdinteractiveauthentication no`, `permitrootlogin without-password`; phiên mới bằng khoá vào được; chỉ mật khẩu → `Permission denied (publickey)` | test guard (`sshd`/`ufw` giả) | Sau reboot (cloud-init nạp lại seed) |
+| `create-db.sh create` + `env` | `4c33ba6`, 05:51–05:53: owner `siscom_migrator`; 3 role không superuser/createdb; 4 tệp `/etc/siscom-crm` mode 600; CORS = `https://42.96.15.235`; tạo lại ⇒ `TU CHOI` | diễn tập PG tạm (Windows + CI) | `create-db.sh drop`, DB `siscom_crm_prod` |
+| `deploy.sh --src --frontend --migrate` lần đầu | `4c33ba6`, 05:54–05:55: 12 migration; VERIFY `PASS|73`, VERIFY_AUTH `PASS|33`; health `migrated:true`, `leastPrivilege:true`, `authPool:separate`; chỉ nghe `127.0.0.1:3000`; 0 dòng error | build + argon2/Prisma (CI); test guard dọn bản dở dang | Deploy lần 2 (nhánh sao lưu bắt buộc), `--rollback`, `--auto-rollback`, `--tag`, dọn bản dở dang trên VPS; **kiểm 3 URL (DB-01) trên VPS** |
+| `run-cli.sh seed-lookups` / `bootstrap-auth` | `4c33ba6`, 05:55–05:56: 57/57 mục; 5 tài khoản thử, `closed=true` (mật khẩu sinh ngẫu nhiên — xem điểm lệch ở G3) | diễn tập PG tạm | **Kiểm 3 URL (DB-01) trên VPS** |
+| HTTPS từ ngoài + đăng nhập | 05:55–05:57: trang chủ 200, health 200, HSTS + nosniff, `http://` → 308; 5 tài khoản đăng nhập 200, cookie `Secure`/`HttpOnly`, sai mật khẩu 401; quyền `/customers` đúng ma trận; Owner tự đăng nhập dùng thử | backend production 2 chế độ host (CI) | G5 đầy đủ (CSRF thiếu token, giới hạn theo IP thật, iPhone); `nmap -p-` |
+| `backup-db.sh` (+ `--init-signing-key`), `restore-test.sh`, timer | Chưa chạy | ký + age + 8 ca âm F1 + SEC-02 plaintext/keep/purge (PG tạm, CI) | Toàn bộ trên VPS; bản sao ngoài VPS |
+| Unit systemd | `siscom-crm-backend` active/enabled sau deploy (`4c33ba6`) | `systemd-analyze verify` (CI) | Giới hạn RAM / hardening dưới tải; timer sao lưu |
+| Mã sửa R2 (SEC-01, SEC-02, DB-01) | **Chưa chạy trên VPS** | test guard + diễn tập + CI trên SHA sau sửa | Toàn bộ trên VPS |

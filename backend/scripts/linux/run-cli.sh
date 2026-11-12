@@ -19,11 +19,11 @@ case "$cli" in seed-lookups|bootstrap-auth) ;; *) die "Dung: run-cli.sh <seed-lo
 require_cmd node
 
 backend_env="$SISCOM_ETC/backend.env"; migrate_env="$SISCOM_ETC/migrate.env"
-assert_private_file "$backend_env"; assert_private_file "$migrate_env"
-appurl="$(env_get "$backend_env" DATABASE_URL)"; db="$(url_dbname "$appurl")"
-require_ops_db "$db"
-murl="$(env_get "$migrate_env" MIGRATE_DATABASE_URL)"
-[ "$(url_dbname "$murl")" = "$db" ] || die "backend.env va migrate.env tro DB khac nhau."
+# DB-01: ba URL bat buoc, hop le, CUNG DB - TRUOC khi chay bat ky CLI nao.
+load_db_env_triplet "$backend_env" "$migrate_env" || die "Cau hinh ket noi DB khong hop le (chi tiet o tren). Khong chay CLI."
+appurl="$APP_URL"; murl="$MIG_URL"; db="$DB_NAME"
+cors="$(env_get "$backend_env" CORS_ORIGINS)" && aorig="$(env_get "$backend_env" AUTH_ALLOWED_ORIGINS)" \
+  || die "backend.env thieu CORS_ORIGINS/AUTH_ALLOWED_ORIGINS."
 
 dir="$SISCOM_OPT/current/backend"
 [ -f "$dir/dist/cli/$cli.js" ] || die "Thieu $dir/dist/cli/$cli.js (da deploy chua?)."
@@ -33,7 +33,5 @@ cd "$dir"
 # export (khong dung `env VAR=...`) de bi mat khong xuat hien trong tham so tien trinh.
 export NODE_ENV=production HOST=127.0.0.1 PORT=3000 TRUST_PROXY=loopback COOKIE_SECURE=true
 export DATABASE_URL="$appurl" MIGRATE_DATABASE_URL="$murl" SEED_LOOKUPS_ALLOW_DB="$db"
-AUTH_DATABASE_URL="$(env_get "$backend_env" AUTH_DATABASE_URL)"; export AUTH_DATABASE_URL
-CORS_ORIGINS="$(env_get "$backend_env" CORS_ORIGINS)"; export CORS_ORIGINS
-AUTH_ALLOWED_ORIGINS="$(env_get "$backend_env" AUTH_ALLOWED_ORIGINS)"; export AUTH_ALLOWED_ORIGINS
+export AUTH_DATABASE_URL="$AUTH_URL" CORS_ORIGINS="$cors" AUTH_ALLOWED_ORIGINS="$aorig"
 exec node "dist/cli/$cli.js"

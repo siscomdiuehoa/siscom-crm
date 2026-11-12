@@ -105,13 +105,14 @@ if [ "$rc" -eq 0 ] && contains "$out" "[DRY]"; then ok "--src hop le -> dry-run"
 out="$(run_deploy --dry-run --src "$tmp" --frontend "$tmp/fe")"; rc=$?
 if [ "$rc" -ne 0 ]; then ok "--src thieu backend/package.json bi tu choi"; else bad "--src sai khong bi tu choi"; fi
 # backend.env tro DB la => deploy tu choi
-printf 'DATABASE_URL=postgresql://siscom_app:%048d@127.0.0.1:5432/siscom_crm_dev\n' 0 > "$etc/backend.env"; chmod 600 "$etc/backend.env"
+for k in "DATABASE_URL|siscom_app" "AUTH_DATABASE_URL|siscom_auth"; do printf '%s=postgresql://%s:%048d@127.0.0.1:5432/siscom_crm_dev\n' "${k%%|*}" "${k#*|}" 0; done > "$etc/backend.env"
+printf 'MIGRATE_DATABASE_URL=postgresql://siscom_migrator:%048d@127.0.0.1:5432/siscom_crm_dev\n' 0 > "$etc/migrate.env"; chmod 600 "$etc/backend.env" "$etc/migrate.env"
 out="$(SISCOM_REHEARSAL=1 SISCOM_ETC="$etc" SISCOM_OPT="$opt" bash "$lin/deploy.sh" --dry-run --tag v0.1.0 --frontend "$tmp/fe" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ] && contains "$out" "TU CHOI"; then ok "backend.env tro siscom_crm_dev bi tu choi"; else bad "backend.env DB la khong bi tu choi (rc=$rc)"; fi
 chmod 644 "$etc/backend.env"
 out="$(SISCOM_ETC="$etc" SISCOM_OPT="$opt" bash "$lin/deploy.sh" --dry-run --tag v0.1.0 --frontend "$tmp/fe" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ] && contains "$out" "600"; then ok "backend.env quyen 644 bi tu choi"; else bad "backend.env 644 khong bi tu choi (rc=$rc)"; fi
-rm -f "$etc/backend.env"
+rm -f "$etc/backend.env" "$etc/migrate.env"
 out="$(run_deploy --rollback ../../etc 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ]; then ok "rollback ID co ../ bi tu choi"; else bad "rollback ID ../ khong bi tu choi"; fi
 
@@ -142,6 +143,41 @@ cat > "$stub/caddy" <<'STUB'
 [ "${1:-}" = version ] && echo "v${STUB_CADDY_VER:-2.11.9} h1:stub"; exit 0
 STUB
 chmod +x "$stub/dig" "$stub/ip" "$stub/caddy"
+# ufw GIA co trang thai (STUB_UFW_DIR: rules = moi dong "allow 26266/tcp" | "deny 26266/tcp"..., active, default) + nhat ky loi goi (calls).
+# STUB_UFW_INJECT_AFTER_ENABLE="<rule>": chen rule la khi enable (mo phong rule xuat hien giua chung). STUB_UFW_DROP_SSH_AFTER_ENABLE=<cong>: mat rule SSH khi enable.
+cat > "$stub/ufw" <<'STUB'
+#!/usr/bin/env bash
+d="${STUB_UFW_DIR:-}"
+if [ -z "$d" ]; then [ "${1:-} ${2:-}" = "show added" ] && { echo "Added user rules (see 'ufw status' for running firewall):"; echo "(None)"; }; exit 0; fi
+mkdir -p "$d"; touch "$d/rules"; echo "$*" >> "$d/calls"
+st="$(cat "$d/active" 2>/dev/null || echo inactive)"; def="$(cat "$d/default" 2>/dev/null || echo 'deny (incoming), allow (outgoing), disabled (routed)')"
+case "$*" in
+  "show added")
+    echo "Added user rules (see 'ufw status' for running firewall):"
+    if [ -s "$d/rules" ]; then sed 's/^/ufw /' "$d/rules"; else echo "(None)"; fi ;;
+  allow\ *|deny\ *|limit\ *|reject\ *)
+    grep -qxF "$*" "$d/rules" && echo "Skipping adding existing rule" || { echo "$*" >> "$d/rules"; echo "Rule added"; } ;;
+  "default deny incoming") echo "${def/* (incoming)/deny (incoming)}" > /dev/null; echo "deny (incoming), allow (outgoing), disabled (routed)" > "$d/default" ;;
+  "default allow outgoing") : ;;
+  "--force enable")
+    echo active > "$d/active"
+    [ -n "${STUB_UFW_INJECT_AFTER_ENABLE:-}" ] && echo "$STUB_UFW_INJECT_AFTER_ENABLE" >> "$d/rules"
+    [ -n "${STUB_UFW_DROP_SSH_AFTER_ENABLE:-}" ] && { grep -vxF "allow ${STUB_UFW_DROP_SSH_AFTER_ENABLE}/tcp" "$d/rules" > "$d/r2" || true; mv "$d/r2" "$d/rules"; }
+    echo "Firewall is active and enabled on system startup" ;;
+  "--force disable") echo inactive > "$d/active"; echo "Firewall stopped and disabled on system startup" ;;
+  "status verbose"|"status")
+    if [ "$st" != active ]; then echo "Status: inactive"; exit 0; fi
+    echo "Status: active"; echo "Logging: on (low)"; echo "Default: $def"; echo "New profiles: skip"; echo
+    printf '%-27s%-12s%s\n' To Action From; printf '%-27s%-12s%s\n' -- ------ ----
+    for v6 in "" " (v6)"; do
+      while read -r act port; do
+        a="$(echo "$act" | tr a-z A-Z) IN"; printf '%-27s%-12s%s\n' "$port$v6" "$a" "Anywhere$v6"
+      done < "$d/rules"
+    done ;;
+  *) echo "ufw gia: lenh khong ho tro: $*" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$stub/ufw"
 export STUB_DNS=42.96.15.235 STUB_SRC_IP=42.96.15.235
 out="$(PATH="$stub:$PATH" STUB_SSHD_PORTS=22 SISCOM_ETC="$tmp/e2" SISCOM_OPT="$tmp/o2" SISCOM_BACKUP_DIR="$tmp/b2" SISCOM_HOST=crm-staging.siscom.io.vn bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "dry-run thanh cong" || bad "dry-run loi rc=$rc"
@@ -333,6 +369,144 @@ out="$(prov 26266)"
 check "ghi /etc/cloud/cloud.cfg.d/99-siscom-keep-ssh-hostkeys.cfg" contains "$out" "99-siscom-keep-ssh-hostkeys.cfg"
 check "noi dung ssh_deletekeys: false" contains "$out" "ssh_deletekeys: false"
 
+echo "== 10. SEC-01 (PR232-R2): ufw kiem ke rule CO SAN truoc khi bat, kiem TOAN BO tap rule sau khi bat =="
+# RED tren ma cu: provision --dry-run voi rule 5432 co san van di tiep (khong hoi ufw)
+u="$tmp/ufw-c"; mkdir -p "$u"; echo "allow 5432/tcp" > "$u/rules"
+out="$(STUB_UFW_DIR="$u" prov 26266)"; rc=$?
+if [ "$rc" -ne 0 ] && contains "$out" "5432" && ! contains "$out" "[DRY] ufw allow"; then ok "provision --dry-run: rule 5432 co san => dung truoc khi them/bat"; else bad "provision --dry-run voi rule 5432 co san van di tiep (rc=$rc)"; fi
+if declare -F ufw_apply >/dev/null; then
+  ua() { # ua <ten ca> [rules co san...] : chay ufw_apply that (khong dry) tren ufw gia; dat UOUT/URC; thu muc trang thai $tmp/ufw-<ten>
+    local name="$1"; shift; local dir="$tmp/ufw-$name"; rm -rf "$dir"; mkdir -p "$dir"; : > "$dir/rules"
+    local r; for r in "$@"; do echo "$r" >> "$dir/rules"; done
+    UOUT="$(PATH="$stub:$PATH" STUB_UFW_DIR="$dir" bash -c ". '$lin/lib.sh'; ufw_apply 0 26266" 2>&1)"; URC=$?; UDIR="$dir"
+  }
+  final_ok() { [ "$(sort "$UDIR/rules")" = "$(printf 'allow 26266/tcp\nallow 443/tcp\nallow 80/tcp\n' | sort)" ] && [ "$(cat "$UDIR/active")" = active ]; }
+  ua sach; { [ "$URC" -eq 0 ] && final_ok && contains "$UOUT" "[OK]"; } && ok "(a) ufw sach => dung allowlist 26266/80/443, active" || bad "(a) ufw sach (rc=$URC): $UOUT"
+  PATH="$stub:$PATH" STUB_UFW_DIR="$UDIR" bash -c ". '$lin/lib.sh'; ufw_apply 0 26266" >/dev/null 2>&1; rc=$?
+  { [ "$rc" -eq 0 ] && final_ok; } && ok "(b) chay lai tren allowlist => van dung, khong them rule" || bad "(b) chay lai (rc=$rc)"
+  for c in "c|allow 5432/tcp" "d|allow 3000" "e|deny 26266/tcp" "e2|limit 26266/tcp" "e3|allow 22/tcp" "e4|allow from 10.0.0.0/8"; do
+    n="${c%%|*}"; r="${c#*|}"
+    ua "$n" "$r"
+    if [ "$URC" -ne 0 ] && contains "$UOUT" "$r" && ! contains "$UOUT" "[OK]" && ! grep -Eq '^(allow|default|--force enable)' "$UDIR/calls"; then
+      ok "($n) rule co san '$r' => dung, khong goi allow/default/enable, khong OK"
+    else bad "($n) rule co san '$r' khong bi chan dung cach (rc=$URC)"; fi
+  done
+  # (f) rule la xuat hien SAU khi bat => dung, khong OK
+  rm -rf "$tmp/ufw-f"; mkdir -p "$tmp/ufw-f"; : > "$tmp/ufw-f/rules"
+  out="$(PATH="$stub:$PATH" STUB_UFW_DIR="$tmp/ufw-f" STUB_UFW_INJECT_AFTER_ENABLE="allow 5432/tcp" bash -c ". '$lin/lib.sh'; ufw_apply 0 26266" 2>&1)"; rc=$?
+  { [ "$rc" -ne 0 ] && contains "$out" "5432" && ! contains "$out" "[OK] ufw"; } && ok "(f) rule la sau khi bat => dung, khong OK" || bad "(f) rule la sau khi bat (rc=$rc)"
+  # (g) mat cong SSH sau khi bat => tat lai ufw, dung
+  rm -rf "$tmp/ufw-g"; mkdir -p "$tmp/ufw-g"; : > "$tmp/ufw-g/rules"
+  out="$(PATH="$stub:$PATH" STUB_UFW_DIR="$tmp/ufw-g" STUB_UFW_DROP_SSH_AFTER_ENABLE=26266 bash -c ". '$lin/lib.sh'; ufw_apply 0 26266" 2>&1)"; rc=$?
+  { [ "$rc" -ne 0 ] && grep -qx -- '--force disable' "$tmp/ufw-g/calls" && [ "$(cat "$tmp/ufw-g/active")" = inactive ]; } && ok "(g) thieu SSH sau khi bat => ufw --force disable, dung" || bad "(g) thieu SSH sau khi bat (rc=$rc)"
+  # dry-run: chi doc, khong goi lenh ghi
+  rm -rf "$tmp/ufw-dry"; mkdir -p "$tmp/ufw-dry"; : > "$tmp/ufw-dry/rules"
+  out="$(PATH="$stub:$PATH" STUB_UFW_DIR="$tmp/ufw-dry" bash -c ". '$lin/lib.sh'; ufw_apply 1 26266" 2>&1)"; rc=$?
+  { [ "$rc" -eq 0 ] && [ "$(grep -cv '^show added$' "$tmp/ufw-dry/calls")" -eq 0 ] && contains "$out" "[DRY] ufw allow 26266/tcp"; } && ok "dry-run: chi 'ufw show added', in ke hoach" || bad "dry-run ufw_apply (rc=$rc)"
+else
+  bad "lib.sh chua co ufw_apply (SEC-01 chua sua)"
+fi
+
+echo "== 11. SEC-02 (PR232-R2): retention quan CA .dump va .dump.age; plaintext con lai khi ma hoa => khong am tham =="
+if declare -F backup_prune >/dev/null && command -v ssh-keygen >/dev/null 2>&1; then
+  bp="$tmp/bp"
+  mkb() { # mkb <dir> <stamp> <dump|dump.age> [ky=1]: tao bo sao luu gia day du sidecar (manifest ky bang khoa that $tmp/sk)
+    local d="$1" s="$2" e="$3" f; f="$d/siscom_crm_prod_$s.$e"; printf 'x%s' "$s" > "$f"
+    ( cd "$d" && sha256sum "$(basename "$f")" > "$(basename "$f").sha256" ); echo ok > "$f.restore-ok.txt"
+    { echo "db=siscom_crm_prod"; echo "file=$(basename "$f")"; echo "file_sha256=$(sha256sum "$f" | cut -d' ' -f1)"; } > "$d/siscom_crm_prod_$s.manifest"
+    [ "${4:-1}" = 1 ] && backup_sign "$d/siscom_crm_prod_$s.manifest" "$tmp/sk"
+    return 0
+  }
+  orphans() { # in sidecar khong con file chinh
+    local d="$1" x stem
+    for x in "$d"/*; do case "$x" in
+      *.sha256|*.restore-ok.txt) [ -e "${x%.sha256}" ] || [ -e "${x%.restore-ok.txt}" ] || echo "$x" ;;
+      *.manifest|*.manifest.sig) stem="${x%.sig}"; stem="${stem%.manifest}"; [ -e "$stem.dump" ] || [ -e "$stem.dump.age" ] || echo "$x" ;;
+    esac; done
+  }
+  # 1) hop hai dinh dang: 30 ban plaintext cu (moi ngay) + 1 ban .age moi nhat; ma hoa + keep => tinh giu tren HOP, xoa du sidecar
+  rm -rf "$bp"; mkdir -p "$bp"
+  for i in $(seq 1 30); do mkb "$bp" "$(date -u -d "2026-11-11 -$i day" +%Y%m%d)_190000" dump; done
+  mkb "$bp" 20261112_190000 dump.age
+  out="$(backup_prune "$bp" siscom_crm_prod 1 keep "$tmp/allowed" 2>&1)"; rc=$?
+  n="$(find "$bp" -maxdepth 1 -regex '.*_[0-9]*_[0-9]*\.dump\(\.age\)?$' | wc -l)"
+  { [ "$rc" -eq 0 ] && [ "$n" -ge 14 ] && [ "$n" -le 22 ] && [ -e "$bp/siscom_crm_prod_20261112_190000.dump.age" ] && [ ! -e "$bp/siscom_crm_prod_20261012_190000.dump" ] && [ -z "$(orphans "$bp")" ]; } \
+    && ok "giu/xoa tinh tren HOP .dump + .dump.age ($n bo con lai), khong sidecar mo coi" || bad "retention hop hai dinh dang (rc=$rc, n=$n, mo coi: $(orphans "$bp" | head -3))"
+  check "keep => canh bao liet ke plaintext" contains "$out" "siscom_crm_prod_20261110_190000.dump"
+  # 2) ma hoa + KHONG chon chinh sach + con plaintext => ma thoat 3, khong xoa gi
+  rm -rf "$bp"; mkdir -p "$bp"; mkb "$bp" 20261110_190000 dump; mkb "$bp" 20261111_190000 dump.age
+  before="$(ls "$bp" | sort)"
+  out="$(backup_prune "$bp" siscom_crm_prod 1 "" "$tmp/allowed" 2>&1)"; rc=$?
+  { [ "$rc" -eq 3 ] && contains "$out" "siscom_crm_prod_20261110_190000.dump" && [ "$(ls "$bp" | sort)" = "$before" ]; } && ok "con plaintext, khong chon chinh sach => thoat 3, liet ke, KHONG xoa" || bad "plaintext mac dinh (rc=$rc)"
+  # 3) purge khi co ban .age HOP LE => xoa du bo plaintext, giu .age
+  out="$(backup_prune "$bp" siscom_crm_prod 1 purge "$tmp/allowed" 2>&1)"; rc=$?
+  { [ "$rc" -eq 0 ] && [ -z "$(find "$bp" -name '*20261110*')" ] && [ -e "$bp/siscom_crm_prod_20261111_190000.dump.age" ] && [ -e "$bp/siscom_crm_prod_20261111_190000.manifest.sig" ]; } && ok "purge => xoa du sidecar bo plaintext, giu bo .age" || bad "purge (rc=$rc): $(ls "$bp" | tr '\n' ' ')"
+  # 4) purge khi KHONG co ban .age hop le (chu ky sai) => tu choi, khong xoa plaintext
+  rm -rf "$bp"; mkdir -p "$bp"; mkb "$bp" 20261110_190000 dump; mkb "$bp" 20261111_190000 dump.age 0
+  out="$(backup_prune "$bp" siscom_crm_prod 1 purge "$tmp/allowed" 2>&1)"; rc=$?
+  { [ "$rc" -ne 0 ] && [ -e "$bp/siscom_crm_prod_20261110_190000.dump" ]; } && ok "purge khong co ban .age hop le => tu choi, giu plaintext" || bad "purge khong .age hop le (rc=$rc)"
+  # 5) chieu nguoc: NO_ENCRYPT (encrypt=0) van quan ca .age cu
+  rm -rf "$bp"; mkdir -p "$bp"
+  for i in $(seq 1 30); do mkb "$bp" "$(date -u -d "2026-11-11 -$i day" +%Y%m%d)_190000" dump.age; done
+  mkb "$bp" 20261112_190000 dump
+  out="$(backup_prune "$bp" siscom_crm_prod 0 "" "$tmp/allowed" 2>&1)"; rc=$?
+  { [ "$rc" -eq 0 ] && [ ! -e "$bp/siscom_crm_prod_20261012_190000.dump.age" ] && [ -e "$bp/siscom_crm_prod_20261112_190000.dump" ] && [ -z "$(orphans "$bp")" ]; } && ok "chieu nguoc (khong ma hoa): retention van xoa .age cu, du sidecar" || bad "chieu nguoc (rc=$rc)"
+  # 6) chinh sach la => backup-db.sh dung TRUOC khi dump
+  out="$(SISCOM_BACKUP_PLAINTEXT=xoa SISCOM_ETC="$tmp/nope" bash "$lin/backup-db.sh" 2>&1)"; rc=$?
+  { [ "$rc" -ne 0 ] && contains "$out" "SISCOM_BACKUP_PLAINTEXT"; } && ok "SISCOM_BACKUP_PLAINTEXT la => dung truoc khi dump" || bad "SISCOM_BACKUP_PLAINTEXT la (rc=$rc)"
+  check "backup-db.sh goi backup_prune" grep -q 'backup_prune ' "$lin/backup-db.sh"
+else
+  bad "lib.sh chua co backup_prune (SEC-02 chua sua) hoac thieu ssh-keygen"
+fi
+
+echo "== 12. DB-01 (PR232-R2): DATABASE_URL, AUTH_DATABASE_URL, MIGRATE_DATABASE_URL bat buoc, hop le, CUNG DB - truoc build/sao luu/migrate/CLI =="
+pw48="$(printf '%048d' 7)"
+mkenv() { # mkenv <thu muc> <app url|-> <auth url|-> <mig url|->  ('-' = bo dong)
+  local d="$1"; mkdir -p "$d"; : > "$d/backend.env"; : > "$d/migrate.env"
+  [ "$2" = - ] || echo "DATABASE_URL=$2" >> "$d/backend.env"
+  [ "$3" = - ] || echo "AUTH_DATABASE_URL=$3" >> "$d/backend.env"
+  printf "CORS_ORIGINS=https://42.96.15.235
+AUTH_ALLOWED_ORIGINS=https://42.96.15.235
+" >> "$d/backend.env"
+  [ "$4" = - ] || echo "MIGRATE_DATABASE_URL=$4" >> "$d/migrate.env"
+  chmod 600 "$d/backend.env" "$d/migrate.env"
+}
+U() { printf 'postgresql://%s:%s@127.0.0.1:5432/%s' "$1" "$pw48" "$2"; }
+S=siscom_crm_staging; Pd=siscom_crm_prod
+if declare -F load_db_env_triplet >/dev/null; then
+  tri() { SISCOM_REHEARSAL=1 bash -c ". '$lin/lib.sh'; load_db_env_triplet '$1/backend.env' '$1/migrate.env' && echo \"DB=\$DB_NAME\"" 2>&1; }
+  mkenv "$tmp/t1" "$(U siscom_app $S)" "$(U siscom_auth $S)" "$(U siscom_migrator $S)"; out="$(tri "$tmp/t1")"; rc=$?
+  { [ "$rc" -eq 0 ] && contains "$out" "DB=$S"; } && ok "3 URL cung DB staging => PASS" || bad "3 URL cung DB (rc=$rc): $out"
+  for c in "AUTH tro prod|$(U siscom_app $S)|$(U siscom_auth $Pd)|$(U siscom_migrator $S)" \
+           "MIGRATE tro prod|$(U siscom_app $S)|$(U siscom_auth $S)|$(U siscom_migrator $Pd)" \
+           "thieu AUTH|$(U siscom_app $S)|-|$(U siscom_migrator $S)" \
+           "thieu MIGRATE|$(U siscom_app $S)|$(U siscom_auth $S)|-" \
+           "AUTH khong hop le|$(U siscom_app $S)|postgresql://siscom_auth@127.0.0.1:5432/$S|$(U siscom_migrator $S)" \
+           "AUTH sai tai khoan|$(U siscom_app $S)|$(U siscom_app $S)|$(U siscom_migrator $S)" \
+           "host ngoai loopback|$(U siscom_app $S)|postgresql://siscom_auth:$pw48@10.0.0.5:5432/$S|$(U siscom_migrator $S)" \
+           "ca 3 tro DB la|$(U siscom_app siscom_crm_dev)|$(U siscom_auth siscom_crm_dev)|$(U siscom_migrator siscom_crm_dev)"; do
+    IFS='|' read -r name a b m <<<"$c"
+    mkenv "$tmp/t2" "$a" "$b" "$m"; out="$(tri "$tmp/t2")"; rc=$?
+    { [ "$rc" -ne 0 ] && ! contains "$out" "$pw48"; } && ok "$name => FAIL, khong in mat khau/URL" || bad "$name khong bi tu choi (rc=$rc)"
+  done
+else
+  bad "lib.sh chua co load_db_env_triplet (DB-01 chua sua)"
+fi
+# Tich hop: env lech (AUTH tro prod) => deploy.sh va run-cli.sh KHONG duoc goi npm/npx/node/psql/systemctl/curl
+cs="$tmp/callstub"; mkdir -p "$cs"; calls="$tmp/calls.log"; : > "$calls"
+for b in npm npx node psql systemctl curl pg_dump; do printf '#!/usr/bin/env bash\necho "%s $*" >> "%s"\nexit 0\n' "$b" "$calls" > "$cs/$b"; chmod +x "$cs/$b"; done
+mkenv "$tmp/t3" "$(U siscom_app $S)" "$(U siscom_auth $Pd)" "$(U siscom_migrator $S)"
+mkdir -p "$tmp/t3opt/releases" "$tmp/t3src/backend" "$tmp/t3fe"; echo '{}' > "$tmp/t3src/backend/package.json"; echo '<html/>' > "$tmp/t3fe/index.html"
+out="$(PATH="$cs:$PATH" SISCOM_REHEARSAL=1 SISCOM_ETC="$tmp/t3" SISCOM_OPT="$tmp/t3opt" bash "$lin/deploy.sh" --src "$tmp/t3src" --frontend "$tmp/t3fe" --migrate 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && [ ! -s "$calls" ] && ! contains "$out" "$pw48"; } && ok "deploy.sh voi AUTH tro prod => dung, KHONG goi npm/psql/node/systemctl" || bad "deploy.sh AUTH lech (rc=$rc, loi goi: $(tr '\n' ';' < "$calls" | cut -c1-120))"
+: > "$calls"; mkdir -p "$tmp/t3opt/current/backend/dist/cli"; echo '' > "$tmp/t3opt/current/backend/dist/cli/seed-lookups.js"
+out="$(PATH="$cs:$PATH" SISCOM_REHEARSAL=1 SISCOM_ETC="$tmp/t3" SISCOM_OPT="$tmp/t3opt" bash "$lin/run-cli.sh" seed-lookups 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && [ ! -s "$calls" ] && ! contains "$out" "$pw48"; } && ok "run-cli.sh voi AUTH tro prod => dung, KHONG goi node" || bad "run-cli.sh AUTH lech (rc=$rc, loi goi: $(tr '\n' ';' < "$calls" | cut -c1-120))"
+# Doi chung: env DUNG => run-cli goi node (chung minh stub bat duoc loi goi)
+: > "$calls"; mkenv "$tmp/t3" "$(U siscom_app $S)" "$(U siscom_auth $S)" "$(U siscom_migrator $S)"
+PATH="$cs:$PATH" SISCOM_REHEARSAL=1 SISCOM_ETC="$tmp/t3" SISCOM_OPT="$tmp/t3opt" bash "$lin/run-cli.sh" seed-lookups >/dev/null 2>&1
+grep -q '^node ' "$calls" && ok "doi chung: env dung => run-cli goi node" || bad "doi chung run-cli khong goi node"
+
 echo "== 9. F3 (PR232-R1): deploy.sh kiem argon2 hash/verify + Prisma CLI tren ban build TRUOC khi doi lien ket =="
 check "lib.sh co backend_runtime_smoke" grep -q '^backend_runtime_smoke()' "$lin/lib.sh"
 check "deploy.sh goi backend_runtime_smoke" grep -q 'backend_runtime_smoke "\$rel/backend"' "$lin/deploy.sh"
@@ -340,11 +514,13 @@ check "deploy.sh van dung npm ci --ignore-scripts" grep -q 'npm ci --ignore-scri
 # deploy that bai bang `die` (build khong ra dist/main.js) TRUOC khi doi lien ket => khong de lai ban phat hanh do dang
 if command -v npm >/dev/null 2>&1; then
   d3="$tmp/d3"; mkdir -p "$d3/etc" "$d3/opt/releases" "$d3/src/backend"
-  printf 'DATABASE_URL=postgresql://siscom_app:%048d@127.0.0.1:5432/siscom_crm_staging\n' 0 > "$d3/etc/backend.env"; chmod 600 "$d3/etc/backend.env"
+  for k in "DATABASE_URL|siscom_app" "AUTH_DATABASE_URL|siscom_auth"; do printf '%s=postgresql://%s:%048d@127.0.0.1:5432/siscom_crm_staging\n' "${k%%|*}" "${k#*|}" 0; done > "$d3/etc/backend.env"
+  printf 'MIGRATE_DATABASE_URL=postgresql://siscom_migrator:%048d@127.0.0.1:5432/siscom_crm_staging\n' 0 > "$d3/etc/migrate.env"; chmod 600 "$d3/etc/backend.env" "$d3/etc/migrate.env"
+  mkdir -p "$d3/stub"; printf '#!/usr/bin/env bash\necho t\n' > "$d3/stub/psql"; chmod +x "$d3/stub/psql"   # DB "da migrate" => khong phai DB moi tinh
   printf '{"name":"x","version":"1.0.0","private":true,"scripts":{"build":"node -e 0"}}\n' > "$d3/src/backend/package.json"
   printf '{"name":"x","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"x","version":"1.0.0"}}}\n' > "$d3/src/backend/package-lock.json"
   mkdir -p "$d3/fe"; echo '<html/>' > "$d3/fe/index.html"
-  out="$(SISCOM_REHEARSAL=1 SISCOM_ETC="$d3/etc" SISCOM_OPT="$d3/opt" bash "$lin/deploy.sh" --src "$d3/src" --frontend "$d3/fe" 2>&1)"; rc=$?
+  out="$(PATH="$d3/stub:$PATH" SISCOM_REHEARSAL=1 SISCOM_ETC="$d3/etc" SISCOM_OPT="$d3/opt" bash "$lin/deploy.sh" --src "$d3/src" --frontend "$d3/fe" 2>&1)"; rc=$?
   left="$(find "$d3/opt/releases" -mindepth 1 -maxdepth 1 | wc -l)"
   if [ "$rc" -ne 0 ] && contains "$out" "dist/main.js" && [ "$left" -eq 0 ]; then ok "deploy die truoc doi lien ket => da xoa ban do dang"; else bad "deploy die de lai $left ban do dang (rc=$rc)"; fi
   check_not "khong tao lien ket current khi that bai" test -e "$d3/opt/current"

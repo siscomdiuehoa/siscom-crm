@@ -245,3 +245,147 @@ days_until() {
   local end now; end="$(date -u -d "$1" +%s 2>/dev/null)" || return 1; now="$(date -u +%s)"
   echo $(( (end - now) / 86400 ))
 }
+
+# --- SEC-01 (PR232-R2): tuong lua ufw CHI gom cong SSH dang dung + 80 + 443, kiem ke rule CO SAN va TOAN BO tap rule sau khi bat. ---
+# Khong bao gio tu xoa/reset rule cua Owner: gap rule la => dung (fail-closed) va huong dan.
+# ufw_allowlist <cong SSH csv>: cac dong `ufw show added` hop le (sap xep).
+ufw_allowlist() {
+  local p; local -a ps; IFS=, read -ra ps <<<"$1"
+  { for p in "${ps[@]}" 80 443; do printf 'ufw allow %s/tcp\n' "$p"; done; } | sort -u
+}
+# ufw_foreign_added <cong SSH csv>: doc `ufw show added` tu stdin, in cac rule KHONG thuoc allowlist.
+ufw_foreign_added() {
+  local allow; allow="$(ufw_allowlist "$1")"
+  grep -E '^ufw ' | while IFS= read -r line; do
+    printf '%s\n' "$allow" | grep -qxF "$line" || printf '%s\n' "$line"
+  done
+}
+# ufw_status_problems <cong SSH csv>: doc `ufw status verbose` tu stdin; in moi van de (rong = dung allowlist, deny incoming, active).
+ufw_status_problems() {
+  local csv="$1" st p; local -a ps; IFS=, read -ra ps <<<"$csv"
+  st="$(cat)"
+  printf '%s\n' "$st" | grep -qx 'Status: active' || echo "ufw khong o trang thai active"
+  printf '%s\n' "$st" | grep -E '^Default:' | grep -q 'deny (incoming)' || echo "mac dinh incoming khong phai deny"
+  local rules allowed line
+  rules="$(printf '%s\n' "$st" | awk 'f && NF { print } /^--/ { f = 1 }' | sed -E 's/ \(v6\)//g; s/[[:space:]]+/ /g; s/ $//' | sort -u)"
+  allowed="$(for p in "${ps[@]}" 80 443; do printf '%s/tcp ALLOW IN Anywhere\n' "$p"; done | sort -u)"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    printf '%s\n' "$allowed" | grep -qxF "$line" || echo "rule la: $line"
+  done <<<"$rules"
+  for p in "${ps[@]}"; do
+    printf '%s\n' "$rules" | grep -qxF "$p/tcp ALLOW IN Anywhere" || echo "THIEU_SSH: $p/tcp"
+  done
+}
+# ufw_apply <dry 0|1> <cong SSH csv>: kiem ke -> them allowlist -> default -> kiem ke lai -> bat -> kiem toan bo trang thai.
+ufw_apply() {
+  local dry="$1" csv="$2" p added foreign probs; local -a ps; IFS=, read -ra ps <<<"$csv"
+  if ! command -v ufw >/dev/null 2>&1; then
+    [ "$dry" = 1 ] && { echo "[DRY] ufw chua cai: kiem ke rule co san se chay khi chay that (sau buoc apt)"; for p in "${ps[@]}" 80 443; do echo "[DRY] ufw allow ${p}/tcp"; done; return 0; }
+    printf '[LOI] Khong co lenh ufw.\n' >&2; return 1
+  fi
+  added="$(ufw show added 2>&1)" || { printf '[LOI] Khong doc duoc `ufw show added`.\n' >&2; return 1; }
+  foreign="$(printf '%s\n' "$added" | ufw_foreign_added "$csv")"
+  if [ -n "$foreign" ]; then
+    printf '[LOI] ufw da co rule NGOAI allowlist (chi cho phep: %s/tcp, 80/tcp, 443/tcp). KHONG doi gi, KHONG tu xoa rule:\n' "${csv//,//tcp, }" >&2
+    printf '%s\n' "$foreign" | sed 's/^/    /' >&2
+    printf '  Owner tu xu ly: `ufw status numbered` roi `ufw delete <so>` (hoac giu lai va khong dung provision.sh cho tuong lua), sau do chay lai.\n' >&2
+    return 1
+  fi
+  if [ "$dry" = 1 ]; then
+    echo "[DRY] kiem ke ufw: khong co rule ngoai allowlist"
+    for p in "${ps[@]}" 80 443; do echo "[DRY] ufw allow ${p}/tcp"; done
+    echo "[DRY] ufw default deny incoming"; echo "[DRY] ufw default allow outgoing"
+    echo "[DRY] kiem ke lai (ufw show added = allowlist)"; echo "[DRY] ufw --force enable"
+    echo "[DRY] kiem ufw status: phai co ${csv}/tcp ALLOW; TOAN BO rule = allowlist; mac dinh deny incoming (thieu SSH => ufw --force disable va dung; rule la => dung)"
+    return 0
+  fi
+  for p in "${ps[@]}" 80 443; do ufw allow "${p}/tcp" >/dev/null || { printf '[LOI] ufw allow %s/tcp loi.\n' "$p" >&2; return 1; }; done
+  ufw default deny incoming >/dev/null && ufw default allow outgoing >/dev/null || { printf '[LOI] ufw default loi.\n' >&2; return 1; }
+  foreign="$(ufw show added 2>&1 | ufw_foreign_added "$csv")"
+  [ -z "$foreign" ] || { printf '[LOI] Rule la xuat hien truoc khi bat ufw; KHONG bat:\n%s\n' "$foreign" >&2; return 1; }
+  ufw --force enable >/dev/null || { printf '[LOI] ufw --force enable loi.\n' >&2; return 1; }
+  probs="$(ufw status verbose 2>&1 | ufw_status_problems "$csv")"
+  if printf '%s\n' "$probs" | grep -q '^THIEU_SSH'; then
+    ufw --force disable >/dev/null 2>&1 || true
+    printf '[LOI] Sau khi bat, ufw KHONG cho phep cong SSH => da TAT lai ufw de giu truy cap:\n%s\n' "$probs" >&2; return 1
+  fi
+  if [ -n "$probs" ]; then
+    printf '[LOI] Sau khi bat, trang thai ufw KHONG dung allowlist (ufw van bat, cong SSH van mo):\n%s\n' "$probs" | sed '2,$s/^/    /' >&2; return 1
+  fi
+  echo "[OK] ufw dang bat; TOAN BO rule = ${csv}/tcp, 80/tcp, 443/tcp (v4+v6); mac dinh deny incoming."
+}
+
+# --- SEC-02 (PR232-R2): giu ban sao luu tren HOP hai dinh dang (.dump va .dump.age) cua DUNG DB; xoa bo nao thi xoa du sidecar bo do. ---
+# backup_rm_set <thu muc> <ten file .dump|.dump.age>: xoa file + .sha256 + .restore-ok.txt + <stem>.manifest + <stem>.manifest.sig.
+backup_rm_set() {
+  local d="$1" f="$2" stem
+  case "$f" in *.dump.age) stem="${f%.dump.age}" ;; *.dump) stem="${f%.dump}" ;; *) return 1 ;; esac
+  rm -f -- "$d/$f" "$d/$f.sha256" "$d/$f.restore-ok.txt" "$d/$stem.manifest" "$d/$stem.manifest.sig"
+}
+# backup_prune <thu muc> <db> <ma hoa 0|1> <chinh sach plaintext: ''|keep|purge> <allowed_signers>
+#   ma thoat: 0 = xong; 3 = (ma hoa) CON ban plaintext va chua chon chinh sach (da liet ke, KHONG xoa); 1 = loi (vd purge khi khong co .age hop le).
+backup_prune() {
+  local d="$1" db="$2" enc="$3" pol="$4" allowed="$5" f
+  local -a all keep plain okage=()
+  mapfile -t all < <(find "$d" -maxdepth 1 -type f -printf '%f\n' | grep -E "^${db}_[0-9]{8}_[0-9]{6}\.dump(\.age)?\$" | sort || true)
+  mapfile -t keep < <(printf '%s\n' "${all[@]}" | retention_keep 14 8)
+  for f in "${all[@]}"; do
+    [ -n "$f" ] || continue
+    if ! printf '%s\n' "${keep[@]}" | grep -qxF "$f"; then backup_rm_set "$d" "$f"; info "Da xoa ban cu: $f"; fi
+  done
+  [ "$enc" = 1 ] || { info "Con ${#keep[@]} bo sao luu cua $db (ca .dump va .dump.age)."; return 0; }
+  mapfile -t plain < <(printf '%s\n' "${keep[@]}" | grep -E '\.dump$' || true)
+  [ "${#plain[@]}" -gt 0 ] && [ -n "${plain[0]}" ] || { info "Con ${#keep[@]} bo sao luu cua $db, khong con ban plaintext."; return 0; }
+  case "$pol" in
+    keep)
+      warn "Con ${#plain[@]} bo sao luu KHONG ma hoa cua $db (giu co chu dich: SISCOM_BACKUP_PLAINTEXT=keep):"
+      printf '    %s\n' "${plain[@]}" >&2; return 0 ;;
+    purge)
+      for f in "${keep[@]}"; do
+        case "$f" in *.dump.age) verify_backup_set "$d/$f" "$allowed" "$db" 2>/dev/null && okage+=("$f") ;; esac
+      done
+      [ "${#okage[@]}" -ge 1 ] || { printf '[LOI] purge: khong co bo .age nao qua xac thuc => KHONG xoa plaintext.\n' >&2; return 1; }
+      for f in "${plain[@]}"; do backup_rm_set "$d" "$f"; info "Da xoa bo plaintext co chu dich (purge): $f"; done
+      info "Con ${#okage[@]} bo .age hop le cua $db."; return 0 ;;
+    *)
+      printf '[LOI] Con %s bo sao luu KHONG ma hoa cua %s trong khi che do ma hoa dang bat (KHONG xoa, KHONG bo qua):\n' "${#plain[@]}" "$db" >&2
+      printf '    %s\n' "${plain[@]}" >&2
+      printf '  Chon co chu dich: SISCOM_BACKUP_PLAINTEXT=keep (giu, canh bao moi lan) hoac SISCOM_BACKUP_PLAINTEXT=purge (xoa sau khi da co ban .age hop le).\n' >&2
+      return 3 ;;
+  esac
+}
+
+# --- DB-01 (PR232-R2): ba URL ket noi phai co du, dung dang, dung tai khoan, host loopback va CUNG mot DB van hanh. ---
+# db_url_check <url> <tai khoan mong doi>: in ten DB neu hop le; KHONG in URL/mat khau.
+db_url_check() {
+  local re='^postgres(ql)?://([a-z_]+):([0-9a-f]{48})@(127\.0\.0\.1|localhost|\[::1\]):([0-9]{1,5})/([a-z0-9_]+)$'
+  [[ "${1:-}" =~ $re ]] || return 1
+  [ "${BASH_REMATCH[2]}" = "$2" ] || return 1
+  printf '%s\n' "${BASH_REMATCH[6]}"
+}
+# load_db_env_triplet <backend.env> <migrate.env>: dat APP_URL, AUTH_URL, MIG_URL, DB_NAME. Loi => 1 + ly do (khong in URL).
+load_db_env_triplet() {
+  local be="$1" me="$2" a b m da db_ dm
+  [ -f "$be" ] || { printf '[LOI] Thieu %s.\n' "$be" >&2; return 1; }
+  [ -f "$me" ] || { printf '[LOI] Thieu %s.\n' "$me" >&2; return 1; }
+  assert_private_file "$be"; assert_private_file "$me"
+  a="$(env_get "$be" DATABASE_URL)" || { printf '[LOI] %s thieu DATABASE_URL.\n' "$be" >&2; return 1; }
+  b="$(env_get "$be" AUTH_DATABASE_URL)" || { printf '[LOI] %s thieu AUTH_DATABASE_URL.\n' "$be" >&2; return 1; }
+  m="$(env_get "$me" MIGRATE_DATABASE_URL)" || { printf '[LOI] %s thieu MIGRATE_DATABASE_URL.\n' "$me" >&2; return 1; }
+  da="$(db_url_check "$a" "$ROLE_APP")" || { printf '[LOI] DATABASE_URL sai dang/tai khoan (can %s, mat khau 48 hex, host loopback).\n' "$ROLE_APP" >&2; return 1; }
+  db_="$(db_url_check "$b" "$ROLE_AUTH")" || { printf '[LOI] AUTH_DATABASE_URL sai dang/tai khoan (can %s, mat khau 48 hex, host loopback).\n' "$ROLE_AUTH" >&2; return 1; }
+  dm="$(db_url_check "$m" "$ROLE_MIGRATOR")" || { printf '[LOI] MIGRATE_DATABASE_URL sai dang/tai khoan (can %s, mat khau 48 hex, host loopback).\n' "$ROLE_MIGRATOR" >&2; return 1; }
+  if [ "$da" != "$db_" ] || [ "$da" != "$dm" ]; then
+    printf '[LOI] Ba URL tro DB khac nhau: DATABASE_URL=%s, AUTH_DATABASE_URL=%s, MIGRATE_DATABASE_URL=%s. Dung.\n' "$da" "$db_" "$dm" >&2; return 1
+  fi
+  is_ops_db "$da" || { printf '[LOI] TU CHOI: DB %s khong phai siscom_crm_staging|siscom_crm_prod.\n' "$da" >&2; return 1; }
+  # shellcheck disable=SC2034  # dung o deploy.sh / run-cli.sh
+  APP_URL="$a"
+  # shellcheck disable=SC2034
+  AUTH_URL="$b"
+  # shellcheck disable=SC2034
+  MIG_URL="$m"
+  # shellcheck disable=SC2034
+  DB_NAME="$da"
+}
