@@ -388,7 +388,14 @@ jobs:
       - name: Dien tap PostgreSQL 18 tam (create-db, migrate, grants+VERIFY, seed, bootstrap, backup ky+age, restore-test, F1 negative, backend production)
         run: PG_BIN=/usr/lib/postgresql/18/bin bash backend/scripts/linux/tests/rehearse-pg.sh
       - name: provision.sh --dry-run tren Ubuntu 24.04 that (root de doc cong that bang sshd -T; dry-run khong doi gi)
-        run: sudo env SISCOM_DOMAIN=crm.example.vn PATH="$PATH" bash backend/scripts/linux/provision.sh --dry-run --ssh-key-only
+        run: |
+          set -euo pipefail
+          # Runner: ssh kich hoat theo socket nen /run/sshd co the chua co (tren VPS phien SSH dang mo => da co); chi tao thu muc runtime.
+          sudo install -d -m 0755 /run/sshd
+          echo "Cong sshd tren runner: $(sudo sshd -T | awk '$1 == "port" { print $2 }' | paste -sd, -)"
+          sudo env SISCOM_DOMAIN=crm.example.vn PATH="$PATH" bash backend/scripts/linux/provision.sh --dry-run --ssh-key-only | tee /tmp/prov.out
+          grep -q '^\[DRY\] ufw allow 22/tcp' /tmp/prov.out
+          grep -q 'kiem ufw status' /tmp/prov.out
       - name: systemd-analyze verify (ban sao tam, chi doi duong dan ExecStart cho runner)
         run: |
           set -euo pipefail

@@ -130,7 +130,10 @@ verify_backup_set() {
 # => cong ListenStream cua ssh.socket (neu dang chay) cung duoc gop vao. That bai (ma 1) neu khong doc duoc / co gia tri la.
 sshd_ports() {
   local out p ports=()
-  out="$(sshd -T 2>/dev/null)" || return 1
+  if ! out="$(sshd -T 2>&1)"; then
+    printf '[LOI] sshd -T: %s\n' "$(printf '%s\n' "$out" | head -n 2 | tr '\n' ' ')" >&2
+    return 1
+  fi
   while IFS= read -r p; do ports+=("$p"); done < <(printf '%s\n' "$out" | awk 'tolower($1) == "port" { print $2 }')
   if systemctl is-active --quiet ssh.socket 2>/dev/null; then
     while IFS= read -r p; do ports+=("$p"); done < <(systemctl show ssh.socket -p Listen --value 2>/dev/null | grep -Eo ':[0-9]+ ' | tr -d ': ')

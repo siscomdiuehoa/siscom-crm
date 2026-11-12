@@ -59,7 +59,7 @@ Làm: apt cập nhật, UTC + `systemd-timesyncd`, swap 2 GB (`/swapfile`, `swap
 
 **PASS khi**: `ufw status` chỉ có cổng SSH đang dùng (26266), 80, 443 — script tự kiểm sau khi bật, thiếu cổng SSH thì tự tắt lại ufw và dừng; `timedatectl` = UTC và đồng bộ; `free -m` có Swap 2 GB; `node -v` là 24.x (≥ 24.11); `ss -ltn | grep 5432` chỉ `127.0.0.1`/`[::1]`; `sudo -u postgres psql -tAc 'SHOW TimeZone'` = `UTC`; `id siscom` có và không thuộc nhóm `sudo`/`admin`.
 **Cổng SSH (F2):** script **không đổi** cổng của `sshd`. Trước mọi thay đổi, nó đọc cổng đang dùng bằng `sshd -T` (gộp cả cổng `ssh.socket` nếu đang chạy; nhiều cổng thì lấy tất cả), đọc lại ngay trước khi bật ufw, **mở các cổng đó trước** rồi mới đặt `deny` mặc định và `ufw --force enable`, sau đó kiểm `ufw status` còn `<cổng>/tcp ALLOW`. Thiếu ⇒ `ufw --force disable` và dừng. fail2ban dùng cùng cổng.
-**FAIL / dừng ngay** (trước khi đổi gì): thiếu `SISCOM_DOMAIN`; `sshd -T` lỗi hoặc không có cổng hợp lệ (vd không chạy bằng root); `SISCOM_SSH_PORT` được đặt nhưng không trùng cổng đang nghe.
+**FAIL / dừng ngay** (trước khi đổi gì): thiếu `SISCOM_DOMAIN`; `sshd -T` lỗi hoặc không có cổng hợp lệ (vd không chạy bằng root; script in dòng lỗi của `sshd -T` — gặp `Missing privilege separation directory: /run/sshd` thì chạy từ phiên SSH đang mở hoặc sau `systemctl start ssh`); `SISCOM_SSH_PORT` được đặt nhưng không trùng cổng đang nghe.
 **SSH chỉ bằng khoá** — cờ **riêng** `--ssh-key-only`, chỉ chạy khi Owner duyệt và **đã thử đăng nhập bằng khoá ở phiên MỚI** (cổng 26266):
 
 ```bash
