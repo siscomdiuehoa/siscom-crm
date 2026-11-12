@@ -133,7 +133,7 @@ unset BOOTSTRAP_PASSWORD_{SYSADMIN,ADMIN,SALE,TECHNICIAN,ACCOUNTANT} v
 - `run-cli.sh` dùng bản đã triển khai (`/opt/siscom-crm/current/…`), không phải thư mục giải nén.
 - **Trước lần deploy THỨ HAI**: DB đã có dữ liệu nên `deploy.sh` **bắt buộc** sao lưu thành công ⇒ phải có `backup-db.sh --init-signing-key` và `/etc/siscom-crm/backup.age-recipients` (khoá công khai age của Owner) trước, nếu không deploy sẽ dừng ở bước sao lưu (đúng thiết kế, không đổi gì).
 - Build backend chạy trên VPS (2,9 GB RAM + swap 2 GB; `NODE_OPTIONS=--max-old-space-size=1536`) và cần mạng ra npm registry. Frontend build trên Windows.
-- `deploy.sh` và `run-cli.sh` (sau R2, DB-01) dừng ngay nếu `DATABASE_URL`, `AUTH_DATABASE_URL` (backend.env) và `MIGRATE_DATABASE_URL` (migrate.env) không đủ, sai dạng/tài khoản, hoặc không cùng một DB — trước mọi lệnh chạm DB, npm hay CLI. Tệp do `create-db.sh … env` sinh luôn đạt; chỉ lỗi khi sửa tay.
+- `deploy.sh` và `run-cli.sh` (sau R2, DB-01; **thay đổi hành vi:** khi đã có `backend.env` thì `migrate.env` cũng bắt buộc, kể cả `deploy.sh --dry-run`) dừng ngay nếu `DATABASE_URL`, `AUTH_DATABASE_URL` (backend.env) và `MIGRATE_DATABASE_URL` (migrate.env) không đủ, sai dạng/tài khoản, hoặc không cùng một DB — trước mọi lệnh chạm DB, npm hay CLI. Tệp do `create-db.sh … env` sinh luôn đạt; chỉ lỗi khi sửa tay.
 - `--tag` cần `/opt/siscom-crm/repo` (git clone; kho riêng tư cần deploy key do Owner cấp) và chỉ nhận tag dạng `vX.Y.Z[-hậu-tố]` **thuộc lịch sử `origin/main`**.
 
 Nếu chưa có tag, dùng `--src <thư mục có backend/>` (vd giải nén `git archive <commit đã review> backend`) thay `--tag`. `--tag` cần `/opt/siscom-crm/repo` (git clone; kho riêng tư cần deploy key do Owner cấp) và chỉ nhận tag dạng `vX.Y.Z[-hậu-tố]` **thuộc lịch sử `origin/main`**.
@@ -196,12 +196,15 @@ shred -u /root/siscom-backup.key
 
 `backup-db.sh`: `pg_dump -Fc` bằng `siscom_migrator` trên **ảnh chụp nhất quán** (`--snapshot`; số dòng từng bảng trong `.manifest` đếm cùng ảnh chụp) → kiểm `pg_restore -l` → mã hoá age → ghi `file`, `file_sha256` vào manifest → **ký manifest** (`ssh-keygen -Y sign`, ed25519, namespace `siscom-crm-backup`) → tự kiểm chữ ký → giữ **14 bản mới nhất + mỗi tuần 1 bản (8 tuần)**, chỉ xoá file đúng mẫu tên của DB đó trong thư mục sao lưu. Từ chối nếu thiếu khoá ký, thiếu khoá age (trừ khi tự đặt `SISCOM_BACKUP_NO_ENCRYPT=yes`), ổ còn < 1 GB, hoặc tài khoản là `postgres`. Lỗi ở bất kỳ bước nào ⇒ không để lại bộ sao lưu dở dang/chưa ký.
 
-**Giữ bản và bản plaintext (SEC-02, sửa sau R2):** giữ bản tính trên **hợp** `<db>_<ts>.dump` và `<db>_<ts>.dump.age` của đúng DB; xoá bộ nào thì xoá đủ sidecar của bộ đó (`.sha256`, `.restore-ok.txt`, `.manifest`, `.manifest.sig`). Khi chạy **mã hoá** mà vẫn còn bộ `.dump` (plaintext, vd từng chạy `SISCOM_BACKUP_NO_ENCRYPT=yes`): bản `.age` mới **vẫn được tạo, ký và tự kiểm**, nhưng script **liệt kê plaintext và thoát ≠ 0** — không xoá, không bỏ qua — cho đến khi Owner chọn có chủ đích:
-- `SISCOM_BACKUP_PLAINTEXT=keep`: giữ, cảnh báo mỗi lần, thoát 0;
-- `SISCOM_BACKUP_PLAINTEXT=purge`: xoá các bộ plaintext **chỉ khi** có ít nhất một bộ `.age` qua xác thực chữ ký;
-- giá trị khác ⇒ dừng **trước** khi dump.
-
-Vì sao dừng **sau** khi dump: để lúc nào cũng có bản sao lưu mới hợp lệ (đặc biệt trước migrate). **Tác động tới `deploy.sh`:** sao lưu thoát ≠ 0 ⇒ deploy dừng trước migrate (đúng thiết kế); xử lý plaintext rồi deploy lại. Chiều ngược (đang có `.age`, chạy `NO_ENCRYPT=yes`): giữ bản vẫn quản cả hai loại.
+**Giữ bản và bản plaintext (SEC-02, sửa sau R2 theo điều kiện Owner 12/11):** retention (14 bộ mới nhất + mỗi tuần 1 bộ, 8 tuần) **chỉ tính và chỉ xoá các bộ `<db>_<ts>.dump.age`** của đúng DB, xoá đủ sidecar của bộ đó (`.sha256`, `.restore-ok.txt`, `.manifest`, `.manifest.sig`). **Bộ `.dump` (plaintext) không bao giờ bị script xoá hay sửa**, kể cả khi quá hạn giữ; script chỉ phát hiện và liệt kê.
+- **Chế độ mã hoá (mặc định) mà còn ≥ 1 bộ `.dump` của DB:** bản `.age` mới **vẫn được tạo, ký và tự kiểm**; sau đó script liệt kê đủ tên các bộ plaintext và **thoát ≠ 0 mỗi lần chạy** cho đến khi Owner xử lý bằng tay. **Không có cờ nào bỏ qua kiểm soát này** (biến cũ `SISCOM_BACKUP_PLAINTEXT` của bản `ead6338` đã bị bỏ: nếu đặt chỉ bị cảnh báo, hành vi không đổi).
+- **Tác động tới `deploy.sh`:** sao lưu thoát ≠ 0 ⇒ deploy dừng trước migrate (đúng thiết kế).
+- **Quy trình xoá plaintext bằng tay (chỉ khi Owner phê duyệt riêng bằng văn bản):**
+  1. Có bộ `.age` thay thế **mới hơn** bộ plaintext: `restore-test.sh --dump <bộ .age> --identity <khoá riêng age>` in `Chữ ký manifest hợp lệ…` và `PASS: <n> bảng khớp số dòng`, có tệp `<bộ .age>.restore-ok.txt`.
+  2. Owner duyệt riêng, ghi rõ tên từng bộ plaintext sẽ xoá.
+  3. Xoá tay đúng các tệp của từng bộ: `<stem>.dump`, `<stem>.dump.sha256`, `<stem>.dump.restore-ok.txt` (nếu có), `<stem>.manifest`, `<stem>.manifest.sig` (nên dùng `shred -u` vì là dữ liệu thật).
+  4. Chạy lại `backup-db.sh` ⇒ phải thoát 0.
+- **Chế độ `SISCOM_BACKUP_NO_ENCRYPT=yes`:** bộ plaintext mới **không bị retention xoá ⇒ sẽ tích luỹ**; mỗi lần chạy script cảnh báo số bộ plaintext hiện có. Bộ `.age` cũ vẫn do retention quản. Lần chạy mã hoá sau đó sẽ thoát ≠ 0 cho tới khi xử lý tay như trên. **Điểm cần Owner quyết:** có cho phép `NO_ENCRYPT` trên production hay không (script hiện chưa cấm).
 `restore-test.sh`: **xác thực trước** (chữ ký manifest bằng `allowed_signers`; `db` = DB mong đợi; `file` = đúng tên file; `file_sha256` = SHA-256 thật) — sai bất kỳ điểm nào ⇒ dừng, **chưa tạo DB thử** → giải mã → SHA-256 bản rõ phải khớp manifest đã ký → tạo DB `siscom_crm_restore_<UTC>` → `pg_restore` → so **số dòng từng bảng** và **tập bảng** với manifest + `_prisma_migrations` → ghi `<dump>.restore-ok.txt`; **không tự xoá** DB thử (in lệnh `DROP`). Không còn nhánh "thiếu manifest thì so với DB nguồn hiện tại".
 
 Vì sao ký (F1): age chỉ **mã hoá**, ai có khoá **công khai** age cũng tạo được một bản `.age` hợp lệ; `.sha256` không có khoá nên ai sửa file cũng tính lại được. Chữ ký ed25519 trên manifest (chứa SHA-256 của file) ràng buộc file + manifest với khoá riêng chỉ nằm trên VPS. **Giới hạn**: ai có root trên VPS đọc được khoá ký ⇒ chữ ký chống sửa ở kho sao lưu và bản sao ngoài VPS, **không** chống máy chủ đã bị chiếm quyền. Muốn chống cả trường hợp đó cần ký ở máy khác (ngoài phạm vi PR này).
@@ -302,6 +305,8 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 8. Tag `v0.1.0` chưa tồn tại; `deploy.sh --tag` chỉ dùng được sau khi Owner duyệt tạo tag trên `main`.
 9. **Chứng chỉ cho IP**: Let's Encrypt **đã cấp** qua Caddy 2.11.9 với profile `shortlived` trên VPS (mục 11). **Chưa kiểm chứng**: Caddy tự gia hạn trước hạn (lần đầu dự kiến khoảng 16–17/11, chứng chỉ hết hạn 18/11/2026 20:31 UTC) — cần chạy `check-tls.sh` sau mốc đó. Chưa có cảnh báo tự động khi chứng chỉ sắp hết hạn (chỉ có `check-tls.sh` chạy tay).
 10. **Cloud-init đặt lại mật khẩu root mỗi lần boot**: chưa chặn (xem mục 2).
+11. **Sao lưu plaintext (SEC-02):** script không bao giờ tự xoá bộ `.dump`; ở chế độ `SISCOM_BACKUP_NO_ENCRYPT=yes` các bộ này **tích luỹ** (chỉ có cảnh báo) và lần chạy mã hoá sau đó thoát ≠ 0 tới khi Owner xoá tay theo quy trình ở G6. **Cần Owner quyết:** có cho phép `NO_ENCRYPT` trên production không (hiện chưa cấm).
+12. **Tường lửa (SEC-01):** mọi rule ufw ngoài allowlist, kể cả rule có comment/`limit`/theo nguồn riêng, đều bị coi là lạ ⇒ dừng (chặt có chủ đích: không tự xoá/reset rule).
 
 ## 10. Thay đổi sau review R1 và R2 (PR #232)
 
@@ -312,7 +317,7 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 | Host | (yêu cầu mới, không phải lỗi R1) Owner có tên miền `siscom.io.vn`; cũng cần chạy được bằng IP | `SISCOM_HOST` (tên miền mặc định / IPv4 phụ) thay `SISCOM_DOMAIN`; kiểm DNS A = duy nhất IP công khai của máy (hoặc IPv4 = IP của máy) **trước** mọi thay đổi; 3 tệp TLS (`tls-domain`, `tls-ip-shortlived`, `tls-ip-internal`) được `import` vào Caddyfile; kiểm phiên bản Caddy; `check-tls.sh`; `create-db.sh env` đặt origin `https://<host>` | `test-guards.sh` mục 8b; diễn tập backend với tên miền và với IP (đăng xuất Origin lạ ⇒ 403, `https://<host>` ⇒ 200); CI `caddy validate`/`adapt` 3 chế độ, kiểm DNS thật |
 | F3 | `npm ci --ignore-scripts` chưa được kiểm trên Linux; deploy không kiểm argon2 lúc chạy. Kèm lỗi liên quan: `die` trước khi đổi liên kết để lại `releases/<id>` dở dang (trap ERR không bắt `exit`) | Giữ `--ignore-scripts`; `backend_runtime_smoke` trong deploy; trap EXIT dọn bản dở dang; job CI `linux-scripts` | `test-guards.sh` mục 9; CI `linux-scripts` |
 | SEC-01 (R2) | `provision.sh` chỉ thêm allow và grep cổng SSH: rule ufw có sẵn (allow 5432/3000, deny SSH đứng trước…) không bị phát hiện | `ufw_apply`/`ufw_foreign_added`/`ufw_status_problems` (lib.sh): kiểm kê `ufw show added` từ đầu và trước khi bật; rule lạ ⇒ dừng, không tự xoá; sau khi bật kiểm toàn bộ `ufw status verbose` | `test-guards.sh` mục 10 (13 ca: sạch, chạy lại, 5432, 3000, deny/limit SSH, allow 22, theo nguồn, rule lạ sau khi bật, mất SSH sau khi bật, dry-run) |
-| SEC-02 (R2) | Giữ bản chỉ nhìn phần mở rộng của lần chạy hiện tại ⇒ bộ `.dump` cũ còn mãi khi chuyển sang mã hoá (tái hiện: sao lưu mã hoá thoát 0, "Con 1 ban") | `backup_prune`/`backup_rm_set` (lib.sh): giữ bản trên hợp hai định dạng, xoá đủ sidecar; plaintext còn lại khi mã hoá ⇒ thoát ≠ 0 trừ khi `SISCOM_BACKUP_PLAINTEXT=keep|purge` | `test-guards.sh` mục 11 (8 ca); `rehearse-pg.sh` bước SEC-02 trên PostgreSQL thật |
+| SEC-02 (R2) | Giữ bản chỉ nhìn phần mở rộng của lần chạy hiện tại ⇒ bộ `.dump` cũ còn mãi khi chuyển sang mã hoá (tái hiện trên `4c33ba6`: sao lưu mã hoá thoát 0, "Con 1 ban") | `backup_prune`/`backup_rm_age_set` (lib.sh): retention chỉ xoá bộ `.age` (đủ sidecar); plaintext **không bao giờ bị xoá**, chỉ liệt kê; chế độ mã hoá còn plaintext ⇒ thoát ≠ 0 mỗi lần, không có cờ bỏ qua (bản `ead6338` có `keep`/`purge` — đã bỏ theo điều kiện Owner); xoá plaintext là thao tác tay có Owner duyệt | `test-guards.sh` mục 11 (11 kiểm tra: 30 bộ plaintext quá hạn vẫn nguyên SHA, .age quá hạn bị xoá, chạy lại, `keep`/`purge` không đổi hành vi, chiều ngược); `rehearse-pg.sh` trên PostgreSQL thật (3 lần chạy mã hoá thoát ≠ 0, SHA plaintext trước/sau trùng, quy trình xoá tay) |
 | DB-01 (R2) | `run-cli.sh`/`deploy.sh` không kiểm `AUTH_DATABASE_URL` (và deploy bỏ qua khi thiếu `migrate.env`) | `load_db_env_triplet`/`db_url_check` (lib.sh): 3 URL bắt buộc, đúng dạng, đúng tài khoản, host loopback, **cùng DB**, gọi trước mọi lệnh chạm DB/npm/CLI | `test-guards.sh` mục 12 (9 ca hàm + 2 tích hợp với `npm`/`psql`/`node` giả: không lời gọi nào khi env lệch + 1 đối chứng) |
 
 ## 11. Bằng chứng chạy thật trên VPS (12/11/2026)
@@ -338,9 +343,14 @@ Việc cần theo dõi: chạy `check-tls.sh` sau khoảng 16–17/11/2026 để
 
 ## 12. Bảng kiểm chứng theo từng bước (cập nhật sau R2)
 
-Cột 1 chỉ ghi khi có đầu ra quan sát được (phụ lục `docs/VPS_EVIDENCE_20261112.md`); bằng chứng VPS do **phiên điều phối thu, Owner duyệt từng bước — reviewer chưa kiểm độc lập**. Các bước VPS chạy bằng script ở SHA ghi trong ngoặc, **không phải** bản sau khi sửa R2.
+**Nguồn bằng chứng (điều kiện 4 của Owner):**
+- **"Claude báo cáo (phiên điều phối thu)"**: đầu ra quan sát được ở phụ lục `docs/VPS_EVIDENCE_20261112.md`, Owner duyệt từng bước — **ChatGPT chưa kiểm độc lập** các kết quả VPS này ([REVIEW-R2] ghi là "Claude-reported").
+- **"ChatGPT đã kiểm độc lập" (R2 @`4c33ba6`)**: chỉ gồm việc đọc đủ 21 tệp và đối chiếu trạng thái CI run `43163436884` (6/6) đúng HEAD; ChatGPT không chạy lại script, không vào VPS.
+- Mã sửa sau R2 (SEC-01, SEC-02, DB-01) **chưa được ai kiểm độc lập** — chờ R3; chỉ có test/CI do Claude chạy.
 
-| Script / bước | (1) ĐÃ CHẠY THẬT trên VPS 42.96.15.235 (SHA script, giờ UTC 12/11/2026, kết quả) | (2) Đã diễn tập PostgreSQL tạm / CI | (3) NOT_VERIFIED |
+Các bước VPS chạy bằng script ở SHA ghi trong ngoặc, **không phải** bản sau khi sửa R2.
+
+| Script / bước | (1) ĐÃ CHẠY THẬT trên VPS 42.96.15.235 — **Claude báo cáo (phiên điều phối thu)**, ChatGPT chưa kiểm độc lập (SHA script, giờ UTC 12/11/2026, kết quả) | (2) Đã diễn tập PostgreSQL tạm / CI — do Claude chạy; ChatGPT R2 đã đối chiếu trạng thái CI 6/6 @`4c33ba6` | (3) NOT_VERIFIED |
 |---|---|---|---|
 | `provision.sh` 12 bước | `c7e74fa`, khoảng 04:30: 12/12 đạt; cổng 26266; ufw 26266/80/443, từ ngoài 22/3000/3389/5432 đóng; swap 2 GB; fail2ban; Node 24.22.3; PostgreSQL 18.6 chỉ loopback; Caddy 2.11.9 | dry-run trên Ubuntu 24.04 (CI) | Kiểm kê ufw mới (SEC-01) trên VPS; trạng thái sau reboot |
 | Chứng chỉ IP (Caddy, profile shortlived) | `c7e74fa`: Let's Encrypt YE1, SAN IP 42.96.15.235, 12/11 04:31 → 18/11 20:31; `curl https://42.96.15.235/` không `-k` đạt | `caddy validate`/`adapt` 3 chế độ (CI) | Tự gia hạn; `check-tls.sh` trên VPS; gia hạn thủ công |
@@ -349,6 +359,6 @@ Cột 1 chỉ ghi khi có đầu ra quan sát được (phụ lục `docs/VPS_EV
 | `deploy.sh --src --frontend --migrate` lần đầu | `4c33ba6`, 05:54–05:55: 12 migration; VERIFY `PASS|73`, VERIFY_AUTH `PASS|33`; health `migrated:true`, `leastPrivilege:true`, `authPool:separate`; chỉ nghe `127.0.0.1:3000`; 0 dòng error | build + argon2/Prisma (CI); test guard dọn bản dở dang | Deploy lần 2 (nhánh sao lưu bắt buộc), `--rollback`, `--auto-rollback`, `--tag`, dọn bản dở dang trên VPS; **kiểm 3 URL (DB-01) trên VPS** |
 | `run-cli.sh seed-lookups` / `bootstrap-auth` | `4c33ba6`, 05:55–05:56: 57/57 mục; 5 tài khoản thử, `closed=true` (mật khẩu sinh ngẫu nhiên — xem điểm lệch ở G3) | diễn tập PG tạm | **Kiểm 3 URL (DB-01) trên VPS** |
 | HTTPS từ ngoài + đăng nhập | 05:55–05:57: trang chủ 200, health 200, HSTS + nosniff, `http://` → 308; 5 tài khoản đăng nhập 200, cookie `Secure`/`HttpOnly`, sai mật khẩu 401; quyền `/customers` đúng ma trận; Owner tự đăng nhập dùng thử | backend production 2 chế độ host (CI) | G5 đầy đủ (CSRF thiếu token, giới hạn theo IP thật, iPhone); `nmap -p-` |
-| `backup-db.sh` (+ `--init-signing-key`), `restore-test.sh`, timer | Chưa chạy | ký + age + 8 ca âm F1 + SEC-02 plaintext/keep/purge (PG tạm, CI) | Toàn bộ trên VPS; bản sao ngoài VPS |
+| `backup-db.sh` (+ `--init-signing-key`), `restore-test.sh`, timer | Chưa chạy | ký + age + 8 ca âm F1 + SEC-02 (plaintext không bị xoá, thoát ≠ 0, quy trình xoá tay) (PG tạm, CI) | Toàn bộ trên VPS; bản sao ngoài VPS |
 | Unit systemd | `siscom-crm-backend` active/enabled sau deploy (`4c33ba6`) | `systemd-analyze verify` (CI) | Giới hạn RAM / hardening dưới tải; timer sao lưu |
 | Mã sửa R2 (SEC-01, SEC-02, DB-01) | **Chưa chạy trên VPS** | test guard + diễn tập + CI trên SHA sau sửa | Toàn bộ trên VPS |

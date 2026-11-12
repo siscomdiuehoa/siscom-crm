@@ -316,44 +316,38 @@ ufw_apply() {
   echo "[OK] ufw dang bat; TOAN BO rule = ${csv}/tcp, 80/tcp, 443/tcp (v4+v6); mac dinh deny incoming."
 }
 
-# --- SEC-02 (PR232-R2): giu ban sao luu tren HOP hai dinh dang (.dump va .dump.age) cua DUNG DB; xoa bo nao thi xoa du sidecar bo do. ---
-# backup_rm_set <thu muc> <ten file .dump|.dump.age>: xoa file + .sha256 + .restore-ok.txt + <stem>.manifest + <stem>.manifest.sig.
-backup_rm_set() {
+# --- SEC-02 (PR232-R2, dieu kien Owner 12/11): retention CHI tinh giu/xoa tren cac bo .dump.age cua DUNG DB (xoa du sidecar bo do).
+# Bo .dump (plaintext) KHONG BAO GIO bi script xoa hay sua - ke ca khi qua han giu; chi phat hien + liet ke.
+# backup_rm_age_set <thu muc> <ten file .dump.age>: xoa file + .sha256 + .restore-ok.txt + <stem>.manifest + <stem>.manifest.sig.
+backup_rm_age_set() {
   local d="$1" f="$2" stem
-  case "$f" in *.dump.age) stem="${f%.dump.age}" ;; *.dump) stem="${f%.dump}" ;; *) return 1 ;; esac
+  case "$f" in *.dump.age) stem="${f%.dump.age}" ;; *) return 1 ;; esac
   rm -f -- "$d/$f" "$d/$f.sha256" "$d/$f.restore-ok.txt" "$d/$stem.manifest" "$d/$stem.manifest.sig"
 }
-# backup_prune <thu muc> <db> <ma hoa 0|1> <chinh sach plaintext: ''|keep|purge> <allowed_signers>
-#   ma thoat: 0 = xong; 3 = (ma hoa) CON ban plaintext va chua chon chinh sach (da liet ke, KHONG xoa); 1 = loi (vd purge khi khong co .age hop le).
+# backup_prune <thu muc> <db> <ma hoa 0|1>
+#   ma thoat: 0 = xong; 3 = che do ma hoa ma CON >= 1 bo plaintext (da liet ke, KHONG xoa) - lap lai MOI LAN cho toi khi Owner xu ly tay.
 backup_prune() {
-  local d="$1" db="$2" enc="$3" pol="$4" allowed="$5" f
-  local -a all keep plain okage=()
-  mapfile -t all < <(find "$d" -maxdepth 1 -type f -printf '%f\n' | grep -E "^${db}_[0-9]{8}_[0-9]{6}\.dump(\.age)?\$" | sort || true)
-  mapfile -t keep < <(printf '%s\n' "${all[@]}" | retention_keep 14 8)
-  for f in "${all[@]}"; do
+  local d="$1" db="$2" enc="$3" f
+  local -a ages keep plains
+  mapfile -t ages < <(find "$d" -maxdepth 1 -type f -printf '%f\n' | grep -E "^${db}_[0-9]{8}_[0-9]{6}\.dump\.age\$" | sort || true)
+  mapfile -t keep < <(printf '%s\n' "${ages[@]}" | retention_keep 14 8)
+  for f in "${ages[@]}"; do
     [ -n "$f" ] || continue
-    if ! printf '%s\n' "${keep[@]}" | grep -qxF "$f"; then backup_rm_set "$d" "$f"; info "Da xoa ban cu: $f"; fi
+    if ! printf '%s\n' "${keep[@]}" | grep -qxF "$f"; then backup_rm_age_set "$d" "$f"; info "Da xoa bo .age cu: $f"; fi
   done
-  [ "$enc" = 1 ] || { info "Con ${#keep[@]} bo sao luu cua $db (ca .dump va .dump.age)."; return 0; }
-  mapfile -t plain < <(printf '%s\n' "${keep[@]}" | grep -E '\.dump$' || true)
-  [ "${#plain[@]}" -gt 0 ] && [ -n "${plain[0]}" ] || { info "Con ${#keep[@]} bo sao luu cua $db, khong con ban plaintext."; return 0; }
-  case "$pol" in
-    keep)
-      warn "Con ${#plain[@]} bo sao luu KHONG ma hoa cua $db (giu co chu dich: SISCOM_BACKUP_PLAINTEXT=keep):"
-      printf '    %s\n' "${plain[@]}" >&2; return 0 ;;
-    purge)
-      for f in "${keep[@]}"; do
-        case "$f" in *.dump.age) verify_backup_set "$d/$f" "$allowed" "$db" 2>/dev/null && okage+=("$f") ;; esac
-      done
-      [ "${#okage[@]}" -ge 1 ] || { printf '[LOI] purge: khong co bo .age nao qua xac thuc => KHONG xoa plaintext.\n' >&2; return 1; }
-      for f in "${plain[@]}"; do backup_rm_set "$d" "$f"; info "Da xoa bo plaintext co chu dich (purge): $f"; done
-      info "Con ${#okage[@]} bo .age hop le cua $db."; return 0 ;;
-    *)
-      printf '[LOI] Con %s bo sao luu KHONG ma hoa cua %s trong khi che do ma hoa dang bat (KHONG xoa, KHONG bo qua):\n' "${#plain[@]}" "$db" >&2
-      printf '    %s\n' "${plain[@]}" >&2
-      printf '  Chon co chu dich: SISCOM_BACKUP_PLAINTEXT=keep (giu, canh bao moi lan) hoac SISCOM_BACKUP_PLAINTEXT=purge (xoa sau khi da co ban .age hop le).\n' >&2
-      return 3 ;;
-  esac
+  mapfile -t plains < <(find "$d" -maxdepth 1 -type f -printf '%f\n' | grep -E "^${db}_[0-9]{8}_[0-9]{6}\.dump\$" | sort || true)
+  [ -n "${plains[0]:-}" ] || plains=()
+  info "Con ${#keep[@]} bo .age va ${#plains[@]} bo plaintext cua $db."
+  [ "${#plains[@]}" -eq 0 ] && return 0
+  if [ "$enc" = 0 ]; then
+    warn "Che do KHONG ma hoa: hien co ${#plains[@]} bo plaintext cua $db; retention KHONG xoa plaintext => se tich luy, can Owner xu ly tay (xem runbook)."
+    return 0
+  fi
+  printf '[LOI] Con %s bo sao luu KHONG ma hoa cua %s trong khi che do ma hoa dang bat. Script KHONG xoa va KHONG bo qua:\n' "${#plains[@]}" "$db" >&2
+  printf '    %s\n' "${plains[@]}" >&2
+  printf '  Xu ly TAY, chi khi Owner phe duyet rieng: (1) co bo .age thay the qua verify_backup_set; (2) restore-test.sh --dump <bo .age> dat;\n' >&2
+  printf '  (3) Owner xoa tay tung bo plaintext (.dump, .dump.sha256, .dump.restore-ok.txt, .manifest, .manifest.sig). Xem docs/VPS_RUNBOOK.md G6.\n' >&2
+  return 3
 }
 
 # --- DB-01 (PR232-R2): ba URL ket noi phai co du, dung dang, dung tai khoan, host loopback va CUNG mot DB van hanh. ---

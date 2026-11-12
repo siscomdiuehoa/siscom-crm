@@ -407,7 +407,7 @@ else
   bad "lib.sh chua co ufw_apply (SEC-01 chua sua)"
 fi
 
-echo "== 11. SEC-02 (PR232-R2): retention quan CA .dump va .dump.age; plaintext con lai khi ma hoa => khong am tham =="
+echo "== 11. SEC-02 (PR232-R2, dieu kien Owner): retention CHI xoa bo .age; plaintext KHONG BAO GIO bi xoa, chi liet ke + thoat != 0 =="
 if declare -F backup_prune >/dev/null && command -v ssh-keygen >/dev/null 2>&1; then
   bp="$tmp/bp"
   mkb() { # mkb <dir> <stamp> <dump|dump.age> [ky=1]: tao bo sao luu gia day du sidecar (manifest ky bang khoa that $tmp/sk)
@@ -424,36 +424,40 @@ if declare -F backup_prune >/dev/null && command -v ssh-keygen >/dev/null 2>&1; 
       *.manifest|*.manifest.sig) stem="${x%.sig}"; stem="${stem%.manifest}"; [ -e "$stem.dump" ] || [ -e "$stem.dump.age" ] || echo "$x" ;;
     esac; done
   }
-  # 1) hop hai dinh dang: 30 ban plaintext cu (moi ngay) + 1 ban .age moi nhat; ma hoa + keep => tinh giu tren HOP, xoa du sidecar
+  snapP() { (cd "$1" && find . -maxdepth 1 -type f -name '*_180000*' -exec sha256sum {} + | sort); }   # moi tep cua cac bo plaintext (gio 180000)
+  ageok() { local x; for x in "$1"/*.dump.age; do verify_backup_set "$x" "$tmp/allowed" siscom_crm_prod 2>/dev/null || return 1; done; }
+  # (b)(c) 30 bo plaintext cu (18:00) + 30 bo .age cu (19:00) + 1 bo .age moi; ma hoa => .age qua han bi xoa du sidecar,
+  #        KHONG tep plaintext nao bi xoa/sua (ke ca qua han giu), thoat 3 va liet ke plaintext
   rm -rf "$bp"; mkdir -p "$bp"
-  for i in $(seq 1 30); do mkb "$bp" "$(date -u -d "2026-11-11 -$i day" +%Y%m%d)_190000" dump; done
+  for i in $(seq 1 30); do d="$(date -u -d "2026-11-11 -$i day" +%Y%m%d)"; mkb "$bp" "${d}_180000" dump; mkb "$bp" "${d}_190000" dump.age; done
   mkb "$bp" 20261112_190000 dump.age
-  out="$(backup_prune "$bp" siscom_crm_prod 1 keep "$tmp/allowed" 2>&1)"; rc=$?
-  n="$(find "$bp" -maxdepth 1 -regex '.*_[0-9]*_[0-9]*\.dump\(\.age\)?$' | wc -l)"
-  { [ "$rc" -eq 0 ] && [ "$n" -ge 14 ] && [ "$n" -le 22 ] && [ -e "$bp/siscom_crm_prod_20261112_190000.dump.age" ] && [ ! -e "$bp/siscom_crm_prod_20261012_190000.dump" ] && [ -z "$(orphans "$bp")" ]; } \
-    && ok "giu/xoa tinh tren HOP .dump + .dump.age ($n bo con lai), khong sidecar mo coi" || bad "retention hop hai dinh dang (rc=$rc, n=$n, mo coi: $(orphans "$bp" | head -3))"
-  check "keep => canh bao liet ke plaintext" contains "$out" "siscom_crm_prod_20261110_190000.dump"
-  # 2) ma hoa + KHONG chon chinh sach + con plaintext => ma thoat 3, khong xoa gi
-  rm -rf "$bp"; mkdir -p "$bp"; mkb "$bp" 20261110_190000 dump; mkb "$bp" 20261111_190000 dump.age
-  before="$(ls "$bp" | sort)"
-  out="$(backup_prune "$bp" siscom_crm_prod 1 "" "$tmp/allowed" 2>&1)"; rc=$?
-  { [ "$rc" -eq 3 ] && contains "$out" "siscom_crm_prod_20261110_190000.dump" && [ "$(ls "$bp" | sort)" = "$before" ]; } && ok "con plaintext, khong chon chinh sach => thoat 3, liet ke, KHONG xoa" || bad "plaintext mac dinh (rc=$rc)"
-  # 3) purge khi co ban .age HOP LE => xoa du bo plaintext, giu .age
-  out="$(backup_prune "$bp" siscom_crm_prod 1 purge "$tmp/allowed" 2>&1)"; rc=$?
-  { [ "$rc" -eq 0 ] && [ -z "$(find "$bp" -name '*20261110*')" ] && [ -e "$bp/siscom_crm_prod_20261111_190000.dump.age" ] && [ -e "$bp/siscom_crm_prod_20261111_190000.manifest.sig" ]; } && ok "purge => xoa du sidecar bo plaintext, giu bo .age" || bad "purge (rc=$rc): $(ls "$bp" | tr '\n' ' ')"
-  # 4) purge khi KHONG co ban .age hop le (chu ky sai) => tu choi, khong xoa plaintext
-  rm -rf "$bp"; mkdir -p "$bp"; mkb "$bp" 20261110_190000 dump; mkb "$bp" 20261111_190000 dump.age 0
-  out="$(backup_prune "$bp" siscom_crm_prod 1 purge "$tmp/allowed" 2>&1)"; rc=$?
-  { [ "$rc" -ne 0 ] && [ -e "$bp/siscom_crm_prod_20261110_190000.dump" ]; } && ok "purge khong co ban .age hop le => tu choi, giu plaintext" || bad "purge khong .age hop le (rc=$rc)"
-  # 5) chieu nguoc: NO_ENCRYPT (encrypt=0) van quan ca .age cu
+  before="$(snapP "$bp")"
+  out="$(backup_prune "$bp" siscom_crm_prod 1 2>&1)"; rc=$?
+  nage="$(find "$bp" -maxdepth 1 -name '*.dump.age' | wc -l)"; nplain="$(find "$bp" -maxdepth 1 -name '*.dump' | wc -l)"
+  { [ "$rc" -eq 3 ] && [ "$(snapP "$bp")" = "$before" ] && [ "$nplain" -eq 30 ]; } && ok "(b) 30 bo plaintext (qua han giu) => KHONG tep plaintext/sidecar nao bi xoa hay sua, thoat 3" || bad "(b) plaintext bi dong cham (rc=$rc, con $nplain)"
+  { contains "$out" "siscom_crm_prod_20261012_180000.dump" && contains "$out" "siscom_crm_prod_20261110_180000.dump" && contains "$out" "restore-test.sh"; } && ok "(b) liet ke DU ten plaintext + nhac quy trinh xoa tay (restore-test)" || bad "(b) khong liet ke du / khong nhac quy trinh"
+  { [ ! -e "$bp/siscom_crm_prod_20261012_190000.dump.age" ] && [ ! -e "$bp/siscom_crm_prod_20261012_190000.manifest" ] && [ "$nage" -ge 14 ] && [ "$nage" -le 22 ] && [ -e "$bp/siscom_crm_prod_20261112_190000.dump.age" ] && [ -z "$(orphans "$bp")" ] && ageok "$bp"; } \
+    && ok "(c) retention chi xoa bo .age qua han (con $nage bo .age), du sidecar, bo con lai qua xac thuc" || bad "(c) retention .age (con $nage, mo coi: $(orphans "$bp" | head -2))"
+  # chay lai: van thoat 3 MOI LAN, van khong dong cham plaintext
+  backup_prune "$bp" siscom_crm_prod 1 >/dev/null 2>&1; rc2=$?
+  { [ "$rc2" -eq 3 ] && [ "$(snapP "$bp")" = "$before" ]; } && ok "chay lai => van thoat 3, plaintext nguyen ven" || bad "chay lai (rc=$rc2)"
+  # (e) dat SISCOM_BACKUP_PLAINTEXT=keep|purge khong doi hanh vi
+  for v in keep purge; do
+    SISCOM_BACKUP_PLAINTEXT=$v backup_prune "$bp" siscom_crm_prod 1 >/dev/null 2>&1; rcv=$?
+    { [ "$rcv" -eq 3 ] && [ "$(snapP "$bp")" = "$before" ]; } && ok "(e) SISCOM_BACKUP_PLAINTEXT=$v => khong bo qua loi, khong xoa" || bad "(e) $v doi hanh vi (rc=$rcv)"
+  done
+  check_not "(e) backup-db.sh/lib.sh khong con xu ly keep/purge" grep -Eq 'keep\)|purge\)' "$lin/backup-db.sh" "$lin/lib.sh"
+  check "(e) backup-db.sh canh bao khi SISCOM_BACKUP_PLAINTEXT duoc dat" grep -q 'SISCOM_BACKUP_PLAINTEXT' "$lin/backup-db.sh"
+  # (d) chieu nguoc NO_ENCRYPT (encrypt=0): .age cu van duoc retention quan; plaintext tich luy, KHONG bi xoa, co canh bao so bo
   rm -rf "$bp"; mkdir -p "$bp"
-  for i in $(seq 1 30); do mkb "$bp" "$(date -u -d "2026-11-11 -$i day" +%Y%m%d)_190000" dump.age; done
-  mkb "$bp" 20261112_190000 dump
-  out="$(backup_prune "$bp" siscom_crm_prod 0 "" "$tmp/allowed" 2>&1)"; rc=$?
-  { [ "$rc" -eq 0 ] && [ ! -e "$bp/siscom_crm_prod_20261012_190000.dump.age" ] && [ -e "$bp/siscom_crm_prod_20261112_190000.dump" ] && [ -z "$(orphans "$bp")" ]; } && ok "chieu nguoc (khong ma hoa): retention van xoa .age cu, du sidecar" || bad "chieu nguoc (rc=$rc)"
-  # 6) chinh sach la => backup-db.sh dung TRUOC khi dump
-  out="$(SISCOM_BACKUP_PLAINTEXT=xoa SISCOM_ETC="$tmp/nope" bash "$lin/backup-db.sh" 2>&1)"; rc=$?
-  { [ "$rc" -ne 0 ] && contains "$out" "SISCOM_BACKUP_PLAINTEXT"; } && ok "SISCOM_BACKUP_PLAINTEXT la => dung truoc khi dump" || bad "SISCOM_BACKUP_PLAINTEXT la (rc=$rc)"
+  for i in $(seq 1 30); do d="$(date -u -d "2026-11-11 -$i day" +%Y%m%d)"; mkb "$bp" "${d}_180000" dump; mkb "$bp" "${d}_190000" dump.age; done
+  before="$(snapP "$bp")"
+  out="$(backup_prune "$bp" siscom_crm_prod 0 2>&1)"; rc=$?
+  { [ "$rc" -eq 0 ] && [ "$(snapP "$bp")" = "$before" ] && [ ! -e "$bp/siscom_crm_prod_20261012_190000.dump.age" ] && [ -z "$(orphans "$bp")" ] && contains "$out" "30 bo"; } \
+    && ok "(d) NO_ENCRYPT: .age cu bi retention xoa, 30 bo plaintext giu nguyen + canh bao so bo" || bad "(d) chieu nguoc (rc=$rc)"
+  # khong co plaintext + ma hoa => thoat 0
+  rm -rf "$bp"; mkdir -p "$bp"; mkb "$bp" 20261111_190000 dump.age
+  backup_prune "$bp" siscom_crm_prod 1 >/dev/null 2>&1 && ok "khong co plaintext => thoat 0" || bad "khong co plaintext ma van loi"
   check "backup-db.sh goi backup_prune" grep -q 'backup_prune ' "$lin/backup-db.sh"
 else
   bad "lib.sh chua co backup_prune (SEC-02 chua sua) hoac thieu ssh-keygen"

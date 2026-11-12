@@ -100,22 +100,28 @@ step "khoi phuc lai bo goc => PASS"
 bash "$lin/restore-test.sh" "${ident[@]}" --dump "$A" 2>&1 | grep -E 'PASS|^\[LOI\]' | cut -c1-110
 
 if [ "${#ident[@]}" -gt 0 ]; then
-  step "SEC-02: con bo plaintext (.dump) khi dang ma hoa => ban .age moi van tao, nhung thoat != 0, khong xoa plaintext"
-  sleep 1; SISCOM_BACKUP_NO_ENCRYPT=yes bash "$lin/backup-db.sh" >/dev/null 2>&1 || { echo "KHONG DAT: khong tao duoc bo plaintext"; exit 1; }
+  step "SEC-02 (dieu kien Owner): con bo plaintext khi dang ma hoa => ban .age moi tao + ky + tu kiem + restore-test dat; thoat != 0; plaintext NGUYEN VEN"
+  sleep 1; SISCOM_BACKUP_NO_ENCRYPT=yes bash "$lin/backup-db.sh" > "$work/noenc.out" 2>&1 || { tail -5 "$work/noenc.out"; echo "KHONG DAT: khong tao duoc bo plaintext"; exit 1; }
+  grep -q 'tich luy' "$work/noenc.out" || { echo "KHONG DAT: NO_ENCRYPT khong canh bao plaintext tich luy"; exit 1; }
   P="$(find "$work/bk" -name "${db}_*.dump" | sort | tail -n1)"; [ -n "$P" ] || { echo "KHONG DAT: khong thay bo plaintext"; exit 1; }
-  sleep 1; nage_before="$(find "$work/bk" -name "${db}_*.dump.age" | wc -l)"
-  if bash "$lin/backup-db.sh" > "$work/sec02.out" 2>&1; then echo "KHONG DAT: sao luu ma hoa thoat 0 du con plaintext"; exit 1; fi
-  grep -qF "$(basename "$P")" "$work/sec02.out" || { echo "KHONG DAT: khong liet ke plaintext"; exit 1; }
-  [ -e "$P" ] || { echo "KHONG DAT: plaintext bi xoa ma khong co chinh sach"; exit 1; }
-  [ "$(find "$work/bk" -name "${db}_*.dump.age" | wc -l)" -gt "$nage_before" ] || { echo "KHONG DAT: khong tao ban .age moi"; exit 1; }
-  grep -E '^\[LOI\]' "$work/sec02.out" | head -n2 | cut -c1-140; echo "dat (thoat != 0, liet ke, giu plaintext, co ban .age moi)"
-  step "SEC-02: SISCOM_BACKUP_PLAINTEXT=keep => thoat 0 + canh bao; =purge => xoa du bo plaintext"
-  sleep 1; SISCOM_BACKUP_PLAINTEXT=keep bash "$lin/backup-db.sh" > "$work/keep.out" 2>&1 || { tail -5 "$work/keep.out"; echo "KHONG DAT: keep"; exit 1; }
-  grep -q 'CANH BAO' "$work/keep.out" && [ -e "$P" ] || { echo "KHONG DAT: keep khong canh bao/khong giu"; exit 1; }
-  sleep 1; SISCOM_BACKUP_PLAINTEXT=purge bash "$lin/backup-db.sh" > "$work/purge.out" 2>&1 || { tail -5 "$work/purge.out"; echo "KHONG DAT: purge"; exit 1; }
-  stemP="${P%.dump}"; for x in "$P" "$P.sha256" "$stemP.manifest" "$stemP.manifest.sig"; do [ ! -e "$x" ] || { echo "KHONG DAT: purge con $x"; exit 1; }; done
-  [ -z "$(find "$work/bk" -name "${db}_*.dump")" ] || { echo "KHONG DAT: van con plaintext sau purge"; exit 1; }
-  echo "dat (keep: canh bao + giu; purge: xoa du bo plaintext, con $(find "$work/bk" -name "${db}_*.dump.age" | wc -l) bo .age)"
+  snapP() { (cd "$work/bk" && find . -maxdepth 1 -type f -name "$(basename "${P%.dump}")*" -exec sha256sum {} + | sort); }
+  before="$(snapP)"
+  for pol in "" keep purge; do
+    sleep 1; nage_before="$(find "$work/bk" -name "${db}_*.dump.age" | wc -l)"
+    if SISCOM_BACKUP_PLAINTEXT="$pol" bash "$lin/backup-db.sh" > "$work/sec02.out" 2>&1; then echo "KHONG DAT: sao luu ma hoa thoat 0 du con plaintext (SISCOM_BACKUP_PLAINTEXT='$pol')"; exit 1; fi
+    grep -qF "$(basename "$P")" "$work/sec02.out" || { echo "KHONG DAT: khong liet ke plaintext"; exit 1; }
+    [ "$(snapP)" = "$before" ] || { echo "KHONG DAT: tep plaintext/sidecar bi xoa hoac sua (SISCOM_BACKUP_PLAINTEXT='$pol')"; exit 1; }
+    [ "$(find "$work/bk" -name "${db}_*.dump.age" | wc -l)" -gt "$nage_before" ] || { echo "KHONG DAT: khong tao ban .age moi"; exit 1; }
+    echo "dat (SISCOM_BACKUP_PLAINTEXT='${pol}'): thoat != 0, liet ke, plaintext nguyen ven (sha truoc/sau trung), co ban .age moi"
+  done
+  N="$(find "$work/bk" -name "${db}_*.dump.age" | sort | tail -n1)"
+  verify_line="$(SISCOM_REHEARSAL=1 bash -c ". '$lin/lib.sh'; verify_backup_set '$N' '$work/etc/backup-signing.allowed_signers' '$db' && echo VERIFY_OK" 2>&1)"
+  [ "$verify_line" = VERIFY_OK ] || { echo "KHONG DAT: bo .age moi khong qua verify_backup_set"; exit 1; }
+  step "SEC-02: quy trinh xoa TAY (mo phong Owner da duyet): restore-test bo .age moi dat => xoa tay bo plaintext => sao luu ma hoa thoat 0"
+  bash "$lin/restore-test.sh" "${ident[@]}" --dump "$N" 2>&1 | grep -E 'PASS|^\[LOI\]' | cut -c1-110
+  stemP="${P%.dump}"; rm -f -- "$P" "$P.sha256" "$P.restore-ok.txt" "$stemP.manifest" "$stemP.manifest.sig"
+  sleep 1; bash "$lin/backup-db.sh" > "$work/after.out" 2>&1 || { tail -5 "$work/after.out"; echo "KHONG DAT: sau khi xoa tay van loi"; exit 1; }
+  echo "dat (sau khi xoa tay plaintext: sao luu ma hoa thoat 0)"
 fi
 
 if [ -f "$work/opt/current/backend/dist/main.js" ] && [ -n "${BOOTSTRAP_PASSWORD_SYSADMIN:-}" ]; then
