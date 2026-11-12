@@ -4,7 +4,7 @@
 #   khoi dong lai), Node 24 (NodeSource), PostgreSQL 18 (PGDG) chi nghe localhost, Caddy (HTTPS Let's Encrypt), user dich vu `siscom`
 #   khong sudo, giu khoa host SSH qua cloud-init (BKNS gan lai dia seed moi lan boot), cai unit systemd + Caddyfile cua repo.
 # Chay bang root TREN VPS (chua tung chay tren VPS that - xem docs/VPS_RUNBOOK.md). Idempotent: chay lai khong hong.
-# Dung: SISCOM_DOMAIN=<ten mien> provision.sh [--dry-run] [--ssh-key-only]
+# Dung: SISCOM_HOST=<ten mien | IPv4> provision.sh [--dry-run] [--ssh-key-only]
 #   --dry-run       chi in cac buoc, khong doi gi (van DOC cong SSH that bang `sshd -T` => chay bang root).
 #   --ssh-key-only  (co RIENG, Owner duyet) tat dang nhap SSH bang mat khau, root chi bang khoa: drop-in
 #                   /etc/ssh/sshd_config.d/00-siscom-ssh-key-only.conf. Tu choi neu tai khoan dang dang nhap chua co >= 1 khoa hop le
@@ -12,7 +12,10 @@
 #                   neu `sshd -t` loi, hoac neu `sshd -T` sau khi ghi chua the hien dung gia tri (go drop-in, khong nap lai).
 # Cong SSH: KHONG doi. Doc cong DANG DUNG tu `sshd -T` (+ ssh.socket neu dang chay), mo DUNG cac cong do tren ufw TRUOC `ufw --force enable`,
 #   roi kiem `ufw status` con cac cong do (khong => tat lai ufw va dung). Khong doc duoc cong => tu choi truoc khi doi gi.
-# Bien: SISCOM_DOMAIN (BAT BUOC - thieu thi dung ngay), SISCOM_ACME_CA (mac dinh Let's Encrypt that; dat
+# Bien: SISCOM_HOST (BAT BUOC: ten mien - mac dinh, Let's Encrypt 90 ngay; hoac IPv4 cong khai - phuong an phu, profile shortlived ~6 ngay;
+#   ten mien phai co DUY NHAT ban ghi A = IP cong khai cua may, IPv4 phai la IP cua chinh may, kiem TRUOC moi thay doi),
+#   SISCOM_TLS_MODE (acme mac dinh | internal: CHI cho IPv4, chung chi tu ky - du phong), SISCOM_PUBLIC_IP (tuy chon; mac dinh dia chi nguon
+#   cua tuyen ra Internet), SISCOM_ACME_CA (mac dinh Let's Encrypt that; dat
 #   https://acme-staging-v02.api.letsencrypt.org/directory de thu), SISCOM_SSH_PORT (tuy chon: neu dat phai TRUNG mot cong sshd dang
 #   nghe - chi de doi chieu, khong doi cong), SISCOM_SWAP_GB (2).
 set -euo pipefail
@@ -26,15 +29,35 @@ for a in "$@"; do
   case "$a" in
     --dry-run) DRY=1 ;;
     --ssh-key-only) KEYONLY=1 ;;
-    *) die "Tham so la: $a (dung: SISCOM_DOMAIN=<ten mien> provision.sh [--dry-run] [--ssh-key-only])" ;;
+    *) die "Tham so la: $a (dung: SISCOM_HOST=<ten mien | IPv4> provision.sh [--dry-run] [--ssh-key-only])" ;;
   esac
 done
 
 SWAP_GB="${SISCOM_SWAP_GB:-2}"
 [[ "$SWAP_GB" =~ ^[1-8]$ ]] || die "SISCOM_SWAP_GB phai tu 1 den 8."
-DOMAIN="${SISCOM_DOMAIN:-}"
-[ -n "$DOMAIN" ] || die "Thieu SISCOM_DOMAIN (bat buoc: Caddy cap HTTPS cho ten mien; ban ghi DNS A phai tro ve IP VPS). Chua co ten mien => chua chay provision.sh."
-[[ "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "SISCOM_DOMAIN khong hop le: $DOMAIN"
+[ -z "${SISCOM_DOMAIN:-}" ] || die "Bien SISCOM_DOMAIN da doi ten thanh SISCOM_HOST (ten mien hoac IPv4). Dat SISCOM_HOST va bo SISCOM_DOMAIN."
+HOST="${SISCOM_HOST:-}"
+[ -n "$HOST" ] || die "Thieu SISCOM_HOST (bat buoc): ten mien (vd crm-staging.siscom.io.vn) hoac IPv4 cong khai cua VPS. Khong co che do HTTP thuan (backend production bat buoc cookie Secure)."
+HOST_KIND="$(host_kind "$HOST")" || die "SISCOM_HOST khong hop le hoac khong phai IPv4 cong khai: $HOST (ten mien chu thuong, hoac IPv4 cong khai)."
+TLS_MODE="${SISCOM_TLS_MODE:-acme}"
+case "$HOST_KIND:$TLS_MODE" in
+  domain:acme) TLS_SNIPPET=tls-domain.caddy; CADDY_MODE=domain ;;
+  ipv4:acme) TLS_SNIPPET=tls-ip-shortlived.caddy; CADDY_MODE=ipv4-acme ;;
+  ipv4:internal) TLS_SNIPPET=tls-ip-internal.caddy; CADDY_MODE=ipv4-internal ;;
+  domain:internal) die "SISCOM_TLS_MODE=internal chi danh cho IPv4 (du phong). Ten mien dung Let's Encrypt." ;;
+  *) die "SISCOM_TLS_MODE la: $TLS_MODE (acme | internal)" ;;
+esac
+# IP cong khai cua chinh may nay + DNS: kiem TRUOC moi thay doi (tranh xin chung chi khi DNS chua tro dung => dinh gioi han Let's Encrypt).
+PUB_IP="$(public_ipv4)" || die "Khong xac dinh duoc IPv4 cong khai cua may (dia chi nguon la IP rieng?). Dat SISCOM_PUBLIC_IP=<IP cong khai cua VPS>."
+if [ "$HOST_KIND" = domain ]; then
+  dns="$(dns_a_records "$HOST" | paste -sd, -)"
+  [ "$dns" = "$PUB_IP" ] || die "DNS chua dung: ban ghi A cua $HOST = '${dns:-(khong co)}', can DUY NHAT $PUB_IP. Tao/sua ban ghi A roi doi DNS lan truyen (kiem: dig +short $HOST)."
+  info "DNS: $HOST -> $PUB_IP (dung IP cong khai cua may)."
+else
+  [ "$HOST" = "$PUB_IP" ] || die "SISCOM_HOST=$HOST khong phai IPv4 cong khai cua may nay ($PUB_IP). Let's Encrypt xac thuc IP qua chinh may nay."
+  [ "$TLS_MODE" = internal ] && warn "SISCOM_TLS_MODE=internal: chung chi tu ky, phai cai CA cua Caddy len tung thiet bi (du phong, khong phai mac dinh)."
+  [ "$TLS_MODE" = acme ] && warn "Che do IP: chung chi Let's Encrypt profile shortlived chi ~6 ngay; Caddy tu gia han - kiem bang check-tls.sh. Viec cap chung chi IP CHUA kiem chung tren VPS."
+fi
 
 # Cong SSH that (F2 lam lai theo VPS that cong 26266): doc, khong doi. Doc TRUOC moi thay doi.
 mapfile -t SSH_PORTS < <(sshd_ports || true)
@@ -221,11 +244,13 @@ for u in siscom-crm-backend.service siscom-crm-backup.service siscom-crm-backup.
   run install -m 644 -o root -g root "$here/systemd/$u" "/etc/systemd/system/$u"
 done
 run systemctl daemon-reload
-{ # Caddy (SISCOM_DOMAIN da bat buoc o dau script)
+{ # Caddy (SISCOM_HOST + DNS/IP da kiem o dau script). Doi host sau nay: chay lai provision.sh voi SISCOM_HOST moi (xem runbook).
+  if [ "$DRY" = 1 ]; then echo "[DRY] kiem phien ban Caddy (che do ${CADDY_MODE}; IPv4 + acme can >= 2.10)"; else caddy_version_check "$CADDY_MODE" || die "Phien ban Caddy khong dung cho che do ${CADDY_MODE}."; fi
   write_file "$SISCOM_ETC/caddy.env" 600 <<CONF
-SISCOM_DOMAIN=${DOMAIN}
+SISCOM_HOST=${HOST}
 SISCOM_ACME_CA=${ACME_CA}
 CONF
+  run install -m 644 -o root -g root "$here/caddy/$TLS_SNIPPET" /etc/caddy/siscom-tls.caddy
   write_file /etc/systemd/system/caddy.service.d/siscom.conf 644 <<CONF
 [Service]
 EnvironmentFile=${SISCOM_ETC}/caddy.env
@@ -240,7 +265,7 @@ CONF
     systemctl enable caddy
     systemctl restart caddy
   fi
-  info "Caddy cho ${DOMAIN}. Ban ghi DNS A phai tro ve IP VPS truoc thi Let's Encrypt cap duoc chung chi."
+  info "Caddy cho https://${HOST} (TLS: ${TLS_SNIPPET}). Kiem chung chi: check-tls.sh ${HOST}"
 }
 
 step "12. cloud-init: giu khoa host SSH (BKNS gan lai dia seed NoCloud moi lan boot => cloud-init coi la may moi)"

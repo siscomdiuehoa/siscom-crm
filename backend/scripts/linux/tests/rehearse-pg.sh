@@ -35,7 +35,7 @@ echo "== Cum tam PostgreSQL $(PGPASSWORD="$(cat "$work/pg/su.pw")" psql -h 127.0
 
 export SISCOM_REHEARSAL=1 PGHOST=127.0.0.1 PGPORT="$port" PGUSER=postgres SISCOM_PG_PORT="$port"
 PGPASSWORD="$(cat "$work/pg/su.pw")"; export PGPASSWORD
-export SISCOM_ETC="$work/etc" SISCOM_OPT="$work/opt" SISCOM_BACKUP_DIR="$work/bk" SISCOM_DOMAIN=crm.example.vn
+export SISCOM_ETC="$work/etc" SISCOM_OPT="$work/opt" SISCOM_BACKUP_DIR="$work/bk" SISCOM_HOST=crm.example.vn
 db=siscom_crm_staging
 step() { printf '\n--- %s ---\n' "$*"; }
 
@@ -100,23 +100,38 @@ step "khoi phuc lai bo goc => PASS"
 bash "$lin/restore-test.sh" "${ident[@]}" --dump "$A" 2>&1 | grep -E 'PASS|^\[LOI\]' | cut -c1-110
 
 if [ -f "$work/opt/current/backend/dist/main.js" ] && [ -n "${BOOTSTRAP_PASSWORD_SYSADMIN:-}" ]; then
-  step "backend production that bang env do script sinh (argon2 verify qua API dang nhap - F3)"
   bport="${BACKEND_PORT:-39171}"
-  ( set -a; . "$work/etc/backend.env"; set +a
-    export NODE_ENV=production HOST=127.0.0.1 PORT="$bport" TRUST_PROXY=loopback COOKIE_SECURE=true EXPORT_GAP_LOG_DIR="$work/export-gap"
-    cd "$work/opt/current/backend" && exec node dist/main.js ) > "$work/backend.log" 2>&1 &
-  bpid=$!
-  for _ in $(seq 1 30); do curl -fsS --max-time 2 "http://127.0.0.1:$bport/api/v1/health" >/dev/null 2>&1 && break; sleep 1; done
-  hd="$(curl -fsS "http://127.0.0.1:$bport/api/v1/health/database" || true)"
-  login() { curl -s -o /dev/null -D "$work/h.txt" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'Origin: https://crm.example.vn' \
-              --data "{\"login\":\"sysadmin@rehearsal.test\",\"password\":\"$1\"}" "http://127.0.0.1:$bport/api/v1/auth/login"; }
-  bad="$(login "sai-mat-khau-123")"; good="$(login "$BOOTSTRAP_PASSWORD_SYSADMIN")"
-  kill "$bpid" 2>/dev/null || true; wait "$bpid" 2>/dev/null || true
-  echo "health/database: $(printf '%s' "$hd" | grep -o '"migrated":[a-z]*'), $(printf '%s' "$hd" | grep -o '"leastPrivilege":[a-z]*')"
-  echo "dang nhap sai mat khau => $bad ; dung mat khau => $good ; cookie Secure: $(grep -ci '^set-cookie:.*secure' "$work/h.txt")"
-  printf '%s' "$hd" | grep -q '"migrated":true' && [ "$bad" = 401 ] && [ "$good" = 200 ] && grep -qi '^set-cookie:.*secure' "$work/h.txt" \
-    || { tail -20 "$work/backend.log"; echo "KHONG DAT: backend production / argon2 verify qua API"; exit 1; }
-  echo "dat"
+  # backend_smoke <SISCOM_HOST>: ghi lai env bang create-db.sh (CORS/AUTH_ALLOWED_ORIGINS = https://<host>), chay backend production,
+  # dang nhap (argon2 verify that) roi dang xuat: Origin la => 403, Origin https://<host> + X-CSRF-Token => thanh cong.
+  backend_smoke() {
+    local h="$1" bpid hd bad good wrong right sid csrf
+    SISCOM_HOST="$h" bash "$lin/create-db.sh" "$db" env 2>&1 | grep -E '^\[(OK|LOI)\]' | cut -c1-110
+    grep -qx "CORS_ORIGINS=https://$h" "$work/etc/backend.env" && grep -qx "AUTH_ALLOWED_ORIGINS=https://$h" "$work/etc/backend.env" \
+      || { echo "KHONG DAT: backend.env khong co origin https://$h"; exit 1; }
+    ( set -a; . "$work/etc/backend.env"; set +a
+      export NODE_ENV=production HOST=127.0.0.1 PORT="$bport" TRUST_PROXY=loopback COOKIE_SECURE=true EXPORT_GAP_LOG_DIR="$work/export-gap"
+      cd "$work/opt/current/backend" && exec node dist/main.js ) > "$work/backend.log" 2>&1 &
+    bpid=$!
+    for _ in $(seq 1 30); do curl -fsS --max-time 2 "http://127.0.0.1:$bport/api/v1/health" >/dev/null 2>&1 && break; sleep 1; done
+    hd="$(curl -fsS "http://127.0.0.1:$bport/api/v1/health/database" || true)"
+    login() { curl -s -o /dev/null -D "$work/h.txt" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "Origin: https://$h" \
+                --data "{\"login\":\"sysadmin@rehearsal.test\",\"password\":\"$1\"}" "http://127.0.0.1:$bport/api/v1/auth/login"; }
+    bad="$(login "sai-mat-khau-123")"; good="$(login "$BOOTSTRAP_PASSWORD_SYSADMIN")"
+    sid="$(grep -i '^set-cookie: *siscom_sid=' "$work/h.txt" | head -n1 | sed -E 's/^[^:]*: *siscom_sid=([^;]*).*/\1/' | tr -d '\r')"
+    csrf="$(grep -i '^set-cookie: *siscom_csrf=' "$work/h.txt" | head -n1 | sed -E 's/^[^:]*: *siscom_csrf=([^;]*).*/\1/' | tr -d '\r')"
+    logout() { curl -s -o /dev/null -w '%{http_code}' -X POST -H "Origin: $1" -H "X-CSRF-Token: $csrf" -H "Cookie: siscom_sid=$sid; siscom_csrf=$csrf" \
+                 "http://127.0.0.1:$bport/api/v1/auth/logout"; }
+    wrong="$(logout "https://khac.example.net")"; right="$(logout "https://$h")"
+    kill "$bpid" 2>/dev/null || true; wait "$bpid" 2>/dev/null || true
+    echo "[$h] health/database: $(printf '%s' "$hd" | grep -o '"migrated":[a-z]*'), $(printf '%s' "$hd" | grep -o '"leastPrivilege":[a-z]*')"
+    echo "[$h] dang nhap sai => $bad ; dung => $good ; cookie Secure: $(grep -ci '^set-cookie:.*secure' "$work/h.txt") ; dang xuat Origin la => $wrong ; Origin https://$h => $right"
+    printf '%s' "$hd" | grep -q '"migrated":true' && [ "$bad" = 401 ] && [ "$good" = 200 ] && grep -qi '^set-cookie:.*secure' "$work/h.txt" \
+      && [ "$wrong" = 403 ] && [[ "$right" =~ ^20[04]$ ]] \
+      || { tail -20 "$work/backend.log"; echo "KHONG DAT: backend production voi SISCOM_HOST=$h"; exit 1; }
+    echo "dat"
+  }
+  step "backend production: SISCOM_HOST la TEN MIEN (mac dinh)"; backend_smoke crm-staging.siscom.io.vn
+  step "backend production: SISCOM_HOST la IPv4 (phuong an phu) - doi host chi can chay lai env"; backend_smoke 42.96.15.235
 fi
 step "drop DB (lam lai)"
 bash "$lin/create-db.sh" "$db" drop --yes-drop "$db" 2>&1 | grep -E '^\[(OK|LOI)\]'

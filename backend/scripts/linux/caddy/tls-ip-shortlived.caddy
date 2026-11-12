@@ -1,0 +1,8 @@
+# SISCOM CRM - TLS cho dia chi IPv4 (phuong an phu): Let's Encrypt chi cap chung chi IP voi profile `shortlived` (~160 gio = ~6 ngay),
+# xac thuc HTTP-01/TLS-ALPN-01 => cong 80/443 phai mo va IP phai la IP cong khai cua chinh may nay. Caddy tu gia han.
+# `profile` cua issuer acme: Caddy >= 2.10, con THU NGHIEM (tai lieu Caddy). Viec cap that tu Let's Encrypt cho IP: CHUA kiem chung.
+tls {
+	issuer acme {$SISCOM_ACME_CA:https://acme-v02.api.letsencrypt.org/directory} {
+		profile shortlived
+	}
+}

@@ -7,7 +7,7 @@
 #   create   Tao 3 role (neu chua co), DB moi (OWNER siscom_migrator, UTF8, template0), chay B1.3_S1_ROLE_SPLIT + B1.3_S1_AUTH_ROLE.
 #            Tu choi neu DB da ton tai. (Chua co bang: quyen chi cap duoc SAU migrate => lenh grants.)
 #   env      Ghi $SISCOM_ETC/backend.env (DATABASE_URL=siscom_app, AUTH_DATABASE_URL=siscom_auth, CORS..., 600) va
-#            $SISCOM_ETC/migrate.env (MIGRATE_DATABASE_URL=siscom_migrator, 600, KHONG nam trong env cua dich vu). Can SISCOM_DOMAIN.
+#            $SISCOM_ETC/migrate.env (MIGRATE_DATABASE_URL=siscom_migrator, 600, KHONG nam trong env cua dich vu). Can SISCOM_HOST (ten mien hoac IPv4) => CORS/AUTH_ALLOWED_ORIGINS = https://<host>.
 #            Tu choi ghi de file da co tro DB KHAC (dung --force-env de thay, sau khi dung dich vu).
 #   grants   SAU `prisma migrate deploy`: chay B1.3_S1_APP_GRANTS_V4 (siscom_migrator, 2 lan - idempotent), roi
 #            B1.3_S1_VERIFY (siscom_app, phai PASS|n, khong FAIL) va B1.3_S1_VERIFY_AUTH (superuser). Thieu PASS => thoat 1.
@@ -90,8 +90,9 @@ case "$cmd" in
   env)
     db_exists "$db" || die "Database $db chua ton tai (chay create truoc)."
     force=0; [ "${1:-}" = "--force-env" ] && force=1
-    domain="${SISCOM_DOMAIN:-}"
-    [[ "$domain" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "Can SISCOM_DOMAIN hop le (vd crm.example.vn)."
+    [ -z "${SISCOM_DOMAIN:-}" ] || die "Bien SISCOM_DOMAIN da doi ten thanh SISCOM_HOST."
+    domain="${SISCOM_HOST:-}"
+    host_kind "$domain" >/dev/null || die "Can SISCOM_HOST hop le: ten mien (vd crm-staging.siscom.io.vn) hoac IPv4 cong khai."
     load_role_passwords
     for f in "$backend_env" "$migrate_env"; do
       if [ -e "$f" ] && [ "$force" = 0 ]; then

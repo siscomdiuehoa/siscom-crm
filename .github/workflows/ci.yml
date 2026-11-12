@@ -393,9 +393,19 @@ jobs:
           # Runner: ssh kich hoat theo socket nen /run/sshd co the chua co (tren VPS phien SSH dang mo => da co); chi tao thu muc runtime.
           sudo install -d -m 0755 /run/sshd
           echo "Cong sshd tren runner: $(sudo sshd -T | awk '$1 == "port" { print $2 }' | paste -sd, -)"
-          sudo env SISCOM_DOMAIN=crm.example.vn PATH="$PATH" bash backend/scripts/linux/provision.sh --dry-run --ssh-key-only | tee /tmp/prov.out
+          # Che do IPv4 (runner khong co IP cong khai co dinh => khai SISCOM_PUBLIC_IP; 203.0.113.10 la dia chi tai lieu TEST-NET-3).
+          sudo env SISCOM_HOST=203.0.113.10 SISCOM_PUBLIC_IP=203.0.113.10 PATH="$PATH" bash backend/scripts/linux/provision.sh --dry-run --ssh-key-only | tee /tmp/prov.out
           grep -q '^\[DRY\] ufw allow 22/tcp' /tmp/prov.out
           grep -q 'kiem ufw status' /tmp/prov.out
+          grep -q 'tls-ip-shortlived.caddy' /tmp/prov.out
+          # Che do ten mien voi DNS THAT: ban ghi A cua crm-staging.siscom.io.vn (chua co, hoac 42.96.15.235) khong bao gio bang 203.0.113.10
+          # => script PHAI dung o buoc kiem DNS, truoc apt.
+          if sudo env SISCOM_HOST=crm-staging.siscom.io.vn SISCOM_PUBLIC_IP=203.0.113.10 PATH="$PATH" bash backend/scripts/linux/provision.sh --dry-run > /tmp/prov-dns.out 2>&1; then
+            echo "KHONG DAT: DNS khong tro ve may nay nhung provision van chay"; exit 1
+          fi
+          cat /tmp/prov-dns.out
+          grep -q 'DNS chua dung' /tmp/prov-dns.out
+          ! grep -q 'apt-get' /tmp/prov-dns.out
       - name: systemd-analyze verify (ban sao tam, chi doi duong dan ExecStart cho runner)
         run: |
           set -euo pipefail
@@ -405,11 +415,25 @@ jobs:
           sed -i "s#^ExecStart=.*backup-db.sh#ExecStart=/usr/bin/true#" "$d/siscom-crm-backup.service"
           systemd-analyze verify "$d/siscom-crm-backend.service" "$d/siscom-crm-backup.service" "$d/siscom-crm-backup.timer"
           systemd-analyze security --offline=true "$d/siscom-crm-backend.service" | tail -n 1 || true   # chi de tham khao
-      - name: caddy validate (anh chinh thuc, ghim phien ban)
+      - name: caddy validate 3 che do TLS (ten mien | IPv4 profile shortlived | IPv4 tls internal) - anh chinh thuc, ghim phien ban
         run: |
           set -euo pipefail
-          docker run --rm -e SISCOM_DOMAIN=crm.example.vn -v "$PWD/backend/scripts/linux/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          c="$PWD/backend/scripts/linux/caddy"
+          for combo in "crm-staging.siscom.io.vn tls-domain.caddy" "203.0.113.10 tls-ip-shortlived.caddy" "203.0.113.10 tls-ip-internal.caddy"; do
+            set -- $combo
+            echo "--- SISCOM_HOST=$1, $2 ---"
+            docker run --rm -e SISCOM_HOST="$1" -v "$c/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$c/$2:/etc/caddy/siscom-tls.caddy:ro" \
+              "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            # adapt ra JSON de thay dung issuer/profile da duoc hieu (khong chi la "khong loi cu phap")
+            docker run --rm -e SISCOM_HOST="$1" -v "$c/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$c/$2:/etc/caddy/siscom-tls.caddy:ro" \
+              "$CADDY_IMAGE" caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile > /tmp/adapt.json
+            case "$2" in
+              tls-ip-shortlived.caddy) grep -q '"profile":"shortlived"' /tmp/adapt.json ;;
+              tls-ip-internal.caddy) grep -q '"module":"internal"' /tmp/adapt.json ;;
+              tls-domain.caddy) ! grep -q '"profile"' /tmp/adapt.json ;;
+            esac
+            echo "dat: $2"
+          done
 
   ci-gate:
     name: CI gate

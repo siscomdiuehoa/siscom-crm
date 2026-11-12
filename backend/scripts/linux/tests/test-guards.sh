@@ -124,7 +124,22 @@ echo "authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2"
 STUB
 printf '#!/usr/bin/env bash\nexit 1\n' > "$stub/systemctl"
 chmod +x "$stub/sshd" "$stub/systemctl"
-out="$(PATH="$stub:$PATH" STUB_SSHD_PORTS=22 SISCOM_ETC="$tmp/e2" SISCOM_OPT="$tmp/o2" SISCOM_BACKUP_DIR="$tmp/b2" SISCOM_DOMAIN=crm.example.vn bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
+# DNS/IP/caddy GIA: STUB_DNS="ip1,ip2" (rong => khong co ban ghi), STUB_SRC_IP = dia chi nguon cua tuyen ra Internet, STUB_CADDY_VER.
+cat > "$stub/dig" <<'STUB'
+#!/usr/bin/env bash
+IFS=, read -ra ips <<<"${STUB_DNS:-}"; for i in "${ips[@]}"; do [ -n "$i" ] && echo "$i"; done; exit 0
+STUB
+cat > "$stub/ip" <<'STUB'
+#!/usr/bin/env bash
+echo "1.1.1.1 via 10.0.0.1 dev eth0 src ${STUB_SRC_IP:-42.96.15.235} uid 0"
+STUB
+cat > "$stub/caddy" <<'STUB'
+#!/usr/bin/env bash
+[ "${1:-}" = version ] && echo "v${STUB_CADDY_VER:-2.11.9} h1:stub"; exit 0
+STUB
+chmod +x "$stub/dig" "$stub/ip" "$stub/caddy"
+export STUB_DNS=42.96.15.235 STUB_SRC_IP=42.96.15.235
+out="$(PATH="$stub:$PATH" STUB_SSHD_PORTS=22 SISCOM_ETC="$tmp/e2" SISCOM_OPT="$tmp/o2" SISCOM_BACKUP_DIR="$tmp/b2" SISCOM_HOST=crm-staging.siscom.io.vn bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "dry-run thanh cong" || bad "dry-run loi rc=$rc"
 for p in "ufw allow 22/tcp" "ufw allow 80/tcp" "ufw allow 443/tcp" "ufw default deny incoming" "fallocate -l 2G /swapfile" "node_24.x" "postgresql-18" "fail2ban" "unattended-upgrades" "caddy"; do
   check "dry-run co '$p'" contains "$out" "$p"
@@ -132,8 +147,8 @@ done
 n_allow="$(printf '%s\n' "$out" | grep -c '^\[DRY\] ufw allow')"
 [ "$n_allow" -eq 3 ] && ok "chi 3 quy tac ufw allow" || bad "so quy tac ufw allow = $n_allow"
 check_not "khong mo 5432/3000" bash -c "printf '%s' '$out' | grep -E 'ufw allow (5432|3000)'"
-out="$(SISCOM_DOMAIN='bad_domain' bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
-[ "$rc" -ne 0 ] && ok "SISCOM_DOMAIN sai bi tu choi" || bad "SISCOM_DOMAIN sai khong bi tu choi"
+out="$(PATH="$stub:$PATH" STUB_SSHD_PORTS=22 SISCOM_HOST='bad_domain' bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && ok "SISCOM_HOST sai bi tu choi" || bad "SISCOM_HOST sai khong bi tu choi"
 out="$(bash "$lin/provision.sh" --bogus 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && ok "tham so la bi tu choi" || bad "tham so la khong bi tu choi"
 
@@ -209,7 +224,7 @@ echo "== 8. F2 (VPS that dung cong 26266): cong SSH doc tu sshd -T; ufw + fail2b
 prov() { # prov <cong sshd gia, cach nhau dau phay | FAIL> [tham so...]: provision --dry-run voi sshd/systemctl gia tren PATH
   local ports="$1"; shift
   PATH="$stub:$PATH" STUB_SSHD_PORTS="$ports" SISCOM_ETC="$tmp/e8" SISCOM_OPT="$tmp/o8" SISCOM_BACKUP_DIR="$tmp/b8" \
-    SISCOM_DOMAIN="${DOMAIN_T-crm.example.vn}" bash "$lin/provision.sh" --dry-run "$@" 2>&1
+    SISCOM_HOST="${HOST_T-crm-staging.siscom.io.vn}" bash "$lin/provision.sh" --dry-run "$@" 2>&1
 }
 out="$(prov 26266)"; rc=$?
 if [ "$rc" -eq 0 ] && contains "$out" "ufw allow 26266/tcp" && contains "$out" "port = 26266"; then ok "cong 26266: ufw + fail2ban dung 26266"; else bad "cong 26266 (rc=$rc)"; fi
@@ -230,9 +245,52 @@ out="$(SISCOM_SSH_PORT=22 prov 26266)"; rc=$?
 out="$(SISCOM_SSH_PORT=26266 prov 26266)"; rc=$?
 [ "$rc" -eq 0 ] && ok "SISCOM_SSH_PORT khop cong that => chap nhan" || bad "SISCOM_SSH_PORT khop van bi tu choi (rc=$rc)"
 
-echo "== 8b. Ten mien bat buoc =="
-out="$(DOMAIN_T='' prov 26266)"; rc=$?
-if [ "$rc" -ne 0 ] && contains "$out" "SISCOM_DOMAIN" && ! contains "$out" "apt-get"; then ok "thieu SISCOM_DOMAIN => dung ro rang truoc khi lam gi"; else bad "thieu SISCOM_DOMAIN khong dung (rc=$rc)"; fi
+echo "== 8b. SISCOM_HOST bat buoc: ten mien (mac dinh) hoac IPv4 cong khai; kiem DNS truoc khi doi gi =="
+for h in crm.siscom.io.vn crm-staging.siscom.io.vn; do check "host_kind $h = domain" test "$(host_kind "$h")" = domain; done
+check "host_kind 42.96.15.235 = ipv4" test "$(host_kind 42.96.15.235)" = ipv4
+for h in 10.0.0.1 192.168.1.10 127.0.0.1 172.20.1.1 100.64.1.1 169.254.1.1 0.1.2.3 224.0.0.1 256.1.1.1 01.2.3.4 1.2.3 siscom a_b.vn 'crm.siscom.io.vn;x' '' CRM.SISCOM.IO.VN; do
+  check_not "host_kind tu choi '$h'" host_kind "$h"
+done
+check "version_ge 2.11.9 >= 2.10.0" version_ge 2.11.9 2.10.0
+check_not "version_ge 2.9.1 >= 2.10.0" version_ge 2.9.1 2.10.0
+check "days_until ngay tuong lai > 0" test "$(days_until "$(date -u -d '+5 days' '+%b %d %H:%M:%S %Y GMT')")" -ge 4
+out="$(HOST_T='' prov 26266)"; rc=$?
+if [ "$rc" -ne 0 ] && contains "$out" "SISCOM_HOST" && ! contains "$out" "apt-get"; then ok "thieu SISCOM_HOST => dung truoc khi lam gi"; else bad "thieu SISCOM_HOST khong dung (rc=$rc)"; fi
+out="$(SISCOM_DOMAIN=crm.siscom.io.vn prov 26266)"; rc=$?
+[ "$rc" -ne 0 ] && contains "$out" "SISCOM_HOST" && ok "bien cu SISCOM_DOMAIN => dung, bao doi ten" || bad "SISCOM_DOMAIN cu van duoc nhan (rc=$rc)"
+# ten mien: DNS A phai = dung IP cong khai cua VPS
+out="$(prov 26266)"; rc=$?
+if [ "$rc" -eq 0 ] && contains "$out" "SISCOM_HOST=crm-staging.siscom.io.vn" && contains "$out" "tls-domain.caddy"; then ok "ten mien + DNS dung => Caddy che do ten mien"; else bad "ten mien DNS dung (rc=$rc)"; fi
+check_not "che do ten mien KHONG dung profile shortlived" contains "$out" "tls-ip-shortlived.caddy"
+for dns in 1.2.3.4 "" "42.96.15.235,1.2.3.4"; do
+  out="$(STUB_DNS="$dns" prov 26266)"; rc=$?
+  if [ "$rc" -ne 0 ] && contains "$out" "DNS" && ! contains "$out" "apt-get"; then ok "DNS '$dns' khong trung 42.96.15.235 => dung truoc khi lam gi"; else bad "DNS '$dns' khong bi tu choi (rc=$rc)"; fi
+done
+out="$(STUB_SRC_IP=10.0.0.5 prov 26266)"; rc=$?
+[ "$rc" -ne 0 ] && contains "$out" "SISCOM_PUBLIC_IP" && ok "IP nguon la IP rieng, khong dat SISCOM_PUBLIC_IP => dung" || bad "IP rieng khong bi tu choi (rc=$rc)"
+out="$(STUB_SRC_IP=10.0.0.5 SISCOM_PUBLIC_IP=42.96.15.235 prov 26266)"; rc=$?
+[ "$rc" -eq 0 ] && ok "SISCOM_PUBLIC_IP=42.96.15.235 => chap nhan" || bad "SISCOM_PUBLIC_IP dung van bi tu choi (rc=$rc)"
+# IPv4: phuong an phu, profile shortlived; tls internal chi khi chi dinh ro
+out="$(HOST_T=42.96.15.235 prov 26266)"; rc=$?
+if [ "$rc" -eq 0 ] && contains "$out" "tls-ip-shortlived.caddy" && contains "$out" "SISCOM_HOST=42.96.15.235"; then ok "IPv4 => profile shortlived (mac dinh cua che do IP)"; else bad "IPv4 shortlived (rc=$rc)"; fi
+out="$(HOST_T=42.96.15.236 prov 26266)"; rc=$?
+[ "$rc" -ne 0 ] && ! contains "$out" "apt-get" && ok "IPv4 khac IP cong khai cua may => dung" || bad "IPv4 sai may khong bi tu choi (rc=$rc)"
+out="$(HOST_T=42.96.15.235 SISCOM_TLS_MODE=internal prov 26266)"; rc=$?
+[ "$rc" -eq 0 ] && contains "$out" "tls-ip-internal.caddy" && ok "IPv4 + SISCOM_TLS_MODE=internal => tls internal" || bad "IPv4 internal (rc=$rc)"
+out="$(SISCOM_TLS_MODE=internal prov 26266)"; rc=$?
+[ "$rc" -ne 0 ] && ok "ten mien + tls internal => tu choi" || bad "ten mien + internal khong bi tu choi"
+out="$(SISCOM_TLS_MODE=bogus prov 26266)"; rc=$?
+[ "$rc" -ne 0 ] && ok "SISCOM_TLS_MODE la => tu choi" || bad "SISCOM_TLS_MODE la khong bi tu choi"
+# Caddy: phien ban + noi dung tep
+check "caddy_version_check ipv4-acme 2.11.9" env PATH="$stub:$PATH" STUB_CADDY_VER=2.11.9 bash -c ". '$lin/lib.sh'; caddy_version_check ipv4-acme"
+check_not "caddy_version_check ipv4-acme 2.9.1 => loi" env PATH="$stub:$PATH" STUB_CADDY_VER=2.9.1 bash -c ". '$lin/lib.sh'; caddy_version_check ipv4-acme"
+check "caddy_version_check domain 2.9.1 => chi canh bao" env PATH="$stub:$PATH" STUB_CADDY_VER=2.9.1 bash -c ". '$lin/lib.sh'; caddy_version_check domain"
+check "Caddyfile dung {\$SISCOM_HOST}" grep -q '^{\$SISCOM_HOST} {' "$lin/caddy/Caddyfile"
+check "Caddyfile import tep TLS" grep -q 'import /etc/caddy/siscom-tls.caddy' "$lin/caddy/Caddyfile"
+check "tls-ip-shortlived co 'profile shortlived'" grep -q 'profile shortlived' "$lin/caddy/tls-ip-shortlived.caddy"
+check "tls-ip-internal co 'tls internal'" grep -q 'tls internal' "$lin/caddy/tls-ip-internal.caddy"
+check_not "tls-domain khong dat issuer/profile" grep -Eq '^[[:space:]]*(tls|issuer|profile)' "$lin/caddy/tls-domain.caddy"
+check "co check-tls.sh" test -f "$lin/check-tls.sh"
 
 echo "== 8c. SSH chi-khoa: co rieng, drop-in 00-, Include truoc, can khoa trong authorized_keys =="
 out="$(prov 26266)"

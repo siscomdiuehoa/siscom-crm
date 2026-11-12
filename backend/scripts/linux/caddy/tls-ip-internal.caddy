@@ -1,0 +1,4 @@
+# SISCOM CRM - TLS cho dia chi IPv4, DU PHONG (chi khi chi dinh SISCOM_TLS_MODE=internal): chung chi do CA noi bo cua Caddy ky.
+# Trinh duyet/dien thoai KHONG tin san: phai cai CA goc cua Caddy (/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt)
+# len tung thiet bi. Khong phai mac dinh.
+tls internal

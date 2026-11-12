@@ -191,3 +191,57 @@ private_dir() {
   install -d -m 700 "$1" 2>/dev/null && return 0
   if [ "${SISCOM_REHEARSAL:-}" = 1 ]; then mkdir -p "$1"; else die "Khong tao duoc thu muc rieng tu $1."; fi
 }
+
+# --- SISCOM_HOST: ten mien (mac dinh, Let's Encrypt 90 ngay) HOAC IPv4 cong khai (phuong an phu: profile shortlived ~6 ngay). ---
+# host_kind <host>: in "domain" | "ipv4"; that bai neu sai dinh dang hoac IPv4 khong cong khai (rieng/loopback/CGNAT/multicast...).
+host_kind() {
+  local h="${1:-}" o a b
+  if [[ "$h" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
+    local -a m=("${BASH_REMATCH[@]}")   # [[ =~ ]] trong vong lap ghi de BASH_REMATCH => chep truoc
+    for o in "${m[@]:1:4}"; do [[ "$o" =~ ^(0|[1-9][0-9]{0,2})$ ]] && [ "$o" -le 255 ] || return 1; done
+    a="${m[1]}"; b="${m[2]}"
+    { [ "$a" -eq 0 ] || [ "$a" -eq 10 ] || [ "$a" -eq 127 ] || [ "$a" -ge 224 ] \
+      || { [ "$a" -eq 169 ] && [ "$b" -eq 254 ]; } || { [ "$a" -eq 172 ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ]; } \
+      || { [ "$a" -eq 192 ] && [ "$b" -eq 168 ]; } || { [ "$a" -eq 100 ] && [ "$b" -ge 64 ] && [ "$b" -le 127 ]; }; } && return 1
+    echo ipv4
+  elif [ "${#h}" -le 253 ] && [[ "$h" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
+    echo domain
+  else
+    return 1
+  fi
+}
+# version_ge <a> <b>: 0 neu phien ban a >= b (dang X.Y.Z).
+version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
+# public_ipv4: SISCOM_PUBLIC_IP neu dat, nguoc lai dia chi nguon cua tuyen ra Internet (`ip -4 route get 1.1.1.1`). Phai la IPv4 cong khai.
+public_ipv4() {
+  local ip="${SISCOM_PUBLIC_IP:-}"
+  [ -n "$ip" ] || ip="$(ip -4 -o route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit } }')"
+  [ "$(host_kind "$ip" 2>/dev/null)" = ipv4 ] || return 1
+  echo "$ip"
+}
+# dns_a_records <ten mien>: cac ban ghi A (moi dong 1, sap xep). Uu tien `dig` (bo qua /etc/hosts), khong co thi getent ahostsv4.
+dns_a_records() {
+  if command -v dig >/dev/null 2>&1; then
+    { dig +short +time=3 +tries=2 A "$1" 2>/dev/null || true; } | { grep -E '^[0-9]+(\.[0-9]+){3}$' || true; } | sort -u
+  else
+    { getent ahostsv4 "$1" 2>/dev/null || true; } | awk '{ print $1 }' | sort -u
+  fi
+}
+# caddy_version_check <domain|ipv4-acme|ipv4-internal>: in phien ban; ipv4-acme can >= 2.10 (subdirective `profile` cua issuer acme).
+caddy_version_check() {
+  local v
+  v="$(caddy version 2>/dev/null | grep -Eo '^v?[0-9]+\.[0-9]+\.[0-9]+' | head -n1 | tr -d v)"
+  [ -n "$v" ] || { printf '[LOI] Khong doc duoc phien ban Caddy (`caddy version`).\n' >&2; return 1; }
+  echo "[OK] Caddy $v"
+  if [ "$1" = ipv4-acme ]; then
+    version_ge "$v" 2.10.0 || { printf '[LOI] Caddy %s < 2.10: chua co `profile` cho issuer acme => khong xin duoc chung chi IP (profile shortlived).\n' "$v" >&2; return 1; }
+    version_ge "$v" 2.11.0 || warn "Caddy $v: loi xin chung chi IP voi Let's Encrypt (caddyserver/caddy#7399) da duoc sua SAU 2.10.0 (chua xac dinh dung ban). Nen dung ban moi nhat."
+  elif ! version_ge "$v" 2.10.0; then
+    warn "Caddy $v cu (< 2.10). Nen cap nhat."
+  fi
+}
+# days_until <ngay kieu openssl notAfter>: so ngay (lam tron xuong) tu bay gio den ngay do; am neu da qua.
+days_until() {
+  local end now; end="$(date -u -d "$1" +%s 2>/dev/null)" || return 1; now="$(date -u +%s)"
+  echo $(( (end - now) / 86400 ))
+}
