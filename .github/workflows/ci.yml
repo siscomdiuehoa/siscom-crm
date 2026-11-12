@@ -368,7 +368,7 @@ jobs:
             echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg-ci.list >/dev/null
           fi
           sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-client-18 age shellcheck
+          sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-client-18 age shellcheck openssh-server
           sudo systemctl stop postgresql || true
           /usr/lib/postgresql/18/bin/postgres --version; age --version; shellcheck --version | head -2; ssh -V
       - name: bash -n + ShellCheck (-S warning)
@@ -387,8 +387,8 @@ jobs:
           bash -c '. scripts/linux/lib.sh; backend_runtime_smoke .'
       - name: Dien tap PostgreSQL 18 tam (create-db, migrate, grants+VERIFY, seed, bootstrap, backup ky+age, restore-test, F1 negative, backend production)
         run: PG_BIN=/usr/lib/postgresql/18/bin bash backend/scripts/linux/tests/rehearse-pg.sh
-      - name: provision.sh --dry-run tren Ubuntu 24.04 that
-        run: SISCOM_DOMAIN=crm.example.vn bash backend/scripts/linux/provision.sh --dry-run
+      - name: provision.sh --dry-run tren Ubuntu 24.04 that (root de doc cong that bang sshd -T; dry-run khong doi gi)
+        run: sudo env SISCOM_DOMAIN=crm.example.vn PATH="$PATH" bash backend/scripts/linux/provision.sh --dry-run --ssh-key-only
       - name: systemd-analyze verify (ban sao tam, chi doi duong dan ExecStart cho runner)
         run: |
           set -euo pipefail

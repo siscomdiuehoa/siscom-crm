@@ -112,12 +112,24 @@ out="$(run_deploy --rollback ../../etc 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ]; then ok "rollback ID co ../ bi tu choi"; else bad "rollback ID ../ khong bi tu choi"; fi
 
 echo "== 5. provision.sh --dry-run =="
-out="$(SISCOM_ETC="$tmp/e2" SISCOM_OPT="$tmp/o2" SISCOM_BACKUP_DIR="$tmp/b2" SISCOM_DOMAIN=crm.example.vn bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
+# sshd/systemctl GIA tren PATH: provision doc cong SSH that bang `sshd -T` (ca khi dry-run). STUB_SSHD_PORTS="22,26266" | FAIL.
+stub="$tmp/stub"; mkdir -p "$stub"
+cat > "$stub/sshd" <<'STUB'
+#!/usr/bin/env bash
+[ "${1:-}" = -T ] || exit 0
+[ "${STUB_SSHD_PORTS:-}" = FAIL ] && { echo "sshd: no hostkeys available" >&2; exit 1; }
+echo "permitrootlogin yes"
+IFS=, read -ra ps <<<"${STUB_SSHD_PORTS:-}"; for p in "${ps[@]}"; do echo "port $p"; done
+echo "authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2"
+STUB
+printf '#!/usr/bin/env bash\nexit 1\n' > "$stub/systemctl"
+chmod +x "$stub/sshd" "$stub/systemctl"
+out="$(PATH="$stub:$PATH" STUB_SSHD_PORTS=22 SISCOM_ETC="$tmp/e2" SISCOM_OPT="$tmp/o2" SISCOM_BACKUP_DIR="$tmp/b2" SISCOM_DOMAIN=crm.example.vn bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "dry-run thanh cong" || bad "dry-run loi rc=$rc"
 for p in "ufw allow 22/tcp" "ufw allow 80/tcp" "ufw allow 443/tcp" "ufw default deny incoming" "fallocate -l 2G /swapfile" "node_24.x" "postgresql-18" "fail2ban" "unattended-upgrades" "caddy"; do
   check "dry-run co '$p'" contains "$out" "$p"
 done
-n_allow="$(printf '%s\n' "$out" | grep -c 'ufw allow')"
+n_allow="$(printf '%s\n' "$out" | grep -c '^\[DRY\] ufw allow')"
 [ "$n_allow" -eq 3 ] && ok "chi 3 quy tac ufw allow" || bad "so quy tac ufw allow = $n_allow"
 check_not "khong mo 5432/3000" bash -c "printf '%s' '$out' | grep -E 'ufw allow (5432|3000)'"
 out="$(SISCOM_DOMAIN='bad_domain' bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
@@ -193,15 +205,62 @@ else
   check "restore-test.sh xac thuc bo sao luu" grep -q 'verify_backup_set' "$lin/restore-test.sh"
 fi
 
-echo "== 8. F2 (PR232-R1): cong SSH chi 22 (fail-closed) =="
-for p in 2222 23 0 65535 abc ''; do
-  out="$(SISCOM_SSH_PORT="$p" bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
-  if [ -z "$p" ]; then
-    [ "$rc" -eq 0 ] && contains "$out" "ufw allow 22/tcp" && ok "SISCOM_SSH_PORT rong => mac dinh 22" || bad "SISCOM_SSH_PORT rong (rc=$rc)"
-  elif [ "$rc" -ne 0 ] && ! contains "$out" "ufw allow ${p}/tcp"; then ok "SISCOM_SSH_PORT=$p bi tu choi truoc khi doi gi"; else bad "SISCOM_SSH_PORT=$p KHONG bi tu choi (rc=$rc)"; fi
+echo "== 8. F2 (VPS that dung cong 26266): cong SSH doc tu sshd -T; ufw + fail2ban mo DUNG cong do; khong doc duoc => tu choi =="
+prov() { # prov <cong sshd gia, cach nhau dau phay | FAIL> [tham so...]: provision --dry-run voi sshd/systemctl gia tren PATH
+  local ports="$1"; shift
+  PATH="$stub:$PATH" STUB_SSHD_PORTS="$ports" SISCOM_ETC="$tmp/e8" SISCOM_OPT="$tmp/o8" SISCOM_BACKUP_DIR="$tmp/b8" \
+    SISCOM_DOMAIN="${DOMAIN_T-crm.example.vn}" bash "$lin/provision.sh" --dry-run "$@" 2>&1
+}
+out="$(prov 26266)"; rc=$?
+if [ "$rc" -eq 0 ] && contains "$out" "ufw allow 26266/tcp" && contains "$out" "port = 26266"; then ok "cong 26266: ufw + fail2ban dung 26266"; else bad "cong 26266 (rc=$rc)"; fi
+check_not "cong 26266: KHONG mo 22" contains "$out" "ufw allow 22/tcp"
+n_allow="$(printf '%s\n' "$out" | grep -c '^\[DRY\] ufw allow')"
+[ "$n_allow" -eq 3 ] && ok "cong 26266: chi 3 quy tac (SSH that, 80, 443)" || bad "cong 26266: $n_allow quy tac ufw allow"
+o_ena="$(printf '%s\n' "$out" | grep -n 'ufw --force enable' | cut -d: -f1)"; o_ssh="$(printf '%s\n' "$out" | grep -n 'ufw allow 26266/tcp' | cut -d: -f1)"
+[ -n "$o_ena" ] && [ -n "$o_ssh" ] && [ "$o_ssh" -lt "$o_ena" ] && ok "mo cong SSH TRUOC ufw --force enable" || bad "thu tu mo cong / enable sai"
+check "co buoc kiem ufw status sau enable" contains "$out" "kiem ufw status"
+out="$(prov 22,26266)"; rc=$?
+if [ "$rc" -eq 0 ] && contains "$out" "ufw allow 22/tcp" && contains "$out" "ufw allow 26266/tcp" && contains "$out" "port = 22,26266"; then ok "nhieu cong (22,26266): mo ca hai"; else bad "nhieu cong (rc=$rc)"; fi
+for bad_ports in FAIL "" abc 0 70000; do
+  out="$(prov "$bad_ports")"; rc=$?
+  if [ "$rc" -ne 0 ] && ! contains "$out" "ufw allow"; then ok "cong sshd '$bad_ports' => tu choi truoc khi doi ufw"; else bad "cong sshd '$bad_ports' khong bi tu choi (rc=$rc)"; fi
 done
-out="$(SISCOM_SSH_PORT=22 bash "$lin/provision.sh" --dry-run 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && contains "$out" "ufw allow 22/tcp" && contains "$out" "port = 22"; then ok "SISCOM_SSH_PORT=22: ufw + fail2ban dung 22"; else bad "SISCOM_SSH_PORT=22 (rc=$rc)"; fi
+out="$(SISCOM_SSH_PORT=22 prov 26266)"; rc=$?
+[ "$rc" -ne 0 ] && ok "SISCOM_SSH_PORT khac cong that => tu choi" || bad "SISCOM_SSH_PORT=22 trong khi sshd 26266 khong bi tu choi"
+out="$(SISCOM_SSH_PORT=26266 prov 26266)"; rc=$?
+[ "$rc" -eq 0 ] && ok "SISCOM_SSH_PORT khop cong that => chap nhan" || bad "SISCOM_SSH_PORT khop van bi tu choi (rc=$rc)"
+
+echo "== 8b. Ten mien bat buoc =="
+out="$(DOMAIN_T='' prov 26266)"; rc=$?
+if [ "$rc" -ne 0 ] && contains "$out" "SISCOM_DOMAIN" && ! contains "$out" "apt-get"; then ok "thieu SISCOM_DOMAIN => dung ro rang truoc khi lam gi"; else bad "thieu SISCOM_DOMAIN khong dung (rc=$rc)"; fi
+
+echo "== 8c. SSH chi-khoa: co rieng, drop-in 00-, Include truoc, can khoa trong authorized_keys =="
+out="$(prov 26266)"
+check_not "mac dinh KHONG dong cham cau hinh SSH" contains "$out" "sshd_config.d/00-siscom"
+out="$(prov 26266 --ssh-key-only)"
+check "--ssh-key-only dung drop-in 00-siscom-ssh-key-only.conf" contains "$out" "/etc/ssh/sshd_config.d/00-siscom-ssh-key-only.conf"
+check "--ssh-key-only co PasswordAuthentication no" contains "$out" "PasswordAuthentication no"
+out="$(prov 26266 --harden-ssh)"; rc=$?; [ "$rc" -ne 0 ] && ok "co cu --harden-ssh bi tu choi (doi ten)" || bad "--harden-ssh van duoc nhan"
+if declare -F sshd_include_first >/dev/null && declare -F count_authorized_keys >/dev/null; then
+  printf 'Include /etc/ssh/sshd_config.d/*.conf\n#PasswordAuthentication yes\nPort 26266\nPermitRootLogin yes\nPasswordAuthentication yes\n' > "$tmp/sc1"
+  check "Include o dau file => dat" sshd_include_first "$tmp/sc1"
+  printf 'Port 26266\nPasswordAuthentication yes\nInclude /etc/ssh/sshd_config.d/*.conf\n' > "$tmp/sc2"
+  check_not "PasswordAuthentication truoc Include => tu choi" sshd_include_first "$tmp/sc2"
+  printf 'PermitRootLogin yes\n' > "$tmp/sc3"; check_not "khong co Include => tu choi" sshd_include_first "$tmp/sc3"
+  printf 'Match User x\n  PasswordAuthentication yes\nInclude /etc/ssh/sshd_config.d/*.conf\n' > "$tmp/sc4"; check_not "Match truoc Include => tu choi" sshd_include_first "$tmp/sc4"
+  check_not "authorized_keys khong ton tai => 0 khoa" test "$(count_authorized_keys "$tmp/khong-co")" -ge 1
+  printf '# chu thich\n\nkhong-phai-khoa\n' > "$tmp/ak0"; check "authorized_keys chi rac => 0" test "$(count_authorized_keys "$tmp/ak0")" -eq 0
+  if command -v ssh-keygen >/dev/null 2>&1; then
+    { cat "$tmp/sk.pub"; cat "$tmp/evil.pub"; echo 'rac'; } > "$tmp/ak2"; check "authorized_keys 2 khoa hop le => 2" test "$(count_authorized_keys "$tmp/ak2")" -eq 2
+  fi
+else
+  bad "lib.sh chua co sshd_include_first/count_authorized_keys"
+fi
+
+echo "== 8d. cloud-init BKNS: giu khoa host SSH (idempotent) =="
+out="$(prov 26266)"
+check "ghi /etc/cloud/cloud.cfg.d/99-siscom-keep-ssh-hostkeys.cfg" contains "$out" "99-siscom-keep-ssh-hostkeys.cfg"
+check "noi dung ssh_deletekeys: false" contains "$out" "ssh_deletekeys: false"
 
 echo "== 9. F3 (PR232-R1): deploy.sh kiem argon2 hash/verify + Prisma CLI tren ban build TRUOC khi doi lien ket =="
 check "lib.sh co backend_runtime_smoke" grep -q '^backend_runtime_smoke()' "$lin/lib.sh"

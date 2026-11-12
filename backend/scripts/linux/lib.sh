@@ -125,6 +125,44 @@ verify_backup_set() {
   return 0
 }
 
+# --- SSH (VPS that dung cong 26266): KHONG doi cau hinh cong cua sshd; chi DOC cong dang dung de mo dung cong tren ufw/fail2ban. ---
+# sshd_ports: in cac cong SSH (moi cong 1 dong, tang dan, khong trung) tu `sshd -T`; Ubuntu 24.04 co the nghe qua ssh.socket
+# => cong ListenStream cua ssh.socket (neu dang chay) cung duoc gop vao. That bai (ma 1) neu khong doc duoc / co gia tri la.
+sshd_ports() {
+  local out p ports=()
+  out="$(sshd -T 2>/dev/null)" || return 1
+  while IFS= read -r p; do ports+=("$p"); done < <(printf '%s\n' "$out" | awk 'tolower($1) == "port" { print $2 }')
+  if systemctl is-active --quiet ssh.socket 2>/dev/null; then
+    while IFS= read -r p; do ports+=("$p"); done < <(systemctl show ssh.socket -p Listen --value 2>/dev/null | grep -Eo ':[0-9]+ ' | tr -d ': ')
+  fi
+  [ "${#ports[@]}" -ge 1 ] || return 1
+  for p in "${ports[@]}"; do
+    [[ "$p" =~ ^[0-9]{1,5}$ ]] && [ "$p" -ge 1 ] && [ "$p" -le 65535 ] || return 1
+  done
+  printf '%s\n' "${ports[@]}" | sort -nu
+}
+# sshd_include_first <sshd_config>: 0 neu dong `Include .../sshd_config.d/*.conf` dung TRUOC moi dong xac thuc/Match dang hoat dong.
+# OpenSSH lay gia tri DAU TIEN => drop-in chi co hieu luc khi duoc Include truoc cac dong PasswordAuthentication/PermitRootLogin... cua file chinh.
+sshd_include_first() {
+  [ -f "$1" ] || return 1
+  [ "$(awk '
+    /^[[:space:]]*(#|$)/ { next }
+    { k = tolower($1) }
+    k == "include" && $2 ~ /sshd_config\.d\/\*\.conf$/ { print "ok"; exit }
+    k ~ /^(passwordauthentication|permitrootlogin|kbdinteractiveauthentication|challengeresponseauthentication|authenticationmethods|pubkeyauthentication|match)$/ { print "bad"; exit }
+  ' "$1")" = ok ]
+}
+# count_authorized_keys <file>: so khoa cong khai HOP LE (ssh-keygen doc duoc) trong authorized_keys; 0 neu khong co file.
+count_authorized_keys() {
+  local f="$1" n=0 line
+  [ -f "$f" ] || { echo 0; return 0; }
+  while IFS= read -r line; do
+    case "$line" in ''|'#'*) continue ;; esac
+    if printf '%s\n' "$line" | ssh-keygen -l -f - >/dev/null 2>&1; then n=$((n + 1)); fi
+  done < "$f"
+  echo "$n"
+}
+
 # --- F3 (PR232-R1): kiem ban build TRUOC khi dua vao chay: argon2 (prebuild, cai bang npm ci --ignore-scripts) phai hash + verify
 # duoc tren chinh may nay; Prisma CLI chay duoc. Khong cham DB, khong doc env bi mat.
 backend_runtime_smoke() { # backend_runtime_smoke <thu muc backend>

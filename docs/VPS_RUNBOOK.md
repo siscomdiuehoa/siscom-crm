@@ -3,7 +3,7 @@
 | Mục | Giá trị |
 |---|---|
 | Trạng thái | **Bộ script đã viết và diễn tập phần SQL/vận hành trên PostgreSQL tạm (Windows và job CI `linux-scripts` trên Ubuntu 24.04); CHƯA chạy trên VPS nào.** Chưa chạy thật: `provision.sh` (apt, ufw, systemd, Caddy), `deploy.sh` ở chế độ thật (đổi liên kết, `systemctl`, kiểm sức khoẻ). Xem mục 9 |
-| Sửa sau review R1 | F1 manifest sao lưu được **ký** và ràng buộc vào file; F2 cổng SSH **chỉ 22**; F3 kiểm argon2/Prisma trên bản build + job CI Linux; `deploy.sh` dọn bản phát hành dở dang khi dừng (mục 10) |
+| Sửa sau review R1 | F1 manifest sao lưu được **ký** và ràng buộc vào file; F2 cổng SSH **đọc từ `sshd -T`** (VPS thật 26266) và mở đúng cổng đó trước khi bật ufw; F3 kiểm argon2/Prisma trên bản build + job CI Linux; `deploy.sh` dọn bản phát hành dở dang khi dừng (mục 10) |
 | Máy đích | BKNS Cloud VM, Ubuntu 24.04, 3 vCPU / 3 GB RAM / 40 GB (hạn dịch vụ 11/11/2027) |
 | Nền thiết kế | `docs/B1.4_VPS_DEPLOY_PLAN.md` (PR #176), `docs/B1.5_VPS_STAGING_PLAN.md`, `backend/docs/VPS_LINUX_NOTES.md`, `backend/docs/B1.4_P4_LINUX_SCRIPTS_DESIGN.md` (nhánh `docs/b1.4-p4-linux-scripts-design`) |
 | Mã nguồn | `backend/scripts/linux/` |
@@ -33,7 +33,11 @@ Ba role (cấp cluster, dùng chung giữa staging và prod trên cùng VPS): `s
 ## 2. Việc Owner cần có trước (V0)
 
 1. VPS đang **bật**, quyền root bằng mật khẩu (không gửi qua chat) và khoá SSH công khai của Claude đã dán vào `/root/.ssh/authorized_keys` — hoặc Owner tự chạy các lệnh dưới đây.
-2. **Tên miền** (vd `crm.<tên-miền-công-ty>`) có bản ghi **A trỏ về `42.96.15.235`** — cần trước bước Caddy (Let's Encrypt). Khi chưa có tên miền, chạy `provision.sh` không đặt `SISCOM_DOMAIN`: bỏ qua Caddy, phần còn lại vẫn xong.
+2. **Tên miền** (vd `crm.<tên-miền-công-ty>`) có bản ghi **A trỏ về `42.96.15.235`**. `SISCOM_DOMAIN` là **bắt buộc**: thiếu thì `provision.sh` dừng ngay, chưa làm gì. Chưa có tên miền ⇒ chưa chạy `provision.sh` (chưa có chế độ chỉ-HTTP).
+
+**Hiện trạng VPS (Owner kiểm chỉ-đọc 12/11/2026, Claude phiên này không chạm VPS):** Ubuntu 24.04.5, 3 vCPU, 2,9 GB RAM, **chưa có swap**, ufw **tắt**, 38 GB ổ; sshd `Port 26266`, `PermitRootLogin yes`, `PasswordAuthentication yes` (dòng 57/79/83 của `/etc/ssh/sshd_config`); `eth0` do systemd-networkd quản lý (IP tĩnh cloud-init, có cài NetworkManager); đã gỡ desktop/xrdp; chưa có Node, PostgreSQL, Caddy.
+
+**cloud-init của BKNS:** đĩa seed NoCloud được gắn lại mỗi lần boot ⇒ cloud-init coi là **máy mới**: tạo lại khoá host SSH và **đặt lại mật khẩu root** (`chpasswd`). `provision.sh` tạo (idempotent) `/etc/cloud/cloud.cfg.d/99-siscom-keep-ssh-hostkeys.cfg` với `ssh_deletekeys: false` để giữ khoá host (Owner đã tạo tay tệp này). Seed **không** đặt `ssh_pwauth` nên không đè cấu hình sshd. Việc **đặt lại mật khẩu root mỗi lần boot chưa được chặn**: sau khi bật `--ssh-key-only` thì mật khẩu root không còn dùng được qua SSH, nhưng vẫn dùng được ở console của nhà cung cấp — Owner quyết có tắt module `chpasswd`/`set-passwords` của cloud-init hay không (chưa làm trong PR này).
 3. **Khoá age của Owner** (trên máy Owner, không phải VPS): `age-keygen -o siscom-backup.key`, giữ file `.key` ở nơi an toàn; dòng `Public key: age1…` là thứ dán lên VPS. **Mất khoá riêng = mất khả năng đọc mọi bản sao lưu.**
 4. Nơi lưu bản sao ngoài VPS (Q9 của B1.4) và ai chép — chưa có script chép ra ngoài trong PR này.
 5. Tag phát hành (`v0.1.0`) do Owner duyệt riêng sau khi PR này merge; trước đó dùng `deploy.sh --src` với thư mục xuất từ commit đã review (mục 4).
@@ -51,11 +55,19 @@ SISCOM_DOMAIN=crm.example.vn bash provision.sh --dry-run
 SISCOM_DOMAIN=crm.example.vn bash provision.sh
 ```
 
-Làm: apt cập nhật, UTC + `systemd-timesyncd`, swap 2 GB (`/swapfile`, `swappiness=10`), `ufw` mặc định chặn vào và chỉ mở 22/80/443, fail2ban cho SSH, unattended-upgrades (**không** tự khởi động lại), Node 24 (NodeSource), PostgreSQL 18 (PGDG, `listen_addresses='localhost'`, `timezone='UTC'`, kiểm `pg_hba` chỉ loopback), Caddy, user `siscom`, journald `SystemMaxUse=500M`, cài 3 unit systemd và `Caddyfile`.
+Làm: apt cập nhật, UTC + `systemd-timesyncd`, swap 2 GB (`/swapfile`, `swappiness=10`), `ufw` mặc định chặn vào và chỉ mở **cổng SSH đang dùng** (đọc từ `sshd -T`, VPS thật là 26266) + 80 + 443, fail2ban cho SSH cùng cổng, unattended-upgrades (**không** tự khởi động lại), Node 24 (NodeSource), PostgreSQL 18 (PGDG, `listen_addresses='localhost'`, `timezone='UTC'`, kiểm `pg_hba` chỉ loopback), Caddy, user `siscom`, journald `SystemMaxUse=500M`, cài 3 unit systemd và `Caddyfile`.
 
-**PASS khi**: `ufw status` chỉ có 22, 80, 443; `timedatectl` = UTC và đồng bộ; `free -m` có Swap 2 GB; `node -v` là 24.x (≥ 24.11); `ss -ltn | grep 5432` chỉ `127.0.0.1`/`[::1]`; `sudo -u postgres psql -tAc 'SHOW TimeZone'` = `UTC`; `id siscom` có và không thuộc nhóm `sudo`/`admin`.
-**FAIL / dừng ngay** khi `SISCOM_SSH_PORT` khác `22` (F2): script **không** đổi cổng của `sshd`, nên mở cổng khác trên ufw rồi bật ufw sẽ chặn cổng 22 đang dùng và mất truy cập. Bản này từ chối mọi giá trị khác 22 **trước** khi đổi bất cứ gì. Đổi cổng SSH là quy trình riêng (sửa `sshd`, `sshd -t`, mở cổng mới trên ufw, thử đăng nhập ở phiên mới, rồi mới đóng 22) — chưa có trong PR này.
-**Cứng hoá SSH** (sau khi đã thử đăng nhập bằng khoá ở phiên MỚI): `bash provision.sh --harden-ssh` (từ chối nếu `/root/.ssh/authorized_keys` rỗng).
+**PASS khi**: `ufw status` chỉ có cổng SSH đang dùng (26266), 80, 443 — script tự kiểm sau khi bật, thiếu cổng SSH thì tự tắt lại ufw và dừng; `timedatectl` = UTC và đồng bộ; `free -m` có Swap 2 GB; `node -v` là 24.x (≥ 24.11); `ss -ltn | grep 5432` chỉ `127.0.0.1`/`[::1]`; `sudo -u postgres psql -tAc 'SHOW TimeZone'` = `UTC`; `id siscom` có và không thuộc nhóm `sudo`/`admin`.
+**Cổng SSH (F2):** script **không đổi** cổng của `sshd`. Trước mọi thay đổi, nó đọc cổng đang dùng bằng `sshd -T` (gộp cả cổng `ssh.socket` nếu đang chạy; nhiều cổng thì lấy tất cả), đọc lại ngay trước khi bật ufw, **mở các cổng đó trước** rồi mới đặt `deny` mặc định và `ufw --force enable`, sau đó kiểm `ufw status` còn `<cổng>/tcp ALLOW`. Thiếu ⇒ `ufw --force disable` và dừng. fail2ban dùng cùng cổng.
+**FAIL / dừng ngay** (trước khi đổi gì): thiếu `SISCOM_DOMAIN`; `sshd -T` lỗi hoặc không có cổng hợp lệ (vd không chạy bằng root); `SISCOM_SSH_PORT` được đặt nhưng không trùng cổng đang nghe.
+**SSH chỉ bằng khoá** — cờ **riêng** `--ssh-key-only`, chỉ chạy khi Owner duyệt và **đã thử đăng nhập bằng khoá ở phiên MỚI** (cổng 26266):
+
+```bash
+SISCOM_DOMAIN=crm.example.vn bash provision.sh --dry-run --ssh-key-only   # xem trước
+SISCOM_DOMAIN=crm.example.vn bash provision.sh --ssh-key-only
+```
+
+Ghi drop-in `/etc/ssh/sshd_config.d/00-siscom-ssh-key-only.conf` (`PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin prohibit-password`); tên `00-` để đứng trước mọi drop-in khác (vd `50-cloud-init.conf`) vì OpenSSH lấy **giá trị đầu tiên**. Từ chối nếu: tài khoản đang đăng nhập (`$SUDO_USER`, mặc định `root`) chưa có ≥ 1 khoá **hợp lệ** (`ssh-keygen -l` đọc được) trong `~/.ssh/authorized_keys`; `AuthorizedKeysFile` không gồm `.ssh/authorized_keys`; dòng `Include /etc/ssh/sshd_config.d/*.conf` không đứng **trước** các dòng xác thực/`Match` của `/etc/ssh/sshd_config` (trên VPS các dòng 57/79/83 chỉ bị drop-in đè khi `Include` ở đầu file — Ubuntu mặc định như vậy, script vẫn kiểm). Sau khi ghi: `sshd -t`, rồi `sshd -T` phải thể hiện `passwordauthentication no`, `kbdinteractiveauthentication no`, `permitrootlogin prohibit-password`; sai ⇒ gỡ drop-in, **không** nạp lại sshd. Đạt ⇒ `systemctl reload-or-restart ssh`. **Lùi**: `rm /etc/ssh/sshd_config.d/00-siscom-ssh-key-only.conf && systemctl reload-or-restart ssh` (ở phiên SSH còn mở hoặc console nhà cung cấp).
 **Lùi**: VPS chưa có dữ liệu — dựng lại máy từ trang quản lý nhà cung cấp.
 
 ### G2 — Database staging (`create-db.sh`)
@@ -106,7 +118,7 @@ Vì sao `--ignore-scripts` (F3): chỉ 3 gói production có lifecycle script �
 ### G4 — HTTPS (Caddy)
 
 Caddy đã cấu hình trong G1 nếu có `SISCOM_DOMAIN`. Kiểm: `curl -I https://<domain>/` (200, `strict-transport-security`, `x-content-type-options`); `curl -s https://<domain>/api/v1/health`; `curl -I http://<domain>/` chuyển 308 sang HTTPS; cookie đăng nhập có `Secure`.
-**PASS khi**: trang đăng nhập mở được trên Chrome và iPhone thật; chứng chỉ do Let's Encrypt cấp (không còn staging CA nếu đã thử); quét cổng từ ngoài (`nmap -Pn -p- 42.96.15.235`) chỉ thấy 22, 80, 443.
+**PASS khi**: trang đăng nhập mở được trên Chrome và iPhone thật; chứng chỉ do Let's Encrypt cấp (không còn staging CA nếu đã thử); quét cổng từ ngoài (`nmap -Pn -p- 42.96.15.235`) chỉ thấy cổng SSH (26266), 80, 443.
 **Lùi**: `systemctl stop caddy` (không ảnh hưởng DB).
 
 ### G5 — Nghiệm thu (Owner/Claude, có bằng chứng)
@@ -187,7 +199,7 @@ Giá trị thật chỉ nằm trên VPS. Cột "Đặt ở" cho biết nơi.
 | `MIGRATE_DATABASE_URL` | `postgresql://siscom_migrator:<ngẫu nhiên>@127.0.0.1:5432/<db>` | `migrate.env` | **không** vào env của dịch vụ; chỉ deploy/backup/CLI đọc |
 | `SISCOM_DOMAIN` | `crm.<tên-miền>` | biến khi chạy `provision.sh` / `create-db.sh env` → `caddy.env` | |
 | `SISCOM_ACME_CA` | mặc định Let's Encrypt; staging CA để thử | `caddy.env` | |
-| `SISCOM_SSH_PORT` | **chỉ `22`** | biến khi chạy `provision.sh` | F2: giá trị khác bị từ chối trước khi đổi gì |
+| `SISCOM_SSH_PORT` | (tuỳ chọn) vd `26266` | biến khi chạy `provision.sh` | chỉ để đối chiếu: phải trùng cổng `sshd -T` đang nghe, không thì dừng; script không đổi cổng SSH |
 | `SISCOM_SWAP_GB` | `2` (1–8) | biến khi chạy `provision.sh` | |
 | `SEED_LOOKUPS_ALLOW_DB` | tên DB hiện hành | `run-cli.sh` tự đặt | để `seed-lookups` chấp nhận DB van hành |
 | `BOOTSTRAP_PASSWORD_{SYSADMIN,ADMIN,SALE,TECHNICIAN,ACCOUNTANT}` | Owner gõ, ≥ 12 ký tự | shell root, tạm | không ghi file, không qua chat |
@@ -220,12 +232,12 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 
 ## 9. Giới hạn đã biết và việc cần Owner quyết
 
-1. **NOT_VERIFIED trên VPS thật**: `provision.sh` chạy thật (apt/ufw/fail2ban/sshd/Caddy lấy chứng chỉ), `--harden-ssh`, `deploy.sh` chế độ thật (đổi liên kết `current`, `systemctl restart`, kiểm health, rollback), timer sao lưu chạy bởi systemd, `ProtectSystem=strict`/`LogsDirectory` lúc chạy thật, bộ nhớ 3 GB khi build. Trên Linux (CI Ubuntu 24.04) **đã** kiểm: ShellCheck, test guard, `provision.sh --dry-run`, `npm ci --ignore-scripts` + build + argon2/Prisma, toàn bộ diễn tập PostgreSQL 18 + age + backend production đăng nhập thật, `systemd-analyze verify`, `caddy validate`. Lần chạy đầu trên VPS (staging) chính là phép thử thật; mọi bước có `--dry-run` hoặc đọc-ra-trước.
+1. **NOT_VERIFIED trên VPS thật**: `provision.sh` chạy thật (apt/ufw/fail2ban/sshd/Caddy lấy chứng chỉ), `--ssh-key-only`, `deploy.sh` chế độ thật (đổi liên kết `current`, `systemctl restart`, kiểm health, rollback), timer sao lưu chạy bởi systemd, `ProtectSystem=strict`/`LogsDirectory` lúc chạy thật, bộ nhớ 3 GB khi build. Trên Linux (CI Ubuntu 24.04) **đã** kiểm: ShellCheck, test guard, `provision.sh --dry-run`, `npm ci --ignore-scripts` + build + argon2/Prisma, toàn bộ diễn tập PostgreSQL 18 + age + backend production đăng nhập thật, `systemd-analyze verify`, `caddy validate`. Lần chạy đầu trên VPS (staging) chính là phép thử thật; mọi bước có `--dry-run` hoặc đọc-ra-trước.
 2. **`account-admin` (FV5) khoá cứng vào PostgreSQL thử cổng 55470** (`FV5-DB-GUARD`) nên **không chạy được trên VPS**. Bước V6 (tài khoản thật sau bootstrap: thêm nhân viên, đặt lại mật khẩu, khoá/mở) cần một PR/quyết định riêng; trước đó chỉ có 5 tài khoản bootstrap.
 3. **Staging và prod dùng chung 3 role/mật khẩu** (role cấp cluster, `REASSIGN OWNED` của `ROLE_SPLIT` cũng cấp cluster). Chấp nhận được khi cùng một VPS, một người quản trị; nếu cần tách hẳn cần hậu tố role theo DB (sửa các file SQL S1 — ngoài phạm vi).
 4. **Chưa có chép bản sao lưu ra ngoài VPS** và chưa có healthcheck ngoài: chờ Owner chọn nơi lưu (Q9).
 5. **Khoá ký sao lưu nằm trên VPS** (F1): chống sửa đổi ở kho sao lưu và bản sao ngoài VPS, không chống kẻ đã có root trên VPS. Ký ở máy khác là phương án mạnh hơn — cần quyết định riêng.
-6. **Cổng SSH khác 22** chưa hỗ trợ (F2, fail-closed).
+6. **Đổi cổng SSH** không nằm trong script: script chỉ đọc cổng đang dùng. Ubuntu 24.04 có thể nghe SSH qua `ssh.socket`; script gộp cả cổng của `ssh.socket` nếu đang chạy.
 7. Tin cậy khoá kho ngoài: `provision.sh` lấy khoá GPG của NodeSource, PGDG, Caddy qua HTTPS rồi ghi vào kho `signed-by`; Owner có thể đối chiếu vân tay khoá với trang chính thức trước khi chạy thật.
 8. Tag `v0.1.0` chưa tồn tại; `deploy.sh --tag` chỉ dùng được sau khi Owner duyệt tạo tag trên `main`.
 
@@ -234,5 +246,5 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 | ID | Vấn đề đã tái hiện trên `c34f602` | Sửa | Bằng chứng |
 |---|---|---|---|
 | F1 | Thay cả bộ `.dump` + `.manifest` của bản A bằng bản B (tính lại `.sha256`, không cần khoá nào) ⇒ `restore-test.sh` vẫn `PASS`; xoá manifest ⇒ vẫn `PASS` (nhánh "so với DB nguồn hiện tại") | Manifest thêm `file`, `file_sha256`; ký ed25519 (`ssh-keygen -Y`); `verify_backup_set` kiểm chữ ký + tên file + SHA-256 + DB **trước** mọi bước; bỏ nhánh thiếu manifest; so cả tập bảng; sao lưu từ chối khi thiếu khoá ký | `test-guards.sh` mục 7 (17 kiểm tra), `rehearse-pg.sh` 8 ca âm |
-| F2 | `SISCOM_SSH_PORT=2222` ⇒ `ufw allow 2222/tcp` nhưng `sshd` vẫn ở 22 và `ufw --force enable` chặn 22 ⇒ mất SSH | Chỉ nhận 22, từ chối trước khi đổi gì | `test-guards.sh` mục 8 |
+| F2 | `SISCOM_SSH_PORT=2222` ⇒ `ufw allow 2222/tcp` nhưng `sshd` vẫn ở 22 và `ufw --force enable` chặn 22 ⇒ mất SSH | Lần 1 (f304d45): chỉ nhận 22. **Lần 2** (theo VPS thật cổng 26266): đọc cổng từ `sshd -T` (+ `ssh.socket`), mở đúng các cổng đó trước `ufw --force enable`, kiểm `ufw status` sau khi bật (thiếu ⇒ tắt ufw, dừng); không đọc được ⇒ từ chối trước khi đổi gì; fail2ban cùng cổng | `test-guards.sh` mục 5, 8, 8b, 8c, 8d |
 | F3 | `npm ci --ignore-scripts` chưa được kiểm trên Linux; deploy không kiểm argon2 lúc chạy. Kèm lỗi liên quan: `die` trước khi đổi liên kết để lại `releases/<id>` dở dang (trap ERR không bắt `exit`) | Giữ `--ignore-scripts`; `backend_runtime_smoke` trong deploy; trap EXIT dọn bản dở dang; job CI `linux-scripts` | `test-guards.sh` mục 9; CI `linux-scripts` |
