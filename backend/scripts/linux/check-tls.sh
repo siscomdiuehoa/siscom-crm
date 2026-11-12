@@ -29,10 +29,13 @@ left="$(days_until "$end")" || die "Khong doc duoc ngay het han: $end"
 echo "Host: $host ($kind) | Het han: $end | Con: $left ngay | Cap boi: $issuer"
 
 fail=0
-if curl -fsS --max-time 10 -o /dev/null "https://${host}/api/v1/health"; then
-  info "https://${host}/api/v1/health dat (KHONG dung -k: chung chi duoc tin)."
+# Bat tay TLS (ma thoat curl, KHONG -k): dat = chung chi duoc tin. Ma HTTP chi de tham khao (backend co the chua chay).
+if code="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "https://${host}/")"; then
+  info "https://${host}/ bat tay TLS dat (KHONG dung -k: chung chi duoc tin), HTTP $code."
+  hc="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "https://${host}/api/v1/health" || true)"
+  [ "$hc" = 200 ] && info "https://${host}/api/v1/health = 200." || warn "https://${host}/api/v1/health = ${hc:-?} (backend chua chay?)."
 else
-  warn "https://${host}/api/v1/health KHONG dat khi kiem chung chi (hoac backend chua chay)."; fail=1
+  warn "https://${host}/ KHONG bat tay TLS duoc khi kiem chung chi (chung chi khong duoc tin / het han / sai host)."; fail=1
 fi
 if [ "$left" -lt "$min" ]; then
   warn "Chung chi con $left ngay (< $min). Kiem Caddy gia han: journalctl -u caddy --since '-2 days' | grep -iE 'renew|obtain|error'"; fail=1

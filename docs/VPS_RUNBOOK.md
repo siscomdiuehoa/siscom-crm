@@ -35,9 +35,10 @@ Ba role (cấp cluster, dùng chung giữa staging và prod trên cùng VPS): `s
 
 1. VPS đang **bật**, quyền root bằng mật khẩu (không gửi qua chat) và khoá SSH công khai của Claude đã dán vào `/root/.ssh/authorized_keys` — hoặc Owner tự chạy các lệnh dưới đây.
 2. **Host (`SISCOM_HOST`, bắt buộc)** — không có chế độ HTTP thuần (backend production bắt buộc `COOKIE_SECURE=true`: cookie `Secure` không lưu qua http và mật khẩu sẽ đi dạng rõ).
-   - **Mặc định: tên miền** của công ty `siscom.io.vn` (DNS do AZDIGI quản lý, không có bản ghi CAA): staging `crm-staging.siscom.io.vn`, production `crm.siscom.io.vn`. Tạo **bản ghi A** cho từng tên trỏ về `42.96.15.235`. **Không đụng bản ghi gốc `siscom.io.vn`** (website + mail công ty ở máy chủ khác). Chứng chỉ Let's Encrypt thường (90 ngày), Caddy tự gia hạn.
+   - **Quyết định Owner 12/11: lần dựng staging đầu tiên dùng IP `42.96.15.235` (MẶC ĐỊNH); tên miền bổ sung sau** (DNS `siscom.io.vn` do AZDIGI quản lý, chưa thêm được bản ghi). Script hỗ trợ cả hai, không cần sửa khi đổi.
+   - **Khi có tên miền** (phương án sau) của công ty `siscom.io.vn` (DNS do AZDIGI quản lý, không có bản ghi CAA): staging `crm-staging.siscom.io.vn`, production `crm.siscom.io.vn`. Tạo **bản ghi A** cho từng tên trỏ về `42.96.15.235`. **Không đụng bản ghi gốc `siscom.io.vn`** (website + mail công ty ở máy chủ khác). Chứng chỉ Let's Encrypt thường (90 ngày), Caddy tự gia hạn.
    - **Kiểm DNS trước** (script tự kiểm, dừng nếu sai — tránh xin chứng chỉ khi DNS chưa trỏ và dính giới hạn của Let's Encrypt): `dig +short crm-staging.siscom.io.vn` phải ra **duy nhất** `42.96.15.235` (không có `dig` thì `getent ahostsv4 <host>`). IP công khai của máy lấy từ `SISCOM_PUBLIC_IP` hoặc địa chỉ nguồn của tuyến ra Internet (`ip -4 route get 1.1.1.1`).
-   - **Phương án phụ: IPv4** `SISCOM_HOST=42.96.15.235` — Let's Encrypt cấp chứng chỉ cho IP chỉ với profile `shortlived` (bảng profile của Let's Encrypt: hiệu lực 160 giờ ≈ 6 ngày, loại định danh "DNS, IP"), xác thực HTTP-01/TLS-ALPN-01 nên cổng 80/443 phải mở và IP phải là của chính máy. Caddyfile dùng `tls { issuer acme … { profile shortlived } }`: subdirective `profile` có trong tài liệu `tls` của Caddy (ghi "EXPERIMENTAL"), cần Caddy ≥ 2.10 (script kiểm, cũ hơn thì dừng; < 2.11 thì cảnh báo). Lỗi xin chứng chỉ IP với Let's Encrypt (caddyserver/caddy#7399, thông báo "cannot have public IP certificate") đã được đóng/sửa sau 2.10.0; **chưa xác định chính xác bản chứa bản sửa** ⇒ dùng Caddy mới nhất. **Việc Let's Encrypt cấp chứng chỉ IP qua Caddy: CHƯA kiểm chứng.**
+   - **IPv4 (mặc định cho lần dựng đầu)** `SISCOM_HOST=42.96.15.235` — Let's Encrypt cấp chứng chỉ cho IP chỉ với profile `shortlived` (bảng profile của Let's Encrypt: hiệu lực 160 giờ ≈ 6 ngày, loại định danh "DNS, IP"), xác thực HTTP-01/TLS-ALPN-01 nên cổng 80/443 phải mở và IP phải là của chính máy. Caddyfile dùng `tls { issuer acme … { profile shortlived } }`: subdirective `profile` có trong tài liệu `tls` của Caddy (ghi "EXPERIMENTAL"), cần Caddy ≥ 2.10 (script kiểm, cũ hơn thì dừng; < 2.11 thì cảnh báo). Lỗi xin chứng chỉ IP với Let's Encrypt (caddyserver/caddy#7399, thông báo "cannot have public IP certificate") đã được đóng/sửa sau 2.10.0; **chưa xác định chính xác bản chứa bản sửa** ⇒ dùng Caddy mới nhất. **Việc Let's Encrypt cấp chứng chỉ IP qua Caddy: CHƯA kiểm chứng.**
    - **Dự phòng (không mặc định):** `SISCOM_TLS_MODE=internal` (chỉ với IPv4) ⇒ `tls internal`, chứng chỉ do CA nội bộ của Caddy ký; phải cài CA gốc (`/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`) lên **từng** máy/điện thoại, và vì có HSTS nên trình duyệt không cho bỏ qua cảnh báo.
    - **Đổi host sau này** (vd từ IP sang tên miền, hoặc staging → production): không sửa script — chạy lại `SISCOM_HOST=<host mới> bash provision.sh` (ghi lại `caddy.env` + tệp TLS) và `SISCOM_HOST=<host mới> bash create-db.sh <db> env` (CORS/`AUTH_ALLOWED_ORIGINS` = `https://<host mới>`), rồi `systemctl restart siscom-crm-backend`. Cookie gắn với origin cũ ⇒ **mọi người phải đăng nhập lại** trên địa chỉ mới; ghi nhớ đăng nhập (Remember Me) ở origin cũ không dùng được.
 
@@ -56,9 +57,9 @@ Mọi lệnh bằng `root` (hoặc `sudo`). Script nằm trong `backend/scripts/
 
 ```bash
 # thử trước, không đổi gì:
-SISCOM_HOST=crm-staging.siscom.io.vn bash provision.sh --dry-run
+SISCOM_HOST=42.96.15.235 bash provision.sh --dry-run
 # chạy thật (thêm SISCOM_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory để thử chứng chỉ không tính hạn mức):
-SISCOM_HOST=crm-staging.siscom.io.vn bash provision.sh
+SISCOM_HOST=42.96.15.235 bash provision.sh
 ```
 
 Làm: apt cập nhật, UTC + `systemd-timesyncd`, swap 2 GB (`/swapfile`, `swappiness=10`), `ufw` mặc định chặn vào và chỉ mở **cổng SSH đang dùng** (đọc từ `sshd -T`, VPS thật là 26266) + 80 + 443, fail2ban cho SSH cùng cổng, unattended-upgrades (**không** tự khởi động lại), Node 24 (NodeSource), PostgreSQL 18 (PGDG, `listen_addresses='localhost'`, `timezone='UTC'`, kiểm `pg_hba` chỉ loopback), Caddy, user `siscom`, journald `SystemMaxUse=500M`, cài 3 unit systemd và `Caddyfile`.
@@ -69,8 +70,8 @@ Làm: apt cập nhật, UTC + `systemd-timesyncd`, swap 2 GB (`/swapfile`, `swap
 **SSH chỉ bằng khoá** — cờ **riêng** `--ssh-key-only`, chỉ chạy khi Owner duyệt và **đã thử đăng nhập bằng khoá ở phiên MỚI** (cổng 26266):
 
 ```bash
-SISCOM_HOST=crm-staging.siscom.io.vn bash provision.sh --dry-run --ssh-key-only   # xem trước
-SISCOM_HOST=crm-staging.siscom.io.vn bash provision.sh --ssh-key-only
+SISCOM_HOST=42.96.15.235 bash provision.sh --dry-run --ssh-key-only   # xem trước
+SISCOM_HOST=42.96.15.235 bash provision.sh --ssh-key-only
 ```
 
 Ghi drop-in `/etc/ssh/sshd_config.d/00-siscom-ssh-key-only.conf` (`PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin prohibit-password`); tên `00-` để đứng trước mọi drop-in khác (vd `50-cloud-init.conf`) vì OpenSSH lấy **giá trị đầu tiên**. Từ chối nếu: tài khoản đang đăng nhập (`$SUDO_USER`, mặc định `root`) chưa có ≥ 1 khoá **hợp lệ** (`ssh-keygen -l` đọc được) trong `~/.ssh/authorized_keys`; `AuthorizedKeysFile` không gồm `.ssh/authorized_keys`; dòng `Include /etc/ssh/sshd_config.d/*.conf` không đứng **trước** các dòng xác thực/`Match` của `/etc/ssh/sshd_config` (trên VPS các dòng 57/79/83 chỉ bị drop-in đè khi `Include` ở đầu file — Ubuntu mặc định như vậy, script vẫn kiểm). Sau khi ghi: `sshd -t`, rồi `sshd -T` phải thể hiện `passwordauthentication no`, `kbdinteractiveauthentication no`, `permitrootlogin prohibit-password`; sai ⇒ gỡ drop-in, **không** nạp lại sshd. Đạt ⇒ `systemctl reload-or-restart ssh`. **Lùi**: `rm /etc/ssh/sshd_config.d/00-siscom-ssh-key-only.conf && systemctl reload-or-restart ssh` (ở phiên SSH còn mở hoặc console nhà cung cấp).
@@ -81,7 +82,7 @@ Ghi drop-in `/etc/ssh/sshd_config.d/00-siscom-ssh-key-only.conf` (`PasswordAuthe
 ```bash
 cd /root/siscom-scripts
 bash create-db.sh siscom_crm_staging create      # 3 role + DB mới + tách role S1 + role auth
-SISCOM_HOST=crm-staging.siscom.io.vn bash create-db.sh siscom_crm_staging env   # ghi backend.env + migrate.env
+SISCOM_HOST=42.96.15.235 bash create-db.sh siscom_crm_staging env   # ghi backend.env + migrate.env
 ```
 
 **PASS khi**: script in `Tách role xong: owner=siscom_migrator, app+auth CONNECT, PUBLIC không có quyền`; tạo lại cùng tên bị `TỪ CHỐI`; tên khác `siscom_crm_staging|siscom_crm_prod` (kể cả `siscom_crm_dev`, tên `siscom_crm_test_*`, baseline) bị từ chối ngay.
@@ -123,8 +124,27 @@ Vì sao `--ignore-scripts` (F3): chỉ 3 gói production có lifecycle script �
 
 ### G4 — HTTPS (Caddy)
 
-Caddy đã cấu hình trong G1 theo `SISCOM_HOST`. Kiểm: `curl -I https://<host>/` (200, `strict-transport-security`, `x-content-type-options`); `curl -I http://<host>/` chuyển 308 sang HTTPS; cookie đăng nhập có `Secure`; `bash check-tls.sh` (đọc host từ `caddy.env`).
-**PASS khi**: `curl -fsS https://<host>/api/v1/health` **không dùng `-k`** thành công (chứng chỉ được tin sẵn); `check-tls.sh` in "TLS OK", cấp bởi Let's Encrypt (không còn staging CA nếu đã thử); trang đăng nhập mở được trên Chrome và iPhone thật; quét cổng từ ngoài (`nmap -Pn -p- 42.96.15.235`) chỉ thấy cổng SSH (26266), 80, 443.
+Caddy đã cấu hình trong G1 theo `SISCOM_HOST`. Sau `systemctl restart caddy`, `provision.sh` **chờ tối đa 180 giây** cho tới khi `https://<host>/` bắt tay TLS được **không `-k`** (bất kỳ mã HTTP nào cũng tính là đạt vì backend có thể chưa triển khai). Không đạt ⇒ in log Caddy liên quan và **dừng**, **không** chuyển sang HTTP.
+
+**Thứ tự thử chứng chỉ khi host là IP (lần dựng đầu):**
+1. Let's Encrypt cho IP, profile `shortlived` (mặc định, `SISCOM_TLS_MODE` không đặt). Caddy < 2.10 ⇒ script dừng trước khi ghi cấu hình; Let's Encrypt/Caddy từ chối ⇒ script dừng sau 180 giây, kèm log.
+2. Chỉ khi Owner đồng ý: `SISCOM_TLS_MODE=internal SISCOM_HOST=42.96.15.235 bash provision.sh` ⇒ chứng chỉ tự ký bởi CA nội bộ của Caddy. **Trình duyệt và điện thoại sẽ báo không tin cậy** cho tới khi cài `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt` lên **từng** thiết bị (vì có HSTS nên không bỏ qua cảnh báo được). Script tự kiểm bằng `--cacert` của CA đó, không dùng `-k`.
+3. Không bao giờ dùng HTTP thuần.
+
+**Lệnh kiểm (chạy trên VPS, chỉ đọc):**
+
+```bash
+caddy version                                                     # chế độ IP cần >= 2.10; nên dùng bản mới nhất (#7399)
+curl -sS -o /dev/null -w '%{http_code}\n' https://42.96.15.235/    # KHÔNG -k; lỗi chứng chỉ => curl thoát khác 0
+echo | openssl s_client -connect 42.96.15.235:443 2>/dev/null | openssl x509 -noout -issuer -enddate   # bên cấp + ngày hết hạn
+bash check-tls.sh                                                 # gộp các kiểm trên; thoát 1 nếu còn < 2 ngày (IP) / < 14 ngày (tên miền)
+journalctl -u caddy --since '-2 days' --no-pager | grep -iE 'renew|obtain|error'   # lịch sử gia hạn
+```
+
+**Gia hạn thủ công** (chỉ khi Caddy không tự gia hạn được và chứng chỉ sắp hết; mỗi lần là một lần xin chứng chỉ mới, chú ý giới hạn của Let's Encrypt): (1) `systemctl reload caddy` — Caddy kiểm lại và gia hạn chứng chỉ đã tới hạn; (2) nếu vẫn không được: dừng Caddy, chuyển (không xoá) thư mục chứng chỉ của host trong `/var/lib/caddy/.local/share/caddy/certificates/<thư-mục-CA>/<host>/` ra chỗ khác, `systemctl start caddy` để xin lại, rồi `check-tls.sh`. Lỗi lặp lại với IP ⇒ cập nhật Caddy, hoặc (Owner duyệt) chuyển sang `SISCOM_TLS_MODE=internal`.
+
+Kiểm thêm: `curl -I https://<host>/` (200, `strict-transport-security`, `x-content-type-options`); `curl -I http://<host>/` chuyển 308 sang HTTPS; cookie đăng nhập có `Secure`; `bash check-tls.sh` (đọc host từ `caddy.env`).
+**PASS khi**: `curl https://<host>/` **không dùng `-k`** bắt tay TLS được (sau G3: `curl -fsS https://<host>/api/v1/health` cũng đạt) (chứng chỉ được tin sẵn); `check-tls.sh` in "TLS OK", cấp bởi Let's Encrypt (không còn staging CA nếu đã thử); trang đăng nhập mở được trên Chrome và iPhone thật; quét cổng từ ngoài (`nmap -Pn -p- 42.96.15.235`) chỉ thấy cổng SSH (26266), 80, 443.
 **Gia hạn**: Caddy tự gia hạn (khoảng khi còn 1/3 thời hạn). Kiểm: `check-tls.sh` (thoát 1 khi chứng chỉ còn **< 14 ngày** với tên miền, **< 2 ngày** với IP — vì chứng chỉ IP chỉ ~6 ngày), `journalctl -u caddy --since '-2 days' | grep -iE 'renew|obtain|error'`. Nên cho `check-tls.sh` chạy hằng ngày và gửi cảnh báo (chưa cài sẵn — cần Owner chọn kênh cảnh báo).
 **FAIL khi**: `curl` không `-k` báo lỗi chứng chỉ; `check-tls.sh` thoát 1; log Caddy có lỗi `obtain`/`renew` lặp lại (với IP: nghi #7399 ⇒ cập nhật Caddy, hoặc tạm dùng `SISCOM_TLS_MODE=internal`).
 **Lùi**: `systemctl stop caddy` (không ảnh hưởng DB).
@@ -205,7 +225,7 @@ Giá trị thật chỉ nằm trên VPS. Cột "Đặt ở" cho biết nơi.
 | `SESSION_IDLE_MINUTES` / `SESSION_ABS_HOURS` | `480` / `12` | `backend.env` | |
 | `LOGIN_WINDOW_MINUTES`, `LOGIN_MAX_PER_SOURCE`, `LOGIN_MAX_PER_IDENTIFIER`, `LOGIN_LOCK_AFTER_FAILURES`, `LOGIN_LOCK_MINUTES` | `15`, `30`, `5`, `5`, `15` | `backend.env` | mặc định của ứng dụng |
 | `MIGRATE_DATABASE_URL` | `postgresql://siscom_migrator:<ngẫu nhiên>@127.0.0.1:5432/<db>` | `migrate.env` | **không** vào env của dịch vụ; chỉ deploy/backup/CLI đọc |
-| `SISCOM_HOST` | `crm-staging.siscom.io.vn` (staging), `crm.siscom.io.vn` (production); phương án phụ `42.96.15.235` | biến khi chạy `provision.sh` / `create-db.sh env` ⇒ `caddy.env`, `CORS_ORIGINS` = `AUTH_ALLOWED_ORIGINS` = `https://<host>` | bắt buộc; thay `SISCOM_DOMAIN` cũ (đặt biến cũ ⇒ dừng) |
+| `SISCOM_HOST` | `42.96.15.235` (mặc định lần dựng staging đầu); sau này `crm-staging.siscom.io.vn` / `crm.siscom.io.vn` | biến khi chạy `provision.sh` / `create-db.sh env` ⇒ `caddy.env`, `CORS_ORIGINS` = `AUTH_ALLOWED_ORIGINS` = `https://<host>` | bắt buộc; thay `SISCOM_DOMAIN` cũ (đặt biến cũ ⇒ dừng) |
 | `SISCOM_TLS_MODE` | `acme` (mặc định); `internal` chỉ với IPv4, dự phòng | biến khi chạy `provision.sh` | |
 | `SISCOM_PUBLIC_IP` | `42.96.15.235` | biến khi chạy `provision.sh` (tuỳ chọn) | mặc định lấy địa chỉ nguồn của tuyến ra Internet; dùng để kiểm DNS / IP |
 | `SISCOM_ACME_CA` | mặc định Let's Encrypt; staging CA để thử | `caddy.env` | |

@@ -265,6 +265,29 @@ CONF
     systemctl enable caddy
     systemctl restart caddy
   fi
+  # Cho chung chi DUOC TIN: chi kiem bat tay TLS (ma thoat curl), bat ky ma HTTP nao (backend/web co the chua trien khai) deu tinh la dat.
+  # KHONG lui ve HTTP neu that bai: dung va bao ro. internal => tin rieng CA noi bo cua Caddy (--cacert), khong dung -k.
+  ca_root=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+  tls_args=(); [ "$TLS_MODE" = internal ] && tls_args=(--cacert "$ca_root")
+  if [ "$DRY" = 1 ]; then
+    echo "[DRY] cho chung chi: curl https://${HOST}/ (khong -k)${tls_args[*]:+ ${tls_args[*]}} toi da 180 giay; that bai => dung (khong chuyen sang HTTP)"
+  else
+    ok_tls=0
+    for _ in $(seq 1 36); do
+      if [ "$TLS_MODE" = internal ] && [ ! -f "$ca_root" ]; then sleep 5; continue; fi
+      if code="$(curl -sS --max-time 8 -o /dev/null -w '%{http_code}' "${tls_args[@]}" "https://${HOST}/" 2>/dev/null)"; then ok_tls=1; break; fi
+      sleep 5
+    done
+    if [ "$ok_tls" != 1 ]; then
+      journalctl -u caddy --since '-5 min' --no-pager 2>/dev/null | grep -iE 'error|obtain|challenge|profile|not permitted|cannot have' | tail -n 15 >&2 || true
+      if [ "$HOST_KIND" = ipv4 ] && [ "$TLS_MODE" = acme ]; then
+        die "Caddy KHONG lay duoc chung chi Let's Encrypt cho IP ${HOST} trong 180 giay (log o tren). Kha nang: Caddy chua ho tro/bi Let's Encrypt tu choi (caddyserver/caddy#7399), cong 80/443 bi chan tu ngoai, hoac IP sai. KHONG chuyen sang HTTP. Lua chon: cap nhat Caddy roi chay lai; hoac (du phong, thiet bi phai tin CA) SISCOM_TLS_MODE=internal."
+      fi
+      die "https://${HOST}/ chua co chung chi duoc tin sau 180 giay (log o tren). Kiem DNS, cong 80/443, journalctl -u caddy. KHONG chuyen sang HTTP."
+    fi
+    info "https://${HOST}/ bat tay TLS dat (khong -k${tls_args[*]:+, CA noi bo}); HTTP ${code} (backend/web co the chua trien khai)."
+  fi
+  [ "$TLS_MODE" = internal ] && warn "tls internal: trinh duyet/dien thoai se bao chung chi KHONG tin cay cho den khi cai CA $ca_root len TUNG thiet bi (HSTS khong cho bo qua canh bao)."
   info "Caddy cho https://${HOST} (TLS: ${TLS_SNIPPET}). Kiem chung chi: check-tls.sh ${HOST}"
 }
 
