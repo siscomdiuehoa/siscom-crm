@@ -85,7 +85,7 @@ mA="${A%.dump*}.manifest"; cp "$mA" "$work/mA"; cp "$mA.sig" "$work/mA.sig"; cp 
 step "F1 negative"
 sed -i 's/^rows|employee|5/rows|employee|6/' "$mA"; neg "sua so dong"; cp "$work/mA" "$mA"
 sed -i "s/^db=$db/db=siscom_crm_prod/" "$mA"; neg "sua ten DB"; cp "$work/mA" "$mA"
-sed -i 's/^plain_sha256=./plain_sha256=0/' "$mA"; neg "sua hash"; cp "$work/mA" "$mA"
+sed -i 's/^plain_sha256=/plain_sha256=X/' "$mA"; neg "sua hash"; cp "$work/mA" "$mA"
 rm -f "$mA"; neg "xoa manifest"; cp "$work/mA" "$mA"
 rm -f "$mA.sig"; neg "xoa chu ky"; cp "$work/mA.sig" "$mA.sig"
 ssh-keygen -q -t ed25519 -N '' -f "$work/evil" >/dev/null; sed -i 's/^rows|employee|5/rows|employee|6/' "$mA"; rm -f "$mA.sig"

@@ -237,7 +237,7 @@ else
     m="$bk/siscom_crm_prod_20261110_190000.manifest"; cp "$m" "$m.orig"
     sed -i 's/^rows|customer|3/rows|customer|4/' "$m"; check_not "sua so dong trong manifest => tu choi" vset 20261110_190000; cp "$m.orig" "$m"
     sed -i 's/^db=siscom_crm_prod/db=siscom_crm_staging/' "$m"; check_not "sua ten DB trong manifest => tu choi" vset 20261110_190000; cp "$m.orig" "$m"
-    sed -i 's/^plain_sha256=./plain_sha256=0/' "$m"; check_not "sua hash trong manifest => tu choi" vset 20261110_190000; cp "$m.orig" "$m"
+    sed -i 's/^plain_sha256=/plain_sha256=X/' "$m"; check_not "sua hash trong manifest => tu choi" vset 20261110_190000; cp "$m.orig" "$m"
     printf 'X' >> "$bk/siscom_crm_prod_20261110_190000.dump.age"; check_not "file sao luu bi sua => tu choi" vset 20261110_190000
     printf 'AAAA' > "$bk/siscom_crm_prod_20261110_190000.dump.age"; check "khoi phuc file goc => lai chap nhan" vset 20261110_190000
     # thay CA file + manifest + chu ky bang bo B (hop le, cung khoa) duoi ten A => file= trong manifest khong khop ten
