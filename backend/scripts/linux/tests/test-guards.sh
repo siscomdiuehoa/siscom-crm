@@ -65,6 +65,10 @@ for n in siscom_crm_dev siscom_crm_test_20261029_062004 siscom_crm_restore_20261
   out="$(SISCOM_ETC="$tmp/etc" bash "$lin/create-db.sh" "$n" create 2>&1)"; rc=$?
   if [ "$rc" -ne 0 ] && { contains "$out" "TU CHOI" || [ -z "$n" ]; }; then ok "create-db tu choi '$n'"; else bad "create-db khong tu choi '$n' (rc=$rc)"; fi
 done
+# Chi chep rieng thu muc script (thieu backend/docs chua file SQL S1) => phai bao RO, truoc khi cham PostgreSQL
+mkdir -p "$tmp/onlyscripts"; cp -r "$lin" "$tmp/onlyscripts/linux"
+out="$(bash "$tmp/onlyscripts/linux/create-db.sh" siscom_crm_staging create 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && contains "$out" "backend/docs"; then ok "create-db thieu backend/docs => dung, bao ro"; else bad "create-db thieu backend/docs khong bao ro (rc=$rc)"; fi
 out="$(bash "$lin/create-db.sh" siscom_crm_prod xoa 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ]; then ok "create-db tu choi lenh la"; else bad "create-db nhan lenh la"; fi
 

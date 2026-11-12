@@ -2,7 +2,7 @@
 
 | Mục | Giá trị |
 |---|---|
-| Trạng thái | **Bộ script đã viết và diễn tập phần SQL/vận hành trên PostgreSQL tạm (Windows và job CI `linux-scripts` trên Ubuntu 24.04); CHƯA chạy trên VPS nào.** Chưa chạy thật: `provision.sh` (apt, ufw, systemd, Caddy), `deploy.sh` ở chế độ thật (đổi liên kết, `systemctl`, kiểm sức khoẻ). Xem mục 9 |
+| Trạng thái | **`provision.sh` @`c7e74fa` ĐÃ CHẠY THẬT trên VPS 42.96.15.235 (12/11/2026, Owner duyệt, phiên điều phối chạy): 12/12 bước đạt, Let's Encrypt đã cấp chứng chỉ cho IP (mục 11).** Chưa chạy trên VPS: `--ssh-key-only`, `create-db.sh`, `deploy.sh`, `run-cli.sh`, sao lưu/khôi phục, timer sao lưu, tự gia hạn chứng chỉ. Phần SQL/vận hành đã diễn tập trên PostgreSQL tạm (Windows và job CI `linux-scripts` Ubuntu 24.04). Xem mục 9 |
 | Sửa sau review R1 | F1 manifest sao lưu được **ký** và ràng buộc vào file; F2 cổng SSH **đọc từ `sshd -T`** (VPS thật 26266) và mở đúng cổng đó trước khi bật ufw; F3 kiểm argon2/Prisma trên bản build + job CI Linux; `deploy.sh` dọn bản phát hành dở dang khi dừng (mục 10) |
 | Máy đích | BKNS Cloud VM, Ubuntu 24.04, 3 vCPU / 3 GB RAM / 40 GB (hạn dịch vụ 11/11/2027) |
 | Nền thiết kế | `docs/B1.4_VPS_DEPLOY_PLAN.md` (PR #176), `docs/B1.5_VPS_STAGING_PLAN.md`, `backend/docs/VPS_LINUX_NOTES.md`, `backend/docs/B1.4_P4_LINUX_SCRIPTS_DESIGN.md` (nhánh `docs/b1.4-p4-linux-scripts-design`) |
@@ -38,7 +38,7 @@ Ba role (cấp cluster, dùng chung giữa staging và prod trên cùng VPS): `s
    - **Quyết định Owner 12/11: lần dựng staging đầu tiên dùng IP `42.96.15.235` (MẶC ĐỊNH); tên miền bổ sung sau** (DNS `siscom.io.vn` do AZDIGI quản lý, chưa thêm được bản ghi). Script hỗ trợ cả hai, không cần sửa khi đổi.
    - **Khi có tên miền** (phương án sau) của công ty `siscom.io.vn` (DNS do AZDIGI quản lý, không có bản ghi CAA): staging `crm-staging.siscom.io.vn`, production `crm.siscom.io.vn`. Tạo **bản ghi A** cho từng tên trỏ về `42.96.15.235`. **Không đụng bản ghi gốc `siscom.io.vn`** (website + mail công ty ở máy chủ khác). Chứng chỉ Let's Encrypt thường (90 ngày), Caddy tự gia hạn.
    - **Kiểm DNS trước** (script tự kiểm, dừng nếu sai — tránh xin chứng chỉ khi DNS chưa trỏ và dính giới hạn của Let's Encrypt): `dig +short crm-staging.siscom.io.vn` phải ra **duy nhất** `42.96.15.235` (không có `dig` thì `getent ahostsv4 <host>`). IP công khai của máy lấy từ `SISCOM_PUBLIC_IP` hoặc địa chỉ nguồn của tuyến ra Internet (`ip -4 route get 1.1.1.1`).
-   - **IPv4 (mặc định cho lần dựng đầu)** `SISCOM_HOST=42.96.15.235` — Let's Encrypt cấp chứng chỉ cho IP chỉ với profile `shortlived` (bảng profile của Let's Encrypt: hiệu lực 160 giờ ≈ 6 ngày, loại định danh "DNS, IP"), xác thực HTTP-01/TLS-ALPN-01 nên cổng 80/443 phải mở và IP phải là của chính máy. Caddyfile dùng `tls { issuer acme … { profile shortlived } }`: subdirective `profile` có trong tài liệu `tls` của Caddy (ghi "EXPERIMENTAL"), cần Caddy ≥ 2.10 (script kiểm, cũ hơn thì dừng; < 2.11 thì cảnh báo). Lỗi xin chứng chỉ IP với Let's Encrypt (caddyserver/caddy#7399, thông báo "cannot have public IP certificate") đã được đóng/sửa sau 2.10.0; **chưa xác định chính xác bản chứa bản sửa** ⇒ dùng Caddy mới nhất. **Việc Let's Encrypt cấp chứng chỉ IP qua Caddy: CHƯA kiểm chứng.**
+   - **IPv4 (mặc định cho lần dựng đầu)** `SISCOM_HOST=42.96.15.235` — Let's Encrypt cấp chứng chỉ cho IP chỉ với profile `shortlived` (bảng profile của Let's Encrypt: hiệu lực 160 giờ ≈ 6 ngày, loại định danh "DNS, IP"), xác thực HTTP-01/TLS-ALPN-01 nên cổng 80/443 phải mở và IP phải là của chính máy. Caddyfile dùng `tls { issuer acme … { profile shortlived } }`: subdirective `profile` có trong tài liệu `tls` của Caddy (ghi "EXPERIMENTAL"), cần Caddy ≥ 2.10 (script kiểm, cũ hơn thì dừng; < 2.11 thì cảnh báo). Lỗi xin chứng chỉ IP với Let's Encrypt (caddyserver/caddy#7399, thông báo "cannot have public IP certificate") đã được đóng/sửa sau 2.10.0; **chưa xác định chính xác bản chứa bản sửa** ⇒ dùng Caddy mới nhất. **Đã kiểm trên VPS 12/11: Caddy 2.11.9 + Let's Encrypt cấp chứng chỉ IP thành công (mục 11); tự gia hạn chưa kiểm.**
    - **Dự phòng (không mặc định):** `SISCOM_TLS_MODE=internal` (chỉ với IPv4) ⇒ `tls internal`, chứng chỉ do CA nội bộ của Caddy ký; phải cài CA gốc (`/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`) lên **từng** máy/điện thoại, và vì có HSTS nên trình duyệt không cho bỏ qua cảnh báo.
    - **Đổi host sau này** (vd từ IP sang tên miền, hoặc staging → production): không sửa script — chạy lại `SISCOM_HOST=<host mới> bash provision.sh` (ghi lại `caddy.env` + tệp TLS) và `SISCOM_HOST=<host mới> bash create-db.sh <db> env` (CORS/`AUTH_ALLOWED_ORIGINS` = `https://<host mới>`), rồi `systemctl restart siscom-crm-backend`. Cookie gắn với origin cũ ⇒ **mọi người phải đăng nhập lại** trên địa chỉ mới; ghi nhớ đăng nhập (Remember Me) ở origin cũ không dùng được.
 
@@ -51,7 +51,16 @@ Ba role (cấp cluster, dùng chung giữa staging và prod trên cùng VPS): `s
 
 ## 3. Thứ tự chạy và tiêu chí PASS
 
-Mọi lệnh bằng `root` (hoặc `sudo`). Script nằm trong `backend/scripts/linux/`; chép thư mục này lên VPS trước (vd `scp -r` hoặc `git archive`), đặt tạm ở `/root/siscom-scripts/`.
+Mọi lệnh bằng `root` (hoặc `sudo`). Đưa **cả cây `backend/`** của đúng commit đã review lên VPS — **không** chép riêng `backend/scripts/linux/`: `create-db.sh` cần các file SQL trong `backend/docs/` (thiếu thì script dừng, báo rõ) và `deploy.sh --src` cần `backend/package.json`. Trên máy Windows (tắt chuyển CRLF; SSH của VPS ở cổng **26266**):
+
+```bash
+git -c core.autocrlf=false archive --format=tar.gz -o siscom-src.tar.gz <commit> backend
+scp -P 26266 siscom-src.tar.gz root@42.96.15.235:/root/
+# trên VPS:
+mkdir -p /root/siscom-src && tar -xzf /root/siscom-src.tar.gz -C /root/siscom-src && cd /root/siscom-src/backend/scripts/linux
+```
+
+Các lệnh dưới đây chạy trong `/root/siscom-src/backend/scripts/linux` (gọi tắt "thư mục script").
 
 ### G1 — Máy chủ nền (`provision.sh`)
 
@@ -80,7 +89,7 @@ Ghi drop-in `/etc/ssh/sshd_config.d/00-siscom-ssh-key-only.conf` (`PasswordAuthe
 ### G2 — Database staging (`create-db.sh`)
 
 ```bash
-cd /root/siscom-scripts
+cd /root/siscom-src/backend/scripts/linux
 bash create-db.sh siscom_crm_staging create      # 3 role + DB mới + tách role S1 + role auth
 SISCOM_HOST=42.96.15.235 bash create-db.sh siscom_crm_staging env   # ghi backend.env + migrate.env
 ```
@@ -97,14 +106,16 @@ cd frontend\siscom-crm-web
 npm ci
 $env:VITE_CRM_AUTH_ENABLED='true'; $env:VITE_CRM_API_ENABLED='true'; $env:VITE_CRM_API_BASE='/api/v1'
 npm run build            # ra thư mục dist\ ; build bằng PowerShell, không dùng Git Bash (làm hỏng đường dẫn /api/v1)
-scp -r dist root@<IP>:/root/siscom-web-dist
+scp -P 26266 -r dist root@42.96.15.235:/root/siscom-web-dist
 ```
 
-Trên VPS, lần đầu (DB còn rỗng nên có `--migrate`):
+Trên VPS, lần đầu (DB còn rỗng nên có `--migrate`; chưa có tag `v0.1.0` nên dùng `--src` với cây vừa giải nén):
 
 ```bash
-/root/siscom-scripts/deploy.sh --tag v0.1.0 --frontend /root/siscom-web-dist --migrate --dry-run   # xem kế hoạch
-/root/siscom-scripts/deploy.sh --tag v0.1.0 --frontend /root/siscom-web-dist --migrate
+cd /root/siscom-src/backend/scripts/linux
+bash deploy.sh --src /root/siscom-src --frontend /root/siscom-web-dist --migrate --dry-run   # xem kế hoạch
+bash deploy.sh --src /root/siscom-src --frontend /root/siscom-web-dist --migrate
+# (sau khi Owner duyệt tạo tag trên main: bash deploy.sh --tag v0.1.0 ... — cần clone /opt/siscom-crm/repo + deploy key)
 bash /opt/siscom-crm/current/backend/scripts/linux/run-cli.sh seed-lookups        # danh mục D3 (57 mục)
 # 5 mật khẩu bootstrap do Owner tự gõ, KHÔNG ghi file/chat (trong shell root):
 for k in SYSADMIN ADMIN SALE TECHNICIAN ACCOUNTANT; do read -rsp "BOOTSTRAP_PASSWORD_$k: " v; export "BOOTSTRAP_PASSWORD_$k=$v"; echo; done
@@ -112,6 +123,13 @@ export BOOTSTRAP_EMAIL_DOMAIN=<tên-miền-email-công-ty>
 bash /opt/siscom-crm/current/backend/scripts/linux/run-cli.sh bootstrap-auth
 unset BOOTSTRAP_PASSWORD_{SYSADMIN,ADMIN,SALE,TECHNICIAN,ACCOUNTANT} v
 ```
+
+**Lưu ý cho VPS này trước khi chạy G2–G3:**
+- Thứ tự: `create-db.sh … create` → `create-db.sh … env` (cần `SISCOM_HOST=42.96.15.235` ⇒ origin `https://42.96.15.235`) → `deploy.sh --src … --frontend … --migrate` (DB rỗng: tự bỏ qua sao lưu, migrate bằng `siscom_migrator`, rồi `grants` + VERIFY) → `run-cli.sh seed-lookups` → `run-cli.sh bootstrap-auth`.
+- `run-cli.sh` dùng bản đã triển khai (`/opt/siscom-crm/current/…`), không phải thư mục giải nén.
+- **Trước lần deploy THỨ HAI**: DB đã có dữ liệu nên `deploy.sh` **bắt buộc** sao lưu thành công ⇒ phải có `backup-db.sh --init-signing-key` và `/etc/siscom-crm/backup.age-recipients` (khoá công khai age của Owner) trước, nếu không deploy sẽ dừng ở bước sao lưu (đúng thiết kế, không đổi gì).
+- Build backend chạy trên VPS (2,9 GB RAM + swap 2 GB; `NODE_OPTIONS=--max-old-space-size=1536`) và cần mạng ra npm registry. Frontend build trên Windows.
+- `--tag` cần `/opt/siscom-crm/repo` (git clone; kho riêng tư cần deploy key do Owner cấp) và chỉ nhận tag dạng `vX.Y.Z[-hậu-tố]` **thuộc lịch sử `origin/main`**.
 
 Nếu chưa có tag, dùng `--src <thư mục có backend/>` (vd giải nén `git archive <commit đã review> backend`) thay `--tag`. `--tag` cần `/opt/siscom-crm/repo` (git clone; kho riêng tư cần deploy key do Owner cấp) và chỉ nhận tag dạng `vX.Y.Z[-hậu-tố]` **thuộc lịch sử `origin/main`**.
 
@@ -262,7 +280,7 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 
 ## 9. Giới hạn đã biết và việc cần Owner quyết
 
-1. **NOT_VERIFIED trên VPS thật**: `provision.sh` chạy thật (apt/ufw/fail2ban/sshd/Caddy lấy chứng chỉ), `--ssh-key-only`, `deploy.sh` chế độ thật (đổi liên kết `current`, `systemctl restart`, kiểm health, rollback), timer sao lưu chạy bởi systemd, `ProtectSystem=strict`/`LogsDirectory` lúc chạy thật, bộ nhớ 3 GB khi build. Trên Linux (CI Ubuntu 24.04) **đã** kiểm: ShellCheck, test guard, `provision.sh --dry-run`, `npm ci --ignore-scripts` + build + argon2/Prisma, toàn bộ diễn tập PostgreSQL 18 + age + backend production đăng nhập thật, `systemd-analyze verify`, `caddy validate`. Lần chạy đầu trên VPS (staging) chính là phép thử thật; mọi bước có `--dry-run` hoặc đọc-ra-trước.
+1. **Đã kiểm trên VPS thật (12/11)**: `provision.sh` (dry-run rồi chạy thật): đọc cổng SSH 26266, ufw, swap, fail2ban, unattended-upgrades, Node 24, PostgreSQL 18 chỉ localhost, Caddy 2.11.9, chứng chỉ Let's Encrypt cho IP, `curl https://42.96.15.235/` không `-k` (mục 11). **NOT_VERIFIED trên VPS thật**: `--ssh-key-only`; `create-db.sh`; `deploy.sh` chế độ thật (đổi liên kết `current`, `systemctl restart`, kiểm health, rollback, build với 2,9 GB RAM); `run-cli.sh`; `backup-db.sh`/`restore-test.sh` và timer sao lưu dưới systemd; `ProtectSystem=strict`/`LogsDirectory` khi backend chạy thật; **tự gia hạn** chứng chỉ IP (~6 ngày) và gia hạn thủ công. Trên Linux (CI Ubuntu 24.04) đã kiểm: ShellCheck, test guard, `provision.sh --dry-run`, `npm ci --ignore-scripts` + build + argon2/Prisma, diễn tập PostgreSQL 18 + age + backend production đăng nhập thật, `systemd-analyze verify`, `caddy validate`/`adapt`.
 2. **`account-admin` (FV5) khoá cứng vào PostgreSQL thử cổng 55470** (`FV5-DB-GUARD`) nên **không chạy được trên VPS**. Bước V6 (tài khoản thật sau bootstrap: thêm nhân viên, đặt lại mật khẩu, khoá/mở) cần một PR/quyết định riêng; trước đó chỉ có 5 tài khoản bootstrap.
 3. **Staging và prod dùng chung 3 role/mật khẩu** (role cấp cluster, `REASSIGN OWNED` của `ROLE_SPLIT` cũng cấp cluster). Chấp nhận được khi cùng một VPS, một người quản trị; nếu cần tách hẳn cần hậu tố role theo DB (sửa các file SQL S1 — ngoài phạm vi).
 4. **Chưa có chép bản sao lưu ra ngoài VPS** và chưa có healthcheck ngoài: chờ Owner chọn nơi lưu (Q9).
@@ -270,7 +288,7 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 6. **Đổi cổng SSH** không nằm trong script: script chỉ đọc cổng đang dùng. Ubuntu 24.04 có thể nghe SSH qua `ssh.socket`; script gộp cả cổng của `ssh.socket` nếu đang chạy.
 7. Tin cậy khoá kho ngoài: `provision.sh` lấy khoá GPG của NodeSource, PGDG, Caddy qua HTTPS rồi ghi vào kho `signed-by`; Owner có thể đối chiếu vân tay khoá với trang chính thức trước khi chạy thật.
 8. Tag `v0.1.0` chưa tồn tại; `deploy.sh --tag` chỉ dùng được sau khi Owner duyệt tạo tag trên `main`.
-9. **Chứng chỉ cho IP** (phương án phụ): cú pháp `profile shortlived` đã qua `caddy validate` + `caddy adapt` (ảnh `caddy:2.10.2`) trong CI, nhưng **chưa kiểm chứng** Let's Encrypt thực sự cấp chứng chỉ IP qua Caddy, cũng chưa kiểm việc tự gia hạn mỗi ~6 ngày. Chưa có cảnh báo tự động khi chứng chỉ sắp hết hạn (chỉ có `check-tls.sh` chạy tay).
+9. **Chứng chỉ cho IP**: Let's Encrypt **đã cấp** qua Caddy 2.11.9 với profile `shortlived` trên VPS (mục 11). **Chưa kiểm chứng**: Caddy tự gia hạn trước hạn (lần đầu dự kiến khoảng 16–17/11, chứng chỉ hết hạn 18/11/2026 20:31 UTC) — cần chạy `check-tls.sh` sau mốc đó. Chưa có cảnh báo tự động khi chứng chỉ sắp hết hạn (chỉ có `check-tls.sh` chạy tay).
 10. **Cloud-init đặt lại mật khẩu root mỗi lần boot**: chưa chặn (xem mục 2).
 
 ## 10. Thay đổi sau review R1 (PR #232)
@@ -281,3 +299,24 @@ PG_BIN="/usr/lib/postgresql/18/bin" bash backend/scripts/linux/tests/rehearse-pg
 | F2 | `SISCOM_SSH_PORT=2222` ⇒ `ufw allow 2222/tcp` nhưng `sshd` vẫn ở 22 và `ufw --force enable` chặn 22 ⇒ mất SSH | Lần 1 (f304d45): chỉ nhận 22. **Lần 2** (theo VPS thật cổng 26266): đọc cổng từ `sshd -T` (+ `ssh.socket`), mở đúng các cổng đó trước `ufw --force enable`, kiểm `ufw status` sau khi bật (thiếu ⇒ tắt ufw, dừng); không đọc được ⇒ từ chối trước khi đổi gì; fail2ban cùng cổng | `test-guards.sh` mục 5, 8, 8b, 8c, 8d |
 | Host | (yêu cầu mới, không phải lỗi R1) Owner có tên miền `siscom.io.vn`; cũng cần chạy được bằng IP | `SISCOM_HOST` (tên miền mặc định / IPv4 phụ) thay `SISCOM_DOMAIN`; kiểm DNS A = duy nhất IP công khai của máy (hoặc IPv4 = IP của máy) **trước** mọi thay đổi; 3 tệp TLS (`tls-domain`, `tls-ip-shortlived`, `tls-ip-internal`) được `import` vào Caddyfile; kiểm phiên bản Caddy; `check-tls.sh`; `create-db.sh env` đặt origin `https://<host>` | `test-guards.sh` mục 8b; diễn tập backend với tên miền và với IP (đăng xuất Origin lạ ⇒ 403, `https://<host>` ⇒ 200); CI `caddy validate`/`adapt` 3 chế độ, kiểm DNS thật |
 | F3 | `npm ci --ignore-scripts` chưa được kiểm trên Linux; deploy không kiểm argon2 lúc chạy. Kèm lỗi liên quan: `die` trước khi đổi liên kết để lại `releases/<id>` dở dang (trap ERR không bắt `exit`) | Giữ `--ignore-scripts`; `backend_runtime_smoke` trong deploy; trap EXIT dọn bản dở dang; job CI `linux-scripts` | `test-guards.sh` mục 9; CI `linux-scripts` |
+
+## 11. Bằng chứng chạy thật trên VPS (12/11/2026)
+
+Owner duyệt; phiên điều phối chạy `provision.sh` @`c7e74fa` trên VPS 42.96.15.235 (Ubuntu 24.04.5), `SISCOM_HOST=42.96.15.235`, `--dry-run` trước rồi chạy thật. Phiên viết script **không** SSH vào VPS; số liệu dưới đây do phiên điều phối báo lại.
+
+| Mục | Kết quả |
+|---|---|
+| Bước của `provision.sh` | 12/12 đạt, không dịch vụ nào lỗi |
+| Cổng SSH | đọc đúng **26266** từ `sshd -T` |
+| ufw | bật, cho phép 26266/80/443; kiểm từ ngoài: 22, 3000, 3389, 5432 **đóng** |
+| Swap / fail2ban | 2 GB / active |
+| Node / npm | v24.22.3 / 11.19.1 |
+| PostgreSQL | 18.6, `listen_addresses=localhost` |
+| Caddy | 2.11.9 |
+| Chứng chỉ | Let's Encrypt, profile `shortlived`: issuer `C=US, O=Let's Encrypt, CN=YE1`, SAN `IP Address:42.96.15.235`, notBefore 12/11/2026 04:31 UTC, notAfter 18/11/2026 20:31 UTC |
+| `curl https://42.96.15.235/` (không `-k`) | bắt tay TLS đạt, HTTP 404 (chưa deploy web) |
+| Unit backend | `inactive`/`disabled` (đúng: chưa deploy) |
+| cloud-init | tệp `99-siscom-keep-ssh-hostkeys.cfg` đã có sẵn (Owner tạo tay) ⇒ script bỏ qua, đúng thiết kế |
+| Chưa chạy | `--ssh-key-only`, `create-db.sh`, `deploy.sh`, `run-cli.sh`, sao lưu/khôi phục |
+
+Việc cần theo dõi: chạy `check-tls.sh` sau khoảng 16–17/11/2026 để xác nhận Caddy đã tự gia hạn (chứng chỉ hiện tại hết hạn 18/11/2026 20:31 UTC).

@@ -19,6 +19,9 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "$here/lib.sh"
+# Can CA cay backend/ (file SQL S1 o backend/docs): chay tu <ma nguon>/backend/scripts/linux, KHONG chep rieng thu muc script.
+[ -f "$here/../../docs/B1.3_S1_ROLE_SPLIT.sql.txt" ] \
+  || die "Khong thay backend/docs (file SQL S1) canh thu muc script. Chay tu cay ma nguon day du: <thu muc>/backend/scripts/linux/create-db.sh."
 docs="$(cd "$here/../../docs" && pwd)"
 
 db="${1:-}"; cmd="${2:-}"
