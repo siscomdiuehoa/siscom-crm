@@ -446,8 +446,27 @@ if declare -F backup_prune >/dev/null && command -v ssh-keygen >/dev/null 2>&1; 
     SISCOM_BACKUP_PLAINTEXT=$v backup_prune "$bp" siscom_crm_prod 1 >/dev/null 2>&1; rcv=$?
     { [ "$rcv" -eq 3 ] && [ "$(snapP "$bp")" = "$before" ]; } && ok "(e) SISCOM_BACKUP_PLAINTEXT=$v => khong bo qua loi, khong xoa" || bad "(e) $v doi hanh vi (rc=$rcv)"
   done
-  check_not "(e) backup-db.sh/lib.sh khong con xu ly keep/purge" grep -Eq 'keep\)|purge\)' "$lin/backup-db.sh" "$lin/lib.sh"
-  check "(e) backup-db.sh canh bao khi SISCOM_BACKUP_PLAINTEXT duoc dat" grep -q 'SISCOM_BACKUP_PLAINTEXT' "$lin/backup-db.sh"
+  # Khong con DUONG THUC THI keep/purge: kiem tinh (khong con bien/nhanh trong ma) + hanh vi (dat bien => khong doi, da kiem o tren)
+  check_not "(e) backup-db.sh/lib.sh khong con SISCOM_BACKUP_PLAINTEXT" grep -q 'SISCOM_BACKUP_PLAINTEXT' "$lin/backup-db.sh" "$lin/lib.sh"
+  check_not "(e) backup-db.sh/lib.sh khong con nhanh keep/purge" grep -Eiq '(^|[^_a-z])(keep|purge)\)|=(keep|purge)' "$lin/backup-db.sh" "$lin/lib.sh"
+  # Production BAT BUOC ma hoa: NO_ENCRYPT bi tu choi TRUOC khi dump/ket noi DB (pg_dump/psql gia ghi nhat ky loi goi => phai rong)
+  ne="$tmp/ne"; rm -rf "$ne"; mkdir -p "$ne/etc" "$ne/stub"; necalls="$ne/calls"; : > "$necalls"
+  for b in pg_dump pg_restore psql age; do printf '#!/usr/bin/env bash\necho "%s $*" >> "%s"\nexit 0\n' "$b" "$necalls" > "$ne/stub/$b"; chmod +x "$ne/stub/$b"; done
+  ssh-keygen -q -t ed25519 -N '' -f "$ne/etc/backup-signing.key" >/dev/null; cp "$tmp/allowed" "$ne/etc/backup-signing.allowed_signers"
+  nebk() { # nebk <db> [REHEARSAL]: chay backup-db.sh NO_ENCRYPT voi migrate.env tro <db>
+    printf 'MIGRATE_DATABASE_URL=postgresql://siscom_migrator:%048d@127.0.0.1:5432/%s\n' 0 "$1" > "$ne/etc/migrate.env"; chmod 600 "$ne/etc/migrate.env" "$ne/etc/backup-signing.key"
+    : > "$necalls"
+    PATH="$ne/stub:$PATH" SISCOM_REHEARSAL="${2:-}" SISCOM_ETC="$ne/etc" SISCOM_BACKUP_DIR="$ne/bk" SISCOM_BACKUP_NO_ENCRYPT=yes bash "$lin/backup-db.sh" 2>&1
+  }
+  out="$(nebk siscom_crm_prod 1)"; rc=$?
+  { [ "$rc" -ne 0 ] && contains "$out" "siscom_crm_prod" && contains "$out" "NO_ENCRYPT" && [ ! -s "$necalls" ] && [ ! -e "$ne/bk" ]; } \
+    && ok "production + SISCOM_BACKUP_NO_ENCRYPT=yes => tu choi TRUOC dump (khong pg_dump/psql, khong tao thu muc sao luu)" || bad "prod NO_ENCRYPT khong bi tu choi dung cach (rc=$rc, loi goi: $(tr '\n' ';' < "$necalls" | cut -c1-80))"
+  out="$(nebk siscom_crm_prod)"; rc=$?
+  { [ "$rc" -ne 0 ] && [ ! -s "$necalls" ]; } && ok "production + NO_ENCRYPT (khong dien tap) => tu choi" || bad "prod NO_ENCRYPT khong dien tap (rc=$rc)"
+  out="$(nebk siscom_crm_staging)"; rc=$?
+  { [ "$rc" -ne 0 ] && contains "$out" "SISCOM_REHEARSAL" && [ ! -s "$necalls" ]; } && ok "staging that (khong SISCOM_REHEARSAL=1) + NO_ENCRYPT => tu choi (chi DB thu cach ly)" || bad "staging NO_ENCRYPT ngoai dien tap khong bi tu choi (rc=$rc)"
+  out="$(nebk siscom_crm_staging 1)"
+  check_not "dien tap cach ly (SISCOM_REHEARSAL=1) + staging: KHONG bi chan boi kiem NO_ENCRYPT" contains "$out" "NO_ENCRYPT bi tu choi"
   # (d) chieu nguoc NO_ENCRYPT (encrypt=0): .age cu van duoc retention quan; plaintext tich luy, KHONG bi xoa, co canh bao so bo
   rm -rf "$bp"; mkdir -p "$bp"
   for i in $(seq 1 30); do d="$(date -u -d "2026-11-11 -$i day" +%Y%m%d)"; mkb "$bp" "${d}_180000" dump; mkb "$bp" "${d}_190000" dump.age; done

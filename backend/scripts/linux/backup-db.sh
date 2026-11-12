@@ -10,11 +10,12 @@
 # Khoa age: danh sach KHOA CONG KHAI (age1...) o $SISCOM_ETC/backup.age-recipients (moi dong 1 khoa). Khoa RIENG khong bao gio nam tren VPS.
 # Khoa ky: $SISCOM_ETC/backup-signing.key (root 600) + backup-signing.allowed_signers (cong khai). Tao 1 lan: backup-db.sh --init-signing-key
 #   (Owner chep allowed_signers ra ngoai VPS de kiem ban sao ngoai may chu). Thieu khoa ky => TU CHOI sao luu (fail-closed).
-# Khong ma hoa chi khi dat SISCOM_BACKUP_NO_ENCRYPT=yes (tu chiu rui ro; ban .dump ro, 600) - van ky manifest.
+# Khong ma hoa (SISCOM_BACKUP_NO_ENCRYPT=yes) CHI cho DB thu cach ly khi dien tap (SISCOM_REHEARSAL=1); TU CHOI voi siscom_crm_prod va moi DB van hanh,
+#   kiem truoc khi dump (quyet dinh Owner 12/11). Ban .dump ro van duoc ky manifest.
 # Giu ban (SEC-02, dieu kien Owner): retention CHI tinh tren bo .dump.age (14 moi nhat + moi tuan 1 bo, 8 tuan). Bo .dump (plaintext)
 #   KHONG BAO GIO bi script xoa. Che do ma hoa ma con bo .dump: ban .age moi van duoc tao + ky + tu kiem, roi liet ke plaintext va
 #   THOAT != 0 MOI LAN cho toi khi Owner xu ly TAY (phe duyet rieng; co bo .age thay the qua xac thuc + restore-test dat; xoa tay).
-#   Khong co co nao bo qua kiem soat nay (bien cu SISCOM_BACKUP_PLAINTEXT chi bi canh bao va bo qua). deploy.sh coi sao luu != 0 la loi.
+#   Khong co co nao bo qua kiem soat nay va khong co co tu xoa plaintext. deploy.sh coi sao luu != 0 la loi.
 # Khong ghi de, khong xoa gi truoc khi ban moi hop le. Ma thoat khac 0 neu bat ky buoc nao loi. Khong in mat khau/URL.
 set -euo pipefail
 
@@ -39,8 +40,13 @@ if [ "${1:-}" = --init-signing-key ]; then
 fi
 [ $# -eq 0 ] || die "Tham so la: $1 (dung: backup-db.sh | backup-db.sh --init-signing-key)"
 
-# SEC-02: khong co co bo qua/tu xoa plaintext. Bien cu SISCOM_BACKUP_PLAINTEXT (keep/purge o ban truoc) => canh bao, KHONG doi hanh vi.
-[ -z "${SISCOM_BACKUP_PLAINTEXT:-}" ] || warn "SISCOM_BACKUP_PLAINTEXT da bi BO (dieu kien Owner): gia tri '${SISCOM_BACKUP_PLAINTEXT}' bi bo qua, hanh vi khong doi."
+# SEC-02 (quyet dinh Owner 12/11): production BAT BUOC ma hoa. SISCOM_BACKUP_NO_ENCRYPT=yes chi duoc dung cho DB thu CACH LY
+# (dien tap SISCOM_REHEARSAL=1, khong bao gio siscom_crm_prod). Kiem NGAY TU DAU - truoc moi ket noi DB / dump / tao thu muc.
+if [ "${SISCOM_BACKUP_NO_ENCRYPT:-}" = yes ]; then
+  ne_db="$(url_dbname "$(env_get "$SISCOM_ETC/migrate.env" MIGRATE_DATABASE_URL 2>/dev/null || true)")"
+  [ "$ne_db" != siscom_crm_prod ] || die "TU CHOI: SISCOM_BACKUP_NO_ENCRYPT=yes voi siscom_crm_prod - production bat buoc ma hoa (age). Khong dump."
+  [ "${SISCOM_REHEARSAL:-}" = 1 ] || die "TU CHOI: SISCOM_BACKUP_NO_ENCRYPT=yes chi cho DB thu CACH LY (dien tap SISCOM_REHEARSAL=1), khong cho DB van hanh ('${ne_db:-?}'). Khong dump."
+fi
 [ "${SISCOM_REHEARSAL:-}" = 1 ] || require_root
 require_cmd pg_dump pg_restore psql sha256sum ssh-keygen
 umask 077
