@@ -5,19 +5,19 @@
 **Vai trò và review:** Claude (Kai) là CTO, kiến trúc sư, lập trình viên và người sửa lỗi; ChatGPT là reviewer độc lập; Owner phê duyệt quyết định quan trọng. Codex là developer hỗ trợ và Gemini là QA độc lập, chỉ chạy khi Owner duyệt từng việc; Codex chỉ chạy khi **chuẩn cách ly** (mục 10.3 tài liệu quy trình) còn đạt — mọi file bí mật phải có quyền **chỉ tài khoản Owner** và không để bí mật ở nơi sandbox Codex đọc được (ví dụ thư mục Temp). Mọi PR theo [docs/QUY_TRINH_PHOI_HOP_AI.md](docs/QUY_TRINH_PHOI_HOP_AI.md): tối đa 3 vòng review, chỉ review diff mới, gom lỗi theo nhóm, không báo lại lỗi đã đóng.
 
 ## 1. Bắt đầu mỗi phiên
-1. Đọc [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md) (trạng thái, quyết định kỹ thuật, ràng buộc), [CONTRIBUTING.md](CONTRIBUTING.md) và [quy trình phối hợp AI](docs/QUY_TRINH_PHOI_HOP_AI.md).
-2. Kiểm tra nhánh hiện tại và `git status`. Không làm việc trên `main`; dùng nhánh riêng và Pull Request. Không tự merge, không push khi chưa được người dùng chấp thuận.
+1. Đọc [`docs/STATUS.md`](docs/STATUS.md) (hiện trạng ngắn; trỏ tới tài liệu chi tiết theo hạng mục), [CONTRIBUTING.md](CONTRIBUTING.md) và [quy trình phối hợp AI](docs/QUY_TRINH_PHOI_HOP_AI.md).
+2. Kiểm tra nhánh hiện tại và `git status`. Không làm việc trên `main`; dùng nhánh riêng và Pull Request. Không tự merge, không push lên `main`. Với việc Owner đã giao: được push nhánh riêng và mở **Draft PR** theo quy trình phối hợp AI; ngoài ra không push khi chưa được chấp thuận.
 3. Chỉ ghi vào báo cáo những gì đã **xác minh** từ kho hoặc từ kết quả chạy thật. Không suy đoán trạng thái nghiệm thu, không tuyên bố PASS khi chưa có kết quả thật.
 
 ## 2. Tuyệt đối không (nếu người dùng chưa duyệt riêng, bằng văn bản)
 - Chạy lệnh **ghi** vào database: migration, seed, reset, restore, `DROP`/`DELETE`/`TRUNCATE`, hoặc bất kỳ script nào tác động database.
 - Dùng `prisma migrate dev`, `prisma migrate reset`, `prisma db push`, `prisma db execute` với dữ liệu thật. Chỉ `prisma migrate deploy` được phép khi đã được duyệt, trên đúng database đã nêu.
-- Chạm database chính `siscom_crm_dev`, hoặc các database đã khóa làm baseline (xem tài liệu PROGRESS). Tên database thử hợp lệ: `siscom_crm_restore_*`, `siscom_crm_test_*`.
+- Chạm database chính `siscom_crm_dev`, hoặc các database đã khóa làm baseline (xem [`docs/PROGRESS_B1.2.3-B2.md`](docs/PROGRESS_B1.2.3-B2.md)). Tên database thử hợp lệ: `siscom_crm_restore_*`, `siscom_crm_test_*`.
 - Sửa, tạo lại, đổi tên, lưu lại hay đổi xuống dòng của **migration đã áp dụng** (kể cả `migration_lock.toml`). Không chạy lại `backend/scripts/assemble-b122-migration.cjs`.
 - Đọc, in, sao chép, commit hay đưa vào log: `.env`, mật khẩu, khóa, JWT secret, chuỗi kết nối, bản sao lưu, dump, dữ liệu khách hàng thật. Không ghi đè `.env`, `package-lock.json`, `node_modules`.
 - Thêm hoặc nâng dependency; đổi `package.json`, `.gitignore`, `.gitattributes` khi chưa có yêu cầu và PR riêng.
 - Đổi ngưỡng nghiệm thu, công thức tìm kiếm/relevance, hợp đồng API đã chốt, hoặc các baseline đã nghiệm thu (P1/P2/B1.2.3…).
-- Chạy benchmark hiệu năng hoặc bộ integration test khi không được yêu cầu rõ. Không chạy lại bài đã đạt nếu không có thay đổi ảnh hưởng.
+- Chạy benchmark hiệu năng khi không được yêu cầu rõ. Chạy integration test trên bất kỳ database nào ngoài **cụm PostgreSQL tạm cô lập** (integration trên cụm tạm là một phần gói review theo quy trình phối hợp AI). Không chạy lại bài đã đạt nếu không có thay đổi ảnh hưởng.
 - `git push --force`, `git reset --hard` trên nhánh dùng chung, xóa nhánh/tag của người khác, `git add -f` các tệp bị ignore (ví dụ `*.sql`) khi chưa có PR xử lý việc đó.
 - Xóa file trùng, dọn mã, đổi kiến trúc khi chưa được duyệt.
 
