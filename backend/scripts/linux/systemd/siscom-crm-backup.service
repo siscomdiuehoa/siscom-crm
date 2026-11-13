@@ -1,0 +1,20 @@
+[Unit]
+Description=SISCOM CRM sao luu PostgreSQL (pg_dump -Fc + age)
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/siscom-crm/current/backend/scripts/linux/backup-db.sh
+TimeoutStartSec=1800
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/backups/siscom-crm
+ReadOnlyPaths=/etc/siscom-crm /opt/siscom-crm
+UMask=0077
