@@ -45,6 +45,7 @@ try {
   function Pull() {
     $p = Start-Process -FilePath $psExe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "{0}" -SourceDir "{1}" -DriveDir "{2}" -WorkDir "{3}"' -f $script, $src, $drive, $work) -NoNewWindow -Wait -PassThru -RedirectStandardOutput (Join-Path $root 'out.txt') -RedirectStandardError (Join-Path $root 'err.txt')
     $script:out = (Get-Content -LiteralPath (Join-Path $root 'out.txt') -Raw) + (Get-Content -LiteralPath (Join-Path $root 'err.txt') -Raw)
+    foreach ($l in ($script:out -split "`r?`n")) { if ($l) { Write-Host "    | $l" } }
     return $p.ExitCode
   }
   $stg = Join-Path $drive 'staging'
