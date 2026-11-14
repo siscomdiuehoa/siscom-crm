@@ -21,9 +21,17 @@ const CONFIG = resolve(process.env.GITLEAKS_CONFIG || join(REPO, '.gitleaks.toml
 const SPEC = { path: 'backend/src/common/auth/http/auth-security.a5.spec.ts', commit: '0b498f4' };
 const SQL = { path: 'backend/docs/B1.3_M1_CONSTRAINT_TESTS.sql.txt', commit: 'b36f33e' };
 
+// FAIL-CLOSED: thieu gitleaks hoac sai phien ban => test THAT BAI ro rang (khong skip xanh, khong sinh 0 ca).
+// CI kiem them tong ket node:test: tests 25 / skipped 0 / todo 0 / fail 0.
+const EXPECTED_VERSION = process.env.GITLEAKS_EXPECTED_VERSION || '8.30.1';
 const probe = spawnSync(BIN, ['version'], { encoding: 'utf8' });
-const scannerOk = probe.status === 0;
-const skip = scannerOk ? false : 'NOT_RUN: khong tim thay gitleaks (dat GITLEAKS_BIN)';
+if (probe.error || probe.status !== 0) {
+  throw new Error(`FAIL-CLOSED: khong chay duoc gitleaks (GITLEAKS_BIN=${BIN}): ${probe.error ? probe.error.message : 'exit ' + probe.status}`);
+}
+const gotVersion = String(probe.stdout).trim().replace(/^v/, '');
+if (gotVersion !== EXPECTED_VERSION) {
+  throw new Error(`FAIL-CLOSED: sai phien ban gitleaks: can ${EXPECTED_VERSION}, nhan "${gotVersion}"`);
+}
 
 // Mau tong hop do nguoi viet test tao ra, ghep luc chay (khong nam nguyen van trong tep nay).
 const synth = (tag) => ['Tong', 'hop', tag, 'Zx7Qm2Lp9Vk4Rw8'].join('-');
@@ -72,14 +80,14 @@ const scan = (config, files, dir) => {
   return found.map((f) => ({ file: f.File, line: f.StartLine, rule: f.RuleID }));
 };
 
-const specOrig = scannerOk ? fixtureLine(SPEC, 'const SECRET_PW = ') : '';
-const sqlOrig = scannerOk ? fixtureLine(SQL, "'auth_bootstrap_done', ") : '';
+const specOrig = fixtureLine(SPEC, 'const SECRET_PW = ');
+const sqlOrig = fixtureLine(SQL, "'auth_bootstrap_done', ");
 const replaceLiteral = (line, from, to) => {
   assert.ok(line.includes(from), 'dong fixture khong chua literal mong doi');
   return line.replace(from, to);
 };
-const specLit = scannerOk ? /'([^']+)'/.exec(specOrig)[1] : '';
-const sqlLit = scannerOk ? /, '([^']+)'\);/.exec(sqlOrig)[1] : '';
+const specLit = /'([^']+)'/.exec(specOrig)[1];
+const sqlLit = /, '([^']+)'\);/.exec(sqlOrig)[1];
 
 // [ten, tep -> noi dung, ket qua mong doi voi cau hinh dang thu]
 const cases = () => {
@@ -103,7 +111,7 @@ const cases = () => {
   return { ...specVariants, ...sqlVariants };
 };
 
-test('fixture goc (2 dong lich su tai tep dung) duoc bo qua; baseline van phat hien', { skip }, () => {
+test('fixture goc (2 dong lich su tai tep dung) duoc bo qua; baseline van phat hien', () => {
   const dir = mkdtempSync(join(tmpdir(), 'q01-'));
   try {
     const base = baselineConfig(dir);
@@ -118,8 +126,8 @@ test('fixture goc (2 dong lich su tai tep dung) duoc bo qua; baseline van phat h
   }
 });
 
-for (const [name, [files0]] of Object.entries(scannerOk ? cases() : {})) for (const [pos, pre] of Object.entries(POSITIONS)) {
-  test(`am tinh van bi phat hien: ${name} [${pos}]`, { skip }, () => {
+for (const [name, [files0]] of Object.entries(cases())) for (const [pos, pre] of Object.entries(POSITIONS)) {
+  test(`am tinh van bi phat hien: ${name} [${pos}]`, () => {
     const files = at(files0, pre);
     const dir = mkdtempSync(join(tmpdir(), 'q01-'));
     try {
