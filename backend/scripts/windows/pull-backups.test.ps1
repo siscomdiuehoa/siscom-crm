@@ -39,7 +39,7 @@ try {
     $m = Join-Path $src "$stem.manifest"
     $dbm = $(if ($dbInManifest) { $dbInManifest } else { $db })
     [IO.File]::WriteAllText($m, ("db={0}`nrows|customer|3`nencrypted={1}`nfile={2}{3}`nfile_sha256={4}`n" -f $dbm, $(if ($Plain) { 0 } else { 1 }), $stem, $ext, $h))
-    if (-not $NoSig) { $null = Run $keygen ('-Y sign -f "{0}" -n siscom-crm-backup "{1}"' -f $signKey, $m) }
+    if (-not $NoSig) { if ((Run $keygen ('-Y sign -f "{0}" -n siscom-crm-backup "{1}"' -f $signKey, $m)) -ne 0) { throw "ky $m that bai" } }
     return $stem
   }
   function Pull() {

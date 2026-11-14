@@ -42,14 +42,29 @@ function Find-Tool([string]$name) {
   return $null
 }
 # Chay lenh ngoai voi chuoi tham so (giu dung tham so rong/co dau cach tren ca Windows PowerShell 5.1 va pwsh 7).
+# stdin phai DUNG TUNG BYTE (manifest duoc ky). Windows PowerShell 5.1 (.NET Framework): StreamWriter cua Process.StandardInput ghi BOM ngay
+# khi tao => dung Start-Process -RedirectStandardInput (chuyen handle tep goc). pwsh 7 (.NET Core, ca Linux): StandardInput bo preamble =>
+# ghi byte truc tiep vao BaseStream.
 function Invoke-Native([string]$exe, [string]$argString, [string]$stdinFile = '') {
-  $o = [System.IO.Path]::GetTempFileName(); $e = [System.IO.Path]::GetTempFileName()
+  if ($PSVersionTable.PSEdition -ne 'Core') {
+    $o = [System.IO.Path]::GetTempFileName(); $e = [System.IO.Path]::GetTempFileName()
+    try {
+      $sp = @{ FilePath = $exe; ArgumentList = $argString; NoNewWindow = $true; Wait = $true; PassThru = $true; RedirectStandardOutput = $o; RedirectStandardError = $e }
+      if ($stdinFile) { $sp.RedirectStandardInput = $stdinFile }
+      $p = Start-Process @sp
+      return [pscustomobject]@{ Code = $p.ExitCode; Out = (Get-Content -LiteralPath $o -Raw); Err = (Get-Content -LiteralPath $e -Raw) }
+    } finally { Remove-Item -LiteralPath $o, $e -Force -ErrorAction SilentlyContinue }
+  }
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $exe; $psi.Arguments = $argString; $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.RedirectStandardInput = $true
+  $p = [System.Diagnostics.Process]::Start($psi)
+  $to = $p.StandardOutput.ReadToEndAsync(); $te = $p.StandardError.ReadToEndAsync()
   try {
-    $sp = @{ FilePath = $exe; ArgumentList = $argString; NoNewWindow = $true; Wait = $true; PassThru = $true; RedirectStandardOutput = $o; RedirectStandardError = $e }
-    if ($stdinFile) { $sp.RedirectStandardInput = $stdinFile }
-    $p = Start-Process @sp
-    return [pscustomobject]@{ Code = $p.ExitCode; Out = (Get-Content -LiteralPath $o -Raw); Err = (Get-Content -LiteralPath $e -Raw) }
-  } finally { Remove-Item -LiteralPath $o, $e -Force -ErrorAction SilentlyContinue }
+    if ($stdinFile) { $b = [System.IO.File]::ReadAllBytes($stdinFile); $p.StandardInput.BaseStream.Write($b, 0, $b.Length); $p.StandardInput.BaseStream.Flush() }
+  } catch { } finally { $p.StandardInput.BaseStream.Close() }   # KHONG dung StandardInput.Close(): StreamWriter co the ghi them BOM
+  $p.WaitForExit()
+  return [pscustomobject]@{ Code = $p.ExitCode; Out = $to.Result; Err = $te.Result }
 }
 function Q([string]$s) { return '"' + $s + '"' }
 
@@ -119,7 +134,7 @@ try {
     $man = Join-Path $dir "$stem.manifest"; $sig = "$man.sig"; $agef = Join-Path $dir "$stem.dump.age"
     $why = $null
     $v = Invoke-Native $keygen ('-Y verify -f {0} -I {1} -n {1} -s {2}' -f (Q $signers), $ns, (Q $sig)) $man
-    if ($v.Code -ne 0) { $why = 'chu ky manifest KHONG hop le' }
+    if ($v.Code -ne 0) { $why = 'chu ky manifest KHONG hop le: ' + ((($v.Err + ' ' + $v.Out) -replace '\s+', ' ').Trim()) }
     else {
       $ml = @(Get-Content -LiteralPath $man)
       $get = { param($k) $x = @($ml | Where-Object { $_ -like "$k=*" }); if ($x.Count -ne 1) { return $null }; return $x[0].Substring($k.Length + 1) }
