@@ -3,14 +3,14 @@
 | Mục | Giá trị |
 |---|---|
 | Trạng thái | **Tài liệu. Chưa có mã, chưa đụng database hay VPS.** Chờ ChatGPT review độc lập và Owner duyệt trước khi viết mã |
-| Nguồn quyết định | 8 câu trả lời của Owner (13/11/2026 16:50) + 16 điểm chốt (13/11/2026 17:03, Issue #233) |
+| Nguồn quyết định | 8 câu trả lời của Owner (13/11/2026 16:50) + 16 điểm chốt (13/11/2026 17:03, Issue #233) + điều chỉnh 14/11/2026 về lĩnh vực, loại và "chào dự án" (mục 1.3, lời Owner do phiên khác chuyển lại) |
 | Nền mã | `main` `0a87d23` |
 | Thay thế | bản nháp `SALES_THIET_KE_MO_DAU` và `SALES_DAC_TA_V1` (thư mục bàn giao của Claude, không nằm trong repo) |
 | Quy ước | **[Owner]** = Owner đã quyết. **[Đề xuất]** = Claude đề xuất, chưa được duyệt. **[Mở]** = còn chờ Owner (mục 2) |
 
 ## 0. Tóm tắt cho người không chuyên
 - Luồng: **Khách hàng → Cơ hội → Báo giá → Chốt Thắng/Thua → Bàn giao thực hiện**.
-- Một khách có nhiều cơ hội. Mỗi cơ hội có **loại** (Cung cấp thiết bị / Thi công / Cung cấp và thi công), một hoặc nhiều **lĩnh vực** (HVAC, phòng sạch…), giai đoạn, giá trị dự kiến (VNĐ, chưa VAT, sau chiết khấu), xác suất, ngày dự kiến chốt và **một người phụ trách chính**.
+- Một khách có nhiều cơ hội. SISCOM hiện chỉ bán thiết bị, vật tư HVAC và chào dự án HVAC nên **lĩnh vực mặc định là HVAC**, nhân viên không phải chọn. Mỗi cơ hội có **loại** (Cung cấp thiết bị, vật tư / Thi công / Cung cấp và thi công), **tên dự án/công trình** và **phạm vi SISCOM đang chào** (chào dự án có thể chỉ cung cấp hàng, có thể kèm thi công), giai đoạn, giá trị dự kiến (VNĐ, chưa VAT, sau chiết khấu), xác suất, ngày dự kiến chốt và **một người phụ trách chính**.
 - **Thắng** chỉ khi có hợp đồng hoặc đơn đặt hàng được xác nhận. **Thua** phải ghi lý do. **Tạm hoãn** là trạng thái riêng, có ngày liên hệ lại, không tính là Thua.
 - Mọi thay đổi giai đoạn, người phụ trách, giá trị, xác suất, ngày dự kiến chốt đều lưu lịch sử.
 - Kỹ thuật chỉ thấy cơ hội gắn với việc mình được giao (và không thấy giá trị). Kế toán xem tất cả nhưng không sửa.
@@ -37,7 +37,7 @@
 ### 1.2 Từ 16 điểm chốt (Issue #233) [Owner]
 | Mã | Quyết định | Hệ quả trong đặc tả |
 |---|---|---|
-| C1 | **3 loại**: Cung cấp thiết bị · Thi công · Cung cấp và thi công | Danh mục `opportunity_type` có 3 mục. Xem [Mở O2] |
+| C1 | **3 loại**: Cung cấp thiết bị, vật tư · Thi công · Cung cấp và thi công | Danh mục `opportunity_type` có 3 mục. Owner giữ nguyên 3 loại, chưa mở rộng thành 6 (mục 1.3) |
 | C2 | Bỏ lý do "Khách hoãn hoặc huỷ dự án"; giữ "Khách hủy dự án/nhu cầu" | Danh mục lý do thua: mục 4.3 |
 | C3 | Tạm hoãn là **trạng thái** riêng (Đang mở / Tạm hoãn / Thắng / Thua); giữ nguyên giai đoạn | Cột `status`; mục 6 quy tắc 4 |
 | C4 | Người phụ trách khách thấy mọi cơ hội của khách mình, chỉ đọc với cơ hội không phụ trách | Mục 5.1 |
@@ -45,7 +45,7 @@
 | C6 | **Quản trị CRM, và người phụ trách cơ hội được chuyển cho người cùng phòng** | Mục 5.2, 6 |
 | C7 | Kỹ thuật không xem giá trị cơ hội | Mục 5.1 |
 | C8 | Chốt Thắng bắt buộc nhập loại chứng từ, số, ngày, giá trị chốt, đường dẫn Google Drive; hệ thống không tự xác minh | Mục 4.1, 6 |
-| C9 | Một cơ hội chọn được nhiều lĩnh vực | Bảng `opportunity_domain`. Danh sách: [Mở O1] |
+| C9 | Một cơ hội chọn được nhiều lĩnh vực | **Được điều chỉnh bởi mục 1.3**: đợt đầu chỉ HVAC, mặc định, không bắt chọn; chưa tạo bảng lĩnh vực |
 | C10 | Lưu đường dẫn Google Drive + tên tệp, không tải tệp lên CRM | Mục 4.1 |
 | C11 | Báo giá đợt 1 là gói riêng ngay sau Sales | Mục 3, 9 |
 | C12 | Khi Thắng tự tạo công việc "Bàn giao thực hiện", người phụ trách chọn người nhận | Mục 6 quy tắc 5 |
@@ -54,15 +54,22 @@
 | C15 | Một ô "Nhu cầu của khách" bắt buộc trước khi rời Tiếp cận | Cột `need_summary` |
 | C16 | Chỉ Quản trị CRM mở lại cơ hội đã Thắng/Thua, bắt buộc lý do | Mục 5.2, 6 |
 
-## 2. Việc còn mở (không chặn S1–S3; chặn S4 trở đi ở mục tương ứng)
+### 1.3 Điều chỉnh của Owner (14/11/2026, nguồn: lời Owner được phiên Claude khác chuyển lại; **chưa xác nhận trực tiếp ở phiên viết đặc tả này**) [Owner]
+| Mã | Quyết định | Hệ quả trong đặc tả |
+|---|---|---|
+| O1 (đã đóng) | SISCOM hiện chỉ bán thiết bị, vật tư HVAC và chào dự án HVAC. **Không** đưa Điện, Cấp thoát nước, PCCC, Phòng sạch vào danh mục riêng. Đợt đầu **mặc định lĩnh vực là HVAC, không bắt nhân viên chọn** | Đợt này **không tạo bảng/danh mục lĩnh vực**, không có ô chọn lĩnh vực. Mọi cơ hội hiểu là HVAC. Khi SISCOM có lĩnh vực thứ hai sẽ thêm bảng mới theo cách cộng thêm và gán HVAC cho dữ liệu cũ (không cần sửa dữ liệu từng dòng). Dashboard chưa có bộ lọc lĩnh vực |
+| O2 (đã đóng) | Giữ **3 loại**: Cung cấp thiết bị, vật tư · Thi công · Cung cấp và thi công. Chưa mở rộng thành 6 loại | Bảo trì, sửa chữa/cải tạo, tư vấn/thiết kế chưa có loại riêng; loại là danh mục nên thêm sau không cần sửa mã |
+| C17 (mới) | **"Chào dự án"** là cơ hội gắn với một dự án/công trình; có thể chỉ cung cấp hàng hoặc kèm thi công. **Không mặc định** cứ chào dự án là thi công. Phải ghi **tên dự án/công trình** và **phạm vi SISCOM đang chào** | Cột `project_name` và `offer_scope` (mục 4.1). **Loại cơ hội do nhân viên chọn theo phạm vi chào, không suy ra từ việc có tên dự án** |
+
+## 2. Việc còn mở
 | Mã | Vấn đề | Chặn |
 |---|---|---|
-| **O1** | **Danh sách lĩnh vực/hệ thống**: Owner chọn "nhiều lĩnh vực mỗi cơ hội" (C9) nhưng chưa cho danh sách. Mới có ví dụ HVAC, phòng sạch. Claude không tự đặt | Nạp danh mục (S4). Trong lúc chờ: danh mục để trống, thêm/sửa bằng lệnh seed |
-| **O2** | **3 loại cơ hội** (C1) không có loại cho **bảo trì, sửa chữa/cải tạo, tư vấn/thiết kế** mà Owner đã liệt kê ở câu 6. Cần Owner xác nhận: các việc này nằm trong "Thi công", hay sẽ không quản lý ở Sales, hay thêm loại sau | Không chặn: loại là danh mục, thêm sau không cần sửa mã |
 | **O3** | Điều kiện "cùng phòng" khi chuyển người phụ trách (C6): em đề xuất người nhận phải **ACTIVE**, **cùng phòng với người phụ trách hiện tại** và **có quyền sửa cơ hội**. Chờ Owner/ChatGPT xác nhận | S5 (quyền) |
+| **O4** | **Tên dự án và phạm vi chào có bắt buộc không?** Em đề xuất: **bắt buộc** `project_name` và `offer_scope` khi loại là "Thi công" hoặc "Cung cấp và thi công"; **tuỳ chọn** khi loại là "Cung cấp thiết bị, vật tư" (khách mua lẻ có thể không gắn dự án), nhưng nên ghi khi bán cho một dự án. Chờ Owner xác nhận | S2 (CHECK ở DB), S7 (kiểm khi tạo) |
+| **O5** | Loại "Cung cấp thiết bị, vật tư" (không dự án) và việc bán lẻ: Owner xác nhận có cần quản lý như cơ hội trong Sales không, hay chỉ các thương vụ có hồ sơ chào | Không chặn |
 
 ## 3. Phạm vi
-**Làm trong đợt Sales:** cơ hội (tạo, sửa, giai đoạn, Tạm hoãn, Thắng, Thua, mở lại, chuyển người phụ trách), lịch sử thay đổi, loại + lĩnh vực, danh sách bảng + kanban, thẻ/tab cơ hội trong chi tiết khách, gắn công việc/hoạt động vào cơ hội, quyền theo người phụ trách và theo việc được giao (kiểm ở API + giao diện), điện thoại.
+**Làm trong đợt Sales:** cơ hội (tạo, sửa, giai đoạn, Tạm hoãn, Thắng, Thua, mở lại, chuyển người phụ trách), lịch sử thay đổi, loại + tên dự án/công trình + phạm vi chào (lĩnh vực mặc định HVAC, chưa có ô chọn), danh sách bảng + kanban, thẻ/tab cơ hội trong chi tiết khách, gắn công việc/hoạt động vào cơ hội, quyền theo người phụ trách và theo việc được giao (kiểm ở API + giao diện), điện thoại.
 **Gói Báo giá đợt 1 (ngay sau Sales, thiết kế riêng):** sổ báo giá theo cơ hội, phiên bản, trạng thái (Nháp / Đã gửi / Được chấp nhận / Bị từ chối / Hết hiệu lực), đường dẫn Drive, tạo bản mới từ bản cũ, không sửa bản đã gửi; giá trị cơ hội theo báo giá đang theo đuổi.
 **Để sau:** lập báo giá từ danh mục thiết bị/vật tư, chiết khấu, VAT, duyệt giá, xuất PDF; giá vốn và lợi nhuận; Dashboard; xuất dữ liệu cơ hội; Hợp đồng; Dự án; Kho; kho tệp trong CRM; email/thông báo đẩy.
 
@@ -73,7 +80,10 @@ opportunity
   id, code CH-0001 (hàm fn_next_opportunity_code, cùng cách với khách hàng)
   customer_id → customer (bắt buộc)      contact_id → contact (tuỳ chọn, cùng khách)
   title (≤200, bắt buộc)                 need_summary text (bắt buộc trước khi rời Tiếp cận)
-  type_id → lookup_item 'opportunity_type' (bắt buộc)
+  type_id → lookup_item 'opportunity_type' (bắt buộc; do nhân viên chọn theo phạm vi chào, không suy ra từ tên dự án)
+  project_name varchar(200) NULL         (tên dự án/công trình đang chào) [C17]
+  offer_scope text NULL                  (phạm vi SISCOM đang chào: cung cấp gì, có thi công không) [C17]
+                                         (cả hai bắt buộc khi loại là Thi công / Cung cấp và thi công; tuỳ chọn khi chỉ cung cấp thiết bị, vật tư — [Mở O4])
   stage_id → lookup_item 'opportunity_stage'
   status: OPEN | ON_HOLD | WON | LOST
   expected_amount_vnd bigint NULL (≥0; NULL = chưa biết)
@@ -86,7 +96,7 @@ opportunity
   closed_at timestamptz NULL
   is_demo, version (khoá lạc quan), created_at/by, updated_at/by, deleted_at/by, delete_reason
 
-opportunity_domain      (nhiều–nhiều)         opportunity_id, domain_id → lookup_item 'opportunity_domain'
+(Không có bảng lĩnh vực trong đợt này: SISCOM chỉ làm HVAC, mặc định, không bắt chọn. Mục 1.3.)
 
 opportunity_change      (chỉ thêm; không sửa, không xoá)
   id, opportunity_id, field: STAGE | STATUS | OWNER | AMOUNT | PROBABILITY | CLOSE_DATE | HOLD
@@ -94,14 +104,14 @@ opportunity_change      (chỉ thêm; không sửa, không xoá)
 
 activity   + opportunity_id → opportunity NULL    (hoạt động cũ để NULL; cùng khách với cơ hội)
 ```
-CHECK ở mức DB: nhất quán `status` với trường bắt buộc (ON_HOLD cần `hold_until`; WON cần đủ trường chứng từ và `won_amount_vnd`; LOST cần `lost_reason_id`); `expected_amount_vnd` không âm; khi `stage` từ Báo giá trở lên mà `status = OPEN` thì `expected_amount_vnd IS NOT NULL`; `probability` trong 0..100.
+CHECK ở mức DB: nhất quán `status` với trường bắt buộc (ON_HOLD cần `hold_until`; WON cần đủ trường chứng từ và `won_amount_vnd`; LOST cần `lost_reason_id`); `expected_amount_vnd` không âm; khi loại là Thi công hoặc Cung cấp và thi công thì `project_name` và `offer_scope` không rỗng ([Mở O4]); khi `stage` từ Báo giá trở lên mà `status = OPEN` thì `expected_amount_vnd IS NOT NULL`; `probability` trong 0..100.
 `customer.revenue_vnd` (số ước tính cũ) **không** tự cập nhật từ cơ hội: tránh hai nguồn doanh thu. Đợt này chưa có cột giá vốn, lợi nhuận, chiết khấu. `opportunity_change.reason` ≤ 500 ký tự và được che trong audit chung như các lý do khác.
 Bảng `quote` (gói Báo giá) sẽ trỏ **tới** `opportunity`; `opportunity` không trỏ ngược.
 
 ### 4.2 Danh mục (`lookup_item`, nạp bằng lệnh seed; sửa tên/thứ tự không cần sửa mã; mục đã dùng chỉ **ẩn**, không xoá)
 - `opportunity_stage` (kèm xác suất mặc định): Tiếp cận 10, Khảo sát 25, Báo giá 45, Đàm phán 70; hai trạng thái cuối không nằm ở danh mục giai đoạn mà ở `status`.
-- `opportunity_type`: Cung cấp thiết bị · Thi công · Cung cấp và thi công. [C1]
-- `opportunity_domain`: [Mở O1]
+- `opportunity_type`: Cung cấp thiết bị, vật tư · Thi công · Cung cấp và thi công. [C1]
+- Không có danh mục lĩnh vực trong đợt này (mục 1.3).
 ### 4.3 Lý do thua (`opportunity_lost_reason`) [C2]
 Giá cao hơn đối thủ · Khách chọn đối thủ khác · Khách không phản hồi · Khách hủy dự án/nhu cầu · Khách không đủ ngân sách · Không đáp ứng tiến độ giao hàng/thi công · Không thống nhất điều kiện thanh toán/hợp đồng · SISCOM chủ động không tiếp tục theo đuổi · Khác (kèm ghi chú).
 
@@ -114,7 +124,7 @@ Giá cao hơn đối thủ · Khách chọn đối thủ khác · Khách không 
 | Kỹ thuật | chỉ cơ hội gắn với **công việc đang mở được giao cho mình** (có hiệu lực theo cơ chế quyền theo việc của B3 §5.4) | không sửa cơ hội; cập nhật kết quả qua công việc |
 | Kế toán | tất cả | không |
 | Quản trị hệ thống | không | không |
-- Kỹ thuật thấy: tiêu đề, nhu cầu, loại, lĩnh vực, giai đoạn, ngày dự kiến, đường dẫn bản vẽ/thông số; **không** thấy giá trị, lịch sử giá trị, lý do thua. [C7]
+- Kỹ thuật thấy: tiêu đề, nhu cầu, loại, tên dự án/công trình, phạm vi chào, giai đoạn, ngày dự kiến, đường dẫn bản vẽ/thông số; **không** thấy giá trị, lịch sử giá trị, lý do thua. [C7]
 - Người phụ trách cơ hội mà không phụ trách khách: thấy cơ hội đó + thẻ khách tối thiểu + người liên hệ của cơ hội; **không** thấy cơ hội khác của khách, timeline khách, ghi chú khách. [C5]
 - Cùng một hàm kiểm quyền cho danh sách, chi tiết, đếm (badge), tìm kiếm, xuất dữ liệu và báo cáo; không có đường đọc nào bỏ qua.
 ### 5.2 Mã quyền mới [Đề xuất]
@@ -127,10 +137,10 @@ Giá cao hơn đối thủ · Khách chọn đối thủ khác · Khách không 
 | reopen / delete / restore | ALL | — | — | — |
 Phạm vi mới cần thêm vào cơ chế hiện có (hiện chỉ tính theo khách): "theo người phụ trách cơ hội" và "theo việc được giao". Đây là phần rủi ro nhất; làm thành PR riêng có ma trận kiểm thử (mục 10).
 ### 5.3 Cấp quyền trên DB đã bootstrap
-Qua yêu cầu hai người (mẫu `B3_ACTIVITY_PERMISSIONS`, có script gỡ) và grants V5 cho `siscom_app` (INSERT/UPDATE `opportunity`, `opportunity_domain`; `opportunity_change` chỉ INSERT; không DELETE). Diễn tập trên PostgreSQL tạm trong CI trước. Ma trận trong `bootstrap.ts` chỉ áp cho DB mới tinh; unit test giữ hai nguồn khớp nhau như B3.
+Qua yêu cầu hai người (mẫu `B3_ACTIVITY_PERMISSIONS`, có script gỡ) và grants V5 cho `siscom_app` (INSERT/UPDATE `opportunity`; `opportunity_change` chỉ INSERT; không DELETE). Diễn tập trên PostgreSQL tạm trong CI trước. Ma trận trong `bootstrap.ts` chỉ áp cho DB mới tinh; unit test giữ hai nguồn khớp nhau như B3.
 
 ## 6. Quy tắc nghiệp vụ
-1. **Tạo**: bắt buộc khách, tiêu đề, loại; người phụ trách mặc định = người phụ trách khách tại lúc tạo; trạng thái Đang mở, giai đoạn Tiếp cận.
+1. **Tạo**: bắt buộc khách, tiêu đề, loại; bắt buộc thêm tên dự án/công trình và phạm vi chào khi loại là Thi công hoặc Cung cấp và thi công ([Mở O4]); người phụ trách mặc định = người phụ trách khách tại lúc tạo; trạng thái Đang mở, giai đoạn Tiếp cận.
 2. **Đổi giai đoạn** [C14]: tới hoặc lùi tự do giữa Tiếp cận, Khảo sát, Báo giá, Đàm phán; mỗi lần ghi lịch sử. Rời Tiếp cận cần `need_summary`. Từ Báo giá trở lên cần `expected_amount_vnd`. Xác suất về mặc định của giai đoạn mới, trừ khi đã sửa tay (khi đó hỏi giữ hay đặt lại).
 3. **Sửa xác suất tay, giá trị, ngày dự kiến chốt**: ghi lịch sử; xác suất sửa tay bắt buộc lý do.
 4. **Tạm hoãn** [C3][C13]: bắt buộc ngày liên hệ lại + lý do; giữ nguyên giai đoạn; rời kanban, vào danh sách Tạm hoãn; **tự tạo một công việc** (TASK) nhắc người phụ trách vào ngày đó; mở lại về đúng giai đoạn cũ, công việc nhắc còn mở tự đóng.
@@ -144,13 +154,13 @@ Qua yêu cầu hai người (mẫu `B3_ACTIVITY_PERMISSIONS`, có script gỡ) v
 12. **Audit**: mọi tạo, đổi giai đoạn, trạng thái, người phụ trách, giá trị, xác suất, ngày chốt, mở lại, xoá mềm; nội dung ghi chú và lý do được che trong audit chung.
 
 ## 7. API [Đề xuất] (`/api/v1`, cookie + Origin + CSRF như hiện nay, bọc `{ data }`)
-`GET /opportunities` (lọc giai đoạn, trạng thái, người phụ trách, loại, lĩnh vực, khách, hạn chốt, tìm; phân trang) · `GET /opportunities/:id` · `POST /opportunities` · `PATCH /opportunities/:id` (có `version`) · `POST /opportunities/:id/stage` · `POST /opportunities/:id/hold` · `POST /opportunities/:id/win` · `POST /opportunities/:id/lose` · `POST /opportunities/:id/reopen` · `POST /opportunities/:id/assign` · `GET /opportunities/:id/changes` · `GET /customers/:id/opportunities` · xoá mềm/khôi phục như khách. Hoạt động: thêm `opportunityId` tuỳ chọn khi tạo (cùng khách). Phản hồi dùng một bộ ánh xạ riêng theo vai trò để không rò trường bị ẩn (giá trị với Kỹ thuật).
+`GET /opportunities` (lọc giai đoạn, trạng thái, người phụ trách, loại, khách, hạn chốt, tìm theo tiêu đề/tên dự án; phân trang) · `GET /opportunities/:id` · `POST /opportunities` · `PATCH /opportunities/:id` (có `version`) · `POST /opportunities/:id/stage` · `POST /opportunities/:id/hold` · `POST /opportunities/:id/win` · `POST /opportunities/:id/lose` · `POST /opportunities/:id/reopen` · `POST /opportunities/:id/assign` · `GET /opportunities/:id/changes` · `GET /customers/:id/opportunities` · xoá mềm/khôi phục như khách. Hoạt động: thêm `opportunityId` tuỳ chọn khi tạo (cùng khách). Phản hồi dùng một bộ ánh xạ riêng theo vai trò để không rò trường bị ẩn (giá trị với Kỹ thuật).
 
 ## 8. Màn hình
 **8.1 Danh sách (máy tính, kanban)**
 ```
 Cơ hội kinh doanh                         [Bảng | Kanban]   [+ Tạo cơ hội]
-Lọc: [Người phụ trách ▾] [Loại ▾] [Lĩnh vực ▾] [Dự kiến chốt ▾] [Tìm...]   Tạm hoãn (3) · Đã đóng
+Lọc: [Người phụ trách ▾] [Loại ▾] [Dự kiến chốt ▾] [Tìm tiêu đề, tên dự án...]   Tạm hoãn (3) · Đã đóng
 ┌ Tiếp cận · 6 ─────┐┌ Khảo sát · 4 ────┐┌ Báo giá · 5 ─────┐┌ Đàm phán · 2 ────┐
 │ 1,2 tỷ + 2 chưa rõ ││ 3,4 tỷ           ││ 9,8 tỷ           ││ 12,6 tỷ          │
 │ ┌───────────────┐  ││ ┌──────────────┐ ││ ┌──────────────┐ ││ ┌──────────────┐ │
@@ -165,7 +175,8 @@ Kéo thả giữa cột; mỗi thẻ có nút "Chuyển giai đoạn" (bàn phí
 **8.2 Chi tiết cơ hội**
 ```
 ← CH-0007 · Chiller trung tâm dữ liệu GĐ1                [Đang mở]  [Sửa]
-Khách: KH-00478 Công ty …    Loại: Cung cấp và thi công    Lĩnh vực: HVAC, Điện
+Khách: KH-00478 Công ty …    Loại: Cung cấp và thi công
+Dự án/công trình: Trung tâm dữ liệu GĐ1    Phạm vi SISCOM chào: cung cấp chiller + lắp đặt
 ● Tiếp cận ── ● Khảo sát ── ◉ Báo giá ── ○ Đàm phán          [Chuyển giai đoạn ▾]
 Giá trị dự kiến: 7.200.000.000 đ (chưa VAT)  Xác suất: 45%  Dự kiến chốt: 20/12/2026
 Phụ trách: Trần Bình [Chuyển…]                [Tạm hoãn] [Thắng] [Thua]
@@ -182,9 +193,9 @@ Dùng bộ giao diện hiện có; hộp thoại dùng chung `Modal` (Issue #218
 | PR | Nội dung | Đụng DB? |
 |---|---|---|
 | **S1** | **Tài liệu này** + checklist nghiệm thu + rà soát độc lập | không |
-| S2 | Migration cộng thêm (3 bảng + cột `activity.opportunity_id` + hàm mã) + rollback + diễn tập CI | chỉ PostgreSQL tạm của CI |
+| S2 | Migration cộng thêm (2 bảng `opportunity`, `opportunity_change` + cột `activity.opportunity_id` + hàm mã) + rollback + diễn tập CI | chỉ PostgreSQL tạm của CI |
 | S3 | Grants V5 + VERIFY + diễn tập nâng/lùi | chỉ CI |
-| S4 | Danh mục (giai đoạn, loại, lý do thua; lĩnh vực khi có O1) trong lệnh seed | chỉ CI |
+| S4 | Danh mục (giai đoạn, 3 loại, lý do thua) trong lệnh seed | chỉ CI |
 | S5 | Mã quyền `opportunity.*` + phạm vi theo người phụ trách/theo việc + script cấp quyền hai người + script gỡ | chỉ CI |
 | S6 | Backend đọc: danh sách, chi tiết, theo khách; ma trận quyền | không |
 | S7 | Backend ghi: tạo, sửa, đổi giai đoạn, lịch sử | không |
@@ -196,7 +207,7 @@ Dùng bộ giao diện hiện có; hộp thoại dùng chung `Modal` (Issue #218
 Không PR nào đụng DB thật. Phần làm **ngay**: S1–S12. Phần để **sau**: mục 3 "Để sau" và gói Báo giá đợt 1.
 
 ## 10. Tiêu chí nghiệm thu
-1. Tạo cơ hội cho khách có sẵn; một khách có 2 cơ hội cùng mở; dữ liệu khách không đổi (so số khách và người phụ trách trước/sau).
+1. Tạo cơ hội cho khách có sẵn; một khách có 2 cơ hội cùng mở; dữ liệu khách không đổi (so số khách và người phụ trách trước/sau). Loại "Thi công" hoặc "Cung cấp và thi công" thiếu tên dự án hoặc phạm vi chào ⇒ bị chặn ([Mở O4]); một dự án chỉ cung cấp hàng tạo được với loại "Cung cấp thiết bị, vật tư" mà không bị ép thành thi công. Không có ô chọn lĩnh vực trên màn hình.
 2. Đi đủ Tiếp cận → Đàm phán, có bỏ qua Khảo sát và có lùi giai đoạn; mỗi bước có dòng lịch sử đúng người, đúng giờ Việt Nam.
 3. Rời Tiếp cận khi thiếu nhu cầu ⇒ bị chặn. Sang Báo giá khi chưa có giá trị ⇒ bị chặn, báo rõ.
 4. Sửa xác suất không lý do ⇒ bị chặn; có lý do ⇒ có lịch sử.
@@ -220,5 +231,7 @@ Không PR nào đụng DB thật. Phần làm **ngay**: S1–S12. Phần để *
 - **Đường dẫn Google Drive**: CRM không kiểm được ai mở được tệp; người có link có thể xem ngoài quyền CRM. Chứng từ Thắng là khai báo, không được xác minh.
 - **Danh mục đổi sau khi có dữ liệu**: chỉ ẩn, không xoá; gộp giai đoạn cần quy trình riêng.
 - **Hai nguồn doanh thu** (`customer.revenue_vnd` ước tính và cơ hội Thắng): giữ tách biệt đến khi có hợp đồng.
-- **3 loại cơ hội** chưa phủ bảo trì/sửa chữa/tư vấn (O2): dễ bị nhập sai loại nếu không rõ.
+- **3 loại cơ hội** chưa phủ bảo trì, sửa chữa/cải tạo, tư vấn/thiết kế (Owner giữ 3 loại, mục 1.3): các thương vụ đó sẽ phải nhập vào loại gần nhất cho tới khi thêm loại.
+- **Loại không suy ra từ tên dự án** (C17): nhân viên có thể chọn "Thi công" cho một dự án chỉ cung cấp hàng hoặc ngược lại; `offer_scope` là chỗ ghi phạm vi thật, cần xem lại cách trình bày để loại và phạm vi không mâu thuẫn nhau trên màn hình.
+- **Lĩnh vực mặc định HVAC, chưa lưu**: nếu sau này SISCOM thêm lĩnh vực thứ hai, dữ liệu cũ phải được hiểu là HVAC; thêm bảng cộng thêm và gán một lần là đủ, không phải sửa từng cơ hội.
 - Ước lượng thô, không cam kết: S1 sau review 1–2 ngày; S2–S11 khoảng 2 tuần tuỳ số vòng review; S12 1–2 ngày.
