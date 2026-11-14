@@ -208,6 +208,19 @@ backup_dir_ensure() {
   return 0
 }
 
+# backup_grant_pull <base = thu muc/<db>_<ts>>: neu da cai tai khoan chi doc backup-pull (setup-backup-pull.sh) thi cap ACL doc CHI cho
+# 4 tep cua bo MA HOA da hoan tat + tu kiem dat. Khong co ACL mac dinh tren thu muc => tep tam/.partial/.dump/tep khac luon rieng tu.
+# Chua cai backup-pull => khong lam gi (0). Loi setfacl => != 0.
+backup_grant_pull() {
+  local base="$1" p
+  id backup-pull >/dev/null 2>&1 || return 0
+  command -v setfacl >/dev/null 2>&1 || { warn "Thieu setfacl (goi acl): khong cap duoc quyen doc cho backup-pull."; return 1; }
+  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do
+    [ -f "$base$p" ] && [ ! -L "$base$p" ] || { warn "Thieu $base$p - khong cap quyen doc cho backup-pull."; return 1; }
+  done
+  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do setfacl -m u:backup-pull:r "$base$p" || return 1; done
+}
+
 # --- SISCOM_HOST: ten mien (mac dinh, Let's Encrypt 90 ngay) HOAC IPv4 cong khai (phuong an phu: profile shortlived ~6 ngay). ---
 # host_kind <host>: in "domain" | "ipv4"; that bai neu sai dinh dang hoac IPv4 khong cong khai (rieng/loopback/CGNAT/multicast...).
 host_kind() {

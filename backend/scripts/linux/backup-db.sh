@@ -161,6 +161,8 @@ verify_backup_set "$final" "$allowed" "$db" || die "Tu kiem bo sao luu vua tao K
 ( cd "$SISCOM_BACKUP_DIR" && sha256sum "$(basename "$final")" > "$(basename "$final").sha256" )
 done_ok=1
 trap - EXIT
+grc=0
+if [ "$encrypt" = 1 ]; then backup_grant_pull "$base" || grc=$?; fi   # chi bo MA HOA, sau khi tu kiem dat
 info "Da sao luu: $final ($(stat -c '%s' "$final") byte, $items muc, ma hoa=$encrypt); manifest da ky va tu kiem dat."
 info "SHA-256 (file luu): $(cut -d' ' -f1 "$final.sha256")"
 
@@ -168,4 +170,5 @@ info "SHA-256 (file luu): $(cut -d' ' -f1 "$final.sha256")"
 # DA tao + tu kiem, nhung thoat != 0 cho toi khi Owner xu ly tay. ---
 prc=0; backup_prune "$SISCOM_BACKUP_DIR" "$db" "$encrypt" || prc=$?
 [ "$prc" = 0 ] || die "Ban sao luu ma hoa moi DA tao va tu kiem dat ($final), nhung buoc giu ban/plaintext chua xong (ma $prc, chi tiet o tren)."
+[ "$grc" = 0 ] || die "Ban sao luu ma hoa moi DA tao va tu kiem dat ($final), nhung CHUA cap duoc quyen doc cho backup-pull (may Owner se khong keo duoc). Chay lai setup-backup-pull.sh."
 info "Nho chep ra NGOAI may chu (Owner chon noi luu)."

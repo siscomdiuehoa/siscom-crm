@@ -605,25 +605,37 @@ check "mat khau '*' (khong dang nhap bang mat khau)" contains "$out" "usermod -p
 check "home root:root 755" contains "$out" 'install -d -m 755 -o root -g root /var/lib/backup-pull'
 check ".ssh root:backup-pull 750" contains "$out" 'install -d -m 750 -o root -g backup-pull /var/lib/backup-pull/.ssh'
 check "ACL rx thu muc" contains "$out" 'setfacl -m u:backup-pull:rx /var/backups/siscom-crm'
-check "ACL mac dinh r" contains "$out" 'setfacl -d -m u:backup-pull:r /var/backups/siscom-crm'
+check_not "PR235-SEC-01: KHONG dat ACL mac dinh (tep moi luon rieng tu)" contains "$out" 'setfacl -d -m'
+check "PR235-SEC-01: go ACL mac dinh cu neu con" contains "$out" 'setfacl -d -x u:backup-pull /var/backups/siscom-crm'
 check_not "khong chmod/chown thu muc sao luu" bash -c "printf '%s' \"\$1\" | grep -E '(chmod|chown|install ).*/var/backups/siscom-crm'" _ "$out"
 check_not "khong dung sshd/ufw/fail2ban/systemctl" bash -c "printf '%s' \"\$1\" | grep -Ei 'sshd_config|systemctl|ufw|fail2ban'" _ "$out"
 # Cap ACL CHI cho tep ma hoa/kem theo, KHONG cho .dump plaintext
 mkdir -p "$tmp/bp13"; for f in siscom_crm_staging_20261114_020000.dump.age siscom_crm_staging_20261114_020000.dump.age.sha256 \
   siscom_crm_staging_20261114_020000.manifest siscom_crm_staging_20261114_020000.manifest.sig siscom_crm_staging_20261114_030000.dump \
-  siscom_crm_staging_20261114_030000.dump.sha256 la.txt; do : > "$tmp/bp13/$f"; done
+  siscom_crm_staging_20261114_030000.dump.sha256 la.txt siscom_crm_staging_20261114_030000.manifest siscom_crm_staging_20261114_030000.manifest.sig \
+  siscom_crm_staging_20261114_040000.dump.age siscom_crm_staging_20261114_040000.dump.age.sha256 siscom_crm_staging_20261114_040000.manifest \
+  siscom_crm_staging_20261114_050000.dump.age siscom_crm_staging_20261114_050000.dump.age.sha256 siscom_crm_staging_20261114_050000.manifest \
+  siscom_crm_staging_20261114_050000.manifest.sig siscom_crm_staging_20261114_050000.dump; do : > "$tmp/bp13/$f"; done
 out="$(SISCOM_BACKUP_DIR="$tmp/bp13" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run 2>&1)"
 check "cap r cho .dump.age" contains "$out" "setfacl -m u:backup-pull:r $tmp/bp13/siscom_crm_staging_20261114_020000.dump.age"
 check "cap r cho .manifest.sig" contains "$out" "setfacl -m u:backup-pull:r $tmp/bp13/siscom_crm_staging_20261114_020000.manifest.sig"
 check_not "KHONG cap quyen cho .dump plaintext" contains "$out" "siscom_crm_staging_20261114_030000.dump"
 check_not "KHONG cap quyen cho tep la" contains "$out" "la.txt"
-check "dem 4 tep cap, 3 bo qua" contains "$out" "Cap quyen doc 4 tep sao luu dang co; 3 tep khac"
+check "dem 4 tep cap, 13 bo qua" contains "$out" "Cap quyen doc 4 tep (bo ma hoa hoan chinh) dang co; 13 tep khac"
+check_not "PR235-SEC-01: KHONG cap manifest cua bo plaintext" contains "$out" "siscom_crm_staging_20261114_030000.manifest"
+check_not "PR235-SEC-01: KHONG cap bo ma hoa thieu chu ky" contains "$out" "setfacl -m u:backup-pull:r $tmp/bp13/siscom_crm_staging_20261114_040000"
+check_not "PR235-SEC-01: KHONG cap bo trung stem voi .dump" contains "$out" "setfacl -m u:backup-pull:r $tmp/bp13/siscom_crm_staging_20261114_050000"
 out="$(SISCOM_BACKUP_DIR="$tmp/bp13" bash "$sbp" --remove --dry-run 2>&1)"; rc=$?
 check "--remove --dry-run thoat 0" test "$rc" = 0
 check "--remove go ACL thu muc + ACL mac dinh + user" bash -c "printf '%s' \"\$1\" | grep -qF 'setfacl -x u:backup-pull $tmp/bp' && printf '%s' \"\$1\" | grep -qF 'setfacl -d -x u:backup-pull' && printf '%s' \"\$1\" | grep -qF 'userdel backup-pull'" _ "$out"
 # backup-db.sh/provision.sh KHONG chmod lai thu muc sao luu da co (chmod 700 dat ACL mask ve --- => mat quyen doc cua backup-pull)
 check_not "backup-db.sh khong goi private_dir tren thu muc sao luu" grep -q 'private_dir "\$SISCOM_BACKUP_DIR"' "$lin/backup-db.sh"
 check "backup-db.sh dung backup_dir_ensure" grep -q 'backup_dir_ensure "\$SISCOM_BACKUP_DIR"' "$lin/backup-db.sh"
+gl="$(grep -n 'backup_grant_pull "' "$lin/backup-db.sh" | head -n1 | cut -d: -f1)"; dl="$(grep -n '^done_ok=1' "$lin/backup-db.sh" | head -n1 | cut -d: -f1)"
+check "PR235-SEC-01: backup-db.sh cap quyen doc CHI cho bo ma hoa, SAU khi tu kiem (done_ok=1)" test "${gl:-0}" -gt "${dl:-999999}"
+check "PR235-SEC-01: chi goi khi encrypt=1" grep -q 'if \[ "\$encrypt" = 1 \]; then backup_grant_pull' "$lin/backup-db.sh"
+check "PR235-SEC-01: backup-db.sh thoat != 0 neu cap quyen that bai" grep -q '\[ "\$grc" = 0 \] || die' "$lin/backup-db.sh"
+check "PR235-SEC-01: backup_grant_pull khong lam gi khi chua cai backup-pull" bash -c "id backup-pull >/dev/null 2>&1 || { . '$lin/lib.sh'; backup_grant_pull '$tmp/khong-co'; }"
 mkdir -p "$tmp/b13"
 out="$(PATH="$stub:$PATH" STUB_SSHD_PORTS=22 SISCOM_ETC="$tmp/e13" SISCOM_OPT="$tmp/o13" SISCOM_BACKUP_DIR="$tmp/b13" SISCOM_HOST=crm-staging.siscom.io.vn bash "$lin/provision.sh" --dry-run 2>&1)"
 check "provision.sh: thu muc sao luu da co => giu nguyen quyen/ACL" contains "$out" "$tmp/b13 da co: giu nguyen quyen/ACL"

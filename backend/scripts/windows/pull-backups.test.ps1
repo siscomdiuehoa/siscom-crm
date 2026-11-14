@@ -85,12 +85,75 @@ try {
   Check (@(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.dump' | Where-Object { $_.DirectoryName -ne $src }).Count -eq 0) 'KHONG tai tep .dump (khong ma hoa) o bat ky dau'
   Check (-not (Test-Path -LiteralPath (Join-Path $stg "$t7.dump.age"))) 'bo cua DB khac bi bo qua'
 
-  Write-Host '== 4. Bo moi nhat qua cu (> 26 gio) => thoat 1, bao timer co the khong chay =='
-  Remove-Item -LiteralPath $src -Recurse -Force; New-Item -ItemType Directory -Force -Path $src | Out-Null
+  # Moi truong moi (nguon/Drive/work rong) cho cac ca sau.
+  $signersText = Get-Content -LiteralPath (Join-Path $drive 'backup-signing.allowed_signers') -Raw
+  function Reset-Env([string]$tag) {
+    $script:src = Join-Path $root "vps-$tag"; $script:drive = Join-Path $root "Drive $tag"; $script:work = Join-Path $root "work-$tag"
+    New-Item -ItemType Directory -Force -Path $script:src, $script:drive, $script:work | Out-Null
+    [IO.File]::WriteAllText((Join-Path $script:drive 'backup-signing.allowed_signers'), $signersText)
+    $script:stg = Join-Path $script:drive 'staging'
+  }
+  function Set-Ok([string]$s) { foreach ($p in @('.dump.age', '.dump.age.sha256', '.manifest', '.manifest.sig')) { if (-not (Test-Path -LiteralPath (Join-Path $stg ($s + $p)))) { return $false }; if ((Sha (Join-Path $stg ($s + $p))) -ne (Sha (Join-Path $src ($s + $p)))) { return $false } }; return $true }
+
+  Write-Host '== 4. Bo HOP LE moi nhat tren Drive qua cu (> 26 gio) => thoat 1 =='
+  Reset-Env 'r4'
   $null = New-Set 'siscom_crm_staging' $now.AddHours(-40)
   $rc = Pull
   Check ($rc -eq 1) "qua cu => thoat 1 (rc=$rc)"
   Check ($out -match 'KHONG chay') 'log bao timer co the khong chay'
+
+  Write-Host '== 4b. BIZ-02: bo hop le 40 gio + bo DO DANG moi 1 gio (chi manifest+sig) => van thoat 1 =='
+  $inc = New-Set 'siscom_crm_staging' $now.AddHours(-1)
+  Remove-Item -LiteralPath (Join-Path $src "$inc.dump.age"), (Join-Path $src "$inc.dump.age.sha256")
+  $rc = Pull
+  Check ($rc -eq 1) "bo moi chua du tep khong chung minh duoc do moi => thoat 1 (rc=$rc)"
+  Check ($out -match 'HOP LE moi nhat tren Drive') 'log noi ro bo hop le moi nhat tren Drive qua cu'
+  $fresh = New-Set 'siscom_crm_staging' $now.AddMinutes(-20)
+  $rc = Pull
+  Check ($rc -eq 0) "them bo hop le moi trong nguong => thoat 0 (rc=$rc)"
+  Check (Set-Ok $fresh) 'bo moi du 4 tep tren Drive'
+
+  Write-Host '== 4c. BIZ-02: bo moi nhat tren Drive bi hong => khong tinh, thoat 1 =='
+  [IO.File]::AppendAllText((Join-Path $stg "$fresh.dump.age"), 'X')
+  $rc = Pull
+  Check ($rc -eq 1) "bo tren Drive bi sua => thoat 1 (rc=$rc)"
+  Check ($out -match "Bo $fresh tren Drive KHONG dat") 'log chi ro bo hong tren Drive'
+
+  Write-Host '== 4d. BIZ-01: ngat sau khi chep 1, 2, 3 tep => lan sau hoan thien, thoat 0 =='
+  $order = @('.dump.age', '.dump.age.sha256', '.manifest', '.manifest.sig')
+  foreach ($k in 1..3) {
+    Reset-Env "r4d$k"
+    $s = New-Set 'siscom_crm_staging' $now.AddMinutes(-10)
+    New-Item -ItemType Directory -Force -Path $stg | Out-Null
+    foreach ($p in $order[0..($k - 1)]) { Copy-Item -LiteralPath (Join-Path $src ($s + $p)) -Destination $stg }
+    [IO.File]::WriteAllText((Join-Path $stg "$s.manifest.sig.tmp-999"), 'cut')   # tep tam con sot cua lan bi ngat
+    $rc = Pull
+    Check ($rc -eq 0) "ngat sau $k tep: chay lai thoat 0 (rc=$rc)"
+    Check (Set-Ok $s) "ngat sau $k tep: Drive du 4 tep trung nguon"
+    Check ($out -match 'do dang tren Drive') "ngat sau $k tep: log bao hoan thien bo do dang"
+  }
+
+  Write-Host '== 4e. BIZ-01: bo do dang tren Drive co tep KHAC ban xac minh => thoat 1, KHONG ghi de =='
+  Reset-Env 'r4e'
+  $s = New-Set 'siscom_crm_staging' $now.AddMinutes(-10)
+  New-Item -ItemType Directory -Force -Path $stg | Out-Null
+  [IO.File]::WriteAllText((Join-Path $stg "$s.manifest"), "db=siscom_crm_staging`nkhac`n")
+  $rc = Pull
+  Check ($rc -eq 1) "tep khac tren Drive => thoat 1 (rc=$rc)"
+  Check ((Get-Content -LiteralPath (Join-Path $stg "$s.manifest") -Raw) -match 'khac') 'tep tren Drive KHONG bi ghi de'
+  Check (-not (Test-Path -LiteralPath (Join-Path $stg "$s.dump.age"))) 'khong chep them phan nao cua bo do'
+
+  Write-Host '== 4f. BIZ-01: bo do dang tren Drive nhung nguon da het tep (retention) => thoat 1 =='
+  Reset-Env 'r4f'
+  $s = New-Set 'siscom_crm_staging' $now.AddMinutes(-10)
+  $s2 = New-Set 'siscom_crm_staging' $now.AddMinutes(-5)
+  New-Item -ItemType Directory -Force -Path $stg | Out-Null
+  Copy-Item -LiteralPath (Join-Path $src "$s.dump.age") -Destination $stg
+  Remove-Item -LiteralPath (Join-Path $src "$s.manifest.sig")
+  $rc = Pull
+  Check ($rc -eq 1) "bo do khong hoan thien duoc => thoat 1 (rc=$rc)"
+  Check ($out -match 'DO DANG tren Drive') 'log bao bo do dang'
+  Check (Set-Ok $s2) 'bo hop le khac van vao Drive'
 
   Write-Host '== 5. Thieu allowed_signers / thu muc Drive => thoat 1, khong tai gi =='
   Remove-Item -LiteralPath (Join-Path $drive 'backup-signing.allowed_signers') -Force

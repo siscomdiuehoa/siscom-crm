@@ -11,8 +11,9 @@
 #   - /var/lib/backup-pull/.ssh (root:backup-pull 750) + authorized_keys (root:backup-pull 640) DUNG 1 khoa:
 #       restrict,command="/usr/lib/openssh/sftp-server -R -d <thu muc sao luu>" ssh-ed25519 ...
 #     => chi chay duoc sftp-server CHE DO CHI DOC (-R): khong ghi/xoa/doi ten, khong shell, khong chuyen tiep cong, khong pty.
-#   - ACL: u:backup-pull:rx tren thu muc sao luu + ACL MAC DINH u:backup-pull:r (tep moi cua timer tu doc duoc) + r tren cac tep
-#     MA HOA/kem theo dang co (.dump.age, .dump.age.sha256, .manifest, .manifest.sig). Tep .dump (khong ma hoa) KHONG duoc cap quyen.
+#   - ACL: u:backup-pull:rx tren thu muc sao luu (liet ke) + r tren 4 tep cua cac bo MA HOA dang co (.dump.age, .dump.age.sha256,
+#     .manifest, .manifest.sig). KHONG co ACL mac dinh (PR235-R1-SEC-01): tep moi (tam, .partial, .dump, tep khac) luon rieng tu;
+#     bo moi do backup-db.sh cap quyen doc (backup_grant_pull) CHI SAU KHI bo ma hoa hoan tat + tu kiem dat.
 #     Quyen/chu so huu cua thu muc (root 700) KHONG doi.
 # KHONG sua sshd_config, KHONG nap lai sshd, KHONG doi ufw/fail2ban (authorized_keys duoc doc moi lan dang nhap).
 # Gioi han da biet: sftp-server -R khong chroot => van doc duoc cac tep ma moi nguoi deu doc duoc (vd /etc/passwd); KHONG doc duoc
@@ -50,8 +51,6 @@ if [ "$DRY" = 0 ]; then
   require_cmd setfacl getfacl useradd usermod userdel runuser
 fi
 
-# Ten tep duoc cap quyen doc: DUNG mau bo sao luu MA HOA (khong bao gio .dump plaintext).
-is_pull_file() { [[ "$1" =~ ^siscom_crm_(staging|prod)_[0-9]{8}_[0-9]{6}\.(dump\.age|dump\.age\.sha256|manifest|manifest\.sig)$ ]]; }
 
 if [ "$MODE" = remove ]; then
   info "Go tai khoan $PULL_USER va ACL tren $DIR"
@@ -110,12 +109,19 @@ else
 fi
 
 run setfacl -m "u:$PULL_USER:rx" "$DIR"
-run setfacl -d -m "u:$PULL_USER:r" "$DIR"
-n=0; skipped=0
+run setfacl -d -x "u:$PULL_USER" "$DIR" 2>/dev/null || true   # go ACL mac dinh neu con tu ban cu (khong cap cho tep moi)
+# Chi bo MA HOA HOAN CHINH: du 4 tep (khong symlink) va KHONG trung stem voi bo .dump plaintext (chung manifest) => cap r cho dung 4 tep.
+n=0; total=0
 while IFS= read -r f; do
-  if is_pull_file "$f"; then run setfacl -m "u:$PULL_USER:r" "$DIR/$f"; n=$((n + 1)); else skipped=$((skipped + 1)); fi
+  total=$((total + 1))
+  [[ "$f" =~ ^(siscom_crm_(staging|prod)_[0-9]{8}_[0-9]{6})\.dump\.age$ ]] || continue
+  st="${BASH_REMATCH[1]}"; full=1
+  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do [ -f "$DIR/$st$p" ] && [ ! -L "$DIR/$st$p" ] || full=0; done
+  [ -e "$DIR/$st.dump" ] && full=0
+  if [ "$full" = 0 ]; then warn "Bo $st chua hoan chinh hoac trung stem voi .dump - KHONG cap quyen."; continue; fi
+  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do run setfacl -m "u:$PULL_USER:r" "$DIR/$st$p"; n=$((n + 1)); done
 done < <(find "$DIR" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort)
-info "Cap quyen doc $n tep sao luu dang co; $skipped tep khac (vd .dump khong ma hoa) KHONG cap."
+info "Cap quyen doc $n tep (bo ma hoa hoan chinh) dang co; $((total - n)) tep khac (vd .dump khong ma hoa, tep tam) KHONG cap."
 
 if [ "$DRY" = 0 ]; then
   # Kiem sau: doc duoc bo moi nhat, KHONG ghi duoc thu muc, KHONG doc duoc /etc/siscom-crm.

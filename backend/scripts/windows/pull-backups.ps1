@@ -4,7 +4,9 @@
 # Moi bo sao luu (4 tep: <stem>.dump.age, .dump.age.sha256, .manifest, .manifest.sig) chi vao Drive SAU KHI kiem:
 #   chu ky manifest (ssh-keygen -Y verify, allowed_signers tren Drive) + db dung + encrypted=1 + file= dung ten + SHA-256 dung.
 # KHONG BAO GIO tai tep .dump (khong ma hoa). KHONG xoa gi tren Drive. KHONG ghi de tep da co tren Drive.
-# Ma thoat: 0 = xong (co the khong co bo moi); 1 = co loi (ket noi, kiem that bai, bo moi nhat qua cu...). Log: <WorkDir>\pull-backups.log
+# Bo chi tinh la CO tren Drive khi du 4 tep va xac minh dat; bo do dang (lan truoc bi ngat) duoc hoan thien, khong ghi de tep da co.
+# Do moi (-MaxAgeHours) tinh theo bo HOP LE moi nhat TREN DRIVE.
+# Ma thoat: 0 = xong (co the khong co bo moi); 1 = co loi (ket noi, kiem that bai, bo hop le moi nhat tren Drive qua cu...). Log: <WorkDir>\pull-backups.log
 #
 # Dung (vd Task Scheduler 8:00 sang):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File pull-backups.ps1
@@ -68,6 +70,28 @@ function Invoke-Native([string]$exe, [string]$argString, [string]$stdinFile = ''
 }
 function Q([string]$s) { return '"' + $s + '"' }
 
+function Get-Sha([string]$f) { return (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant() }
+# Cac phan (.dump.age, ...) cua <stem> dang co tren Drive.
+function Get-DriveParts([string]$stem) { return @($parts | Where-Object { Test-Path -LiteralPath (Join-Path $staging ($stem + $_)) -PathType Leaf }) }
+# Kiem 1 bo trong <dir>: du 4 tep, chu ky manifest (allowed_signers tren Drive), db/encrypted/file/file_sha256 (moi khoa dung 1 lan),
+# SHA-256 that, .sha256 khop. Tra ve $null neu dat, nguoc lai ly do.
+function Test-BackupSet([string]$dir, [string]$stem) {
+  foreach ($p in $parts) { if (-not (Test-Path -LiteralPath (Join-Path $dir ($stem + $p)) -PathType Leaf)) { return "thieu $stem$p" } }
+  $man = Join-Path $dir "$stem.manifest"; $sig = "$man.sig"; $agef = Join-Path $dir "$stem.dump.age"
+  $v = Invoke-Native $keygen ('-Y verify -f {0} -I {1} -n {1} -s {2}' -f (Q $signers), $ns, (Q $sig)) $man
+  if ($v.Code -ne 0) { return 'chu ky manifest KHONG hop le: ' + ((($v.Err + ' ' + $v.Out) -replace '\s+', ' ').Trim()) }
+  $ml = @(Get-Content -LiteralPath $man)
+  $get = { param($k) $x = @($ml | Where-Object { $_ -like "$k=*" }); if ($x.Count -ne 1) { return $null }; return $x[0].Substring($k.Length + 1) }
+  $hash = Get-Sha $agef
+  if ((& $get 'db') -ne $Database) { return 'manifest thuoc DB khac' }
+  if ((& $get 'encrypted') -ne '1') { return 'manifest khong ghi encrypted=1' }
+  if ((& $get 'file') -ne "$stem.dump.age") { return 'manifest mo ta file khac' }
+  if ((& $get 'file_sha256') -ne $hash) { return 'SHA-256 file khac manifest' }
+  $side = (Get-Content -LiteralPath "$agef.sha256" -Raw).Trim().Split(' ')[0].ToLowerInvariant()
+  if ($side -ne $hash) { return 'tep .sha256 khong khop' }
+  return $null
+}
+
 $stemRe = '^(' + [regex]::Escape($Database) + ')_(\d{8})_(\d{6})$'
 $fileRe = '^(' + [regex]::Escape($Database) + '_\d{8}_\d{6})\.(dump\.age|dump\.age\.sha256|manifest|manifest\.sig)$'
 $parts = @('.dump.age', '.dump.age.sha256', '.manifest', '.manifest.sig')
@@ -102,21 +126,19 @@ try {
   $stems = @($sets.Keys | Sort-Object)
   Write-Log 'INFO' ("Nguon co {0} bo cua {1}." -f $stems.Count, $Database)
 
-  # --- 2. Bo moi nhat qua cu => timer tren VPS co the khong chay ---
   if ($stems.Count -eq 0) { Write-Log 'LOI' "Nguon khong co bo sao luu nao cua $Database." }
-  else {
-    $last = $stems[-1]; $null = $last -match $stemRe
-    $t = [datetime]::ParseExact($Matches[2] + $Matches[3], 'yyyyMMddHHmmss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]'AssumeUniversal,AdjustToUniversal')
-    $age = ((Get-Date).ToUniversalTime() - $t).TotalHours
-    if ($age -gt $MaxAgeHours) { Write-Log 'LOI' ("Bo moi nhat {0} da {1:N1} gio (> {2} gio): timer sao luu tren VPS co the KHONG chay." -f $last, $age, $MaxAgeHours) }
-  }
 
-  # --- 3. Tai + kiem tung bo chua co tren Drive ---
+  # --- 2. Tai + kiem tung bo chua DU 4 tep tren Drive (bo do dang tren Drive cung duoc hoan thien, KHONG ghi de tep da co) ---
   $new = 0
   foreach ($stem in $stems) {
-    if (Test-Path -LiteralPath (Join-Path $staging "$stem.dump.age")) { continue }
+    $onDrive = @(Get-DriveParts $stem)
+    if ($onDrive.Count -eq $parts.Count) { continue }
     $missing = @($parts | Where-Object { $sets[$stem] -notcontains ($stem + $_) })
-    if ($missing.Count -gt 0) { Write-Log 'CANH BAO' ("Bo {0} chua du tep (thieu {1}) - co the dang sao luu; bo qua lan nay." -f $stem, ($missing -join ', ')); continue }
+    if ($missing.Count -gt 0) {
+      if ($onDrive.Count -gt 0) { Write-Log 'LOI' ("Bo {0} DO DANG tren Drive (co {1}) nhung nguon thieu {2} - khong hoan thien duoc." -f $stem, ($onDrive -join ', '), ($missing -join ', ')) }
+      else { Write-Log 'CANH BAO' ("Bo {0} chua du tep (thieu {1}) - co the dang sao luu; bo qua lan nay." -f $stem, ($missing -join ', ')) }
+      continue
+    }
     $dir = Join-Path $incoming $stem
     if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -130,22 +152,11 @@ try {
       Remove-Item -LiteralPath $gb -Force -ErrorAction SilentlyContinue
       if ($r.Code -ne 0) { Write-Log 'LOI' ("Tai bo {0} that bai (sftp ma {1})." -f $stem, $r.Code); continue }
     }
-    # Kiem: chu ky + noi dung manifest + SHA-256
-    $man = Join-Path $dir "$stem.manifest"; $sig = "$man.sig"; $agef = Join-Path $dir "$stem.dump.age"
-    $why = $null
-    $v = Invoke-Native $keygen ('-Y verify -f {0} -I {1} -n {1} -s {2}' -f (Q $signers), $ns, (Q $sig)) $man
-    if ($v.Code -ne 0) { $why = 'chu ky manifest KHONG hop le: ' + ((($v.Err + ' ' + $v.Out) -replace '\s+', ' ').Trim()) }
-    else {
-      $ml = @(Get-Content -LiteralPath $man)
-      $get = { param($k) $x = @($ml | Where-Object { $_ -like "$k=*" }); if ($x.Count -ne 1) { return $null }; return $x[0].Substring($k.Length + 1) }
-      $hash = (Get-FileHash -LiteralPath $agef -Algorithm SHA256).Hash.ToLowerInvariant()
-      if ((& $get 'db') -ne $Database) { $why = 'manifest thuoc DB khac' }
-      elseif ((& $get 'encrypted') -ne '1') { $why = 'manifest khong ghi encrypted=1' }
-      elseif ((& $get 'file') -ne "$stem.dump.age") { $why = 'manifest mo ta file khac' }
-      elseif ((& $get 'file_sha256') -ne $hash) { $why = 'SHA-256 file khac manifest' }
-      else {
-        $side = (Get-Content -LiteralPath "$agef.sha256" -Raw).Trim().Split(' ')[0].ToLowerInvariant()
-        if ($side -ne $hash) { $why = 'tep .sha256 khong khop' }
+    $why = Test-BackupSet $dir $stem
+    if (-not $why -and $onDrive.Count -gt 0) {
+      # Bo do dang tren Drive (lan truoc bi ngat): tep da co phai TRUNG byte voi ban vua xac minh, khong thi dung - khong ghi de.
+      foreach ($p in $onDrive) {
+        if ((Get-Sha (Join-Path $staging ($stem + $p))) -ne (Get-Sha (Join-Path $dir ($stem + $p)))) { $why = "tep $stem$p da co tren Drive KHAC ban vua xac minh (khong ghi de, xu ly tay)" }
       }
     }
     if ($why) {
@@ -155,14 +166,37 @@ try {
       Write-Log 'LOI' ("Bo {0} KHONG dat ({1}) - KHONG dua vao Drive, giu o {2}." -f $stem, $why, $dest)
       continue
     }
+    if ($onDrive.Count -gt 0) { Write-Log 'CANH BAO' ("Bo {0} do dang tren Drive (co {1}) - hoan thien bang ban vua xac minh." -f $stem, ($onDrive -join ', ')) }
+    # Chep tung tep vao ten tam cung thu muc roi doi ten (doi ten trong 1 thu muc la nguyen tu) => bi ngat giua chung khong de lai tep cut ten that.
     foreach ($p in $parts) {
-      $target = Join-Path $staging ($stem + $p)
-      if (Test-Path -LiteralPath $target) { Write-Log 'LOI' "Da co $target - khong ghi de."; continue }
-      Move-Item -LiteralPath (Join-Path $dir ($stem + $p)) -Destination $target
+      if ($onDrive -contains $p) { continue }
+      $target = Join-Path $staging ($stem + $p); $tmpT = "$target.tmp-$PID"
+      Copy-Item -LiteralPath (Join-Path $dir ($stem + $p)) -Destination $tmpT -Force
+      Rename-Item -LiteralPath $tmpT -NewName ($stem + $p)
     }
+    $why = Test-BackupSet $staging $stem
+    if ($why) { Write-Log 'LOI' ("Bo {0} tren Drive sau khi chep KHONG dat ({1})." -f $stem, $why); continue }
     Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
     $new++
-    Write-Log 'OK' ("Da dua bo {0} vao Drive (chu ky + SHA-256 dat)." -f $stem)
+    Write-Log 'OK' ("Da dua bo {0} vao Drive (du 4 tep, chu ky + SHA-256 dat tren Drive)." -f $stem)
+  }
+
+  # --- 3. Do moi: theo bo HOAN CHINH, DA XAC MINH, CO TREN DRIVE moi nhat (khong theo bo dang tao tren nguon) ---
+  $driveStems = @(Get-ChildItem -LiteralPath $staging -File | ForEach-Object { if ($_.Name -match $fileRe) { $Matches[1] } } | Sort-Object -Unique -Descending)
+  $good = $null
+  foreach ($s in $driveStems) {
+    if (@(Get-DriveParts $s).Count -ne $parts.Count) { continue }
+    $why = Test-BackupSet $staging $s
+    if ($why) { Write-Log 'LOI' ("Bo {0} tren Drive KHONG dat ({1})." -f $s, $why); continue }
+    $good = $s; break
+  }
+  if (-not $good) { Write-Log 'LOI' "Drive chua co bo sao luu hop le nao cua $Database." }
+  else {
+    $null = $good -match $stemRe
+    $t = [datetime]::ParseExact($Matches[2] + $Matches[3], 'yyyyMMddHHmmss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]'AssumeUniversal,AdjustToUniversal')
+    $age = ((Get-Date).ToUniversalTime() - $t).TotalHours
+    if ($age -gt $MaxAgeHours) { Write-Log 'LOI' ("Bo HOP LE moi nhat tren Drive {0} da {1:N1} gio (> {2} gio): timer sao luu tren VPS co the KHONG chay hoac khong keo duoc." -f $good, $age, $MaxAgeHours) }
+    else { Write-Log 'INFO' ("Bo hop le moi nhat tren Drive: {0} ({1:N1} gio)." -f $good, $age) }
   }
   Write-Log 'INFO' ("Xong: {0} bo moi; {1} loi." -f $new, $script:errors)
 } catch {

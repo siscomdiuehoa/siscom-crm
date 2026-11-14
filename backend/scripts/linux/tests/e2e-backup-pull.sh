@@ -43,7 +43,9 @@ make_set() { # make_set <stem> [plain]
     printf 'db=siscom_crm_staging\nrows|customer|3\nencrypted=%s\nfile=%s\nfile_sha256=%s\n' "$([ "$ext" = .dump.age ] && echo 1 || echo 0)" \
       "$(basename "$f")" "$(sha256sum "$f" | cut -d' ' -f1)" > "$b.manifest"
     backup_sign "$b.manifest" "$etc/backup-signing.key" >/dev/null 2>&1
-    ( cd "$bdir" && sha256sum "$(basename "$f")" > "$(basename "$f").sha256" ) )
+    ( cd "$bdir" && sha256sum "$(basename "$f")" > "$(basename "$f").sha256" )
+    # nhu backup-db.sh: CHI bo ma hoa, SAU khi hoan tat + tu kiem => cap quyen doc cho backup-pull
+    if [ "$ext" = .dump.age ]; then backup_grant_pull "$b"; fi )
 }
 ts() { date -u -d "$1" +%Y%m%d_%H%M%S; }
 backup_dir_ensure "$bdir"
@@ -58,17 +60,31 @@ printf '%s\n' "$out" | sed 's/^/    /'
 check "setup thoat 0" test "$rc" = 0
 check "chay lai (idempotent) thoat 0" bash "$lin/setup-backup-pull.sh" --pubkey "$tmp/client.pub"
 check "thu muc sao luu van cua root, 700 + ACL (stat hien 750 = mask r-x), khong chmod" test "$(stat -c '%U %a' "$bdir")" = "root 750"
-check "ACL u:backup-pull:r-x + mac dinh r--" bash -c "getfacl -p '$bdir' | grep -qx 'user:backup-pull:r-x' && getfacl -p '$bdir' | grep -qx 'default:user:backup-pull:r--'"
+check "ACL u:backup-pull:r-x tren thu muc" bash -c "getfacl -p '$bdir' | grep -qx 'user:backup-pull:r-x'"
+check_not "PR235-SEC-01: KHONG co ACL mac dinh" bash -c "getfacl -p '$bdir' | grep -q '^default:'"
 check "tep .dump plaintext KHONG co ACL backup-pull" bash -c "! getfacl -p '$bdir/$sp.dump' | grep -q backup-pull"
 check_not "backup-pull khong doc duoc .dump plaintext" runuser -u backup-pull -- test -r "$bdir/$sp.dump"
+check_not "backup-pull khong doc duoc manifest cua bo plaintext" runuser -u backup-pull -- test -r "$bdir/$sp.manifest"
+check "bo ma hoa co san truoc setup: doc duoc" runuser -u backup-pull -- test -r "$bdir/$s1.manifest.sig"
 check "authorized_keys root:backup-pull 640" test "$(stat -c '%U:%G %a' /var/lib/backup-pull/.ssh/authorized_keys)" = "root:backup-pull 640"
 check "mat khau '*'" test "$(getent shadow backup-pull | cut -d: -f2)" = '*'
-# Lan sao luu tiep theo (timer): backup_dir_ensure KHONG lam mat ACL; tep moi doc duoc nho ACL mac dinh du umask 077
+# Lan sao luu tiep theo (timer): backup_dir_ensure KHONG lam mat ACL; bo MA HOA hoan tat (backup_grant_pull) doc duoc du umask 077
 backup_dir_ensure "$bdir"
 check "backup_dir_ensure giu ACL (mask r-x)" bash -c "getfacl -p '$bdir' | grep -qx 'mask::r-x'"
 s2="siscom_crm_staging_$(ts '-1 hour')"; make_set "$s2"
-check "tep moi (umask 077) backup-pull doc duoc" runuser -u backup-pull -- test -r "$bdir/$s2.dump.age"
-check "chu ky tep moi doc duoc" runuser -u backup-pull -- test -r "$bdir/$s2.manifest.sig"
+for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do check "bo moi hoan tat: backup-pull doc duoc $p" runuser -u backup-pull -- test -r "$bdir/$s2$p"; done
+# PR235-R1-SEC-01: tep tao SAU setup (umask 077 va umask 022, nhu redirect cua shell) KHONG ke thua quyen doc cua backup-pull
+s3="siscom_crm_staging_$(ts '-30 min')"
+( umask 077; echo x > "$bdir/$s3.dump"; echo x > "$bdir/$s3.dump.partial"; echo x > "$bdir/$s3.dump.age.partial"; echo x > "$bdir/$s3.manifest.partial"; echo x > "$bdir/la.txt" )
+( umask 022; echo x > "$bdir/$s3.dump.sha256"; echo x > "$bdir/la2.txt" )
+for f in "$s3.dump" "$s3.dump.partial" "$s3.dump.age.partial" "$s3.manifest.partial" la.txt "$s3.dump.sha256" la2.txt; do
+  check_not "PR235-SEC-01: tep moi '$f' KHONG doc duoc" runuser -u backup-pull -- test -r "$bdir/$f"
+done
+# bo ma hoa CHUA hoan tat (chua qua backup_grant_pull): doc khong duoc
+sx="siscom_crm_staging_$(ts '-20 min')"; ( umask 077; echo x > "$bdir/$sx.dump.age"; echo x > "$bdir/$sx.manifest" )
+check_not "PR235-SEC-01: bo ma hoa CHUA hoan tat KHONG doc duoc" runuser -u backup-pull -- test -r "$bdir/$sx.dump.age"
+rm -f "$bdir/$sx.dump.age" "$bdir/$sx.manifest"
+check_not "backup_grant_pull tu choi bo thieu tep" backup_grant_pull "$bdir/$sx"
 
 echo "== 2. sshd that 127.0.0.1:2222 =="
 mkdir -p /run/sshd
@@ -103,7 +119,7 @@ check "pull thoat 0" test "$rc" = 0
 for s in "$s1" "$s2"; do for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do
   check "Drive co $s$p" cmp -s "$bdir/$s$p" "$drive/staging/$s$p"
 done; done
-check_not "KHONG keo .dump plaintext" bash -c "find '$tmp' -name '*.dump' | grep -q ."
+check_not "KHONG keo .dump plaintext" bash -c "find '$tmp' -name '*.dump' -o -name '*.partial' | grep -q ."
 pull; rc=$?
 check "chay lai thoat 0, Drive van 8 tep" bash -c "[ $rc = 0 ] && [ \$(ls '$drive/staging' | wc -l) = 8 ]"
 printf 'x' >> "$bdir/$s2.dump.age"; rm -f "$drive/staging/$s2".*
