@@ -380,10 +380,9 @@ jobs:
         run: bash backend/scripts/linux/tests/test-guards.sh
       - name: pull-backups.ps1 - test offline (pwsh, bo sao luu gia ky bang khoa tam)
         run: pwsh -NoProfile -File backend/scripts/windows/pull-backups.test.ps1
-      - name: backup-pull e2e that (setup-backup-pull.sh + sshd rieng 127.0.0.1:2222 + ACL + pwsh keo qua sftp chi doc)
+      - name: backup-pull e2e that (setup-backup-pull.sh + sshd rieng 127.0.0.1:2222 + thu muc keo rieng + pwsh keo qua sftp chi doc)
         run: |
           set -euo pipefail
-          command -v setfacl >/dev/null || sudo apt-get install -y --no-install-recommends acl
           pwsh --version
           sudo env PATH="$PATH" bash backend/scripts/linux/tests/e2e-backup-pull.sh
       - name: npm ci --ignore-scripts + build + argon2 hash/verify + Prisma CLI (dung quy trinh deploy.sh)

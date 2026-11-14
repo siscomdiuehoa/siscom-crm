@@ -5,6 +5,7 @@
 SISCOM_ETC="${SISCOM_ETC:-/etc/siscom-crm}"
 SISCOM_OPT="${SISCOM_OPT:-/opt/siscom-crm}"
 SISCOM_BACKUP_DIR="${SISCOM_BACKUP_DIR:-/var/backups/siscom-crm}"
+SISCOM_PULL_DIR="${SISCOM_PULL_DIR:-${SISCOM_BACKUP_DIR}-pull}"   # chi bo ma hoa hoan chinh, cho tai khoan chi doc backup-pull
 SISCOM_PG_HOST="${SISCOM_PG_HOST:-127.0.0.1}"
 SISCOM_PG_PORT="${SISCOM_PG_PORT:-5432}"
 
@@ -192,33 +193,45 @@ private_dir() {
   if [ "${SISCOM_REHEARSAL:-}" = 1 ]; then mkdir -p "$1"; else die "Khong tao duoc thu muc rieng tu $1."; fi
 }
 
-# backup_dir_ensure <thu muc sao luu>: CHUA co => tao 700 (private_dir). DA co => KHONG chmod lai (chmod/install -m 700 dat lai ACL mask ve ---
-# => mat quyen doc cua tai khoan chi-doc backup-pull, xem setup-backup-pull.sh); chi KIEM, sai thi tu choi: thu muc that (khong symlink),
-# thuoc nguoi chay, 'other' = 0, bit group != 0 chi khi co ACL, va khong ai (group/ACL) co quyen GHI.
-backup_dir_ensure() {
-  local d="$1" perm g
-  if [ ! -e "$d" ] && [ ! -L "$d" ]; then private_dir "$d"; return; fi
-  { [ -d "$d" ] && [ ! -L "$d" ]; } || die "TU CHOI: $d khong phai thu muc that."
-  [ "${SISCOM_REHEARSAL:-}" = 1 ] && return 0
-  perm="$(stat -c '%a' "$d")"; g="${perm: -2:1}"
-  [ "$(stat -c '%u' "$d")" = "$(id -u)" ] || die "TU CHOI: $d khong thuoc $(id -un)."
-  [ "${perm: -1}" = 0 ] || die "TU CHOI: $d cho 'other' quyen ($perm). Sua: chmod o= $d"
-  (( (g & 2) == 0 )) || die "TU CHOI: $d cho group/ACL quyen GHI ($perm)."
-  if [ "$g" != 0 ] && ! ls -ld "$d" | awk '{print $1}' | grep -q '+$'; then die "TU CHOI: $d cho group quyen ($perm) khong qua ACL. Sua: chmod g= $d"; fi
+# --- Thu muc KEO chi doc cho may Owner (setup-backup-pull.sh, PR235-R1-SEC-01) ---
+# backup-pull KHONG co quyen gi tren $SISCOM_BACKUP_DIR (root 700). Moi bo MA HOA HOAN CHINH duoc LIEN KET CUNG (hard link, khong ton dung luong)
+# sang $SISCOM_PULL_DIR (root:backup-pull 750); 4 tep cua bo dat root:backup-pull 640. Tep tam/.partial/.dump/tep khac khong bao gio vao do.
+# pull_set_complete <thu muc> <stem>: du 4 tep that (khong symlink) va KHONG trung stem voi bo .dump plaintext (chung manifest).
+pull_set_complete() {
+  local d="$1" st="$2" p
+  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do { [ -f "$d/$st$p" ] && [ ! -L "$d/$st$p" ]; } || return 1; done
+  [ ! -e "$d/$st.dump" ] && [ ! -L "$d/$st.dump" ]
+}
+# pull_complete_stems <thu muc>: in stem cua cac bo ma hoa hoan chinh (sap xep).
+pull_complete_stems() {
+  local d="$1" f
+  while IFS= read -r f; do
+    [[ "$f" =~ ^(siscom_crm_(staging|prod)_[0-9]{8}_[0-9]{6})\.dump\.age$ ]] || continue
+    pull_set_complete "$d" "${BASH_REMATCH[1]}" && printf '%s\n' "${BASH_REMATCH[1]}"
+  done < <(find "$d" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort)
   return 0
 }
-
-# backup_grant_pull <base = thu muc/<db>_<ts>>: neu da cai tai khoan chi doc backup-pull (setup-backup-pull.sh) thi cap ACL doc CHI cho
-# 4 tep cua bo MA HOA da hoan tat + tu kiem dat. Khong co ACL mac dinh tren thu muc => tep tam/.partial/.dump/tep khac luon rieng tu.
-# Chua cai backup-pull => khong lam gi (0). Loi setfacl => != 0.
-backup_grant_pull() {
-  local base="$1" p
+# backup_pull_sync <thu muc sao luu>: chua cai backup-pull (user + $SISCOM_PULL_DIR) => khong lam gi (0). Da cai => lien ket cung bo hoan chinh
+# chua co; go moi muc trong $SISCOM_PULL_DIR khong con la lien ket cua tep trong thu muc chinh (bo da bi retention xoa, tep la). Loi => != 0.
+backup_pull_sync() {
+  local src="$1" dst="$SISCOM_PULL_DIR" st p f
   id backup-pull >/dev/null 2>&1 || return 0
-  command -v setfacl >/dev/null 2>&1 || { warn "Thieu setfacl (goi acl): khong cap duoc quyen doc cho backup-pull."; return 1; }
-  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do
-    [ -f "$base$p" ] && [ ! -L "$base$p" ] || { warn "Thieu $base$p - khong cap quyen doc cho backup-pull."; return 1; }
-  done
-  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do setfacl -m u:backup-pull:r "$base$p" || return 1; done
+  [ -e "$dst" ] || [ -L "$dst" ] || return 0
+  { [ -d "$dst" ] && [ ! -L "$dst" ]; } || { warn "$dst khong phai thu muc that."; return 1; }
+  while IFS= read -r st; do
+    for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do
+      if [ -e "$dst/$st$p" ] || [ -L "$dst/$st$p" ]; then
+        [ "$dst/$st$p" -ef "$src/$st$p" ] || { warn "$dst/$st$p da co nhung khong phai lien ket cua ban trong $src."; return 1; }
+      else
+        chown root:backup-pull "$src/$st$p" && chmod 640 "$src/$st$p" && ln "$src/$st$p" "$dst/$st$p" || { warn "Khong lien ket duoc $st$p sang $dst."; return 1; }
+      fi
+    done
+  done < <(pull_complete_stems "$src")
+  while IFS= read -r f; do
+    if [ -f "$src/$f" ] && [ ! -L "$dst/$f" ] && [ "$dst/$f" -ef "$src/$f" ]; then continue; fi
+    rm -rf --one-file-system -- "${dst:?}/$f" || return 1
+  done < <(find "$dst" -mindepth 1 -maxdepth 1 -printf '%f\n')
+  return 0
 }
 
 # --- SISCOM_HOST: ten mien (mac dinh, Let's Encrypt 90 ngay) HOAC IPv4 cong khai (phuong an phu: profile shortlived ~6 ngay). ---

@@ -9,16 +9,15 @@
 #   - user he thong `backup-pull`: shell /bin/sh (lenh ep buoc chay qua shell), mat khau '*' (khong dang nhap bang mat khau duoc),
 #     home /var/lib/backup-pull (root:root 755, user KHONG ghi duoc).
 #   - /var/lib/backup-pull/.ssh (root:backup-pull 750) + authorized_keys (root:backup-pull 640) DUNG 1 khoa:
-#       restrict,command="/usr/lib/openssh/sftp-server -R -d <thu muc sao luu>" ssh-ed25519 ...
+#       restrict,command="/usr/lib/openssh/sftp-server -R -d <thu muc keo>" ssh-ed25519 ...
 #     => chi chay duoc sftp-server CHE DO CHI DOC (-R): khong ghi/xoa/doi ten, khong shell, khong chuyen tiep cong, khong pty.
-#   - ACL: u:backup-pull:rx tren thu muc sao luu (liet ke) + r tren 4 tep cua cac bo MA HOA dang co (.dump.age, .dump.age.sha256,
-#     .manifest, .manifest.sig). KHONG co ACL mac dinh (PR235-R1-SEC-01): tep moi (tam, .partial, .dump, tep khac) luon rieng tu;
-#     bo moi do backup-db.sh cap quyen doc (backup_grant_pull) CHI SAU KHI bo ma hoa hoan tat + tu kiem dat.
-#     Quyen/chu so huu cua thu muc (root 700) KHONG doi.
+#   - Thu muc KEO rieng $SISCOM_PULL_DIR (mac dinh /var/backups/siscom-crm-pull, root:backup-pull 750). Chi chua LIEN KET CUNG (hard link,
+#     khong ton dung luong) cua 4 tep moi bo MA HOA HOAN CHINH (root:backup-pull 640). backup-pull KHONG co quyen gi tren thu muc sao luu
+#     chinh (root 700, khong ACL) => tep tam/.partial/.dump/tep khac o do khong bao gio doc duoc (PR235-R1-SEC-01).
+#     Bo moi: backup-db.sh goi backup_pull_sync SAU KHI bo ma hoa hoan tat + tu kiem; bo bi retention xoa thi lien ket cung bi go.
 # KHONG sua sshd_config, KHONG nap lai sshd, KHONG doi ufw/fail2ban (authorized_keys duoc doc moi lan dang nhap).
 # Gioi han da biet: sftp-server -R khong chroot => van doc duoc cac tep ma moi nguoi deu doc duoc (vd /etc/passwd); KHONG doc duoc
-# /etc/siscom-crm (700), /root, khoa ky sao luu.
-# Luu y: chmod/`install -m` lai thu muc sao luu se lam mat ACL => chay lai script nay (backup-db.sh/provision.sh da khong chmod lai).
+# thu muc sao luu chinh, /etc/siscom-crm (700), /root, khoa ky sao luu.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
@@ -28,6 +27,7 @@ PULL_USER=backup-pull
 PULL_HOME=/var/lib/backup-pull
 SFTP_SERVER="${SISCOM_SFTP_SERVER:-/usr/lib/openssh/sftp-server}"
 DIR="$SISCOM_BACKUP_DIR"
+PDIR="$SISCOM_PULL_DIR"
 
 DRY=0; MODE=""; PUBKEY=""
 while [ $# -gt 0 ]; do
@@ -42,29 +42,31 @@ done
 [ -n "$MODE" ] || die "Can --pubkey <file .pub> hoac --remove."
 
 run() { if [ "$DRY" = 1 ]; then printf '[DRY] %s\n' "$*"; else "$@"; fi; }
+safe_path() { [[ "$1" =~ ^/[A-Za-z0-9._/-]+$ ]] && [[ "$1" != *..* ]] && [ "$1" != / ]; }
 
 # Duong dan nam trong command="..." cua authorized_keys => chi ky tu an toan.
-[[ "$DIR" =~ ^/[A-Za-z0-9._/-]+$ ]] && [[ "$DIR" != *..* ]] || die "TU CHOI: thu muc sao luu '$DIR' phai la duong dan tuyet doi chi gom [A-Za-z0-9._/-]."
+safe_path "$DIR" || die "TU CHOI: thu muc sao luu '$DIR' phai la duong dan tuyet doi chi gom [A-Za-z0-9._/-]."
+safe_path "$PDIR" || die "TU CHOI: thu muc keo '$PDIR' phai la duong dan tuyet doi chi gom [A-Za-z0-9._/-]."
+[ "${PDIR%/}" != "${DIR%/}" ] && [[ "${PDIR%/}/" != "${DIR%/}/"* ]] || die "TU CHOI: thu muc keo '$PDIR' phai KHAC va KHONG nam trong thu muc sao luu '$DIR'."
 [[ "$SFTP_SERVER" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "TU CHOI: duong dan sftp-server la: $SFTP_SERVER"
 if [ "$DRY" = 0 ]; then
   require_root
-  require_cmd setfacl getfacl useradd usermod userdel runuser
+  require_cmd useradd usermod userdel runuser ln
 fi
 
-
 if [ "$MODE" = remove ]; then
-  info "Go tai khoan $PULL_USER va ACL tren $DIR"
-  if [ -d "$DIR" ]; then
-    run setfacl -x "u:$PULL_USER" "$DIR" || true
-    run setfacl -d -x "u:$PULL_USER" "$DIR" || true
-    while IFS= read -r f; do run setfacl -x "u:$PULL_USER" "$DIR/$f" || true; done < <(find "$DIR" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null)
+  info "Go tai khoan $PULL_USER va thu muc keo $PDIR (ban sao luu trong $DIR KHONG bi xoa)"
+  if [ -d "$PDIR" ] && [ ! -L "$PDIR" ]; then
+    # Tra quyen tep trong thu muc chinh ve root 600 (lien ket cung chung inode) roi xoa thu muc keo.
+    while IFS= read -r f; do run chown root:root "$PDIR/$f"; run chmod 600 "$PDIR/$f"; done < <(find "$PDIR" -mindepth 1 -maxdepth 1 -type f -printf '%f\n')
+    run rm -rf --one-file-system -- "$PDIR"
   fi
   if [ "$DRY" = 1 ] || id "$PULL_USER" >/dev/null 2>&1; then
     run pkill -u "$PULL_USER" || true
     run userdel "$PULL_USER"
   fi
-  run rm -rf --one-file-system "$PULL_HOME"
-  info "Da go. Kiem: id $PULL_USER (phai bao khong co); getfacl $DIR (khong con dong user:$PULL_USER)."
+  run rm -rf --one-file-system -- "$PULL_HOME"
+  info "Da go. Kiem: id $PULL_USER (phai bao khong co); ls -ld $PDIR (khong con)."
   exit 0
 fi
 
@@ -81,15 +83,16 @@ printf 'ssh-ed25519 %s\n' "$kb" > "${TMPDIR:-/tmp}/bp.$$.pub"
 fp="$(ssh-keygen -l -f "${TMPDIR:-/tmp}/bp.$$.pub" 2>/dev/null | awk '{print $2}')" || true
 rm -f "${TMPDIR:-/tmp}/bp.$$.pub"
 [[ "$fp" =~ ^SHA256: ]] || die "TU CHOI: ssh-keygen khong doc duoc khoa trong $PUBKEY."
-line="restrict,command=\"$SFTP_SERVER -R -d $DIR\" ssh-ed25519 $kb siscom-backup-pull"
+line="restrict,command=\"$SFTP_SERVER -R -d $PDIR\" ssh-ed25519 $kb siscom-backup-pull"
 
 if [ "$DRY" = 0 ]; then
   [ -x "$SFTP_SERVER" ] || die "Khong thay $SFTP_SERVER (goi openssh-sftp-server)."
   { [ -d "$DIR" ] && [ ! -L "$DIR" ]; } || die "Chua co thu muc sao luu $DIR (chay backup-db.sh/provision.sh truoc)."
-  backup_dir_ensure "$DIR"
+  { [ ! -e "$PDIR" ] && [ ! -L "$PDIR" ]; } || { [ -d "$PDIR" ] && [ ! -L "$PDIR" ]; } || die "TU CHOI: $PDIR da co nhung khong phai thu muc that."
+  [ "$(stat -c %d "$DIR")" = "$(stat -c %d "$(dirname "$PDIR")")" ] || die "TU CHOI: $PDIR phai cung o dia voi $DIR (lien ket cung)."
 fi
 
-info "Khoa duoc cap: $fp; thu muc chi doc: $DIR"
+info "Khoa duoc cap: $fp; thu muc chi doc: $PDIR"
 if [ "$DRY" = 0 ] && id "$PULL_USER" >/dev/null 2>&1; then
   IFS=: read -r _ _ uid _ _ h sh < <(getent passwd "$PULL_USER")
   [ "$h" = "$PULL_HOME" ] && [ "$uid" -lt 1000 ] || die "TU CHOI: user $PULL_USER da co nhung khong phai do script nay tao (home=$h uid=$uid). Kiem tay."
@@ -107,29 +110,25 @@ else
   tmpk="$(mktemp)"; printf '%s\n' "$line" > "$tmpk"
   install -m 640 -o root -g "$PULL_USER" "$tmpk" "$PULL_HOME/.ssh/authorized_keys"; rm -f "$tmpk"
 fi
+run install -d -m 750 -o root -g "$PULL_USER" "$PDIR"
 
-run setfacl -m "u:$PULL_USER:rx" "$DIR"
-run setfacl -d -x "u:$PULL_USER" "$DIR" 2>/dev/null || true   # go ACL mac dinh neu con tu ban cu (khong cap cho tep moi)
-# Chi bo MA HOA HOAN CHINH: du 4 tep (khong symlink) va KHONG trung stem voi bo .dump plaintext (chung manifest) => cap r cho dung 4 tep.
-n=0; total=0
-while IFS= read -r f; do
-  total=$((total + 1))
-  [[ "$f" =~ ^(siscom_crm_(staging|prod)_[0-9]{8}_[0-9]{6})\.dump\.age$ ]] || continue
-  st="${BASH_REMATCH[1]}"; full=1
-  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do [ -f "$DIR/$st$p" ] && [ ! -L "$DIR/$st$p" ] || full=0; done
-  [ -e "$DIR/$st.dump" ] && full=0
-  if [ "$full" = 0 ]; then warn "Bo $st chua hoan chinh hoac trung stem voi .dump - KHONG cap quyen."; continue; fi
-  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do run setfacl -m "u:$PULL_USER:r" "$DIR/$st$p"; n=$((n + 1)); done
-done < <(find "$DIR" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort)
-info "Cap quyen doc $n tep (bo ma hoa hoan chinh) dang co; $((total - n)) tep khac (vd .dump khong ma hoa, tep tam) KHONG cap."
+# Bo MA HOA HOAN CHINH dang co (du 4 tep, khong trung stem .dump) => lien ket cung sang thu muc keo.
+mapfile -t stems < <(pull_complete_stems "$DIR")
+if [ "$DRY" = 1 ]; then
+  for st in "${stems[@]}"; do printf '[DRY] lien ket cung %s/%s.{dump.age,dump.age.sha256,manifest,manifest.sig} -> %s (root:%s 640)\n' "$DIR" "$st" "$PDIR" "$PULL_USER"; done
+else
+  backup_pull_sync "$DIR" || die "Khong dua duoc bo sao luu sang $PDIR."
+fi
+info "Dua ${#stems[@]} bo ma hoa hoan chinh sang $PDIR; moi tep khac trong $DIR (vd .dump khong ma hoa, tep tam) KHONG dua sang."
 
 if [ "$DRY" = 0 ]; then
-  # Kiem sau: doc duoc bo moi nhat, KHONG ghi duoc thu muc, KHONG doc duoc /etc/siscom-crm.
-  runuser -u "$PULL_USER" -- test -r "$DIR" && runuser -u "$PULL_USER" -- test -x "$DIR" || die "KIEM: $PULL_USER khong doc duoc $DIR."
-  runuser -u "$PULL_USER" -- test -w "$DIR" && die "KIEM: $PULL_USER GHI duoc $DIR - dung lai, chay --remove."
-  newest="$(find "$DIR" -maxdepth 1 -type f -name '*.dump.age' -printf '%f\n' | sort | tail -n1)"
-  if [ -n "$newest" ]; then runuser -u "$PULL_USER" -- test -r "$DIR/$newest" || die "KIEM: $PULL_USER khong doc duoc $newest."; fi
+  # Kiem sau: doc duoc bo moi nhat trong thu muc keo, KHONG ghi duoc, KHONG vao duoc thu muc chinh, KHONG doc duoc /etc/siscom-crm.
+  runuser -u "$PULL_USER" -- test -r "$PDIR" && runuser -u "$PULL_USER" -- test -x "$PDIR" || die "KIEM: $PULL_USER khong doc duoc $PDIR."
+  runuser -u "$PULL_USER" -- test -w "$PDIR" && die "KIEM: $PULL_USER GHI duoc $PDIR - dung lai, chay --remove."
+  runuser -u "$PULL_USER" -- test -x "$DIR" && die "KIEM: $PULL_USER vao duoc $DIR - dung lai, chay --remove."
+  newest=""; [ "${#stems[@]}" -eq 0 ] || newest="${stems[${#stems[@]}-1]}"
+  if [ -n "$newest" ]; then runuser -u "$PULL_USER" -- test -r "$PDIR/$newest.manifest.sig" || die "KIEM: $PULL_USER khong doc duoc $newest."; fi
   if [ -d "$SISCOM_ETC" ]; then runuser -u "$PULL_USER" -- test -r "$SISCOM_ETC" && die "KIEM: $PULL_USER doc duoc $SISCOM_ETC - dung lai, chay --remove."; fi
-  info "Kiem dat: doc duoc $DIR${newest:+ ($newest)}, khong ghi duoc, khong doc duoc $SISCOM_ETC."
+  info "Kiem dat: doc duoc $PDIR${newest:+ ($newest)}, khong ghi duoc, khong vao duoc $DIR, khong doc duoc $SISCOM_ETC."
 fi
-info "Xong. Tren may Windows: powershell -NoProfile -ExecutionPolicy Bypass -File pull-backups.ps1 (xem docs/VPS_RUNBOOK.md G6)."
+info "Xong. Tren may Windows: powershell -NoProfile -ExecutionPolicy Bypass -File pull-backups.ps1 (xem docs/VPS_RUNBOOK.md G6b)."
