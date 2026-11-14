@@ -6,7 +6,7 @@
 | Nguồn quyết định | 8 câu trả lời của Owner (13/11/2026 16:50) + 16 điểm chốt (13/11/2026 17:03, Issue #233) + điều chỉnh 14/11/2026 về lĩnh vực, loại và "chào dự án" (mục 1.3, lời Owner do phiên khác chuyển lại) |
 | Nền mã | `main` `0a87d23` |
 | Thay thế | bản nháp `SALES_THIET_KE_MO_DAU` và `SALES_DAC_TA_V1` (thư mục bàn giao của Claude, không nằm trong repo) |
-| Quy ước | **[Owner]** = Owner đã quyết. **[Đề xuất]** = Claude đề xuất, chưa được duyệt. **[Mở]** = còn chờ Owner (mục 2) |
+| Quy ước | **[Owner]** = Owner đã quyết. **[Đề xuất]** = Claude đề xuất, chưa được duyệt. **[T…]** = điểm kỹ thuật Claude đề xuất để ChatGPT review (mục 2). Không còn câu hỏi nghiệp vụ chờ Owner |
 
 ## 0. Tóm tắt cho người không chuyên
 - Luồng: **Khách hàng → Cơ hội → Báo giá → Chốt Thắng/Thua → Bàn giao thực hiện**.
@@ -54,23 +54,29 @@
 | C15 | Một ô "Nhu cầu của khách" bắt buộc trước khi rời Tiếp cận | Cột `need_summary` |
 | C16 | Chỉ Quản trị CRM mở lại cơ hội đã Thắng/Thua, bắt buộc lý do | Mục 5.2, 6 |
 
-### 1.3 Điều chỉnh của Owner (14/11/2026, nguồn: lời Owner được phiên Claude khác chuyển lại; **chưa xác nhận trực tiếp ở phiên viết đặc tả này**) [Owner]
+### 1.3 Điều chỉnh và chốt của Owner (14/11/2026) [Owner]
+O1, O2 và C17 ban đầu do một phiên Claude khác chuyển lại; sau đó Owner **xác nhận trực tiếp** ("Anh xác nhận hướng điều chỉnh HVAC và giữ 3 loại là đúng") và chốt O3, O4, O5 ngay trong phiên viết đặc tả.
 | Mã | Quyết định | Hệ quả trong đặc tả |
 |---|---|---|
 | O1 (đã đóng) | SISCOM hiện chỉ bán thiết bị, vật tư HVAC và chào dự án HVAC. **Không** đưa Điện, Cấp thoát nước, PCCC, Phòng sạch vào danh mục riêng. Đợt đầu **mặc định lĩnh vực là HVAC, không bắt nhân viên chọn** | Đợt này **không tạo bảng/danh mục lĩnh vực**, không có ô chọn lĩnh vực. Mọi cơ hội hiểu là HVAC. Khi SISCOM có lĩnh vực thứ hai sẽ thêm bảng mới theo cách cộng thêm và gán HVAC cho dữ liệu cũ (không cần sửa dữ liệu từng dòng). Dashboard chưa có bộ lọc lĩnh vực |
 | O2 (đã đóng) | Giữ **3 loại**: Cung cấp thiết bị, vật tư · Thi công · Cung cấp và thi công. Chưa mở rộng thành 6 loại | Bảo trì, sửa chữa/cải tạo, tư vấn/thiết kế chưa có loại riêng; loại là danh mục nên thêm sau không cần sửa mã |
-| C17 (mới) | **"Chào dự án"** là cơ hội gắn với một dự án/công trình; có thể chỉ cung cấp hàng hoặc kèm thi công. **Không mặc định** cứ chào dự án là thi công. Phải ghi **tên dự án/công trình** và **phạm vi SISCOM đang chào** | Cột `project_name` và `offer_scope` (mục 4.1). **Loại cơ hội do nhân viên chọn theo phạm vi chào, không suy ra từ việc có tên dự án** |
+| C17 (đã đóng) | **"Chào dự án"** là cơ hội gắn với một dự án/công trình; có thể chỉ cung cấp hàng hoặc kèm thi công. **Không mặc định** cứ chào dự án là thi công | **Loại cơ hội mô tả phạm vi SISCOM chào, không phải toàn bộ công trình** (ví dụ: chỉ bán FCU cho khách sạn thì chọn "Cung cấp thiết bị, vật tư"). Loại do nhân viên chọn, không suy ra từ việc có tên dự án. **Hướng dẫn này hiện ngay trên biểu mẫu** (mục 8.3) |
+| O4 (đã đóng) | Có lựa chọn **"Gắn với dự án/công trình"**. Nếu có: **bắt buộc** tên dự án/công trình và phạm vi SISCOM đang chào, **kể cả khi chỉ cung cấp thiết bị**. Loại **Thi công** hoặc **Cung cấp và thi công**: **bắt buộc** gắn dự án/công trình. Bán hàng không gắn dự án: **không bắt** nhập tên dự án | Cột `is_project_linked`, `project_name`, `offer_scope` (mục 4.1); quy tắc 1 mục 6 |
+| O5 (đã đóng) | Bán hàng không gắn dự án **vẫn được tạo cơ hội** để theo dõi nhu cầu, báo giá, chốt đơn. **Không bắt buộc** nhập mọi giao dịch bán lẻ đã hoàn tất thành cơ hội; đợt này **chưa thay thế phần mềm bán hàng/kế toán** | Mục 3 (ngoài phạm vi) |
+| O3 (đã đóng) | Chuyển người phụ trách: người phụ trách hiện tại được chuyển cho người **đang hoạt động, cùng phòng và có quyền đảm nhận cơ hội**. Người nhận **không cần có quyền sửa chính cơ hội đó từ trước**; quyền phát sinh sau khi được giao. **Quản trị CRM** được chuyển khác phòng, người nhận vẫn phải hoạt động và đủ quyền. **Chưa xác định phòng** thì chỉ Quản trị CRM được chuyển. Ghi lý do và lịch sử chuyển | Mục 5.2, quy tắc 8 mục 6. "Đủ quyền đảm nhận" xem T1 |
 
 ## 2. Việc còn mở
-| Mã | Vấn đề | Chặn |
-|---|---|---|
-| **O3** | Điều kiện "cùng phòng" khi chuyển người phụ trách (C6): em đề xuất người nhận phải **ACTIVE**, **cùng phòng với người phụ trách hiện tại** và **có quyền sửa cơ hội**. Chờ Owner/ChatGPT xác nhận | S5 (quyền) |
-| **O4** | **Tên dự án và phạm vi chào có bắt buộc không?** Em đề xuất: **bắt buộc** `project_name` và `offer_scope` khi loại là "Thi công" hoặc "Cung cấp và thi công"; **tuỳ chọn** khi loại là "Cung cấp thiết bị, vật tư" (khách mua lẻ có thể không gắn dự án), nhưng nên ghi khi bán cho một dự án. Chờ Owner xác nhận | S2 (CHECK ở DB), S7 (kiểm khi tạo) |
-| **O5** | Loại "Cung cấp thiết bị, vật tư" (không dự án) và việc bán lẻ: Owner xác nhận có cần quản lý như cơ hội trong Sales không, hay chỉ các thương vụ có hồ sơ chào | Không chặn |
+Không còn câu hỏi nghiệp vụ nào chờ Owner. Ba điểm kỹ thuật sau do Claude đề xuất để ChatGPT review (Owner đã dặn không mở thêm câu hỏi nghiệp vụ cho các điểm này):
+| Mã | Điểm kỹ thuật | Đề xuất | Chặn |
+|---|---|---|---|
+| **T1** | "Có quyền đảm nhận cơ hội" (O3) nghĩa là gì khi người nhận chưa có cơ hội đó | Người nhận có **vai trò mang quyền `opportunity.update` ở bất kỳ phạm vi nào** (Kinh doanh, Quản trị CRM). Quyền theo từng cơ hội (OWN) phát sinh sau khi `owner_id` đổi. Kỹ thuật, Kế toán, Quản trị hệ thống không đủ quyền | S5 |
+| **T2** | Ràng buộc "Thi công / Cung cấp và thi công ⇒ bắt buộc gắn dự án" (O4) nằm ở đâu | CHECK ở DB chỉ làm được phần "gắn dự án ⇒ có tên dự án và phạm vi chào" (CHECK không tham chiếu bảng danh mục). Phần "loại ⇒ gắn dự án" làm ở service + kiểm thử, kèm trigger nếu ChatGPT thấy cần | S2, S7 |
+| **T3** | Mở rộng lĩnh vực sau này | Không lưu lĩnh vực đợt này; khi có lĩnh vực thứ hai: thêm bảng danh mục + cột/bảng nối cộng thêm, gán HVAC cho dữ liệu cũ bằng một câu lệnh có kiểm đếm (mục 11) | Sau Sales |
 
 ## 3. Phạm vi
-**Làm trong đợt Sales:** cơ hội (tạo, sửa, giai đoạn, Tạm hoãn, Thắng, Thua, mở lại, chuyển người phụ trách), lịch sử thay đổi, loại + tên dự án/công trình + phạm vi chào (lĩnh vực mặc định HVAC, chưa có ô chọn), danh sách bảng + kanban, thẻ/tab cơ hội trong chi tiết khách, gắn công việc/hoạt động vào cơ hội, quyền theo người phụ trách và theo việc được giao (kiểm ở API + giao diện), điện thoại.
+**Làm trong đợt Sales:** cơ hội (tạo, sửa, giai đoạn, Tạm hoãn, Thắng, Thua, mở lại, chuyển người phụ trách), lịch sử thay đổi, loại + lựa chọn "Gắn với dự án/công trình" + tên dự án/công trình + phạm vi chào (lĩnh vực mặc định HVAC, chưa có ô chọn), cơ hội không gắn dự án (bán hàng theo dõi nhu cầu, báo giá, chốt đơn), danh sách bảng + kanban, thẻ/tab cơ hội trong chi tiết khách, gắn công việc/hoạt động vào cơ hội, quyền theo người phụ trách và theo việc được giao (kiểm ở API + giao diện), điện thoại.
 **Gói Báo giá đợt 1 (ngay sau Sales, thiết kế riêng):** sổ báo giá theo cơ hội, phiên bản, trạng thái (Nháp / Đã gửi / Được chấp nhận / Bị từ chối / Hết hiệu lực), đường dẫn Drive, tạo bản mới từ bản cũ, không sửa bản đã gửi; giá trị cơ hội theo báo giá đang theo đuổi.
+**Ngoài phạm vi [O5]:** thay thế phần mềm bán hàng/kế toán; bắt nhập mọi giao dịch bán lẻ đã hoàn tất thành cơ hội (cơ hội chỉ dùng để theo dõi nhu cầu, báo giá, chốt đơn).
 **Để sau:** lập báo giá từ danh mục thiết bị/vật tư, chiết khấu, VAT, duyệt giá, xuất PDF; giá vốn và lợi nhuận; Dashboard; xuất dữ liệu cơ hội; Hợp đồng; Dự án; Kho; kho tệp trong CRM; email/thông báo đẩy.
 
 ## 4. Mô hình dữ liệu [Đề xuất] — chỉ cộng thêm, không đổi/xoá cột cũ
@@ -81,9 +87,10 @@ opportunity
   customer_id → customer (bắt buộc)      contact_id → contact (tuỳ chọn, cùng khách)
   title (≤200, bắt buộc)                 need_summary text (bắt buộc trước khi rời Tiếp cận)
   type_id → lookup_item 'opportunity_type' (bắt buộc; do nhân viên chọn theo phạm vi chào, không suy ra từ tên dự án)
-  project_name varchar(200) NULL         (tên dự án/công trình đang chào) [C17]
-  offer_scope text NULL                  (phạm vi SISCOM đang chào: cung cấp gì, có thi công không) [C17]
-                                         (cả hai bắt buộc khi loại là Thi công / Cung cấp và thi công; tuỳ chọn khi chỉ cung cấp thiết bị, vật tư — [Mở O4])
+  is_project_linked boolean NOT NULL     ("Gắn với dự án/công trình"; mặc định false; luôn true khi loại là Thi công / Cung cấp và thi công) [O4]
+  project_name varchar(200) NULL         (tên dự án/công trình) — bắt buộc khi is_project_linked, kể cả chỉ cung cấp thiết bị [O4]
+  offer_scope text NULL                  (phạm vi SISCOM đang chào, ví dụ "cung cấp 120 FCU", "cung cấp + lắp đặt chiller") — bắt buộc khi is_project_linked [O4]
+                                         (không gắn dự án: không bắt nhập tên dự án; phạm vi chào tuỳ chọn)
   stage_id → lookup_item 'opportunity_stage'
   status: OPEN | ON_HOLD | WON | LOST
   expected_amount_vnd bigint NULL (≥0; NULL = chưa biết)
@@ -104,7 +111,7 @@ opportunity_change      (chỉ thêm; không sửa, không xoá)
 
 activity   + opportunity_id → opportunity NULL    (hoạt động cũ để NULL; cùng khách với cơ hội)
 ```
-CHECK ở mức DB: nhất quán `status` với trường bắt buộc (ON_HOLD cần `hold_until`; WON cần đủ trường chứng từ và `won_amount_vnd`; LOST cần `lost_reason_id`); `expected_amount_vnd` không âm; khi loại là Thi công hoặc Cung cấp và thi công thì `project_name` và `offer_scope` không rỗng ([Mở O4]); khi `stage` từ Báo giá trở lên mà `status = OPEN` thì `expected_amount_vnd IS NOT NULL`; `probability` trong 0..100.
+CHECK ở mức DB: nhất quán `status` với trường bắt buộc (ON_HOLD cần `hold_until`; WON cần đủ trường chứng từ và `won_amount_vnd`; LOST cần `lost_reason_id`); `expected_amount_vnd` không âm; `is_project_linked` ⇒ `project_name` và `offer_scope` không rỗng (sau khi bỏ khoảng trắng đầu/cuối); phần "loại Thi công hoặc Cung cấp và thi công ⇒ `is_project_linked`" kiểm ở service + kiểm thử (CHECK không tham chiếu được bảng danh mục, xem T2); khi `stage` từ Báo giá trở lên mà `status = OPEN` thì `expected_amount_vnd IS NOT NULL`; `probability` trong 0..100.
 `customer.revenue_vnd` (số ước tính cũ) **không** tự cập nhật từ cơ hội: tránh hai nguồn doanh thu. Đợt này chưa có cột giá vốn, lợi nhuận, chiết khấu. `opportunity_change.reason` ≤ 500 ký tự và được che trong audit chung như các lý do khác.
 Bảng `quote` (gói Báo giá) sẽ trỏ **tới** `opportunity`; `opportunity` không trỏ ngược.
 
@@ -133,21 +140,21 @@ Giá cao hơn đối thủ · Khách chọn đối thủ khác · Khách không 
 |---|---|---|---|---|
 | read | ALL | theo 5.1 | theo việc | ALL |
 | create / update / move_stage / close | ALL | khách mình + cơ hội mình phụ trách | — | — |
-| assign | ALL | cơ hội mình phụ trách → người cùng phòng [C6][O3] | — | — |
+| assign | ALL; được chuyển khác phòng; người nhận vẫn phải ACTIVE và đủ quyền (T1) | cơ hội mình phụ trách → người ACTIVE, cùng phòng, đủ quyền đảm nhận (T1); phòng chưa xác định ⇒ không được | — | — |
 | reopen / delete / restore | ALL | — | — | — |
 Phạm vi mới cần thêm vào cơ chế hiện có (hiện chỉ tính theo khách): "theo người phụ trách cơ hội" và "theo việc được giao". Đây là phần rủi ro nhất; làm thành PR riêng có ma trận kiểm thử (mục 10).
 ### 5.3 Cấp quyền trên DB đã bootstrap
 Qua yêu cầu hai người (mẫu `B3_ACTIVITY_PERMISSIONS`, có script gỡ) và grants V5 cho `siscom_app` (INSERT/UPDATE `opportunity`; `opportunity_change` chỉ INSERT; không DELETE). Diễn tập trên PostgreSQL tạm trong CI trước. Ma trận trong `bootstrap.ts` chỉ áp cho DB mới tinh; unit test giữ hai nguồn khớp nhau như B3.
 
 ## 6. Quy tắc nghiệp vụ
-1. **Tạo**: bắt buộc khách, tiêu đề, loại; bắt buộc thêm tên dự án/công trình và phạm vi chào khi loại là Thi công hoặc Cung cấp và thi công ([Mở O4]); người phụ trách mặc định = người phụ trách khách tại lúc tạo; trạng thái Đang mở, giai đoạn Tiếp cận.
+1. **Tạo** [O4][O5]: bắt buộc khách, tiêu đề, loại. Có lựa chọn "Gắn với dự án/công trình": **bật** ⇒ bắt buộc tên dự án/công trình và phạm vi SISCOM đang chào (kể cả khi chỉ cung cấp thiết bị); loại **Thi công** hoặc **Cung cấp và thi công** ⇒ lựa chọn này **luôn bật, không tắt được**; **tắt** (bán hàng không gắn dự án) ⇒ không bắt tên dự án, vẫn tạo được cơ hội. Người phụ trách mặc định = người phụ trách khách tại lúc tạo; trạng thái Đang mở, giai đoạn Tiếp cận.
 2. **Đổi giai đoạn** [C14]: tới hoặc lùi tự do giữa Tiếp cận, Khảo sát, Báo giá, Đàm phán; mỗi lần ghi lịch sử. Rời Tiếp cận cần `need_summary`. Từ Báo giá trở lên cần `expected_amount_vnd`. Xác suất về mặc định của giai đoạn mới, trừ khi đã sửa tay (khi đó hỏi giữ hay đặt lại).
 3. **Sửa xác suất tay, giá trị, ngày dự kiến chốt**: ghi lịch sử; xác suất sửa tay bắt buộc lý do.
 4. **Tạm hoãn** [C3][C13]: bắt buộc ngày liên hệ lại + lý do; giữ nguyên giai đoạn; rời kanban, vào danh sách Tạm hoãn; **tự tạo một công việc** (TASK) nhắc người phụ trách vào ngày đó; mở lại về đúng giai đoạn cũ, công việc nhắc còn mở tự đóng.
 5. **Thắng** [C8][C12]: bắt buộc loại chứng từ, số, ngày, giá trị chốt, đường dẫn Drive (hệ thống không tự xác minh; đây là khai báo của người dùng); sau khi Thắng **tự tạo công việc "Bàn giao thực hiện"**, người chốt chọn người nhận theo đúng quy tắc giao việc B3 hiện có (không mở rộng phạm vi xem khách).
 6. **Thua**: bắt buộc lý do; giá trị được để trống nếu chưa tới Báo giá.
 7. **Mở lại** cơ hội đã Thắng/Thua [C16]: chỉ Quản trị CRM, bắt buộc lý do, ghi lịch sử. Cơ hội đã đóng khoá sửa.
-8. **Chuyển người phụ trách** [C6][O3]: bắt buộc lý do; ghi người chuyển, thời điểm; người nhận ACTIVE, cùng phòng với người phụ trách hiện tại, có quyền sửa cơ hội (Quản trị CRM không bị ràng buộc cùng phòng). Không đổi người phụ trách khách. Công việc đang mở của cơ hội giữ nguyên người làm. Người nhận không tự thấy thêm dữ liệu khách ngoài thẻ tối thiểu.
+8. **Chuyển người phụ trách** [C6][O3]: bắt buộc lý do; ghi người chuyển, thời điểm, người cũ, người mới. Người nhận phải **ACTIVE**, **cùng phòng với người phụ trách hiện tại** và **đủ quyền đảm nhận** (T1); **không cần** có quyền sửa chính cơ hội đó từ trước, quyền phát sinh sau khi `owner_id` đổi. **Quản trị CRM** được chuyển khác phòng, nhưng người nhận vẫn phải ACTIVE và đủ quyền. Nếu phòng của người phụ trách hiện tại hoặc của người nhận **chưa xác định** thì chỉ Quản trị CRM được chuyển. Không đổi người phụ trách khách. Công việc đang mở của cơ hội giữ nguyên người làm. Người nhận không tự thấy thêm dữ liệu khách ngoài thẻ tối thiểu.
 9. **Khách bị xoá mềm** ⇒ cơ hội ẩn theo; không ai xoá vĩnh viễn qua ứng dụng. Xoá mềm cơ hội chỉ Quản trị CRM, có lý do.
 10. **Sửa đồng thời**: `version` như khách hàng; người sau nhận báo xung đột.
 11. **Ngày, hạn** tính theo giờ Việt Nam (Asia/Ho_Chi_Minh).
@@ -183,7 +190,19 @@ Phụ trách: Trần Bình [Chuyển…]                [Tạm hoãn] [Thắng] 
 Nhu cầu của khách: …
 Tab: Hoạt động & công việc | Báo giá (gói sau) | Lịch sử thay đổi | Tài liệu (link Drive)
 ```
-**8.3 Hộp thoại**: Tạo cơ hội · Chuyển giai đoạn (đòi giá trị nếu thiếu) · Tạm hoãn (ngày liên hệ lại, lý do) · Thắng (loại chứng từ, số, ngày, giá trị chốt, link; chọn người nhận "Bàn giao thực hiện") · Thua (lý do, ghi chú) · Chuyển người phụ trách (người mới, lý do) · Mở lại (lý do).
+**8.3 Biểu mẫu "Tạo cơ hội"** [C17][O4] (hướng dẫn hiện ngay trên biểu mẫu):
+```
+Khách hàng *        [KH-00478 Công ty … ▾]
+Tiêu đề *           [__________________________]
+Loại cơ hội *       (•) Cung cấp thiết bị, vật tư  ( ) Thi công  ( ) Cung cấp và thi công
+   ⓘ Chọn theo PHẠM VI SISCOM CHÀO, không phải toàn bộ công trình.
+     Ví dụ: chỉ bán FCU cho khách sạn → chọn "Cung cấp thiết bị, vật tư".
+[ ] Gắn với dự án/công trình     (tự bật và khoá khi chọn Thi công / Cung cấp và thi công)
+   Tên dự án/công trình *   [__________________]      ← chỉ hiện khi bật
+   Phạm vi SISCOM đang chào *  [__________________]   ← chỉ hiện khi bật; ví dụ "cung cấp 120 FCU"
+Nhu cầu của khách   [__________________]   (bắt buộc trước khi rời Tiếp cận)
+```
+**Các hộp thoại khác**: Chuyển giai đoạn (đòi giá trị nếu thiếu) · Tạm hoãn (ngày liên hệ lại, lý do) · Thắng (loại chứng từ, số, ngày, giá trị chốt, link; chọn người nhận "Bàn giao thực hiện") · Thua (lý do, ghi chú) · Chuyển người phụ trách (người mới, lý do) · Mở lại (lý do).
 **8.4 Chi tiết khách hàng**: thêm tab "Cơ hội". Khi ghi nhận hoạt động/công việc: thêm ô chọn cơ hội của khách đó.
 **8.5 Điện thoại (390 px)**: danh sách dạng thẻ, lọc theo giai đoạn bằng thanh chọn ngang; không kéo thả, dùng nút "Chuyển giai đoạn".
 **8.6 Kỹ thuật**: trong công việc được giao hiện thẻ cơ hội rút gọn (không có giá trị).
@@ -207,14 +226,17 @@ Dùng bộ giao diện hiện có; hộp thoại dùng chung `Modal` (Issue #218
 Không PR nào đụng DB thật. Phần làm **ngay**: S1–S12. Phần để **sau**: mục 3 "Để sau" và gói Báo giá đợt 1.
 
 ## 10. Tiêu chí nghiệm thu
-1. Tạo cơ hội cho khách có sẵn; một khách có 2 cơ hội cùng mở; dữ liệu khách không đổi (so số khách và người phụ trách trước/sau). Loại "Thi công" hoặc "Cung cấp và thi công" thiếu tên dự án hoặc phạm vi chào ⇒ bị chặn ([Mở O4]); một dự án chỉ cung cấp hàng tạo được với loại "Cung cấp thiết bị, vật tư" mà không bị ép thành thi công. Không có ô chọn lĩnh vực trên màn hình.
+1. Tạo cơ hội cho khách có sẵn; một khách có 2 cơ hội cùng mở; dữ liệu khách không đổi (so số khách và người phụ trách trước/sau). Không có ô chọn lĩnh vực trên màn hình.
+1a. **Dự án/công trình** [O4]: loại "Thi công" hoặc "Cung cấp và thi công" ⇒ ô "Gắn với dự án/công trình" tự bật, không tắt được, gọi API cố tắt ⇒ bị từ chối. Đã gắn dự án mà thiếu tên dự án hoặc phạm vi chào (kể cả chỉ cung cấp thiết bị, kể cả chỉ có khoảng trắng) ⇒ bị chặn. Một dự án chỉ cung cấp hàng tạo được với loại "Cung cấp thiết bị, vật tư" mà không bị ép thành thi công.
+1b. **Bán hàng không gắn dự án** [O5]: loại "Cung cấp thiết bị, vật tư", không gắn dự án, không tên dự án ⇒ tạo được và đi hết các giai đoạn tới Thắng/Thua. Không có chức năng bắt nhập mọi giao dịch bán lẻ đã hoàn tất.
+1c. **Biểu mẫu** hiện đúng câu hướng dẫn về loại cơ hội (phạm vi SISCOM chào, ví dụ FCU khách sạn) ở trạng thái mặc định, trên máy tính và điện thoại.
 2. Đi đủ Tiếp cận → Đàm phán, có bỏ qua Khảo sát và có lùi giai đoạn; mỗi bước có dòng lịch sử đúng người, đúng giờ Việt Nam.
 3. Rời Tiếp cận khi thiếu nhu cầu ⇒ bị chặn. Sang Báo giá khi chưa có giá trị ⇒ bị chặn, báo rõ.
 4. Sửa xác suất không lý do ⇒ bị chặn; có lý do ⇒ có lịch sử.
 5. Thắng thiếu chứng từ hoặc giá trị chốt ⇒ bị chặn; Thắng đủ ⇒ tự tạo công việc "Bàn giao thực hiện". Thua thiếu lý do ⇒ bị chặn.
 6. Tạm hoãn: không tính vào Thua và tỷ lệ thắng; có ngày liên hệ lại; tự tạo công việc nhắc; mở lại về đúng giai đoạn cũ và đóng công việc nhắc.
 7. Giá trị trống hiển thị "Chưa rõ", không hiển thị 0 và không cộng vào tổng.
-8. Chuyển người phụ trách: người phụ trách khách không đổi; có lịch sử + lý do; người nhận khác phòng hoặc không ACTIVE ⇒ bị chặn (trừ Quản trị CRM).
+8. Chuyển người phụ trách [O3]: người phụ trách khách không đổi; có lịch sử (người chuyển, thời điểm, người cũ, người mới) + lý do; không có lý do ⇒ bị chặn. Ma trận cho người chuyển × người nhận: người phụ trách cơ hội → người ACTIVE cùng phòng, đủ quyền (Kinh doanh/Quản trị CRM) ⇒ được; → người khác phòng ⇒ bị chặn; → người không ACTIVE ⇒ bị chặn; → người không đủ quyền (Kỹ thuật, Kế toán, Quản trị hệ thống) ⇒ bị chặn; → người **chưa có quyền sửa cơ hội đó** nhưng đủ quyền đảm nhận ⇒ **được**, và sau khi chuyển người nhận sửa được, người cũ không còn sửa được; phòng của người chuyển hoặc người nhận chưa xác định ⇒ chỉ Quản trị CRM chuyển được; Quản trị CRM chuyển khác phòng ⇒ được nếu người nhận ACTIVE và đủ quyền, chuyển cho người không đủ quyền ⇒ bị chặn.
 9. **Ma trận quyền** 5 vai trò × (xem danh sách, xem chi tiết, tạo, sửa, đổi giai đoạn, chốt, chuyển người, mở lại, xoá): kiểm bằng **gọi API trực tiếp**, không chỉ giao diện; ngoài phạm vi trả 404; kiểm cả đếm, tìm kiếm, xuất.
 10. Kỹ thuật: chỉ thấy cơ hội của việc được giao; không thấy giá trị trong phản hồi API; việc đóng ⇒ mất quyền xem.
 11. Người phụ trách cơ hội không phụ trách khách: chỉ thấy thẻ khách tối thiểu; không mở được cơ hội khác hay timeline của khách.
@@ -233,5 +255,6 @@ Không PR nào đụng DB thật. Phần làm **ngay**: S1–S12. Phần để *
 - **Hai nguồn doanh thu** (`customer.revenue_vnd` ước tính và cơ hội Thắng): giữ tách biệt đến khi có hợp đồng.
 - **3 loại cơ hội** chưa phủ bảo trì, sửa chữa/cải tạo, tư vấn/thiết kế (Owner giữ 3 loại, mục 1.3): các thương vụ đó sẽ phải nhập vào loại gần nhất cho tới khi thêm loại.
 - **Loại không suy ra từ tên dự án** (C17): nhân viên có thể chọn "Thi công" cho một dự án chỉ cung cấp hàng hoặc ngược lại; `offer_scope` là chỗ ghi phạm vi thật, cần xem lại cách trình bày để loại và phạm vi không mâu thuẫn nhau trên màn hình.
+- **"Đủ quyền đảm nhận" (T1) dựa trên vai trò**: nếu sau này có vai trò mới mang `opportunity.update`, người đó tự đủ điều kiện nhận cơ hội; cấp quyền cho vai trò mới phải được xem là quyết định về ai được nhận cơ hội.
 - **Lĩnh vực mặc định HVAC, chưa lưu**: nếu sau này SISCOM thêm lĩnh vực thứ hai, dữ liệu cũ phải được hiểu là HVAC; thêm bảng cộng thêm và gán một lần là đủ, không phải sửa từng cơ hội.
 - Ước lượng thô, không cam kết: S1 sau review 1–2 ngày; S2–S11 khoảng 2 tuần tuỳ số vòng review; S12 1–2 ngày.
