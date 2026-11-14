@@ -226,7 +226,11 @@ else
 fi
 run install -d -m 700 -o root -g root "$SISCOM_ETC"
 run install -d -m 755 -o root -g root "$SISCOM_OPT" "$SISCOM_OPT/releases"
-run install -d -m 700 -o root -g root "$SISCOM_BACKUP_DIR"
+if [ -d "$SISCOM_BACKUP_DIR" ] && [ ! -L "$SISCOM_BACKUP_DIR" ]; then
+  info "$SISCOM_BACKUP_DIR da co: giu nguyen quyen/ACL (khong chmod lai - giu quyen doc cua backup-pull neu da cai)"
+else
+  run install -d -m 700 -o root -g root "$SISCOM_BACKUP_DIR"
+fi
 write_file /etc/systemd/journald.conf.d/siscom.conf 644 <<'CONF'
 [Journal]
 SystemMaxUse=500M

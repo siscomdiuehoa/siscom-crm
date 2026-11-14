@@ -212,7 +212,46 @@ shred -u /root/siscom-backup.key
 Vì sao ký (F1): age chỉ **mã hoá**, ai có khoá **công khai** age cũng tạo được một bản `.age` hợp lệ; `.sha256` không có khoá nên ai sửa file cũng tính lại được. Chữ ký ed25519 trên manifest (chứa SHA-256 của file) ràng buộc file + manifest với khoá riêng chỉ nằm trên VPS. **Giới hạn**: ai có root trên VPS đọc được khoá ký ⇒ chữ ký chống sửa ở kho sao lưu và bản sao ngoài VPS, **không** chống máy chủ đã bị chiếm quyền. Muốn chống cả trường hợp đó cần ký ở máy khác (ngoài phạm vi PR này).
 **FAIL khi** (đã có test âm): sửa số dòng / tên DB / hash trong manifest; xoá manifest hoặc chữ ký; ký bằng khoá lạ; chỉ thay file sao lưu; thay **cả bộ** (file + manifest + chữ ký + .sha256) bằng một bản sao lưu hợp lệ khác.
 
-**PASS khi**: có file `.dump.age` + `.manifest` + `.manifest.sig` (+ `.sha256`); `restore-test.sh` in `Chữ ký manifest hợp lệ…` rồi `PASS: <n> bảng khớp số dòng`; `allowed_signers` đã có bản ngoài VPS; bản sao lưu đầu tiên đã **chép ra ngoài VPS** (Owner chọn nơi; chưa tự động) và đã thử giải mã bằng khoá riêng ở máy Owner. Nhớ sao lưu thêm `/var/log/siscom-crm/export-gap` nếu cần giữ nhật ký xuất CSV.
+**PASS khi**: có file `.dump.age` + `.manifest` + `.manifest.sig` (+ `.sha256`); `restore-test.sh` in `Chữ ký manifest hợp lệ…` rồi `PASS: <n> bảng khớp số dòng`; `allowed_signers` đã có bản ngoài VPS; bản sao lưu đầu tiên đã **chép ra ngoài VPS** (Owner chọn nơi; tự động hoá: G6b) và đã thử giải mã bằng khoá riêng ở máy Owner. Nhớ sao lưu thêm `/var/log/siscom-crm/export-gap` nếu cần giữ nhật ký xuất CSV.
+
+### G6b — Tự động kéo bản sao lưu mã hoá về Google Drive (máy Windows của Owner)
+
+Mô hình **kéo**: máy Windows của Owner tự tải về mỗi sáng; VPS **không** giữ mật khẩu/token Google ⇒ VPS bị chiếm quyền cũng không xoá/ghi đè được bản sao ngoài.
+
+**Trên VPS (một lần, cần Owner duyệt; phiên điều phối chạy):** tài khoản chỉ đọc `backup-pull`.
+```bash
+# Owner tạo khoá RIÊNG cho việc kéo trên máy Windows (khoá riêng chỉ ở máy đó):
+#   ssh-keygen -t ed25519 -f C:\Users\<user>\.ssh\siscom_backup_pull
+# rồi chép DUY NHẤT file .pub lên VPS, ví dụ /root/siscom_backup_pull.pub
+cd /opt/siscom-crm/current/backend/scripts/linux
+bash setup-backup-pull.sh --pubkey /root/siscom_backup_pull.pub --dry-run   # xem trước, không đổi gì
+bash setup-backup-pull.sh --pubkey /root/siscom_backup_pull.pub
+# Lùi: bash setup-backup-pull.sh --remove
+```
+Script tạo user hệ thống `backup-pull` (shell `/bin/sh`, mật khẩu `*`, home `/var/lib/backup-pull` root:root 755), `authorized_keys` (root:backup-pull 640) **đúng 1 khoá ed25519**:
+`restrict,command="/usr/lib/openssh/sftp-server -R -d /var/backups/siscom-crm" ssh-ed25519 …` ⇒ chỉ chạy được sftp **chế độ chỉ đọc**: không ghi/xoá/đổi tên, không shell, không chuyển tiếp cổng, không pty. Quyền đọc cấp bằng **ACL** (`u:backup-pull:rx` trên thư mục + ACL mặc định `r` cho tệp mới + `r` cho các tệp mã hoá/kèm theo đang có); chủ sở hữu/quyền `root 700` của thư mục **không đổi**; tệp `.dump` (không mã hoá) **không** được cấp quyền. **Không** sửa `sshd_config`, không nạp lại sshd, không đổi ufw/fail2ban. Script tự kiểm sau khi cài: `backup-pull` đọc được bộ mới nhất, **không** ghi được thư mục, **không** đọc được `/etc/siscom-crm`.
+
+Thư mục sao lưu **không còn bị chmod lại**: `backup-db.sh` dùng `backup_dir_ensure` (chưa có ⇒ tạo 700; đã có ⇒ chỉ kiểm: thuộc root, `other` = 0, bit group chỉ qua ACL, không ai được ghi — sai ⇒ từ chối), `provision.sh` bỏ qua thư mục đã có. Lý do: `chmod 700`/`install -d -m 700` đặt lại ACL mask về `---` ⇒ mất quyền đọc của `backup-pull`. Nếu ai đó chmod tay thư mục ⇒ chạy lại `setup-backup-pull.sh` (idempotent).
+
+**Trên máy Windows:** `backend/scripts/windows/pull-backups.ps1` (Windows PowerShell 5.1 hoặc pwsh 7; OpenSSH có sẵn của Windows `C:\Windows\System32\OpenSSH`).
+```powershell
+# Lần đầu: khoá host VPS phải có trong known_hosts (StrictHostKeyChecking=yes). Kiểm vân tay với phiên điều phối trước khi gõ yes:
+sftp -P 26266 -i $HOME\.ssh\siscom_backup_pull backup-pull@42.96.15.235
+# Chạy tay:
+powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\backend\scripts\windows\pull-backups.ps1
+# Task Scheduler 8:00 hằng ngày, bật "Run task as soon as possible after a scheduled start is missed":
+schtasks /Create /TN "SISCOM CRM keo sao luu" /SC DAILY /ST 08:00 /TR "powershell -NoProfile -ExecutionPolicy Bypass -File <duong dan>\pull-backups.ps1"
+```
+Mặc định: `-VpsHost 42.96.15.235 -Port 26266 -User backup-pull -KeyFile $HOME\.ssh\siscom_backup_pull -Database siscom_crm_staging -DriveDir 'G:\My Drive\SISCOM-CRM-Backup' -WorkDir $HOME\SISCOM-CRM-PR178\backup -MaxAgeHours 26`. Bộ vào `<DriveDir>\staging\` (`siscom_crm_prod` ⇒ `<DriveDir>\prod\`). `allowed_signers` phải nằm ở `<DriveDir>\backup-signing.allowed_signers`. **Khoá riêng age không bao giờ để trong `DriveDir`.**
+
+Mỗi lần chạy: liệt kê qua sftp **chỉ** tên đúng mẫu `<db>_<ts>.dump.age|.dump.age.sha256|.manifest|.manifest.sig` (`.dump` và tên lạ bị bỏ qua) → bộ nào chưa có trên Drive và **đủ 4 tệp** thì tải vào `<WorkDir>\incoming\<stem>` (thiếu tệp ⇒ cảnh báo, chờ lần sau) → kiểm **chữ ký manifest** (`ssh-keygen -Y verify` với `allowed_signers` trên Drive), `db=` đúng, `encrypted=1`, `file=` đúng tên, `file_sha256` = SHA-256 thật, `.sha256` khớp → **chỉ bộ đạt** mới chuyển vào Drive (không ghi đè tệp đã có); bộ lỗi giữ ở `<WorkDir>\incoming\loi\`. **Không xoá gì trên Drive** (dọn bản cũ làm tay). Log: `<WorkDir>\pull-backups.log`.
+**Mã thoát 1 (lỗi) khi:** không kết nối/liệt kê được, bộ nào kiểm không đạt, thiếu thư mục Drive/`allowed_signers`, hoặc **bộ mới nhất trên VPS cũ hơn 26 giờ** (timer đêm qua có thể không chạy). Chưa có cảnh báo email/Zalo — xem log hoặc lịch sử Task Scheduler.
+
+**Giới hạn đã biết:** `sftp-server -R` không chroot ⇒ `backup-pull` vẫn **đọc** được các tệp mà mọi user đều đọc được (vd `/etc/passwd`, `/etc/os-release`); **không** đọc được `/etc/siscom-crm` (700), `/root`, khoá ký, `.dump` plaintext (đã kiểm trong e2e). Muốn chặn hẳn cần `ChrootDirectory` + `Match User` trong `sshd_config` (đổi cấu hình sshd ⇒ để PR sau nếu Owner muốn). Nhiều lần đăng nhập lỗi từ máy Owner có thể bị fail2ban chặn IP tạm thời.
+
+**Kiểm thử trong kho:** `backend/scripts/windows/pull-backups.test.ps1` (offline, bộ giả ký bằng khoá tạm: bộ hợp lệ, chạy lại không ghi đè, manifest bị sửa, khoá lạ, thiếu chữ ký, DB khác, file bị sửa, plaintext, bộ quá cũ, thiếu `allowed_signers`); `backend/scripts/linux/tests/e2e-backup-pull.sh` (CI, root: sshd thật 127.0.0.1:2222 `UsePAM no`, ACL thật, pwsh kéo qua sftp; put/rm/rename/mkdir bị từ chối, lệnh SSH bị bỏ qua, `-R` bị từ chối, `/root` và khoá ký không đọc được, tệp mới tạo với `umask 077` vẫn đọc được nhờ ACL mặc định, `backup_dir_ensure` giữ ACL, `--remove` gỡ sạch); guard tests mục 13 trong `test-guards.sh`.
+
+**Chưa kiểm trên VPS thật (NOT_VERIFIED):** ACL/ACL mặc định trên ổ của VPS, kết nối từ máy Owner qua cổng 26266, Task Scheduler. Điểm kiểm sau khi cài: (1) `sftp` từ máy Owner liệt kê được; (2) `ssh -p 26266 -i … backup-pull@42.96.15.235 id` không in `uid=`; (3) `put` bị từ chối; (4) chạy `pull-backups.ps1` thoát 0, Drive có đủ bộ; (5) sáng hôm sau log có bộ mới.
 
 ### G7 — Production (V6, cần `OWNER_APPROVED_TASK` riêng cho tài khoản thật)
 

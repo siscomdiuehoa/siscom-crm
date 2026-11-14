@@ -192,6 +192,22 @@ private_dir() {
   if [ "${SISCOM_REHEARSAL:-}" = 1 ]; then mkdir -p "$1"; else die "Khong tao duoc thu muc rieng tu $1."; fi
 }
 
+# backup_dir_ensure <thu muc sao luu>: CHUA co => tao 700 (private_dir). DA co => KHONG chmod lai (chmod/install -m 700 dat lai ACL mask ve ---
+# => mat quyen doc cua tai khoan chi-doc backup-pull, xem setup-backup-pull.sh); chi KIEM, sai thi tu choi: thu muc that (khong symlink),
+# thuoc nguoi chay, 'other' = 0, bit group != 0 chi khi co ACL, va khong ai (group/ACL) co quyen GHI.
+backup_dir_ensure() {
+  local d="$1" perm g
+  if [ ! -e "$d" ] && [ ! -L "$d" ]; then private_dir "$d"; return; fi
+  { [ -d "$d" ] && [ ! -L "$d" ]; } || die "TU CHOI: $d khong phai thu muc that."
+  [ "${SISCOM_REHEARSAL:-}" = 1 ] && return 0
+  perm="$(stat -c '%a' "$d")"; g="${perm: -2:1}"
+  [ "$(stat -c '%u' "$d")" = "$(id -u)" ] || die "TU CHOI: $d khong thuoc $(id -un)."
+  [ "${perm: -1}" = 0 ] || die "TU CHOI: $d cho 'other' quyen ($perm). Sua: chmod o= $d"
+  (( (g & 2) == 0 )) || die "TU CHOI: $d cho group/ACL quyen GHI ($perm)."
+  if [ "$g" != 0 ] && ! ls -ld "$d" | awk '{print $1}' | grep -q '+$'; then die "TU CHOI: $d cho group quyen ($perm) khong qua ACL. Sua: chmod g= $d"; fi
+  return 0
+}
+
 # --- SISCOM_HOST: ten mien (mac dinh, Let's Encrypt 90 ngay) HOAC IPv4 cong khai (phuong an phu: profile shortlived ~6 ngay). ---
 # host_kind <host>: in "domain" | "ipv4"; that bai neu sai dinh dang hoac IPv4 khong cong khai (rieng/loopback/CGNAT/multicast...).
 host_kind() {

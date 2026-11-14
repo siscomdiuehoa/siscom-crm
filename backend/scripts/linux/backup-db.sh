@@ -73,7 +73,7 @@ else
   grep -Eq '^age1[a-z0-9]+$' "$recipients" || die "$recipients khong co dong khoa cong khai age1... hop le."
 fi
 
-private_dir "$SISCOM_BACKUP_DIR"
+backup_dir_ensure "$SISCOM_BACKUP_DIR"   # khong chmod lai thu muc da co (giu ACL doc cua backup-pull)
 stamp="$(date -u +%Y%m%d_%H%M%S)"
 base="$SISCOM_BACKUP_DIR/${db}_${stamp}"
 part="$base.dump.partial"; man="$base.manifest.partial"

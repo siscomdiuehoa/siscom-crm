@@ -343,7 +343,7 @@ jobs:
   # B1.4 P4 (PR #232, F3): script trien khai Linux tren Ubuntu 24.04 (cung ban voi VPS). Chi dung PostgreSQL TAM do script tu initdb
   # (cong 55871, xoa sau khi chay); cluster mac dinh cua goi postgresql-18 bi dung ngay. Khong cham may chu/DB nao ngoai runner.
   linux-scripts:
-    name: Linux scripts (shellcheck, guard, dien tap PG18, argon2, systemd, Caddy)
+    name: Linux scripts (shellcheck, guard, backup-pull, dien tap PG18, argon2, systemd, Caddy)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -378,6 +378,14 @@ jobs:
           shellcheck -x -S warning -e SC1091 backend/scripts/linux/*.sh backend/scripts/linux/tests/*.sh
       - name: Test guard (khong can PostgreSQL)
         run: bash backend/scripts/linux/tests/test-guards.sh
+      - name: pull-backups.ps1 - test offline (pwsh, bo sao luu gia ky bang khoa tam)
+        run: pwsh -NoProfile -File backend/scripts/windows/pull-backups.test.ps1
+      - name: backup-pull e2e that (setup-backup-pull.sh + sshd rieng 127.0.0.1:2222 + ACL + pwsh keo qua sftp chi doc)
+        run: |
+          set -euo pipefail
+          command -v setfacl >/dev/null || sudo apt-get install -y --no-install-recommends acl
+          pwsh --version
+          sudo env PATH="$PATH" bash backend/scripts/linux/tests/e2e-backup-pull.sh
       - name: npm ci --ignore-scripts + build + argon2 hash/verify + Prisma CLI (dung quy trinh deploy.sh)
         working-directory: backend
         run: |
