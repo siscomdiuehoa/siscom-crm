@@ -23,7 +23,7 @@ sshd_pid=""
 cleanup() {
   [ -n "$sshd_pid" ] && kill "$sshd_pid" 2>/dev/null
   id backup-pull >/dev/null 2>&1 && { pkill -u backup-pull 2>/dev/null; userdel backup-pull 2>/dev/null; }
-  rm -rf "$tmp" "$bdir" "$pdir" "$etc" /var/lib/backup-pull
+  rm -rf "$tmp" "$bdir" "$pdir" "$etc" /var/lib/backup-pull "${other:-/var/backups/khong-co-e2e-other}"
 }
 trap cleanup EXIT
 pass=0; fail=0
@@ -66,7 +66,9 @@ check "thu muc keo root:backup-pull 750" test "$(stat -c '%U:%G %a' "$pdir")" = 
 for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do
   check "bo co san truoc setup: $p la lien ket cung, root:backup-pull 640, doc duoc" bash -c "[ '$pdir/$s1$p' -ef '$bdir/$s1$p' ] && [ \"\$(stat -c '%U:%G %a' '$pdir/$s1$p')\" = 'root:backup-pull 640' ] && runuser -u backup-pull -- test -r '$pdir/$s1$p'"
 done
-check "thu muc keo chi co 4 tep (khong co bo plaintext)" test "$(find "$pdir" -mindepth 1 | wc -l)" = 4
+check "thu muc keo chi co 4 tep + dau nhan dien (khong co bo plaintext)" test "$(find "$pdir" -mindepth 1 -not -name .siscom-pull-dir | wc -l)" = 4
+check "dau .siscom-pull-dir root:root 600, ghi dung thu muc sao luu" bash -c "[ \"\$(stat -c '%U:%G %a' '$pdir/.siscom-pull-dir')\" = 'root:root 600' ] && grep -qxF 'source=$bdir' '$pdir/.siscom-pull-dir'"
+check_not "backup-pull KHONG doc duoc dau nhan dien" runuser -u backup-pull -- test -r "$pdir/.siscom-pull-dir"
 check "tep plaintext van root 600" test "$(stat -c '%U:%G %a' "$bdir/$sp.dump")" = "root:root 600"
 check "authorized_keys root:backup-pull 640, -d thu muc keo" bash -c "[ \"\$(stat -c '%U:%G %a' /var/lib/backup-pull/.ssh/authorized_keys)\" = 'root:backup-pull 640' ] && grep -qF -- '-R -d $pdir\"' /var/lib/backup-pull/.ssh/authorized_keys"
 check "mat khau '*'" test "$(getent shadow backup-pull | cut -d: -f2)" = '*'
@@ -83,7 +85,8 @@ for f in "$s3.dump" "$s3.dump.partial" "$s3.dump.age.partial" "$s3.manifest.part
   check_not "PR235-SEC-01: '$f' KHONG vao thu muc keo" test -e "$pdir/$f"
 done
 rm -f "$bdir/$sx".*
-check "thu muc keo chi co 8 tep (2 bo hoan chinh)" test "$(find "$pdir" -mindepth 1 | wc -l)" = 8
+check "thu muc keo chi co 8 tep (2 bo hoan chinh) + dau" test "$(find "$pdir" -mindepth 1 -not -name .siscom-pull-dir | wc -l)" = 8
+check "dau nhan dien khong bi dong bo go" test -f "$pdir/.siscom-pull-dir"
 # tep la bi ai do dat vao thu muc keo => bi go o lan dong bo sau
 echo x > "$pdir/la3.txt"; backup_pull_sync "$bdir"
 check "tep la trong thu muc keo bi go" test ! -e "$pdir/la3.txt"
@@ -153,6 +156,29 @@ rm -f "$bdir/$s2".*; backup_pull_sync "$bdir"
 check "bo da xoa khong con trong thu muc keo" bash -c "! ls '$pdir' | grep -q '$s2'"
 check "bo con lai van con" test -f "$pdir/$s1.dump.age"
 
+echo "== 4c. backup_pull_sync DUOI SANDBOX systemd (ProtectSystem=strict, ReadWritePaths nhu unit that) + thieu thu muc keo =="
+s4="siscom_crm_staging_$(ts '-10 min')"; make_set "$s4"; rm -f "$pdir/$s4".*
+check_not "truoc sync: bo $s4 chua co trong thu muc keo" test -e "$pdir/$s4.dump.age"
+if [ -d /run/systemd/system ] && command -v systemd-run >/dev/null 2>&1; then
+  # Lay ReadWritePaths tu unit THAT (khong tu viet lai); thu muc thu nam duoi /var/backups nen nam trong pham vi ghi duoc cua unit.
+  unit="$lin/systemd/siscom-crm-backup.service"
+  rw="$(sed -n 's/^ReadWritePaths=//p' "$unit")"
+  sd_sync() { systemd-run --quiet --wait --collect --pipe -p ProtectSystem=strict -p PrivateTmp=true -p UMask=0077 -p "ReadWritePaths=$rw" \
+    -p "ReadOnlyPaths=$etc" -E "SISCOM_BACKUP_DIR=$bdir" -E "SISCOM_PULL_DIR=$pdir" -E "SISCOM_ETC=$etc" \
+    bash -c ". '$lin/lib.sh'; backup_pull_sync '$bdir'"; }
+  case "$bdir$pdir" in "$rw"/*"$rw"/*) ok "thu muc thu nam duoi ReadWritePaths cua unit ($rw)" ;; *) bad "thu muc thu khong nam duoi $rw" ;; esac
+  check "systemd-run: backup_pull_sync thoat 0 duoi ProtectSystem=strict" sd_sync
+  for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do
+    check "systemd-run: lien ket cung $p duoc tao trong thu muc keo, backup-pull doc duoc" bash -c "[ '$pdir/$s4$p' -ef '$bdir/$s4$p' ] && runuser -u backup-pull -- test -r '$pdir/$s4$p'"
+  done
+else
+  bad "khong co systemd (PID 1) / systemd-run tren may nay - KHONG kiem duoc sandbox (CI ubuntu-24.04 phai co)"
+fi
+mv "$pdir" "$pdir.gone"
+check_not "da cai backup-pull nhung THIEU thu muc keo => backup_pull_sync thoat != 0 (khong im lang)" backup_pull_sync "$bdir"
+mv "$pdir.gone" "$pdir"
+check "co lai thu muc keo => backup_pull_sync thoat 0" backup_pull_sync "$bdir"
+
 echo "== 5. --remove go sach =="
 check "--remove thoat 0" bash "$lin/setup-backup-pull.sh" --remove
 check_not "user backup-pull da xoa" id backup-pull
@@ -161,6 +187,43 @@ check "tep sao luu tra ve root:root 600" test "$(stat -c '%U:%G %a' "$bdir/$s1.m
 check_not "/var/lib/backup-pull da xoa" test -e /var/lib/backup-pull
 check_not "sftp sau --remove bi tu choi" sftp_b "ls"
 check "thu muc sao luu + bo sao luu van nguyen" test -f "$bdir/$s1.dump.age"
+
+echo "== 6. Thu muc keo CO SAN khong do script tao => tu choi, khong xoa/doi gi (cau hinh nham SISCOM_PULL_DIR) =="
+other="/var/backups/siscom-crm-e2e-other-$$"
+mkdir -p "$other/sub"; echo keep > "$other/app.txt"; echo keep > "$other/sub/deep.txt"; chmod 711 "$other"
+before="$(stat -c '%U:%G %a' "$other")"
+check_not "cai vao thu muc co noi dung la => tu choi" env SISCOM_PULL_DIR="$other" bash "$lin/setup-backup-pull.sh" --pubkey "$tmp/client.pub"
+check_not "go (--remove) thu muc co noi dung la => tu choi" env SISCOM_PULL_DIR="$other" bash "$lin/setup-backup-pull.sh" --remove
+check "thu muc la con nguyen noi dung" bash -c "[ \"\$(cat '$other/app.txt')\" = keep ] && [ \"\$(cat '$other/sub/deep.txt')\" = keep ]"
+check "thu muc la KHONG bi doi chu/quyen" test "$(stat -c '%U:%G %a' "$other")" = "$before"
+check_not "tu choi xay ra truoc khi tao user backup-pull" id backup-pull
+printf 'siscom-pull-dir v1\nsource=/var/backups/mot-noi-khac\n' > "$other/.siscom-pull-dir"
+check_not "dau nhan dien KHAC thu muc sao luu => tu choi" env SISCOM_PULL_DIR="$other" bash "$lin/setup-backup-pull.sh" --pubkey "$tmp/client.pub"
+check "thu muc co dau khac van con nguyen" test -f "$other/app.txt"
+rm -rf "$other"
+mkdir -p "$other"
+check "thu muc co san nhung RONG => nhan, ghi dau" env SISCOM_PULL_DIR="$other" bash "$lin/setup-backup-pull.sh" --pubkey "$tmp/client.pub"
+check "dau ghi dung" grep -qxF "source=$bdir" "$other/.siscom-pull-dir"
+mkdir "$other/la"
+check_not "--remove: gap muc la (thu muc con) => dung, KHONG rm -rf" env SISCOM_PULL_DIR="$other" bash "$lin/setup-backup-pull.sh" --remove
+check "thu muc con la van con" test -d "$other/la"
+rmdir "$other/la"
+check "--remove thu muc keo dung dau => thoat 0" env SISCOM_PULL_DIR="$other" bash "$lin/setup-backup-pull.sh" --remove
+check_not "thu muc keo thu 2 da go (rmdir)" test -e "$other"
+rm -rf "$other"
+
+echo "== 6b. --remove KHONG xoa home/tai khoan khong do script tao =="
+check_not "user backup-pull da go het (diem xuat phat)" id backup-pull
+check_not "home da go het (diem xuat phat)" test -e /var/lib/backup-pull
+check "--remove khi CHUA TUNG cai => thoat 0, khong loi" bash "$lin/setup-backup-pull.sh" --remove
+mkdir -p /var/lib/backup-pull; echo keep > /var/lib/backup-pull/du-lieu-la
+check_not "--remove: home co du lieu la (chua co user) => tu choi" bash "$lin/setup-backup-pull.sh" --remove
+check "du lieu la trong home con nguyen" test "$(cat /var/lib/backup-pull/du-lieu-la)" = keep
+rm -rf /var/lib/backup-pull
+useradd --system --no-create-home --home-dir /srv/khac-e2e --shell /usr/sbin/nologin backup-pull
+check_not "--remove: user backup-pull cua NOI KHAC (home khac) => tu choi" bash "$lin/setup-backup-pull.sh" --remove
+check "user cua noi khac van con" id backup-pull
+userdel backup-pull
 
 echo
 echo "Ket qua: $pass dat, $fail loi."

@@ -24,7 +24,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/lib.sh"
 
 PULL_USER=backup-pull
-PULL_HOME=/var/lib/backup-pull
+PULL_HOME=/var/lib/backup-pull   # HANG SO, khong cho ghi de bang bien moi truong (--remove xoa .ssh/authorized_keys trong do)
 SFTP_SERVER="${SISCOM_SFTP_SERVER:-/usr/lib/openssh/sftp-server}"
 DIR="$SISCOM_BACKUP_DIR"
 PDIR="$SISCOM_PULL_DIR"
@@ -42,13 +42,31 @@ done
 [ -n "$MODE" ] || die "Can --pubkey <file .pub> hoac --remove."
 
 run() { if [ "$DRY" = 1 ]; then printf '[DRY] %s\n' "$*"; else "$@"; fi; }
-safe_path() { [[ "$1" =~ ^/[A-Za-z0-9._/-]+$ ]] && [[ "$1" != *..* ]] && [ "$1" != / ]; }
+# Chi nhan dang CHUAN: tuyet doi, khong '..', khong '//', khong '/./' hay '/.' cuoi, khong '/' cuoi (de so sanh cha/con theo chuoi la dung).
+safe_path() {
+  [[ "$1" =~ ^/[A-Za-z0-9._/-]+$ ]] && [[ "$1" != *..* ]] && [[ "$1" != *//* ]] && [[ "$1" != */./* ]] && [[ "$1" != */. ]] && [[ "$1" != */ ]] && [ "$1" != / ]
+}
 
 # Duong dan nam trong command="..." cua authorized_keys => chi ky tu an toan.
 safe_path "$DIR" || die "TU CHOI: thu muc sao luu '$DIR' phai la duong dan tuyet doi chi gom [A-Za-z0-9._/-]."
 safe_path "$PDIR" || die "TU CHOI: thu muc keo '$PDIR' phai la duong dan tuyet doi chi gom [A-Za-z0-9._/-]."
-[ "${PDIR%/}" != "${DIR%/}" ] && [[ "${PDIR%/}/" != "${DIR%/}/"* ]] || die "TU CHOI: thu muc keo '$PDIR' phai KHAC va KHONG nam trong thu muc sao luu '$DIR'."
+# Khong symlink o BAT KY thanh phan nao (alias qua thu muc cha lam so sanh chuoi sai => --remove rm -rf xoa nham thu muc sao luu goc).
+command -v realpath >/dev/null 2>&1 || die "Thieu lenh realpath (coreutils)."
+for _p in "$DIR" "$PDIR"; do
+  [ "$(realpath -m -- "$_p")" = "$_p" ] || die "TU CHOI: '$_p' di qua symlink / khong phai duong dan that (thuc te: $(realpath -m -- "$_p")). Dung duong dan that."
+done
+# Hai chieu: keo != sao luu, keo KHONG nam trong sao luu, va keo KHONG la cha cua sao luu (--remove/dong bo se rm -rf thu muc keo).
+[ "${PDIR%/}" != "${DIR%/}" ] && [[ "${PDIR%/}/" != "${DIR%/}/"* ]] && [[ "${DIR%/}/" != "${PDIR%/}/"* ]] \
+  || die "TU CHOI: thu muc keo '$PDIR' phai KHAC, KHONG nam trong va KHONG la cha cua thu muc sao luu '$DIR'."
 [[ "$SFTP_SERVER" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "TU CHOI: duong dan sftp-server la: $SFTP_SERVER"
+# Thu muc keo da co: CHI nhan neu (a) co dau $PULL_MARKER khop DUNG thu muc sao luu, hoac (b) dang RONG (chua co gi de mat). Khac => tu choi truoc
+# MOI thay doi (install -d se doi chu/quyen; dong bo/--remove se xoa noi dung ben trong thu muc cua ung dung khac). Chi doc, chay ca khi --dry-run.
+if [ -e "$PDIR" ] || [ -L "$PDIR" ]; then
+  { [ -d "$PDIR" ] && [ ! -L "$PDIR" ]; } || die "TU CHOI: $PDIR da co nhung khong phai thu muc that."
+  if ! pull_marker_ok "$PDIR" "$DIR" && [ -n "$(find "$PDIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+    die "TU CHOI: $PDIR da co noi dung nhung THIEU/KHONG KHOP dau $PULL_MARKER (source=$DIR) - khong phai thu muc keo do script nay tao. Khong cai/go/dong bo. Kiem SISCOM_PULL_DIR."
+  fi
+fi
 if [ "$DRY" = 0 ]; then
   require_root
   require_cmd useradd usermod userdel runuser ln
@@ -56,16 +74,36 @@ fi
 
 if [ "$MODE" = remove ]; then
   info "Go tai khoan $PULL_USER va thu muc keo $PDIR (ban sao luu trong $DIR KHONG bi xoa)"
+  # KIEM TRUOC MOI THAY DOI (chi doc, ca khi --dry-run): tai khoan va home phai la do script nay tao, neu khong => tu choi, khong xoa gi.
+  if id "$PULL_USER" >/dev/null 2>&1; then
+    IFS=: read -r _ _ uid _ _ h _ < <(getent passwd "$PULL_USER")
+    { [ "$h" = "$PULL_HOME" ] && [ "$uid" -lt 1000 ]; } || die "TU CHOI --remove: user $PULL_USER da co nhung khong phai do script nay tao (home=$h uid=$uid, mong doi home=$PULL_HOME uid<1000). Khong xoa gi."
+  fi
+  if [ -e "$PULL_HOME" ] || [ -L "$PULL_HOME" ]; then
+    { [ -d "$PULL_HOME" ] && [ ! -L "$PULL_HOME" ] && [ ! -L "$PULL_HOME/.ssh" ]; } || die "TU CHOI --remove: $PULL_HOME (hoac .ssh) khong phai thu muc that. Khong xoa gi."
+    # Script chi tao DUNG: home/.ssh/authorized_keys. Con muc nao khac (du lieu cua nguoi/ung dung khac) => tu choi.
+    [ -z "$(find "$PULL_HOME" -mindepth 1 ! -path "$PULL_HOME/.ssh" ! -path "$PULL_HOME/.ssh/authorized_keys" -print -quit 2>/dev/null)" ] \
+      || die "TU CHOI --remove: $PULL_HOME co noi dung KHONG do script nay tao (chi duoc co .ssh/authorized_keys). Khong xoa gi; xu ly tay."
+  fi
   if [ -d "$PDIR" ] && [ ! -L "$PDIR" ]; then
-    # Tra quyen tep trong thu muc chinh ve root 600 (lien ket cung chung inode) roi xoa thu muc keo.
-    while IFS= read -r f; do run chown root:root "$PDIR/$f"; run chmod 600 "$PDIR/$f"; done < <(find "$PDIR" -mindepth 1 -maxdepth 1 -type f -printf '%f\n')
-    run rm -rf --one-file-system -- "$PDIR"
+    # Da qua kiem dau/rong o tren. Tra quyen tep trong thu muc chinh ve root 600 (lien ket cung chung inode), bo TUNG lien ket tep thuong,
+    # roi rmdir. KHONG rm -rf: gap thu muc con/symlink/muc la thi rmdir that bai => dung, de Owner xu ly tay.
+    while IFS= read -r f; do
+      [ "$f" = "$PULL_MARKER" ] || { run chown root:root "$PDIR/$f"; run chmod 600 "$PDIR/$f"; }
+      run rm -f -- "$PDIR/$f"
+    done < <(find "$PDIR" -mindepth 1 -maxdepth 1 -type f -printf '%f\n')
+    run rmdir -- "$PDIR" || die "Khong rmdir duoc $PDIR (con muc la khong phai tep thuong). Khong xoa de quy; xu ly tay roi chay lai --remove."
   fi
   if [ "$DRY" = 1 ] || id "$PULL_USER" >/dev/null 2>&1; then
     run pkill -u "$PULL_USER" || true
     run userdel "$PULL_USER"
   fi
-  run rm -rf --one-file-system -- "$PULL_HOME"
+  # Home: chi bo DUNG tep script tao roi rmdir (da kiem o tren khong con gi khac). KHONG rm -rf.
+  if [ -d "$PULL_HOME" ] && [ ! -L "$PULL_HOME" ]; then
+    [ ! -e "$PULL_HOME/.ssh/authorized_keys" ] && [ ! -L "$PULL_HOME/.ssh/authorized_keys" ] || run rm -f -- "$PULL_HOME/.ssh/authorized_keys"
+    [ ! -d "$PULL_HOME/.ssh" ] || run rmdir -- "$PULL_HOME/.ssh" || die "Khong rmdir duoc $PULL_HOME/.ssh."
+    run rmdir -- "$PULL_HOME" || die "Khong rmdir duoc $PULL_HOME (con muc la). Khong xoa de quy; xu ly tay."
+  fi
   info "Da go. Kiem: id $PULL_USER (phai bao khong co); ls -ld $PDIR (khong con)."
   exit 0
 fi
@@ -79,9 +117,12 @@ k="${klines[0]}"
 [[ "$k" =~ ^ssh-ed25519\ (AAAAC3NzaC1lZDI1NTE5[A-Za-z0-9+/]+={0,2})(\ .*)?$ ]] \
   || die "TU CHOI: chi nhan khoa ed25519 dang 'ssh-ed25519 AAAA... [ghi chu]' (khong tuy chon, khong RSA/khoa khac)."
 kb="${BASH_REMATCH[1]}"
-printf 'ssh-ed25519 %s\n' "$kb" > "${TMPDIR:-/tmp}/bp.$$.pub"
-fp="$(ssh-keygen -l -f "${TMPDIR:-/tmp}/bp.$$.pub" 2>/dev/null | awk '{print $2}')" || true
-rm -f "${TMPDIR:-/tmp}/bp.$$.pub"
+# Tep tam do mktemp tao (0600, ten ngau nhien, O_EXCL): khong di theo symlink dat truoc; trap don ca khi die/Ctrl-C.
+tmpf="$(mktemp)" || die "Khong tao duoc tep tam."
+trap 'rm -f -- "$tmpf"' EXIT
+printf 'ssh-ed25519 %s\n' "$kb" > "$tmpf"
+fp="$(ssh-keygen -l -f "$tmpf" 2>/dev/null | awk '{print $2}')" || true
+rm -f -- "$tmpf"
 [[ "$fp" =~ ^SHA256: ]] || die "TU CHOI: ssh-keygen khong doc duoc khoa trong $PUBKEY."
 line="restrict,command=\"$SFTP_SERVER -R -d $PDIR\" ssh-ed25519 $kb siscom-backup-pull"
 
@@ -111,9 +152,18 @@ else
   install -m 640 -o root -g "$PULL_USER" "$tmpk" "$PULL_HOME/.ssh/authorized_keys"; rm -f "$tmpk"
 fi
 run install -d -m 750 -o root -g "$PULL_USER" "$PDIR"
+# Dau nhan dien (root:root 600; backup-pull khong doc duoc) - ghi SAU khi thu muc da qua kiem o tren.
+if [ "$DRY" = 1 ]; then
+  printf '[DRY] ghi %s/%s (root:root 600): source=%s\n' "$PDIR" "$PULL_MARKER" "$DIR"
+else
+  tmpf="$(mktemp)" || die "Khong tao duoc tep tam."
+  pull_marker_text "$DIR" > "$tmpf"
+  install -m 600 -o root -g root "$tmpf" "$PDIR/$PULL_MARKER"; rm -f -- "$tmpf"
+fi
 
 # Bo MA HOA HOAN CHINH dang co (du 4 tep, khong trung stem .dump) => lien ket cung sang thu muc keo.
-mapfile -t stems < <(pull_complete_stems "$DIR")
+stems_out="$(pull_complete_stems "$DIR")" || die "Khong liet ke duoc cac bo sao luu trong $DIR (find that bai)."
+stems=(); [ -z "$stems_out" ] || mapfile -t stems <<<"$stems_out"
 if [ "$DRY" = 1 ]; then
   for st in "${stems[@]}"; do printf '[DRY] lien ket cung %s/%s.{dump.age,dump.age.sha256,manifest,manifest.sig} -> %s (root:%s 640)\n' "$DIR" "$st" "$PDIR" "$PULL_USER"; done
 else

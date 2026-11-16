@@ -155,6 +155,28 @@ try {
   Check ($out -match 'DO DANG tren Drive') 'log bao bo do dang'
   Check (Set-Ok $s2) 'bo hop le khac van vao Drive'
 
+  Write-Host '== 4g. Drive con bo do dang, nguon da xoa CA bo (retention), co bo moi hop le khac => thoat 1 =='
+  Reset-Env 'r4g'
+  $s = New-Set 'siscom_crm_staging' $now.AddHours(-30)
+  New-Item -ItemType Directory -Force -Path $stg | Out-Null
+  Copy-Item -LiteralPath (Join-Path $src "$s.dump.age") -Destination $stg
+  Get-ChildItem -LiteralPath $src -File | Where-Object { $_.Name.StartsWith($s) } | Remove-Item -Force
+  $s2 = New-Set 'siscom_crm_staging' $now.AddMinutes(-5)
+  $rc = Pull
+  Check ($rc -eq 1) "bo do dang tren Drive khong con nguon => thoat 1 (rc=$rc)"
+  Check ($out -match "Bo $s tren Drive CHUA DU") 'log chi ro bo do dang khong hoan thien duoc'
+  Check (Set-Ok $s2) 'bo hop le moi van vao Drive'
+
+  Write-Host '== 4h. Khong ghi duoc tep log (pull-backups.log la thu muc) => khong nuot im lang, thoat 1, van keo dung =='
+  Reset-Env 'r4h'
+  New-Item -ItemType Directory -Force -Path (Join-Path $work 'pull-backups.log') | Out-Null
+  $s = New-Set 'siscom_crm_staging' $now.AddMinutes(-10)
+  $rc = Pull
+  Check ($rc -eq 1) "log khong ghi duoc => thoat 1 (rc=$rc)"
+  Check ($out -match 'Khong ghi duoc log') 'man hinh bao ro khong ghi duoc log'
+  Check ((([regex]::Matches($out, 'Khong ghi duoc log')).Count) -eq 1) 'chi bao 1 lan (khong lap theo tung dong log)'
+  Check (Set-Ok $s) 'viec keo bo hop le van hoan tat'
+
   Write-Host '== 5. Thieu allowed_signers / thu muc Drive => thoat 1, khong tai gi =='
   Remove-Item -LiteralPath (Join-Path $drive 'backup-signing.allowed_signers') -Force
   $null = New-Set 'siscom_crm_staging' $now.AddMinutes(-5)

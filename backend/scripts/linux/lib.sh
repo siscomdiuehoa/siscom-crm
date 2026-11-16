@@ -203,22 +203,42 @@ pull_set_complete() {
   [ ! -e "$d/$st.dump" ] && [ ! -L "$d/$st.dump" ]
 }
 # pull_complete_stems <thu muc>: in stem cua cac bo ma hoa hoan chinh (sap xep).
+# Thu muc khong ton tai => rong (0). find LOI (quyen/I-O) => != 0 + canh bao (KHONG bien thanh "khong co bo nao": caller phai biet de khong bao thanh cong).
 pull_complete_stems() {
-  local d="$1" f
+  local d="$1" f lst
+  [ -d "$d" ] || return 0
+  lst="$(find "$d" -maxdepth 1 -type f -printf '%f\n')" || { warn "Khong liet ke duoc $d (find that bai)."; return 1; }
   while IFS= read -r f; do
     [[ "$f" =~ ^(siscom_crm_(staging|prod)_[0-9]{8}_[0-9]{6})\.dump\.age$ ]] || continue
     pull_set_complete "$d" "${BASH_REMATCH[1]}" && printf '%s\n' "${BASH_REMATCH[1]}"
-  done < <(find "$d" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort)
+  done < <(printf '%s\n' "$lst" | sort)
   return 0
 }
+# Dau nhan dien: thu muc keo CHI duoc dong bo/go khi co tep dau do setup-backup-pull.sh tao, ghi dung duong dan thu muc sao luu. Chong cau hinh
+# nham SISCOM_PULL_DIR tro vao thu muc cua ung dung khac (root se xoa/doi quyen noi dung ben trong).
+PULL_MARKER=.siscom-pull-dir
+pull_marker_text() { printf 'siscom-pull-dir v1\nsource=%s\n' "$1"; }
+# pull_marker_ok <thu muc keo> <thu muc sao luu>: dau ton tai (tep that, khong symlink) va khop DUNG thu muc sao luu.
+pull_marker_ok() {
+  local m="$1/$PULL_MARKER"
+  { [ -f "$m" ] && [ ! -L "$m" ]; } || return 1
+  [ "$(cat -- "$m" 2>/dev/null)" = "$(pull_marker_text "$2")" ]
+}
 # backup_pull_sync <thu muc sao luu>: chua cai backup-pull (user + $SISCOM_PULL_DIR) => khong lam gi (0). Da cai => lien ket cung bo hoan chinh
-# chua co; go moi muc trong $SISCOM_PULL_DIR khong con la lien ket cua tep trong thu muc chinh (bo da bi retention xoa, tep la). Loi => != 0.
+# chua co; go moi TEP trong $SISCOM_PULL_DIR khong con la lien ket cua tep trong thu muc chinh (bo da bi retention xoa, tep la). Thu muc/symlink la
+# => LOI (khong rm -rf mu). Thieu/khong khop dau nhan dien => LOI. Loi => != 0.
 backup_pull_sync() {
-  local src="$1" dst="$SISCOM_PULL_DIR" st p f
+  local src="$1" dst="$SISCOM_PULL_DIR" st p f stems names
   id backup-pull >/dev/null 2>&1 || return 0
-  [ -e "$dst" ] || [ -L "$dst" ] || return 0
+  # Da cai user nhung thieu thu muc keo (bi xoa / khong thay trong namespace cua service) => LOI, khong im lang (may Owner se khong keo duoc).
+  [ -e "$dst" ] || [ -L "$dst" ] || { warn "Da co user backup-pull nhung thieu thu muc keo $dst (chay lai setup-backup-pull.sh; neu chay duoi systemd: kiem ReadWritePaths)."; return 1; }
   { [ -d "$dst" ] && [ ! -L "$dst" ]; } || { warn "$dst khong phai thu muc that."; return 1; }
+  pull_marker_ok "$dst" "$src" || { warn "TU CHOI dong bo: $dst thieu/khong khop dau $PULL_MARKER (source=$src) - khong phai thu muc keo do setup-backup-pull.sh tao; khong dong vao noi dung."; return 1; }
+  [ -d "$src" ] || { warn "Thu muc sao luu $src khong ton tai."; return 1; }
+  # Liet ke co kiem ma thoat (khong dung process substitution: loi find bi nuot => danh sach rong => 'thanh cong' gia).
+  stems="$(pull_complete_stems "$src")" || return 1
   while IFS= read -r st; do
+    [ -n "$st" ] || continue
     for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do
       if [ -e "$dst/$st$p" ] || [ -L "$dst/$st$p" ]; then
         [ "$dst/$st$p" -ef "$src/$st$p" ] || { warn "$dst/$st$p da co nhung khong phai lien ket cua ban trong $src."; return 1; }
@@ -226,11 +246,16 @@ backup_pull_sync() {
         chown root:backup-pull "$src/$st$p" && chmod 640 "$src/$st$p" && ln "$src/$st$p" "$dst/$st$p" || { warn "Khong lien ket duoc $st$p sang $dst."; return 1; }
       fi
     done
-  done < <(pull_complete_stems "$src")
+  done <<<"$stems"
+  names="$(find "$dst" -mindepth 1 -maxdepth 1 -printf '%f\n')" || { warn "Khong liet ke duoc $dst (find that bai) - khong dong bo/don duoc."; return 1; }
   while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ "$f" = "$PULL_MARKER" ] && continue
     if [ -f "$src/$f" ] && [ ! -L "$dst/$f" ] && [ "$dst/$f" -ef "$src/$f" ]; then continue; fi
-    rm -rf --one-file-system -- "${dst:?}/$f" || return 1
-  done < <(find "$dst" -mindepth 1 -maxdepth 1 -printf '%f\n')
+    # Chi go TEP THUONG khong con la lien ket cua tep nguon (bo bi retention xoa, tep la). Thu muc/symlink/muc la => dung, KHONG rm -rf.
+    if [ -f "$dst/$f" ] && [ ! -L "$dst/$f" ]; then rm -f -- "${dst:?}/$f" || return 1
+    else warn "Muc la '$f' (khong phai tep thuong) trong $dst - khong tu xoa; xu ly tay."; return 1; fi
+  done <<<"$names"
   return 0
 }
 

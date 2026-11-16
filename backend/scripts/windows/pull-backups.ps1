@@ -33,7 +33,14 @@ $ns = 'siscom-crm-backup'
 function Write-Log([string]$level, [string]$msg) {
   $line = ('{0} [{1}] {2}' -f (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'), $level, $msg)
   Write-Host $line
-  try { [System.IO.File]::AppendAllText((Join-Path $WorkDir 'pull-backups.log'), $line + [Environment]::NewLine) } catch { }
+  # WorkDir duoc tao sau vai dong log dau (lan chay dau) => chua co thi bo qua tep log. Da co ma KHONG ghi duoc log (Task Scheduler khong co man hinh) =>
+  # bao ngay 1 lan tren man hinh va tinh la LOI (thoat 1), khong nuot im lang.
+  if (Test-Path -LiteralPath $WorkDir -PathType Container) {
+    try { [System.IO.File]::AppendAllText((Join-Path $WorkDir 'pull-backups.log'), $line + [Environment]::NewLine) }
+    catch {
+      if (-not $script:logFailed) { $script:logFailed = $true; $script:errors++; Write-Host ('{0} [LOI] Khong ghi duoc log {1}: {2}' -f (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'), (Join-Path $WorkDir 'pull-backups.log'), $_.Exception.Message) }
+    }
+  }
   if ($level -eq 'LOI') { $script:errors++ }
 }
 function Find-Tool([string]$name) {
@@ -62,11 +69,14 @@ function Invoke-Native([string]$exe, [string]$argString, [string]$stdinFile = ''
   $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.RedirectStandardInput = $true
   $p = [System.Diagnostics.Process]::Start($psi)
   $to = $p.StandardOutput.ReadToEndAsync(); $te = $p.StandardError.ReadToEndAsync()
+  $werr = ''
   try {
     if ($stdinFile) { $b = [System.IO.File]::ReadAllBytes($stdinFile); $p.StandardInput.BaseStream.Write($b, 0, $b.Length); $p.StandardInput.BaseStream.Flush() }
-  } catch { } finally { $p.StandardInput.BaseStream.Close() }   # KHONG dung StandardInput.Close(): StreamWriter co the ghi them BOM
+  } catch { $werr = $_.Exception.Message } finally { try { $p.StandardInput.BaseStream.Close() } catch { if (-not $werr) { $werr = $_.Exception.Message } } }   # KHONG dung StandardInput.Close(): StreamWriter co the ghi them BOM
   $p.WaitForExit()
-  return [pscustomobject]@{ Code = $p.ExitCode; Out = $to.Result; Err = $te.Result }
+  # Loi ghi stdin KHONG bi nuot: ghep vao Err (lenh vi vay van that bai dong - thieu byte thi chu ky khong dat - nhung log neu ro ly do).
+  $errText = $te.Result; if ($werr) { $errText = ('{0} [ghi stdin that bai: {1}]' -f $errText, $werr) }
+  return [pscustomobject]@{ Code = $p.ExitCode; Out = $to.Result; Err = $errText }
 }
 function Q([string]$s) { return '"' + $s + '"' }
 
@@ -183,6 +193,12 @@ try {
 
   # --- 3. Do moi: theo bo HOAN CHINH, DA XAC MINH, CO TREN DRIVE moi nhat (khong theo bo dang tao tren nguon) ---
   $driveStems = @(Get-ChildItem -LiteralPath $staging -File | ForEach-Object { if ($_.Name -match $fileRe) { $Matches[1] } } | Sort-Object -Unique -Descending)
+  # Moi bo DO DANG con tren Drive (khong du 4 tep) o day deu la bo khong hoan thien duoc (vong tai o tren da hoan thien moi bo con nguon) => LOI.
+  # Quet het (khong dung o bo hop le dau tien): bo do dang CU HON bo tot moi nhat (vd retention da xoa ca bo o nguon) khong duoc bi che.
+  foreach ($s in $driveStems) {
+    $have = @(Get-DriveParts $s)
+    if ($have.Count -ne $parts.Count) { Write-Log 'LOI' ("Bo {0} tren Drive CHUA DU ({1}/{2} tep: {3}) va khong hoan thien duoc - xu ly tay." -f $s, $have.Count, $parts.Count, ($have -join ', ')) }
+  }
   $good = $null
   foreach ($s in $driveStems) {
     if (@(Get-DriveParts $s).Count -ne $parts.Count) { continue }
