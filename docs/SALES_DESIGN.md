@@ -70,7 +70,7 @@ Không còn câu hỏi nghiệp vụ nào chờ Owner. Ba điểm kỹ thuật s
 | Mã | Điểm kỹ thuật | Đề xuất | Chặn |
 |---|---|---|---|
 | **T1** | "Có quyền đảm nhận cơ hội" (O3) nghĩa là gì khi người nhận chưa có cơ hội đó | Người nhận có **vai trò mang quyền `opportunity.update` ở bất kỳ phạm vi nào** (Kinh doanh, Quản trị CRM). Quyền theo từng cơ hội (OWN) phát sinh sau khi `owner_id` đổi. Kỹ thuật, Kế toán, Quản trị hệ thống không đủ quyền | S5 |
-| **T2** | Ràng buộc "Thi công / Cung cấp và thi công ⇒ bắt buộc gắn dự án" (O4) nằm ở đâu | CHECK ở DB chỉ làm được phần "gắn dự án ⇒ có tên dự án và phạm vi chào" (CHECK không tham chiếu bảng danh mục). Phần "loại ⇒ gắn dự án" làm ở service + kiểm thử, kèm trigger nếu ChatGPT thấy cần | S2, S7 |
+| **T2** | Ràng buộc "Thi công / Cung cấp và thi công ⇒ bắt buộc gắn dự án" (O4) nằm ở đâu | CHECK ở DB chỉ làm được phần "gắn dự án ⇒ có tên dự án và phạm vi chào" (CHECK không tham chiếu bảng danh mục). Phần "loại ⇒ gắn dự án" làm ở service + kiểm thử. **Đã chốt (review PR #237 R1, 16/11/2026): service S7, không trigger** — cùng với "từ Báo giá trở đi phải có giá trị" và "rời Tiếp cận phải có nhu cầu" (mục 4.1, R-S1..R-S3) | S2, S7 |
 | **T3** | Mở rộng lĩnh vực sau này | Không lưu lĩnh vực đợt này; khi có lĩnh vực thứ hai: thêm bảng danh mục + cột/bảng nối cộng thêm, gán HVAC cho dữ liệu cũ bằng một câu lệnh có kiểm đếm (mục 11) | Sau Sales |
 
 ## 3. Phạm vi
@@ -111,7 +111,12 @@ opportunity_change      (chỉ thêm; không sửa, không xoá)
 
 activity   + opportunity_id → opportunity NULL    (hoạt động cũ để NULL; cùng khách với cơ hội)
 ```
-CHECK ở mức DB: nhất quán `status` với trường bắt buộc (ON_HOLD cần `hold_until`; WON cần đủ trường chứng từ và `won_amount_vnd`; LOST cần `lost_reason_id`); `expected_amount_vnd` không âm; `is_project_linked` ⇒ `project_name` và `offer_scope` không rỗng (sau khi bỏ khoảng trắng đầu/cuối); phần "loại Thi công hoặc Cung cấp và thi công ⇒ `is_project_linked`" kiểm ở service + kiểm thử (CHECK không tham chiếu được bảng danh mục, xem T2); khi `stage` từ Báo giá trở lên mà `status = OPEN` thì `expected_amount_vnd IS NOT NULL`; `probability` trong 0..100.
+CHECK ở mức DB: nhất quán `status` với trường bắt buộc (ON_HOLD cần `hold_until`; WON cần đủ trường chứng từ và `won_amount_vnd`; LOST cần `lost_reason_id`); `expected_amount_vnd` không âm; `is_project_linked` ⇒ `project_name` và `offer_scope` không rỗng (sau khi bỏ khoảng trắng đầu/cuối); `probability` trong 0..100. Người liên hệ cùng khách với cơ hội: khoá ngoại ghép `(contact_id, contact_customer_id) → contact(id, customer_id)` (đúng cả khi ghi đồng thời — PR #237 R1).
+
+**Quy tắc phụ thuộc mã danh mục — kiểm ở service (S7), KHÔNG ở DB** (chốt ở review PR #237 R1, 16/11/2026: CHECK không tham chiếu được `lookup_item`, mã danh mục do lệnh seed S4 nạp; không thêm trigger đọc mã danh mục). Áp dụng cho **mọi đường ghi** (tạo, sửa, đổi giai đoạn, đổi loại, gắn/bỏ gắn dự án, tạm hoãn, mở lại) và kiểm trên **trạng thái SAU khi cập nhật** (giá trị mới gộp với giá trị đang có), không chỉ trên trường được gửi lên; vi phạm ⇒ 400 với lỗi theo trường, không ghi gì. Có kiểm thử API cho từng quy tắc và từng đường ghi:
+- R-S1: giai đoạn **từ Báo giá trở đi** (Báo giá, Đàm phán) **và** `status = OPEN` ⇒ `expected_amount_vnd` bắt buộc (không áp dụng khi ON_HOLD/WON/LOST — mở lại về OPEN ở giai đoạn đó thì lại bắt buộc).
+- R-S2: giai đoạn **khác Tiếp cận** ⇒ `need_summary` bắt buộc (không rỗng).
+- R-S3: loại **Thi công** hoặc **Cung cấp và thi công** ⇒ `is_project_linked = true` (kéo theo bắt buộc `project_name` + `offer_scope` qua CHECK `ck_opp_project`); đổi loại sang một trong hai loại này mà chưa gắn dự án ⇒ từ chối; tắt gắn dự án khi loại là một trong hai ⇒ từ chối.
 `customer.revenue_vnd` (số ước tính cũ) **không** tự cập nhật từ cơ hội: tránh hai nguồn doanh thu. Đợt này chưa có cột giá vốn, lợi nhuận, chiết khấu. `opportunity_change.reason` ≤ 500 ký tự và được che trong audit chung như các lý do khác.
 Bảng `quote` (gói Báo giá) sẽ trỏ **tới** `opportunity`; `opportunity` không trỏ ngược.
 
