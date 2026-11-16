@@ -1,0 +1,130 @@
+-- SISCOM CRM - Sales S2 (20261117000000_sales_opportunity): KIEM CAU TRUC / RANG BUOC / TRIGGER / CHI MUC o tang DB.
+-- Dich: backend\docs\SALES_S2_STRUCTURE_TESTS.sql.txt (duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI CHAY TREN BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) bang CHU SO HUU BANG (siscom_migrator sau tach role).
+-- Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu; sequence ma CH-/KH-/NV-/TT- van tang - chap nhan).
+-- Pham vi: docs/SALES_DESIGN.md §4.1 (CHECK, trigger cung khach / danh muc / ma co dinh / lich su chi them, activity.opportunity_id) + quyen siscom_app
+--   TRUOC S3 (chi SELECT theo quyen mac dinh V4; quyen ghi = V5 o S3).
+-- In "PASS|n" va (neu co) "FAIL|n". Ky vong: khong co FAIL.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF to_regclass('public.opportunity') IS NULL THEN RAISE EXCEPTION 'Chua ap migration 20261117000000_sales_opportunity.'; END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text) ON COMMIT DROP;
+CREATE FUNCTION pg_temp.expect_err(p_label text, p_sql text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+    RAISE EXCEPTION 's2_undo' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN raise_exception THEN INSERT INTO res VALUES (false, p_label || CASE WHEN SQLERRM = 's2_undo' THEN ' [CHAY DUOC]' ELSE ' [' || SQLERRM || ']' END);
+    WHEN OTHERS THEN INSERT INTO res VALUES (SQLSTATE = p_state, p_label || CASE WHEN SQLSTATE = p_state THEN '' ELSE ' [' || SQLSTATE || ' thay vi ' || p_state || ']' END);
+  END;
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_sql text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v boolean;
+BEGIN
+  EXECUTE 'SELECT (' || p_sql || ')' INTO v;
+  INSERT INTO res VALUES (coalesce(v, false), p_label);
+EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQLSTATE || ']');
+END $$;
+
+-- Du lieu thu (tong hop, is_demo). Danh muc Sales THU (ZZ_*) - danh muc that do S4 nap.
+INSERT INTO lookup_item (id, type, code, label_vi, is_active) VALUES
+ ('5a000000-0000-4000-8000-000000000011', 'customer_tier',           'ZZ_S2_TIER',    'S2 hang thu', true),
+ ('5a000000-0000-4000-8000-000000000012', 'customer_status',         'ZZ_S2_STATUS',  'S2 trang thai thu', true),
+ ('5a000000-0000-4000-8000-000000000013', 'opportunity_type',        'ZZ_S2_TYPE',    'S2 loai thu', true),
+ ('5a000000-0000-4000-8000-000000000014', 'opportunity_stage',       'ZZ_S2_STAGE1',  'S2 giai doan 1', true),
+ ('5a000000-0000-4000-8000-000000000015', 'opportunity_stage',       'ZZ_S2_STAGE2',  'S2 giai doan 2', true),
+ ('5a000000-0000-4000-8000-000000000016', 'opportunity_lost_reason', 'ZZ_S2_LOST',    'S2 ly do thua', true),
+ ('5a000000-0000-4000-8000-000000000017', 'opportunity_stage',       'ZZ_S2_STAGE_X', 'S2 giai doan da an', false);
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('5a000000-0000-4000-8000-000000000021', 'S2 NV 1', 's2.nv1@example.invalid', 'ACTIVE', true),
+ ('5a000000-0000-4000-8000-000000000022', 'S2 NV 2', 's2.nv2@example.invalid', 'ACTIVE', true);
+INSERT INTO customer (id, name, phone, tier_id, status_id, is_demo) VALUES
+ ('5a000000-0000-4000-8000-000000000031', 'S2 Khach 1', '0905000001', '5a000000-0000-4000-8000-000000000011', '5a000000-0000-4000-8000-000000000012', true),
+ ('5a000000-0000-4000-8000-000000000032', 'S2 Khach 2', '0905000002', '5a000000-0000-4000-8000-000000000011', '5a000000-0000-4000-8000-000000000012', true);
+INSERT INTO contact (id, customer_id, full_name, phone, is_demo) VALUES
+ ('5a000000-0000-4000-8000-000000000041', '5a000000-0000-4000-8000-000000000031', 'S2 Lien he K1', '0905000011', true),
+ ('5a000000-0000-4000-8000-000000000042', '5a000000-0000-4000-8000-000000000032', 'S2 Lien he K2', '0905000012', true);
+-- Hoat dong kieu cu (chi cot truoc S2) => tuong thich nguoc
+INSERT INTO activity (id, customer_id, type, occurred_at, content, performed_by, is_demo) VALUES
+ ('5a000000-0000-4000-8000-000000000051', '5a000000-0000-4000-8000-000000000031', 'CALL', now() - interval '1 day', 'S2 cuoc goi cu', '5a000000-0000-4000-8000-000000000021', true);
+-- Co hoi hop le toi thieu (khong gan du an)
+INSERT INTO opportunity (id, customer_id, title, type_id, stage_id, owner_id, is_demo) VALUES
+ ('5a000000-0000-4000-8000-000000000061', '5a000000-0000-4000-8000-000000000031', 'S2 co hoi 1', '5a000000-0000-4000-8000-000000000013', '5a000000-0000-4000-8000-000000000014', '5a000000-0000-4000-8000-000000000021', true);
+
+-- 1. Cau truc + mac dinh + tuong thich nguoc
+SELECT pg_temp.expect_true('S01 3 enum: opportunity_status 4, won_doc_type 2, change_field 7 gia tri', $q$ (SELECT count(*) = 4 FROM pg_enum WHERE enumtypid = 'public.opportunity_status'::regtype) AND (SELECT count(*) = 2 FROM pg_enum WHERE enumtypid = 'public.opportunity_won_doc_type'::regtype) AND (SELECT count(*) = 7 FROM pg_enum WHERE enumtypid = 'public.opportunity_change_field'::regtype) $q$);
+SELECT pg_temp.expect_true('S02 co hoi toi thieu: ma CH-NNNN, status OPEN, version 1, xac suat 0, khong gan du an, closed_at NULL', $q$ (SELECT code ~ '^CH-[0-9]{4,}$' AND status = 'OPEN' AND version = 1 AND probability = 0 AND NOT probability_overridden AND NOT is_project_linked AND closed_at IS NULL FROM opportunity WHERE id = '5a000000-0000-4000-8000-000000000061') $q$);
+SELECT pg_temp.expect_true('S03 hoat dong cu: opportunity_id NULL (cot moi NULL, khong UPDATE hang loat)', $q$ (SELECT opportunity_id IS NULL FROM activity WHERE id = '5a000000-0000-4000-8000-000000000051') $q$);
+SELECT pg_temp.expect_true('S04 chi muc: opportunity_code_key (unique), customer_id, owner_id+status, stage_id, contact_id, deleted_at; activity_opportunity_id_idx; opportunity_change(opportunity_id, changed_at)', $q$ to_regclass('public.opportunity_code_key') IS NOT NULL AND to_regclass('public.opportunity_customer_id_idx') IS NOT NULL AND to_regclass('public.opportunity_owner_id_status_idx') IS NOT NULL AND to_regclass('public.opportunity_stage_id_idx') IS NOT NULL AND to_regclass('public.opportunity_contact_id_idx') IS NOT NULL AND to_regclass('public.opportunity_deleted_at_idx') IS NOT NULL AND to_regclass('public.activity_opportunity_id_idx') IS NOT NULL AND to_regclass('public.opportunity_change_opportunity_id_changed_at_idx') IS NOT NULL AND to_regclass('public.contact_id_customer_id_key') IS NOT NULL $q$);
+
+-- 2. CHECK (23514)
+SELECT pg_temp.expect_err('S05 tieu de chi khoang trang bi tu choi', $q$ INSERT INTO opportunity (customer_id, title, type_id, stage_id, owner_id) VALUES ('5a000000-0000-4000-8000-000000000031', '   ', '5a000000-0000-4000-8000-000000000013', '5a000000-0000-4000-8000-000000000014', '5a000000-0000-4000-8000-000000000021') $q$, '23514');
+SELECT pg_temp.expect_err('S06 gan du an ma thieu ten du an bi tu choi', $q$ INSERT INTO opportunity (customer_id, title, type_id, stage_id, owner_id, is_project_linked, offer_scope) VALUES ('5a000000-0000-4000-8000-000000000031', 'S2 du an', '5a000000-0000-4000-8000-000000000013', '5a000000-0000-4000-8000-000000000014', '5a000000-0000-4000-8000-000000000021', true, 'Cung cap 120 FCU') $q$, '23514');
+SELECT pg_temp.expect_err('S07 gan du an ma pham vi chao chi khoang trang bi tu choi', $q$ INSERT INTO opportunity (customer_id, title, type_id, stage_id, owner_id, is_project_linked, project_name, offer_scope) VALUES ('5a000000-0000-4000-8000-000000000031', 'S2 du an', '5a000000-0000-4000-8000-000000000013', '5a000000-0000-4000-8000-000000000014', '5a000000-0000-4000-8000-000000000021', true, 'Toa nha A', '  ') $q$, '23514');
+SELECT pg_temp.expect_err('S08 gia tri du kien am bi tu choi', $q$ UPDATE opportunity SET expected_amount_vnd = -1 WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23514');
+SELECT pg_temp.expect_err('S09 xac suat 101 bi tu choi', $q$ UPDATE opportunity SET probability = 101 WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23514');
+SELECT pg_temp.expect_err('S10 ON_HOLD thieu hold_until/hold_reason bi tu choi', $q$ UPDATE opportunity SET status = 'ON_HOLD' WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23514');
+SELECT pg_temp.expect_err('S11 WON thieu chung tu bi tu choi (chi co closed_at)', $q$ UPDATE opportunity SET status = 'WON', closed_at = now(), won_amount_vnd = 100 WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23514');
+SELECT pg_temp.expect_err('S12 duong dan chung tu khong phai https:// bi tu choi', $q$ UPDATE opportunity SET won_doc_url = 'javascript:alert(1)' WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23514');
+SELECT pg_temp.expect_err('S13 LOST thieu ly do bi tu choi', $q$ UPDATE opportunity SET status = 'LOST', closed_at = now() WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23514');
+SELECT pg_temp.expect_err('S14 WON/LOST bat buoc closed_at (va OPEN khong duoc co closed_at)', $q$ UPDATE opportunity SET closed_at = now() WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23514');
+SELECT pg_temp.expect_err('S15 xoa mem thieu ly do bi tu choi', $q$ UPDATE opportunity SET deleted_at = now(), deleted_by = '5a000000-0000-4000-8000-000000000021' WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23514');
+SELECT pg_temp.expect_err('S16 ma sai dinh dang bi tu choi', $q$ INSERT INTO opportunity (code, customer_id, title, type_id, stage_id, owner_id) VALUES ('KH-0001', '5a000000-0000-4000-8000-000000000031', 'S2 ma sai', '5a000000-0000-4000-8000-000000000013', '5a000000-0000-4000-8000-000000000014', '5a000000-0000-4000-8000-000000000021') $q$, '23514');
+-- Trang thai hop le: gan du an day du; ON_HOLD day du; WON day du; LOST co ly do
+INSERT INTO opportunity (id, customer_id, contact_id, title, type_id, stage_id, owner_id, is_project_linked, project_name, offer_scope, expected_amount_vnd, probability, is_demo) VALUES
+ ('5a000000-0000-4000-8000-000000000062', '5a000000-0000-4000-8000-000000000031', '5a000000-0000-4000-8000-000000000041', 'S2 du an A', '5a000000-0000-4000-8000-000000000013', '5a000000-0000-4000-8000-000000000015', '5a000000-0000-4000-8000-000000000021', true, 'Toa nha A', 'Cung cap 120 FCU', 2500000000, 45, true);
+UPDATE opportunity SET status = 'ON_HOLD', hold_until = current_date + 30, hold_reason = 'Khach hoan ngan sach' WHERE id = '5a000000-0000-4000-8000-000000000062';
+SELECT pg_temp.expect_true('S17 ON_HOLD day du (hold_until + ly do) duoc', $q$ (SELECT status = 'ON_HOLD' FROM opportunity WHERE id = '5a000000-0000-4000-8000-000000000062') $q$);
+UPDATE opportunity SET status = 'WON', closed_at = now(), won_amount_vnd = 2400000000, won_doc_type = 'HOP_DONG', won_doc_no = 'HD-01/2026', won_doc_date = current_date, won_doc_url = 'https://drive.google.com/file/d/abc' WHERE id = '5a000000-0000-4000-8000-000000000062';
+SELECT pg_temp.expect_true('S18 WON day du chung tu + closed_at duoc', $q$ (SELECT status = 'WON' AND closed_at IS NOT NULL FROM opportunity WHERE id = '5a000000-0000-4000-8000-000000000062') $q$);
+SELECT pg_temp.expect_err('S19 WON -> OPEN ma van con closed_at bi tu choi (mo lai phai xoa closed_at)', $q$ UPDATE opportunity SET status = 'OPEN' WHERE id = '5a000000-0000-4000-8000-000000000062' $q$, '23514');
+UPDATE opportunity SET status = 'LOST', closed_at = now(), lost_reason_id = '5a000000-0000-4000-8000-000000000016', lost_note = 'Gia cao' WHERE id = '5a000000-0000-4000-8000-000000000061';
+SELECT pg_temp.expect_true('S20 LOST co ly do + closed_at duoc', $q$ (SELECT status = 'LOST' FROM opportunity WHERE id = '5a000000-0000-4000-8000-000000000061') $q$);
+
+-- 3. Trigger danh muc (23503: fn_assert_lookup dung foreign_key_violation)
+SELECT pg_temp.expect_err('S21 type_id tro toi danh muc KHAC loai (customer_tier) bi tu choi', $q$ INSERT INTO opportunity (customer_id, title, type_id, stage_id, owner_id) VALUES ('5a000000-0000-4000-8000-000000000031', 'S2 sai loai', '5a000000-0000-4000-8000-000000000011', '5a000000-0000-4000-8000-000000000014', '5a000000-0000-4000-8000-000000000021') $q$, '23503');
+SELECT pg_temp.expect_err('S22 stage_id la giai doan DA AN (is_active=false) bi tu choi khi gan moi', $q$ INSERT INTO opportunity (customer_id, title, type_id, stage_id, owner_id) VALUES ('5a000000-0000-4000-8000-000000000031', 'S2 giai doan an', '5a000000-0000-4000-8000-000000000013', '5a000000-0000-4000-8000-000000000017', '5a000000-0000-4000-8000-000000000021') $q$, '23503');
+SELECT pg_temp.expect_err('S23 lost_reason_id tro toi giai doan (sai loai) bi tu choi', $q$ UPDATE opportunity SET lost_reason_id = '5a000000-0000-4000-8000-000000000014' WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23503');
+
+-- 4. Trigger cung khach / co dinh
+SELECT pg_temp.expect_err('S24 lien he cua khach KHAC bi tu choi', $q$ INSERT INTO opportunity (customer_id, contact_id, title, type_id, stage_id, owner_id) VALUES ('5a000000-0000-4000-8000-000000000031', '5a000000-0000-4000-8000-000000000042', 'S2 lien he sai', '5a000000-0000-4000-8000-000000000013', '5a000000-0000-4000-8000-000000000014', '5a000000-0000-4000-8000-000000000021') $q$, '23503');
+SELECT pg_temp.expect_err('S25 khong doi khach cua co hoi', $q$ UPDATE opportunity SET customer_id = '5a000000-0000-4000-8000-000000000032' WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23001');
+SELECT pg_temp.expect_err('S26 khong doi ma co hoi', $q$ UPDATE opportunity SET code = 'CH-9999' WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23001');
+SELECT pg_temp.expect_err('S27 lien he da gan co hoi khong chuyen sang khach khac (FK ghep ON UPDATE RESTRICT => 23001)', $q$ UPDATE contact SET customer_id = '5a000000-0000-4000-8000-000000000032' WHERE id = '5a000000-0000-4000-8000-000000000041' $q$, '23001');
+SELECT pg_temp.expect_true('S27b contact_customer_id do DB dien = customer_id khi co lien he, NULL khi khong (PR237-R1-01)', $q$ (SELECT contact_customer_id = customer_id FROM opportunity WHERE id = '5a000000-0000-4000-8000-000000000062') AND (SELECT contact_customer_id IS NULL FROM opportunity WHERE id = '5a000000-0000-4000-8000-000000000061') $q$);
+SELECT pg_temp.expect_true('S27c FK ghep (contact_id, contact_customer_id) -> contact(id, customer_id) ON UPDATE RESTRICT ton tai; 2 trigger EXISTS cu da bo', $q$ EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'opportunity_contact_id_contact_customer_id_fkey' AND contype = 'f' AND confupdtype = 'r' AND confdeltype = 'r') AND to_regproc('public.fn_check_opportunity_contact') IS NULL AND to_regproc('public.fn_contact_customer_fixed_opp') IS NULL $q$);
+SELECT pg_temp.expect_err('S28 hoat dong gan co hoi cua khach KHAC bi tu choi', $q$ INSERT INTO activity (customer_id, type, occurred_at, content, opportunity_id, is_demo) VALUES ('5a000000-0000-4000-8000-000000000032', 'NOTE', now(), 'S2 ghi chu sai khach', '5a000000-0000-4000-8000-000000000061', true) $q$, '23503');
+INSERT INTO opportunity (id, customer_id, title, type_id, stage_id, owner_id, is_demo) VALUES
+ ('5a000000-0000-4000-8000-000000000063', '5a000000-0000-4000-8000-000000000032', 'S2 co hoi K2', '5a000000-0000-4000-8000-000000000013', '5a000000-0000-4000-8000-000000000014', '5a000000-0000-4000-8000-000000000022', true);
+SELECT pg_temp.expect_err('S29 gan co hoi cua khach K2 vao hoat dong cu cua K1 (UPDATE) bi tu choi', $q$ UPDATE activity SET opportunity_id = '5a000000-0000-4000-8000-000000000063' WHERE id = '5a000000-0000-4000-8000-000000000051' $q$, '23503');
+UPDATE activity SET opportunity_id = '5a000000-0000-4000-8000-000000000061' WHERE id = '5a000000-0000-4000-8000-000000000051';
+SELECT pg_temp.expect_true('S30 gan co hoi CUNG khach vao hoat dong duoc', $q$ (SELECT opportunity_id = '5a000000-0000-4000-8000-000000000061' FROM activity WHERE id = '5a000000-0000-4000-8000-000000000051') $q$);
+SELECT pg_temp.expect_err('S31 xoa cung co hoi con hoat dong bi chan (FK RESTRICT)', $q$ DELETE FROM opportunity WHERE id = '5a000000-0000-4000-8000-000000000061' $q$, '23001');
+
+-- 5. opportunity_change chi them
+INSERT INTO opportunity_change (id, opportunity_id, field, old_value, new_value, reason, changed_by) VALUES
+ ('5a000000-0000-4000-8000-000000000071', '5a000000-0000-4000-8000-000000000062', 'STAGE', 'ZZ_S2_STAGE1', 'ZZ_S2_STAGE2', NULL, '5a000000-0000-4000-8000-000000000021');
+SELECT pg_temp.expect_true('S32 ghi lich su duoc, changed_at do DB dat', $q$ (SELECT changed_at IS NOT NULL FROM opportunity_change WHERE id = '5a000000-0000-4000-8000-000000000071') $q$);
+SELECT pg_temp.expect_err('S33 sua lich su bi chan', $q$ UPDATE opportunity_change SET new_value = 'x' WHERE id = '5a000000-0000-4000-8000-000000000071' $q$, '42501');
+SELECT pg_temp.expect_err('S34 xoa lich su bi chan', $q$ DELETE FROM opportunity_change WHERE id = '5a000000-0000-4000-8000-000000000071' $q$, '42501');
+SELECT pg_temp.expect_err('S35 ly do chi khoang trang bi tu choi', $q$ INSERT INTO opportunity_change (opportunity_id, field, reason, changed_by) VALUES ('5a000000-0000-4000-8000-000000000062', 'OWNER', '  ', '5a000000-0000-4000-8000-000000000021') $q$, '23514');
+SELECT pg_temp.expect_err('S36 ly do qua 500 ky tu bi tu choi', $q$ INSERT INTO opportunity_change (opportunity_id, field, reason, changed_by) VALUES ('5a000000-0000-4000-8000-000000000062', 'OWNER', repeat('x', 501), '5a000000-0000-4000-8000-000000000021') $q$, '22001');
+SELECT pg_temp.expect_err('S37 xoa co hoi con lich su bi chan (FK RESTRICT)', $q$ DELETE FROM opportunity WHERE id = '5a000000-0000-4000-8000-000000000062' $q$, '23001');
+
+-- 6. Quyen siscom_app TRUOC S3: chi SELECT (quyen mac dinh V4), KHONG INSERT/UPDATE/DELETE/TRUNCATE tren 2 bang moi; activity giu nguyen V4
+SELECT pg_temp.expect_true('S38 siscom_app: SELECT va KHONG INSERT/UPDATE/DELETE/TRUNCATE tren opportunity, opportunity_change (ghi = V5 o S3); activity van SELECT+INSERT+UPDATE', $q$ (SELECT bool_and(has_table_privilege('siscom_app', 'public.' || t, 'SELECT') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'INSERT') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'TRUNCATE')) FROM unnest(ARRAY['opportunity', 'opportunity_change']) AS t) AND has_table_privilege('siscom_app', 'public.activity', 'INSERT') AND has_table_privilege('siscom_app', 'public.activity', 'UPDATE') $q$);
+
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
+SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+ROLLBACK;
