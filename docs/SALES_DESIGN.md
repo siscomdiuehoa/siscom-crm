@@ -127,6 +127,17 @@ Bảng `quote` (gói Báo giá) sẽ trỏ **tới** `opportunity`; `opportunity
 ### 4.3 Lý do thua (`opportunity_lost_reason`) [C2]
 Giá cao hơn đối thủ · Khách chọn đối thủ khác · Khách không phản hồi · Khách hủy dự án/nhu cầu · Khách không đủ ngân sách · Không đáp ứng tiến độ giao hàng/thi công · Không thống nhất điều kiện thanh toán/hợp đồng · SISCOM chủ động không tiếp tục theo đuổi · Khác (kèm ghi chú).
 
+### 4.4 Đã triển khai ở S2 (PR #237, merge `d45c985`, 16/11/2026) — chi tiết bổ sung so với 4.1
+Migration `20261117000000_sales_opportunity` (chỉ cộng thêm; chưa áp lên DB thật nào). Các điểm cụ thể hơn 4.1, đã qua review PR #237 R1–R2:
+- Mã `CH-0001` (sequence + `fn_next_opportunity_code`, tự mở rộng khi quá 9999).
+- Người liên hệ cùng khách: cột phụ `contact_customer_id` (DB tự điền = `customer_id` khi có liên hệ) + khoá ngoại ghép `(contact_id, contact_customer_id) → contact(id, customer_id)` `ON UPDATE/DELETE RESTRICT` + chỉ mục unique `contact(id, customer_id)`. Đúng cả khi ghi đồng thời; không đổi được khách của liên hệ đang gắn cơ hội.
+- `closed_at` có ⇔ `status` WON/LOST (mở lại phải xoá `closed_at`); `won_doc_url` chỉ nhận `https://`; xoá mềm bắt buộc `deleted_by` + `delete_reason`.
+- Danh mục loại / giai đoạn / lý do thua: trigger kiểm đúng `type` và đang hoạt động khi gán mới (dùng chung `fn_assert_lookup`).
+- Khách và mã của cơ hội cố định; `opportunity_change` chỉ thêm (chặn UPDATE/DELETE/TRUNCATE); `activity.opportunity_id` NULL, cùng khách với cơ hội.
+- Trường tạm hoãn / thắng / thua không bị buộc NULL khi trạng thái khác (giữ dấu vết khi mở lại; service quyết định).
+- Rollback viết sẵn `backend/docs/SALES_S2_ROLLBACK.sql.txt`: khoá chống ghi trước khi kiểm, từ chối khi còn dữ liệu, chạy được khi migration áp một phần.
+- Quyền: `siscom_app` chỉ SELECT 2 bảng mới (đã thêm vào danh sách cho phép đọc); quyền ghi ở S3 (`APP_GRANTS_V5`).
+
 ## 5. Quyền
 ### 5.1 Ai thấy cơ hội nào (kiểm ở máy chủ, mọi API; ngoài phạm vi trả 404 như khách hàng)
 | Vai trò | Thấy | Sửa |
