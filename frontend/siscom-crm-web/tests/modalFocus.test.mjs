@@ -85,18 +85,93 @@ test('Tab ở phần tử cuối => về đầu; Shift+Tab ở đầu => về cu
   } finally { await m.unmount(); }
 });
 
-test('focus không nằm trong danh sách (vd. đang ở chính khung hộp thoại) rồi Tab => kéo về phần tử đầu/cuối của hộp thoại', async () => {
+// PR236-R1 (điểm kiểm thêm): KHÔNG khẳng định kéo được focus từ NGOÀI hộp vào — phím Tab xuất phát từ phần tử bên ngoài không đi qua handler của hộp.
+// Ca thật được bảo vệ: bấm vào vùng chữ/khoảng trống TRONG hộp => trình duyệt focus khung hộp (tabIndex -1) => phím Tab phát TỪ khung hộp.
+test('khung hộp thoại có tabIndex -1 (không vào thứ tự Tab); focus đang ở khung hộp rồi Tab/Shift+Tab => về phần tử đầu/cuối', async () => {
   const m = await mount(h(Harness));
   try {
     const { d } = await openFrom(m);
-    const list = tabbable(d);
-    const outside = buttonByText(m.container, /^Nút phía sau$/); outside.focus();
+    assert.equal(d.attributes.tabindex, '-1');
+    const list = tabbable(d); assert.ok(!list.includes(d), 'khung hộp không nằm trong vòng Tab');
+    d.focus(); assert.equal(dom.doc.activeElement, d);
     let ev; await doAct(() => { ev = keydown(d, 'Tab'); });
     assert.equal(dom.doc.activeElement, list[0]); assert.equal(ev.defaultPrevented, true);
-    outside.focus();
+    d.focus();
     await doAct(() => { ev = keydown(d, 'Tab', { shiftKey: true }); });
     assert.equal(dom.doc.activeElement, list[list.length - 1]); assert.equal(ev.defaultPrevented, true);
   } finally { await m.unmount(); }
+});
+
+// R2 (nghiệm thu trình duyệt thật): đang bận, nút lưu bị disabled => focus rơi về <body> => phím Tab phát TỪ <body> (ngoài hộp).
+// Listener cấp document kéo về hộp trên cùng; không còn phần tử nào nhận Tab => focus khung hộp.
+function BusyHarness() {
+  const [busy, setBusy] = React.useState(false);
+  return h('div', null,
+    h('button', { type: 'button' }, 'Nút phía sau'),
+    h(Modal, { open: true, onClose: busy ? undefined : () => {}, title: 'Lưu', footer: h(React.Fragment, null, h('button', { type: 'button', disabled: busy }, 'Huỷ'), h('button', { type: 'button', disabled: busy, onClick: () => setBusy(true) }, 'Lưu')) },
+      h('textarea', { 'aria-label': 'Kết quả', disabled: busy })));
+}
+test('đang bận: focus rơi về <body> (nút bị disabled) rồi Tab / Shift+Tab phát từ <body> => kéo về hộp, không ra trang phía sau', async () => {
+  const m = await mount(h(BusyHarness));
+  try {
+    const d = dialog(m.container);
+    const save = buttonByText(d, /^Lưu$/); save.focus();
+    await doAct(() => click(save));
+    assert.equal(save.disabled, true);
+    dom.doc.activeElement = dom.doc.body; // trình duyệt: phần tử có focus bị disabled => focus về <body> (focus fixup)
+    let ev; await doAct(() => { ev = keydown(dom.doc.body, 'Tab'); });
+    assert.equal(ev.defaultPrevented, true);
+    assert.equal(dom.doc.activeElement, d, 'mọi phần tử trong hộp đều disabled => focus khung hộp');
+    // Có phần tử nhận Tab (nút Đóng không có vì đang bận): thêm trường hợp focus ở nút phía sau.
+    const outside = buttonByText(m.container, /^Nút phía sau$/); outside.focus();
+    await doAct(() => { ev = keydown(outside, 'Tab', { shiftKey: true }); });
+    assert.equal(ev.defaultPrevented, true); assert.ok(d.contains(dom.doc.activeElement), 'Shift+Tab từ ngoài => về trong hộp');
+  } finally { await m.unmount(); }
+});
+
+test('focus ở ngoài nhưng KHÔNG có hộp nào mở => không can thiệp phím Tab', async () => {
+  const m = await mount(h(Harness));
+  try {
+    const outside = buttonByText(m.container, /^Nút phía sau$/); outside.focus();
+    let ev; await doAct(() => { ev = keydown(outside, 'Tab'); });
+    assert.equal(ev.defaultPrevented, false); assert.equal(dom.doc.activeElement, outside);
+  } finally { await m.unmount(); }
+});
+
+// PR236-R1-UI-01: StrictMode chạy setup → cleanup → setup cho effect khi gắn; phần tử mở phải được giữ cho lần đóng thật.
+test('StrictMode, mở bằng nút: đóng bằng Escape / Huỷ => focus về nút mở; khi mở focus nằm trong hộp', async () => {
+  const m = await mount(h(React.StrictMode, null, h(Harness)));
+  try {
+    let { opener, d } = await openFrom(m);
+    assert.ok(d.contains(dom.doc.activeElement), 'StrictMode: focus vẫn vào trong hộp khi mở');
+    await doAct(() => { keydown(dom.doc.activeElement, 'Escape'); });
+    assert.equal(dialog(m.container), undefined); assert.equal(dom.doc.activeElement, opener, 'StrictMode: Escape => focus về nút mở');
+    ({ opener, d } = await openFrom(m));
+    await doAct(() => click(buttonByText(d, /^Huỷ$/)));
+    assert.equal(dialog(m.container), undefined); assert.equal(dom.doc.activeElement, opener, 'StrictMode: Huỷ => focus về nút mở');
+  } finally { await m.unmount(); }
+});
+
+// Như TaskActions: component con render <Modal open> ngay khi được gắn (mở sẵn khi mount), đóng = gỡ component.
+function MountOpen() {
+  const [show, setShow] = React.useState(false);
+  return h('div', null,
+    h('button', { type: 'button', onClick: () => setShow(true) }, 'Mở'),
+    show ? h(Modal, { open: true, onClose: () => setShow(false), title: 'Mở sẵn', footer: h('button', { type: 'button', onClick: () => setShow(false) }, 'Huỷ') }, h('input', { 'aria-label': 'Ô' })) : null);
+}
+test('StrictMode, Modal mở sẵn khi mount (đóng = gỡ component): focus vào ô; Escape / Huỷ => focus về nút mở', async () => {
+  for (const strict of [true, false]) {
+    const m = await mount(strict ? h(React.StrictMode, null, h(MountOpen)) : h(MountOpen));
+    try {
+      let { opener, d } = await openFrom(m);
+      assert.equal(dom.doc.activeElement.attributes['aria-label'], 'Ô', (strict ? 'StrictMode' : 'thường') + ': focus vào ô');
+      await doAct(() => { keydown(dom.doc.activeElement, 'Escape'); });
+      assert.equal(dialog(m.container), undefined); assert.equal(dom.doc.activeElement, opener, (strict ? 'StrictMode' : 'thường') + ': Escape => về nút mở');
+      ({ opener, d } = await openFrom(m));
+      await doAct(() => click(buttonByText(d, /^Huỷ$/)));
+      assert.equal(dom.doc.activeElement, opener, (strict ? 'StrictMode' : 'thường') + ': Huỷ => về nút mở');
+    } finally { await m.unmount(); }
+  }
 });
 
 test('Escape trên hộp thoại => đóng đúng MỘT lần, không nổi bọt ra ngoài; đóng => focus trả về nút mở', async () => {
