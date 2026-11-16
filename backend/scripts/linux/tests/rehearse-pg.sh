@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SISCOM CRM - DIEN TAP phan SQL/van hanh cua bo script Linux tren PostgreSQL TAM, CACH LY (khong can VPS, khong cham DB that/demo).
 # Tao cum PostgreSQL moi (initdb) trong thu muc tam, cong la (mac dinh 55871; tu choi 5432/55433), chay:
-#   create-db.sh create -> env -> prisma migrate deploy (siscom_migrator) -> grants (APP_GRANTS_V4 x2 + VERIFY + VERIFY_AUTH)
+#   create-db.sh create -> env -> prisma migrate deploy (siscom_migrator) -> grants (APP_GRANTS_V5 x2 + VERIFY + VERIFY_AUTH)
 #   -> (neu co thu muc `current`) run-cli seed-lookups + bootstrap-auth -> backup-db.sh -> restore-test.sh -> tu choi sua manifest
 # roi DUNG cum va XOA toan bo thu muc tam. Mat khau sinh ngau nhien trong thu muc tam, khong in ra.
 # Can: PG_BIN (thu muc bin cua PostgreSQL >= 17, vd /c/Program Files/PostgreSQL/18/bin), da `npm ci` trong backend/, openssl.

@@ -11,7 +11,7 @@
 #              (git merge-base --is-ancestor). KHONG nhan nhanh/commit tuy y.
 #   --src      Thu muc nguon DA co san tren may chu (chua thu muc backend/ - vd giai nen `git archive` cua tag). Dung khi khong clone duoc.
 #   --frontend Thu muc dist DA BUILD o may khac (VPS 3 GB RAM khong build giao dien): can index.html. Bo qua => dung lai web cua ban hien tai.
-#   --migrate  Cho phep `prisma migrate deploy` (bang siscom_migrator, doc migrate.env) roi chay lai APP_GRANTS_V4 + VERIFY. Neu co migration
+#   --migrate  Cho phep `prisma migrate deploy` (bang siscom_migrator, doc migrate.env) roi chay lai APP_GRANTS_V5 + VERIFY. Neu co migration
 #              cho ma KHONG co --migrate => DUNG, khong doi gi them (sau khi da sao luu).
 #   --auto-rollback  Kiem suc khoe that bai => tu lui ve ban truoc (mac dinh chi in huong dan).
 #   --dry-run  Chi kiem tra va in cac buoc, khong tao/sua/khoi dong gi.

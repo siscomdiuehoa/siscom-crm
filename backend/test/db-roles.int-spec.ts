@@ -158,6 +158,23 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
     for (const t of tables) expect({ t, code: await appTry('DELETE FROM public.' + t + ' WHERE false') }).toEqual({ t, code: '42501' });
   });
 
+  it('Sales S3 (APP_GRANTS_V5): app INSERT/UPDATE opportunity, CHỈ INSERT opportunity_change (WHERE false); UPDATE lịch sử, DELETE cả hai bị 42501', async () => {
+    const r = await prisma.$queryRaw<{ t: string; ins: boolean; upd: boolean; del: boolean; trunc: boolean }[]>`
+      SELECT t, has_table_privilege('siscom_app', 'public.' || t, 'INSERT') AS ins, has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE') AS upd,
+             has_table_privilege('siscom_app', 'public.' || t, 'DELETE') AS del, has_table_privilege('siscom_app', 'public.' || t, 'TRUNCATE') AS trunc
+      FROM unnest(${['opportunity', 'opportunity_change']}::text[]) AS t`;
+    expect(r).toEqual([
+      { t: 'opportunity', ins: true, upd: true, del: false, trunc: false },
+      { t: 'opportunity_change', ins: true, upd: false, del: false, trunc: false },
+    ]);
+    // Câu ghi thật (WHERE false => không đổi dữ liệu): sửa cơ hội, thêm lịch sử chạy được; sửa/xoá lịch sử và xoá cơ hội bị từ chối ở tầng DB.
+    await prisma.$executeRawUnsafe('UPDATE public.opportunity SET status = status, stage_id = stage_id, owner_id = owner_id, version = version, closed_at = closed_at, deleted_at = deleted_at WHERE false');
+    await prisma.$executeRawUnsafe("INSERT INTO public.opportunity_change (opportunity_id, field, changed_by) SELECT gen_random_uuid(), 'STAGE', gen_random_uuid() WHERE false");
+    expect(await appTry('UPDATE public.opportunity_change SET reason = reason WHERE false')).toBe('42501');
+    expect(await appTry('DELETE FROM public.opportunity_change WHERE false')).toBe('42501');
+    expect(await appTry('DELETE FROM public.opportunity WHERE false')).toBe('42501');
+  });
+
   it('siscom_app không tự nâng quyền: GRANT cho chính mình (PostgreSQL chỉ WARNING, không lỗi) KHÔNG có hiệu lực; đổi chủ sở hữu/role/SET ROLE bị 42501', async () => {
     // GRANT bởi role không sở hữu và không có grant option: PostgreSQL trả "no privileges were granted" (WARNING) và thoát 0 —
     // nên kiểm HIỆU QUẢ (quyền sau đó vẫn không có), không kiểm mã lỗi. Thử ngoài transaction để chắc không có gì "dính" lại.

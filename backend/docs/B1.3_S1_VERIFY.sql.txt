@@ -68,6 +68,15 @@ INSERT INTO s1_result SELECT 'B1 app co SELECT tren moi bang nghiep vu va INSERT
          FROM unnest(ARRAY['activity_access', 'activity_transfer_request']) AS w)
   FROM unnest(ARRAY['customer', 'contact', 'activity', 'customer_assignment', 'employee', 'department', 'lookup_item', 'app_meta', 'role', 'permission',
                     'employee_role', 'role_permission']) AS t;
+-- Sales S3 (V5): 2 bang cua S2 co the chua ton tai (DB truoc S2 hoac da rollback S2) => to_regclass (CASE, khong dua vao short-circuit).
+--   opportunity: INSERT+UPDATE, KHONG DELETE/TRUNCATE. opportunity_change: CHI INSERT (lich su chi them) - KHONG UPDATE (ke ca theo cot)/DELETE/TRUNCATE.
+INSERT INTO s1_result SELECT 'B1s app INSERT/UPDATE opportunity (KHONG DELETE/TRUNCATE) va CHI INSERT opportunity_change (KHONG UPDATE/DELETE/TRUNCATE) khi co bang - Sales S3 V5',
+  (CASE WHEN to_regclass('public.opportunity') IS NULL THEN true
+        ELSE has_table_privilege('siscom_app', 'public.opportunity', 'INSERT') AND has_table_privilege('siscom_app', 'public.opportunity', 'UPDATE')
+             AND NOT has_table_privilege('siscom_app', 'public.opportunity', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.opportunity', 'TRUNCATE') END)
+  AND (CASE WHEN to_regclass('public.opportunity_change') IS NULL THEN true
+        ELSE has_table_privilege('siscom_app', 'public.opportunity_change', 'INSERT') AND NOT has_any_column_privilege('siscom_app', 'public.opportunity_change', 'UPDATE')
+             AND NOT has_table_privilege('siscom_app', 'public.opportunity_change', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.opportunity_change', 'TRUNCATE') END);
 INSERT INTO s1_result SELECT 'B1e app KHONG co quyen nao (ke ca SELECT theo cot) tren auth_session va employee_credential (P3c, S3)',
   bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'SELECT') AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT')
        AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE'))
@@ -202,6 +211,11 @@ SELECT pg_temp.expect_ok('E5 app UPDATE customer (sua, xoa mem, khoi phuc), cust
   'IF to_regclass($t$public.activity_transfer_request$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.activity_transfer_request (activity_id, from_employee_id, to_employee_id, reason) SELECT gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), chr(120) WHERE false$s$; EXECUTE $s$UPDATE public.activity_transfer_request SET status = status WHERE false$s$; END IF; END $b3$');
 SELECT pg_temp.expect_ok('E6 app UPDATE contact',
   'UPDATE public.contact SET is_primary = is_primary WHERE false');
+-- Sales S3 (V5): cau ghi runtime cua co hoi (S7/S8) + lich su; bang co the chua ton tai => co dieu kien trong DO (than DO khong dung nhay don).
+SELECT pg_temp.expect_ok('E5s app INSERT/UPDATE opportunity va INSERT opportunity_change khi co bang (WHERE false) - Sales S3 V5',
+  'DO $s3$ BEGIN IF to_regclass($t$public.opportunity$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.opportunity (customer_id, title, type_id, stage_id, owner_id) SELECT gen_random_uuid(), chr(120), gen_random_uuid(), gen_random_uuid(), gen_random_uuid() WHERE false$s$; '
+  'EXECUTE $s$UPDATE public.opportunity SET status = status, stage_id = stage_id, owner_id = owner_id, version = version, closed_at = closed_at, deleted_at = deleted_at WHERE false$s$; END IF; '
+  'IF to_regclass($t$public.opportunity_change$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.opportunity_change (opportunity_id, field, changed_by) SELECT gen_random_uuid(), $v$STAGE$v$, gen_random_uuid() WHERE false$s$; END IF; END $s3$');
 -- M-8 (ra soat P3b): ham runtime can EXECUTE (qua PUBLIC): tim kiem (f_vn_fold), khoi phuc (fn_customer_restore_conflicts), sinh ma trong
 -- DEFAULT khi app INSERT (fn_next_customer_code / fn_next_contact_code). Migration sau nay lo REVOKE FROM PUBLIC => FAIL o day, khong doi 500.
 INSERT INTO s1_result SELECT 'E7 app EXECUTE duoc 5 ham runtime (f_vn_fold, fn_customer_restore_conflicts, fn_next_customer_code, fn_next_contact_code, fn_next_activity_code - B3 A3)',

@@ -3,10 +3,11 @@
 # Dich: D:\SISCOM-CRM\backend\scripts\windows\demo-split.ps1 (file moi). Runbook: docs\B1.4_DEMO_WINDOWS_RUNBOOK.md.
 # CHI database thu (siscom_crm_test_* / siscom_crm_restore_*). TU CHOI siscom_crm_dev va 2 baseline da khoa. Khong DROP/TRUNCATE/DELETE.
 #   -Step split  : kiem dieu kien (CHI DOC: da migrate du, da seed, da bootstrap, mat khau role dung, log server khong ghi lenh) roi
-#                  (superuser) B1.3_S1_ROLE_SPLIT -> B1.3_S1_AUTH_ROLE -> (siscom_migrator) B1.3_S1_APP_GRANTS_V4 x2 -> VERIFY + VERIFY_AUTH.
+#                  (superuser) B1.3_S1_ROLE_SPLIT -> B1.3_S1_AUTH_ROLE -> (siscom_migrator) B1.3_S1_APP_GRANTS_V5 x2 -> VERIFY + VERIFY_AUTH.
 #                  FV-1.1 (08/11/2026): V4 thay V3 (B3 A3 #208: V4 = V3 + ghi activity/activity_access/activity_transfer_request).
+#                  Sales S3 (16/11/2026): V5 thay V4 (V5 = V4 + ghi opportunity, CHI INSERT opportunity_change).
 #                  V3 tren DB co bang B3 => VERIFY khong dat va siscom_app mat quyen ghi hoat dong.
-#   -Step migrate: DB DA tach: prisma migrate deploy bang siscom_migrator, roi CHAY LAI V4 + VERIFY/VERIFY_AUTH (bang moi nhan SELECT mac dinh
+#   -Step migrate: DB DA tach: prisma migrate deploy bang siscom_migrator, roi CHAY LAI V5 + VERIFY/VERIFY_AUTH (bang moi nhan SELECT mac dinh
 #                  cho siscom_app - VERIFY B1f bat neu quen; xem B1.4_REMEMBER_ME_90D_DESIGN.md muc 2).
 #   -Step verify : KHONG doi quyen/du lieu: VERIFY (siscom_app) + VERIFY_AUTH (superuser). Luu y: VERIFY goi nextval(customer_code_seq) trong
 #                  transaction da ROLLBACK => sequence ma khach van tang 1 moi lan chay (sequence khong rollback; vo hai).
@@ -284,10 +285,10 @@ try {
       Invoke-Psql 'postgres' $adminPw $DatabaseName @{ target_db = $DatabaseName; auth_pw = $authPw } (Join-Path $docs 'B1.3_S1_AUTH_ROLE.sql.txt') $null | Out-Null
       Ok 'AUTH_ROLE xong.'
       foreach ($n in 1, 2) {
-        Say ('--- ' + (2 + $n) + '/5 APP_GRANTS_V4 lan ' + $n + ' (siscom_migrator, idempotent) ---') 'Cyan'
-        Invoke-Psql 'siscom_migrator' $migPw $DatabaseName @{ target_db = $DatabaseName } (Join-Path $docs 'B1.3_S1_APP_GRANTS_V4.sql.txt') $null | Out-Null
+        Say ('--- ' + (2 + $n) + '/5 APP_GRANTS_V5 lan ' + $n + ' (siscom_migrator, idempotent) ---') 'Cyan'
+        Invoke-Psql 'siscom_migrator' $migPw $DatabaseName @{ target_db = $DatabaseName } (Join-Path $docs 'B1.3_S1_APP_GRANTS_V5.sql.txt') $null | Out-Null
       }
-      Ok 'APP_GRANTS_V4 x2 xong.'
+      Ok 'APP_GRANTS_V5 x2 xong.'
     }
     'migrate' {
       if ($owner -ne 'siscom_migrator') { Fail 'Buoc migrate nay chi cho DB DA tach role. DB chua tach: dung auth-demo-stack -Step migrate.' }
@@ -301,9 +302,9 @@ try {
       try { $env:DATABASE_URL = $appUrl; $env:MIGRATE_DATABASE_URL = $migUrl; & npx.cmd prisma migrate deploy | Out-Host; $c1 = $LASTEXITCODE; & npx.cmd prisma migrate status | Out-Host; $c2 = $LASTEXITCODE }
       finally { $ErrorActionPreference = $prev; Remove-Item Env:DATABASE_URL, Env:MIGRATE_DATABASE_URL -ErrorAction SilentlyContinue; Pop-Location; $migUrl = $null; $appUrl = $null }
       if ($c1 -ne 0 -or $c2 -ne 0) { Fail 'migrate deploy/status that bai. KHONG chay lai; gui log.' }
-      Ok 'migrate deploy xong. BAT BUOC chay lai V4 (bang moi nhan SELECT mac dinh cho siscom_app).'
-      Invoke-Psql 'siscom_migrator' $migPw $DatabaseName @{ target_db = $DatabaseName } (Join-Path $docs 'B1.3_S1_APP_GRANTS_V4.sql.txt') $null | Out-Null
-      Ok 'APP_GRANTS_V4 chay lai xong.'
+      Ok 'migrate deploy xong. BAT BUOC chay lai V5 (bang moi nhan SELECT mac dinh cho siscom_app).'
+      Invoke-Psql 'siscom_migrator' $migPw $DatabaseName @{ target_db = $DatabaseName } (Join-Path $docs 'B1.3_S1_APP_GRANTS_V5.sql.txt') $null | Out-Null
+      Ok 'APP_GRANTS_V5 chay lai xong.'
     }
     'verify' { if ($owner -ne 'siscom_migrator') { Say 'Luu y: DB CHUA tach role => VERIFY se KHONG DAT (dung mong doi). Chay -Step split.' 'Yellow' } }
   }
