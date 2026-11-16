@@ -44,7 +44,11 @@ export function createMiniDom() {
   const doc = new Node_(9, null); doc.ownerDocument = doc;
   doc.createElement = (t) => new Element_(t, doc); doc.createElementNS = (_ns, t) => new Element_(t, doc); doc.createTextNode = (d) => new Text_(d, doc);
   doc.oninput = null; doc.onchange = null; doc.onclick = null; // React feature-detects native input events via `'oninput' in document`
-  doc.addEventListener = () => {}; doc.removeEventListener = () => {};
+  // Listener cấp document (PR #236: Modal chặn Tab khi focus ở ngoài hộp). Sự kiện từ keydown()/click() nổi bọt tới đây SAU các phần tử
+  // (không mô phỏng pha capture). Trước đây là no-op.
+  doc.listeners = {};
+  doc.addEventListener = (t, f) => { (doc.listeners[t] = doc.listeners[t] || []).push(f); };
+  doc.removeEventListener = (t, f) => { doc.listeners[t] = (doc.listeners[t] || []).filter((x) => x !== f); };
   doc.documentElement = doc.createElement('html'); doc.body = doc.createElement('body'); doc.documentElement.appendChild(doc.body); doc.appendChild(doc.documentElement);
   doc.activeElement = doc.body; doc.defaultView = null;
   return doc;
