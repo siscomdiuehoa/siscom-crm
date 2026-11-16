@@ -9,7 +9,7 @@
 #   env      Ghi $SISCOM_ETC/backend.env (DATABASE_URL=siscom_app, AUTH_DATABASE_URL=siscom_auth, CORS..., 600) va
 #            $SISCOM_ETC/migrate.env (MIGRATE_DATABASE_URL=siscom_migrator, 600, KHONG nam trong env cua dich vu). Can SISCOM_HOST (ten mien hoac IPv4) => CORS/AUTH_ALLOWED_ORIGINS = https://<host>.
 #            Tu choi ghi de file da co tro DB KHAC (dung --force-env de thay, sau khi dung dich vu).
-#   grants   SAU `prisma migrate deploy`: chay B1.3_S1_APP_GRANTS_V4 (siscom_migrator, 2 lan - idempotent), roi
+#   grants   SAU `prisma migrate deploy`: chay B1.3_S1_APP_GRANTS_V5 (siscom_migrator, 2 lan - idempotent), roi
 #            B1.3_S1_VERIFY (siscom_app, phai PASS|n, khong FAIL) va B1.3_S1_VERIFY_AUTH (superuser). Thieu PASS => thoat 1.
 #   drop     Xoa DB (de lam lai khi CHUA co du lieu that). Can: --yes-drop <db>; prod con can SISCOM_ALLOW_DROP_PROD=<db>.
 #            Tu choi neu backend.env dang tro DB nay va dich vu dang chay. KHONG xoa role.
@@ -141,8 +141,8 @@ EOF
     mig_psql() { PGPASSWORD="$PW_MIGRATOR" psql -X -q -w -v ON_ERROR_STOP=1 -h "$SISCOM_PG_HOST" -p "$SISCOM_PG_PORT" -U "$ROLE_MIGRATOR" -d "$db" "$@"; }
     app_psql() { PGPASSWORD="$PW_APP" psql -X -q -w -v ON_ERROR_STOP=1 -tA -h "$SISCOM_PG_HOST" -p "$SISCOM_PG_PORT" -U "$ROLE_APP" -d "$db" "$@"; }
     for i in 1 2; do
-      echo "--- APP_GRANTS_V4 (siscom_migrator) lan $i ---"
-      mig_psql -v "target_db=$db" -f "$docs/B1.3_S1_APP_GRANTS_V4.sql.txt"
+      echo "--- APP_GRANTS_V5 (siscom_migrator) lan $i ---"
+      mig_psql -v "target_db=$db" -f "$docs/B1.3_S1_APP_GRANTS_V5.sql.txt"
     done
     # Cac file VERIFY chi cho phep DB thu (regex siscom_crm_(restore|test)_...). Tren DB van hanh ta doi DUNG dong regex thanh ten DB nay
     # (khong tat guard): neu dong regex khong con dung 1 lan trong file => dung (an toan khi file SQL doi sau nay).

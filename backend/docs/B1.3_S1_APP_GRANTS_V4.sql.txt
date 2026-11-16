@@ -1,3 +1,4 @@
+-- [DUONG ROLLBACK cua V5 tu Sales S3 16/11/2026 - hien hanh la B1.3_S1_APP_GRANTS_V5.sql.txt]
 -- SISCOM CRM - B3 A3 (V4) / B1.4 P3c / B1.3 S1: CAP QUYEN TOI THIEU cho HAI role sau khi tach role: siscom_app (nghiep vu) va siscom_auth (xac thuc).
 -- Thay the B1.3_S1_APP_GRANTS_V3.sql.txt (P3c) - V3 giu nguyen lam DUONG ROLLBACK cua V4. Chay bang psql -f voi siscom_migrator tren DATABASE
 -- DICH, SAU B1.3_S1_AUTH_ROLE.sql.txt. V4 = V3 + 3 cau lenh (muc 2b): siscom_app INSERT/UPDATE tren activity (B1.2) va 2 bang moi cua B3 A2
