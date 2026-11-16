@@ -2,9 +2,9 @@
 
 | Mục | Giá trị |
 |---|---|
-| Trạng thái | **Tài liệu. Chưa có mã, chưa đụng database hay VPS.** Chờ ChatGPT review độc lập và Owner duyệt trước khi viết mã |
+| Trạng thái | Tài liệu đặc tả (S1). **S2 (migration, PR #237) và S3 (quyền DB V5, PR #238) đã có mã**: S2 merge `d45c985`; S3 đã PASS review, chờ Owner duyệt merge. Chưa áp lên database thật hay VPS (S12). Bản này sửa theo review PR #234 R1 (16/11/2026) |
 | Nguồn quyết định | 8 câu trả lời của Owner (13/11/2026 16:50) + 16 điểm chốt (13/11/2026 17:03, Issue #233) + điều chỉnh 14/11/2026 về lĩnh vực, loại và "chào dự án" (mục 1.3, lời Owner do phiên khác chuyển lại) |
-| Nền mã | `main` `0a87d23` |
+| Nền mã | `main` `d45c985` (có S2) |
 | Thay thế | bản nháp `SALES_THIET_KE_MO_DAU` và `SALES_DAC_TA_V1` (thư mục bàn giao của Claude, không nằm trong repo) |
 | Quy ước | **[Owner]** = Owner đã quyết. **[Đề xuất]** = Claude đề xuất, chưa được duyệt. **[T…]** = điểm kỹ thuật Claude đề xuất để ChatGPT review (mục 2). Không còn câu hỏi nghiệp vụ chờ Owner |
 
@@ -155,9 +155,11 @@ Migration `20261117000000_sales_opportunity` (chỉ cộng thêm; chưa áp lên
 | Mã | Quản trị CRM | Kinh doanh | Kỹ thuật | Kế toán |
 |---|---|---|---|---|
 | read | ALL | theo 5.1 | theo việc | ALL |
-| create / update / move_stage / close | ALL | khách mình + cơ hội mình phụ trách | — | — |
+| create | ALL | khách **mình phụ trách** (người phụ trách mặc định = người phụ trách khách, 6.1) | — | — |
+| update / move_stage / close / resume | ALL | **chỉ cơ hội mình phụ trách** (`owner_id` = mình). Người phụ trách **khách** mà không phụ trách **cơ hội**: **chỉ đọc** (5.1) — sửa, chuyển giai đoạn, Tạm hoãn, Tiếp tục, chốt Thắng/Thua ⇒ bị từ chối (403 khi thấy được cơ hội; 404 khi ngoài phạm vi xem) | — | — |
 | assign | ALL; được chuyển khác phòng; người nhận vẫn phải ACTIVE và đủ quyền (T1) | cơ hội mình phụ trách → người ACTIVE, cùng phòng, đủ quyền đảm nhận (T1); phòng chưa xác định ⇒ không được | — | — |
 | reopen / delete / restore | ALL | — | — | — |
+`close` = Tạm hoãn / Thắng / Thua; `resume` = Tạm hoãn → Đang mở (6.4) dùng **cùng mã** `opportunity.close`, không phải `reopen`; `reopen` = mở lại Thắng/Thua (6.7, chỉ Quản trị CRM). PR234-R1-AUTH: phạm vi **tạo** tính theo **khách**, phạm vi **ghi còn lại** tính theo **cơ hội** — hai hàm kiểm riêng, không suy quyền ghi cơ hội từ quyền trên khách.
 Phạm vi mới cần thêm vào cơ chế hiện có (hiện chỉ tính theo khách): "theo người phụ trách cơ hội" và "theo việc được giao". Đây là phần rủi ro nhất; làm thành PR riêng có ma trận kiểm thử (mục 10).
 ### 5.3 Cấp quyền trên DB đã bootstrap
 Qua yêu cầu hai người (mẫu `B3_ACTIVITY_PERMISSIONS`, có script gỡ) và grants V5 cho `siscom_app` (INSERT/UPDATE `opportunity`; `opportunity_change` chỉ INSERT; không DELETE). Diễn tập trên PostgreSQL tạm trong CI trước. Ma trận trong `bootstrap.ts` chỉ áp cho DB mới tinh; unit test giữ hai nguồn khớp nhau như B3.
@@ -167,17 +169,28 @@ Qua yêu cầu hai người (mẫu `B3_ACTIVITY_PERMISSIONS`, có script gỡ) v
 2. **Đổi giai đoạn** [C14]: tới hoặc lùi tự do giữa Tiếp cận, Khảo sát, Báo giá, Đàm phán; mỗi lần ghi lịch sử. Rời Tiếp cận cần `need_summary`. Từ Báo giá trở lên cần `expected_amount_vnd`. Xác suất về mặc định của giai đoạn mới, trừ khi đã sửa tay (khi đó hỏi giữ hay đặt lại).
 3. **Sửa xác suất tay, giá trị, ngày dự kiến chốt**: ghi lịch sử; xác suất sửa tay bắt buộc lý do.
 4. **Tạm hoãn** [C3][C13]: bắt buộc ngày liên hệ lại + lý do; giữ nguyên giai đoạn; rời kanban, vào danh sách Tạm hoãn; **tự tạo một công việc** (TASK) nhắc người phụ trách vào ngày đó; mở lại về đúng giai đoạn cũ, công việc nhắc còn mở tự đóng.
+   - **Tiếp tục (Tạm hoãn → Đang mở)** — PR234-R1-HOLD: endpoint **riêng** `POST /opportunities/:id/resume` `{ version }` (lý do tuỳ chọn); quyền **`opportunity.close`**, cùng phạm vi với Tạm hoãn (người phụ trách cơ hội, Quản trị CRM) — **không** dùng `/reopen`. Chỉ hợp lệ khi `status = ON_HOLD` (khác ⇒ 409 `OPPORTUNITY_STATE`). Giữ nguyên `stage_id`; `status` → OPEN; `hold_until`, `hold_reason` **giữ lại** làm dấu vết (không hiển thị khi OPEN; lần Tạm hoãn sau ghi đè); ghi `opportunity_change` (STATUS ON_HOLD→OPEN). Công việc nhắc **của lần tạm hoãn hiện tại** (nhận diện theo 6.13) còn OPEN ⇒ `CANCELLED` (kết quả "Cơ hội đã tiếp tục"); đã DONE ⇒ giữ. Áp R-S1/R-S2 trên trạng thái sau cập nhật.
 5. **Thắng** [C8][C12]: bắt buộc loại chứng từ, số, ngày, giá trị chốt, đường dẫn Drive (hệ thống không tự xác minh; đây là khai báo của người dùng); sau khi Thắng **tự tạo công việc "Bàn giao thực hiện"**, người chốt chọn người nhận theo đúng quy tắc giao việc B3 hiện có (không mở rộng phạm vi xem khách).
 6. **Thua**: bắt buộc lý do; giá trị được để trống nếu chưa tới Báo giá.
-7. **Mở lại** cơ hội đã Thắng/Thua [C16]: chỉ Quản trị CRM, bắt buộc lý do, ghi lịch sử. Cơ hội đã đóng khoá sửa.
+7. **Mở lại** cơ hội đã Thắng/Thua [C16]: chỉ Quản trị CRM (`opportunity.reopen`), `POST /opportunities/:id/reopen` `{ version, reason }`, chỉ khi `status` WON/LOST (ON_HOLD dùng `/resume`, 6.4); bắt buộc lý do, ghi lịch sử; `status` → OPEN, `closed_at` → NULL (CHECK `ck_opp_closed`), giữ giai đoạn; trường thắng/thua giữ làm dấu vết. Công việc "Bàn giao thực hiện" của lần Thắng trước (6.13): còn OPEN ⇒ `CANCELLED` (kết quả "Cơ hội đã mở lại"); đã DONE ⇒ giữ. Thắng lần nữa ⇒ tạo việc bàn giao **mới**. Cơ hội đã đóng khoá sửa.
 8. **Chuyển người phụ trách** [C6][O3]: bắt buộc lý do; ghi người chuyển, thời điểm, người cũ, người mới. Người nhận phải **ACTIVE**, **cùng phòng với người phụ trách hiện tại** và **đủ quyền đảm nhận** (T1); **không cần** có quyền sửa chính cơ hội đó từ trước, quyền phát sinh sau khi `owner_id` đổi. **Quản trị CRM** được chuyển khác phòng, nhưng người nhận vẫn phải ACTIVE và đủ quyền. Nếu phòng của người phụ trách hiện tại hoặc của người nhận **chưa xác định** thì chỉ Quản trị CRM được chuyển. Không đổi người phụ trách khách. Công việc đang mở của cơ hội giữ nguyên người làm. Người nhận không tự thấy thêm dữ liệu khách ngoài thẻ tối thiểu.
 9. **Khách bị xoá mềm** ⇒ cơ hội ẩn theo; không ai xoá vĩnh viễn qua ứng dụng. Xoá mềm cơ hội chỉ Quản trị CRM, có lý do.
 10. **Sửa đồng thời**: `version` như khách hàng; người sau nhận báo xung đột.
 11. **Ngày, hạn** tính theo giờ Việt Nam (Asia/Ho_Chi_Minh).
 12. **Audit**: mọi tạo, đổi giai đoạn, trạng thái, người phụ trách, giá trị, xác suất, ngày chốt, mở lại, xoá mềm; nội dung ghi chú và lý do được che trong audit chung.
+13. **Công việc tự tạo** (Tạm hoãn → nhắc; Thắng → "Bàn giao thực hiện") — PR234-R1-TASK:
+   - **Nguyên tử**: đổi `status` (kiểm `version`), ghi `opportunity_change`, tạo/đóng TASK và audit trong **một transaction**; lỗi bất kỳ ⇒ không ghi gì.
+   - **Không trùng**: gửi lặp hoặc hai yêu cầu đồng thời cho cùng một lần chuyển ⇒ yêu cầu sau gặp `version` cũ ⇒ 409 `OPPORTUNITY_VERSION_CONFLICT`, không tạo TASK thứ hai. Chốt thêm ở DB: cột `activity.opportunity_auto_kind` (`HOLD_REMINDER` | `WIN_HANDOVER`, NULL với việc thường) + chỉ mục **unique riêng phần** `(opportunity_id, opportunity_auto_kind) WHERE status = 'OPEN' AND deleted_at IS NULL` ⇒ mỗi cơ hội tối đa **một** việc nhắc và **một** việc bàn giao đang mở; CHECK `opportunity_auto_kind IS NULL OR (type = 'TASK' AND opportunity_id IS NOT NULL)`. Migration **cộng thêm** ở S8 (không sửa migration S2 đã merge).
+   - **Nhận diện**: việc tự sinh của lần hiện tại = việc có `opportunity_id` = cơ hội, `opportunity_auto_kind` đúng loại, `status = OPEN` — **không** dựa vào tiêu đề, **không** đóng mọi việc của cơ hội. Việc người dùng tự tạo gắn cơ hội (`opportunity_auto_kind` NULL) không bị tự đóng.
+   - Người nhận việc nhắc = người phụ trách cơ hội lúc tạm hoãn; người nhận việc bàn giao = người chốt chọn (quy tắc giao việc B3). Chuyển người phụ trách (6.8) không đổi người làm việc đang mở.
+14. **Tài liệu cơ hội** [C10] — PR234-R1-FILES: chỉ lưu **đường dẫn Google Drive + tên tệp**, không tải tệp lên CRM.
+   - Bảng **`opportunity_document`** (migration cộng thêm ở S9): `id`, `opportunity_id`, `kind` (`TECHNICAL` = bản vẽ, thông số, hồ sơ kỹ thuật | `COMMERCIAL` = báo giá, hợp đồng, tài liệu giá), `file_name` (≤255, bắt buộc), `url` (chỉ `https://`), `created_by/at`, xoá mềm `deleted_by/at`. Chỉ thêm / xoá mềm, không sửa.
+   - **Chứng từ Thắng** ở trên chính cơ hội (`won_doc_*`), bổ sung `won_doc_file_name` (≤255) cùng migration S9 để đủ "tên tệp" theo C10; **không** nằm trong `opportunity_document`.
+   - Quyền: xem `TECHNICAL` = mọi người xem được cơ hội (kể cả Kỹ thuật theo việc); xem `COMMERCIAL` và `won_doc_*` = Quản trị CRM, Kinh doanh (theo 5.1), Kế toán — **Kỹ thuật không bao giờ nhận** (bộ ánh xạ phản hồi theo vai trò, mục 7). Thêm / xoá mềm = người có `opportunity.update` trên cơ hội.
+   - API: `GET /opportunities/:id/documents` (lọc theo quyền xem từng `kind`), `POST /opportunities/:id/documents` `{ kind, fileName, url }`, `DELETE /opportunities/:id/documents/:docId` (xoá mềm, lý do).
 
 ## 7. API [Đề xuất] (`/api/v1`, cookie + Origin + CSRF như hiện nay, bọc `{ data }`)
-`GET /opportunities` (lọc giai đoạn, trạng thái, người phụ trách, loại, khách, hạn chốt, tìm theo tiêu đề/tên dự án; phân trang) · `GET /opportunities/:id` · `POST /opportunities` · `PATCH /opportunities/:id` (có `version`) · `POST /opportunities/:id/stage` · `POST /opportunities/:id/hold` · `POST /opportunities/:id/win` · `POST /opportunities/:id/lose` · `POST /opportunities/:id/reopen` · `POST /opportunities/:id/assign` · `GET /opportunities/:id/changes` · `GET /customers/:id/opportunities` · xoá mềm/khôi phục như khách. Hoạt động: thêm `opportunityId` tuỳ chọn khi tạo (cùng khách). Phản hồi dùng một bộ ánh xạ riêng theo vai trò để không rò trường bị ẩn (giá trị với Kỹ thuật).
+`GET /opportunities` (lọc giai đoạn, trạng thái, người phụ trách, loại, khách, hạn chốt, tìm theo tiêu đề/tên dự án; phân trang) · `GET /opportunities/:id` · `POST /opportunities` · `PATCH /opportunities/:id` (có `version`) · `POST /opportunities/:id/stage` · `POST /opportunities/:id/hold` · `POST /opportunities/:id/win` · `POST /opportunities/:id/lose` · `POST /opportunities/:id/resume` (Tạm hoãn → Đang mở, 6.4) · `POST /opportunities/:id/reopen` (chỉ Thắng/Thua, Quản trị CRM, 6.7) · `POST /opportunities/:id/assign` · `GET /opportunities/:id/changes` · `GET /customers/:id/opportunities` · xoá mềm/khôi phục như khách. Hoạt động: thêm `opportunityId` tuỳ chọn khi tạo (cùng khách). Tài liệu: `GET|POST /opportunities/:id/documents`, `DELETE /opportunities/:id/documents/:docId` (6.14). Phản hồi dùng một bộ ánh xạ riêng theo vai trò để không rò trường bị ẩn (giá trị, `won_doc_*`, tài liệu `COMMERCIAL` với Kỹ thuật). Mọi thao tác đổi trạng thái nhận `version`; sai ⇒ 409.
 
 ## 8. Màn hình
 **8.1 Danh sách (máy tính, kanban)**
@@ -202,9 +215,9 @@ Khách: KH-00478 Công ty …    Loại: Cung cấp và thi công
 Dự án/công trình: Trung tâm dữ liệu GĐ1    Phạm vi SISCOM chào: cung cấp chiller + lắp đặt
 ● Tiếp cận ── ● Khảo sát ── ◉ Báo giá ── ○ Đàm phán          [Chuyển giai đoạn ▾]
 Giá trị dự kiến: 7.200.000.000 đ (chưa VAT)  Xác suất: 45%  Dự kiến chốt: 20/12/2026
-Phụ trách: Trần Bình [Chuyển…]                [Tạm hoãn] [Thắng] [Thua]
+Phụ trách: Trần Bình [Chuyển…]                [Tạm hoãn] [Thắng] [Thua]   (khi Tạm hoãn: [Tiếp tục])
 Nhu cầu của khách: …
-Tab: Hoạt động & công việc | Báo giá (gói sau) | Lịch sử thay đổi | Tài liệu (link Drive)
+Tab: Hoạt động & công việc | Báo giá (gói sau) | Lịch sử thay đổi | Tài liệu (link Drive + tên tệp; nhóm Kỹ thuật / Thương mại — Kỹ thuật chỉ thấy nhóm Kỹ thuật)
 ```
 **8.3 Biểu mẫu "Tạo cơ hội"** [C17][O4] (hướng dẫn hiện ngay trên biểu mẫu):
 ```
@@ -218,7 +231,7 @@ Loại cơ hội *       (•) Cung cấp thiết bị, vật tư  ( ) Thi công
    Phạm vi SISCOM đang chào *  [__________________]   ← chỉ hiện khi bật; ví dụ "cung cấp 120 FCU"
 Nhu cầu của khách   [__________________]   (bắt buộc trước khi rời Tiếp cận)
 ```
-**Các hộp thoại khác**: Chuyển giai đoạn (đòi giá trị nếu thiếu) · Tạm hoãn (ngày liên hệ lại, lý do) · Thắng (loại chứng từ, số, ngày, giá trị chốt, link; chọn người nhận "Bàn giao thực hiện") · Thua (lý do, ghi chú) · Chuyển người phụ trách (người mới, lý do) · Mở lại (lý do).
+**Các hộp thoại khác**: Chuyển giai đoạn (đòi giá trị nếu thiếu) · Tạm hoãn (ngày liên hệ lại, lý do) · Thắng (loại chứng từ, số, ngày, giá trị chốt, link; chọn người nhận "Bàn giao thực hiện") · Thua (lý do, ghi chú) · Chuyển người phụ trách (người mới, lý do) · Tiếp tục (từ Tạm hoãn; lý do tuỳ chọn) · Mở lại (từ Thắng/Thua, chỉ Quản trị CRM; lý do).
 **8.4 Chi tiết khách hàng**: thêm tab "Cơ hội". Khi ghi nhận hoạt động/công việc: thêm ô chọn cơ hội của khách đó.
 **8.5 Điện thoại (390 px)**: danh sách dạng thẻ, lọc theo giai đoạn bằng thanh chọn ngang; không kéo thả, dùng nút "Chuyển giai đoạn".
 **8.6 Kỹ thuật**: trong công việc được giao hiện thẻ cơ hội rút gọn (không có giá trị).
@@ -234,8 +247,8 @@ Dùng bộ giao diện hiện có; hộp thoại dùng chung `Modal` (Issue #218
 | S5 | Mã quyền `opportunity.*` + phạm vi theo người phụ trách/theo việc + script cấp quyền hai người + script gỡ | chỉ CI |
 | S6 | Backend đọc: danh sách, chi tiết, theo khách; ma trận quyền | không |
 | S7 | Backend ghi: tạo, sửa, đổi giai đoạn, lịch sử | không |
-| S8 | Backend: Tạm hoãn, Thắng, Thua, mở lại, chuyển người phụ trách, công việc tự tạo | không |
-| S9 | Gắn hoạt động/công việc vào cơ hội + quyền xem của Kỹ thuật theo việc | không |
+| S8 | Migration cộng thêm `activity.opportunity_auto_kind` + unique riêng phần (6.13) + rollback; backend: Tạm hoãn, Tiếp tục, Thắng, Thua, mở lại, chuyển người phụ trách, công việc tự tạo nguyên tử | chỉ PostgreSQL tạm của CI |
+| S9 | Migration cộng thêm `opportunity_document` + `won_doc_file_name` (6.14) + rollback + grants; gắn hoạt động/công việc vào cơ hội + quyền xem của Kỹ thuật theo việc; API tài liệu | chỉ PostgreSQL tạm của CI |
 | S10 | Giao diện: danh sách bảng, chi tiết, hộp thoại (kèm sửa Issue #218) | không |
 | S11 | Giao diện: kanban, tab Cơ hội trong chi tiết khách, điện thoại | không |
 | S12 | Cập nhật staging: sao lưu → `deploy.sh --migrate` → grants V5 → cấp quyền hai người → seed danh mục → nghiệm thu mục 10 | **staging; Owner duyệt riêng từng bước** |
@@ -256,7 +269,10 @@ Không PR nào đụng DB thật. Phần làm **ngay**: S1–S12. Phần để *
 9. **Ma trận quyền** 5 vai trò × (xem danh sách, xem chi tiết, tạo, sửa, đổi giai đoạn, chốt, chuyển người, mở lại, xoá): kiểm bằng **gọi API trực tiếp**, không chỉ giao diện; ngoài phạm vi trả 404; kiểm cả đếm, tìm kiếm, xuất.
 10. Kỹ thuật: chỉ thấy cơ hội của việc được giao; không thấy giá trị trong phản hồi API; việc đóng ⇒ mất quyền xem.
 11. Người phụ trách cơ hội không phụ trách khách: chỉ thấy thẻ khách tối thiểu; không mở được cơ hội khác hay timeline của khách.
-12. Người phụ trách khách thấy mọi cơ hội của khách mình, không sửa được cơ hội không phụ trách.
+12. Người phụ trách khách thấy mọi cơ hội của khách mình, không sửa được cơ hội không phụ trách — kiểm bằng **gọi API**: sửa, chuyển giai đoạn, Tạm hoãn, Tiếp tục, Thắng, Thua trên cơ hội do người khác phụ trách ⇒ đều bị từ chối, dữ liệu không đổi (PR234-R1-AUTH). Tạo cơ hội cho khách mình ⇒ được; cho khách không phụ trách ⇒ bị từ chối.
+12a. **Tiếp tục / mở lại** (PR234-R1-HOLD): `/resume` từ ON_HOLD ⇒ OPEN đúng giai đoạn cũ, đóng (CANCELLED) đúng việc nhắc đang mở của lần đó; `/resume` khi không ON_HOLD ⇒ 409; `/reopen` trên ON_HOLD ⇒ 409; `/reopen` bởi Kinh doanh ⇒ bị từ chối.
+12b. **Công việc tự tạo** (PR234-R1-TASK): gửi lặp cùng `version` và hai yêu cầu Tạm hoãn / Thắng đồng thời ⇒ đúng **một** việc tự sinh, yêu cầu sau 409; lỗi giữa chừng ⇒ không còn trạng thái / lịch sử / việc nửa vời; Tiếp tục chỉ đóng việc nhắc tự sinh, không đóng việc người dùng tạo; Thắng → mở lại → Thắng ⇒ việc bàn giao cũ còn OPEN bị CANCELLED, có đúng một việc bàn giao OPEN mới.
+12c. **Tài liệu** (PR234-R1-FILES): thêm tài liệu thiếu tên tệp hoặc URL không `https://` ⇒ bị chặn; Kỹ thuật gọi API danh sách tài liệu / chi tiết cơ hội ⇒ **không** có tài liệu `COMMERCIAL`, `won_doc_url`, `won_doc_file_name`; Kế toán, Kinh doanh (theo 5.1) thấy đủ.
 13. Hai người sửa cùng lúc ⇒ người sau nhận báo xung đột, không mất dữ liệu.
 14. Điện thoại thật (iPhone) và máy tính: tạo, chuyển giai đoạn, chốt.
 15. Hồi quy: toàn bộ kiểm thử Khách hàng, Hoạt động/Công việc, Xuất CSV hiện có vẫn đạt; `VERIFY` quyền DB đạt với V5.
