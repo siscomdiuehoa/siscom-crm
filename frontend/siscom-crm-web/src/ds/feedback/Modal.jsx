@@ -35,7 +35,10 @@ const usable = (el) => !!el && el !== document.body && el.isConnected !== false 
 // => trình duyệt đẩy focus về <body> => phím Tab tiếp theo đi ra trang phía sau (onKeyDown của hộp không nhận được vì phím không phát từ trong hộp).
 // Listener keydown cấp document (pha capture): Tab khi focus KHÔNG nằm trong hộp TRÊN CÙNG => kéo về phần tử đầu (Shift+Tab: cuối) của hộp đó,
 // hộp không còn phần tử nào nhận Tab (mọi nút disabled) => focus khung hộp (tabIndex -1).
+// PR236-R2 (MAJOR): đã xử lý ở đây thì stopPropagation — sự kiện không còn tới onKeyDown của Modal PHÍA DƯỚI (nếu phím phát từ phần tử trong hộp
+// dưới) hay listener window nào khác, nên hộp dưới không giành lại focus. Ngoài ra mọi handler của Modal chỉ chạy khi chính nó là hộp trên cùng (isTop).
 const openStack = [];
+const isTop = (ref) => openStack.length > 0 && openStack[openStack.length - 1] === ref;
 let keyGuard = false;
 function guardTabOutside() {
   if (keyGuard || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
@@ -44,7 +47,7 @@ function guardTabOutside() {
     if (e.key !== 'Tab' || !openStack.length) return;
     const panel = openStack[openStack.length - 1].current;
     if (!panel || panel.isConnected === false || panel.contains(document.activeElement)) return;
-    e.preventDefault();
+    e.preventDefault(); e.stopPropagation();
     const list = tabbables(panel);
     (list.length ? (e.shiftKey ? list[list.length - 1] : list[0]) : panel).focus();
   }, true);
@@ -63,10 +66,10 @@ export function Modal({ open, onClose, title, description, icon, tone = 'blue', 
     openerRef.current = usable(a) ? a : (usable(lastFocused) ? lastFocused : null);
   }
   // Escape khi focus KHÔNG nằm trong hộp thoại (vd. đã bấm ra nền). Khi focus ở trong, onKeyDown của hộp thoại xử lý và chặn nổi bọt
-  // (để listener Escape trên window của drawer/form phía dưới không bị kích hoạt theo).
+  // (để listener Escape trên window của drawer/form phía dưới không bị kích hoạt theo). Chỉ hộp TRÊN CÙNG đóng (hai hộp chồng nhau => Escape đóng một).
   useEffect(() => {
     if (!open || inline) return undefined;
-    const h = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+    const h = (e) => { if (e.key === 'Escape' && isTop(panelRef)) onClose && onClose(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [open, inline, onClose]);
@@ -99,7 +102,10 @@ export function Modal({ open, onClose, title, description, icon, tone = 'blue', 
   if (!open) return null;
   // Bắt phím trên CHÍNH hộp thoại: Escape đóng (một lần, không nổi bọt); Tab ở cuối => về đầu, Shift+Tab ở đầu => về cuối;
   // focus đang không ở phần tử nào trong danh sách (vd. khung hộp thoại) => kéo về đầu/cuối. Tab ở giữa để trình duyệt tự chuyển.
+  // Hộp KHÔNG ở trên cùng (focus bị đưa vào hộp dưới bằng chuột/mã): bỏ qua — Tab do listener cấp document xử lý (đã chặn truyền),
+  // Escape để nổi bọt tới listener window của hộp trên cùng.
   const onKey = inline ? undefined : (e) => {
+    if (!isTop(panelRef)) return;
     if (e.key === 'Escape') { e.stopPropagation(); if (onClose) onClose(); return; }
     if (e.key !== 'Tab') return;
     const list = tabbables(panelRef.current);

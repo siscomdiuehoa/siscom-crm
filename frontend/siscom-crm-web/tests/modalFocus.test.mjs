@@ -138,6 +138,56 @@ test('focus ở ngoài nhưng KHÔNG có hộp nào mở => không can thiệp p
   } finally { await m.unmount(); }
 });
 
+// PR236-R2 (MAJOR): hai Modal chồng nhau (hộp B mở từ trong hộp A, render ở nhánh DOM riêng như hộp xác nhận của App).
+// Focus bị đưa vào hộp DƯỚI (A) rồi Tab / Shift+Tab / Escape phát TỪ chính phần tử đó => focus phải ở hộp TRÊN CÙNG (B); Escape chỉ đóng B.
+// miniDom không có pha capture (listener document chạy SAU React) nên ca này kiểm phần "hộp dưới không xử lý" (isTop); thứ tự capture + stopPropagation
+// được kiểm trên trình duyệt thật: tests/browser/modalStackChrome.mjs.
+function StackHarness() {
+  const [a, setA] = React.useState(false); const [b, setB] = React.useState(false);
+  return h('div', null,
+    h('button', { type: 'button', onClick: () => setA(true) }, 'Mở A'),
+    h('div', null, h(Modal, { open: a, onClose: () => setA(false), title: 'Hộp A', footer: h('button', { type: 'button', onClick: () => setB(true) }, 'Mở B') },
+      [h('input', { key: 1, 'aria-label': 'A1' }), h('input', { key: 2, 'aria-label': 'A2' })])),
+    h('div', null, h(Modal, { open: b, onClose: () => setB(false), title: 'Hộp B', footer: h('button', { type: 'button', onClick: () => setB(false) }, 'Huỷ B') },
+      [h('input', { key: 1, 'aria-label': 'B1' }), h('input', { key: 2, 'aria-label': 'B2' })])));
+}
+test('hai hộp chồng nhau: focus bị đưa vào hộp dưới rồi Tab / Shift+Tab từ chính phần tử đó => về hộp trên cùng; Escape chỉ đóng hộp trên', async () => {
+  const m = await mount(h(StackHarness));
+  try {
+    const openA = buttonByText(m.container, /^Mở A$/); openA.focus();
+    await doAct(() => click(openA));
+    const A = findAll(m.container, (e) => e.attributes['aria-label'] === 'Hộp A')[0];
+    const openB = buttonByText(A, /^Mở B$/); openB.focus();
+    await doAct(() => click(openB));
+    const B = findAll(m.container, (e) => e.attributes['aria-label'] === 'Hộp B')[0];
+    assert.ok(B && B.contains(dom.doc.activeElement), 'mở B => focus trong B');
+    const byLabel = (root, l) => findAll(root, (e) => e.attributes['aria-label'] === l)[0];
+    for (const [from, shift, want] of [['A1', false, 'B đầu'], ['A2', true, 'B cuối'], ['A2', false, 'B đầu']]) {
+      const el = byLabel(A, from); el.focus();
+      let ev; await doAct(() => { ev = keydown(el, 'Tab', { shiftKey: shift }); });
+      assert.ok(B.contains(dom.doc.activeElement), (shift ? 'Shift+Tab' : 'Tab') + ' từ ' + from + ' (hộp dưới) => focus phải ở B, đang ở ' + (dom.doc.activeElement.attributes['aria-label'] || dom.doc.activeElement.tagName));
+      assert.equal(ev.defaultPrevented, true);
+      const list = tabbable(B);
+      assert.equal(dom.doc.activeElement, want === 'B đầu' ? list[0] : list[list.length - 1]);
+    }
+    // Escape phát từ phần tử trong hộp dưới: hộp dưới bỏ qua, chỉ hộp trên cùng đóng (listener window của B; miniDom: gọi trực tiếp không có => B vẫn mở,
+    // nhưng A tuyệt đối không được đóng).
+    const a1 = byLabel(A, 'A1'); a1.focus();
+    await doAct(() => { keydown(a1, 'Escape'); });
+    assert.ok(findAll(m.container, (e) => e.attributes['aria-label'] === 'Hộp A')[0], 'Escape từ hộp dưới không được đóng hộp dưới');
+    // Escape trong B => chỉ B đóng, A còn, focus về nút "Mở B".
+    const b1 = byLabel(B, 'B1'); b1.focus();
+    await doAct(() => { keydown(b1, 'Escape'); });
+    assert.equal(findAll(m.container, (e) => e.attributes['aria-label'] === 'Hộp B')[0], undefined, 'B đóng');
+    assert.ok(findAll(m.container, (e) => e.attributes['aria-label'] === 'Hộp A')[0], 'A vẫn mở');
+    assert.equal(dom.doc.activeElement, openB, 'focus về nút Mở B trong A');
+    // A giờ là hộp trên cùng: Tab ở phần tử cuối của A vòng về đầu.
+    const listA = tabbable(A); listA[listA.length - 1].focus();
+    let ev; await doAct(() => { ev = keydown(listA[listA.length - 1], 'Tab'); });
+    assert.equal(dom.doc.activeElement, listA[0]); assert.equal(ev.defaultPrevented, true);
+  } finally { await m.unmount(); }
+});
+
 // PR236-R1-UI-01: StrictMode chạy setup → cleanup → setup cho effect khi gắn; phần tử mở phải được giữ cho lần đóng thật.
 test('StrictMode, mở bằng nút: đóng bằng Escape / Huỷ => focus về nút mở; khi mở focus nằm trong hộp', async () => {
   const m = await mount(h(React.StrictMode, null, h(Harness)));
