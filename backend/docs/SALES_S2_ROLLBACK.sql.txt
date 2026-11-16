@@ -1,0 +1,107 @@
+-- SISCOM CRM - ROLLBACK Sales S2 (20261117000000_sales_opportunity). VIET SAN, KHONG TU CHAY.
+-- Dich: backend\docs\SALES_S2_ROLLBACK.sql.txt (noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/staging/production: CAM, tru khi co phe duyet RIENG bang
+--   van ban + sao luu.
+-- Thiet ke: docs/SALES_DESIGN.md §4.1, §11 ("rollback viet san").
+-- THU TU ROLLBACK:
+--   (1) trien khai lai backend BAN TRUOC Sales (ban cu khong biet bang/cot moi);
+--   (2) file nay, bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi unsplit):
+--       psql -X -v ON_ERROR_STOP=1 -d <db thu> -f SALES_S2_ROLLBACK.sql.txt
+--       (khong kiem vai tro tuong minh: DROP/ALTER tu that bai 42501 neu khong phai chu so huu => transaction huy, khong do dang);
+--   (3) (DB da tach role) khong can chay lai APP_GRANTS: rollback chi go doi tuong cua S2 (quyen tren doi tuong bi go mat theo).
+-- MOT transaction. KHONG BAO GIO tu xoa/sua du lieu. TU CHOI khi: (1) opportunity con dong (ke ca da xoa mem);
+--   (2) opportunity_change con dong; (3) activity con dong co opportunity_id (ke ca da xoa mem). Xu ly tay TRUOC (Owner duyet rieng, tren ban sao,
+--   ghi evidence): xuat \copy CSV; dat activity.opportunity_id = NULL bang UPDATE tuong minh co audit; roi chay lai file nay. Khong co co "ep buoc".
+-- Chua ap S2 (khong co bang opportunity, khong co dong _prisma_migrations) => tu choi (khong co gi de rollback).
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+END $$;
+
+-- (a) Nhan dien + (b) tu choi de khong mat du lieu
+DO $$
+DECLARE n bigint;
+BEGIN
+  IF to_regclass('public.opportunity') IS NULL AND to_regclass('public.opportunity_change') IS NULL
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity' AND column_name = 'opportunity_id')
+     AND NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261117000000_sales_opportunity') THEN
+    RAISE EXCEPTION 'Chua ap migration Sales S2 (khong co bang opportunity / cot activity.opportunity_id / dong _prisma_migrations). Khong co gi de rollback.';
+  END IF;
+  IF to_regclass('public.opportunity') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM public.opportunity' INTO n;
+    IF n > 0 THEN
+      RAISE EXCEPTION 'TU CHOI: con % dong opportunity (ke ca da xoa mem) - xuat CSV truoc, khong tu xoa.', n;
+    END IF;
+  END IF;
+  IF to_regclass('public.opportunity_change') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM public.opportunity_change' INTO n;
+    IF n > 0 THEN
+      RAISE EXCEPTION 'TU CHOI: con % dong opportunity_change - xuat CSV truoc, khong tu xoa.', n;
+    END IF;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity' AND column_name = 'opportunity_id') THEN
+    EXECUTE 'SELECT count(*) FROM public.activity WHERE opportunity_id IS NOT NULL' INTO n;
+    IF n > 0 THEN
+      RAISE EXCEPTION 'TU CHOI: con % dong activity co opportunity_id (ke ca da xoa mem) - xuat CSV va dat NULL bang tay truoc, khong tu xoa.', n;
+    END IF;
+  END IF;
+END $$;
+
+-- (c) Go (IF EXISTS: trang thai sua tay nua chung khong dung giua duong - hau kiem (d) moi ket luan "sach")
+DROP TRIGGER IF EXISTS trg_activity_opportunity ON public.activity;
+DROP FUNCTION IF EXISTS public.fn_check_activity_opportunity();
+ALTER TABLE public.activity DROP CONSTRAINT IF EXISTS activity_opportunity_id_fkey;
+DROP INDEX IF EXISTS public.activity_opportunity_id_idx;
+ALTER TABLE public.activity DROP COLUMN IF EXISTS opportunity_id;
+DROP TRIGGER IF EXISTS trg_contact_customer_fixed_opp ON public.contact;
+DROP FUNCTION IF EXISTS public.fn_contact_customer_fixed_opp();
+DROP TABLE IF EXISTS public.opportunity_change;
+DROP TABLE IF EXISTS public.opportunity;
+DROP FUNCTION IF EXISTS public.fn_opportunity_lookups();
+DROP FUNCTION IF EXISTS public.fn_opportunity_customer_fixed();
+DROP FUNCTION IF EXISTS public.fn_check_opportunity_contact();
+DROP FUNCTION IF EXISTS public.fn_next_opportunity_code();
+DROP SEQUENCE IF EXISTS public.opportunity_code_seq;
+DROP TYPE IF EXISTS public.opportunity_change_field;
+DROP TYPE IF EXISTS public.opportunity_won_doc_type;
+DROP TYPE IF EXISTS public.opportunity_status;
+
+-- (d) Xoa dong _prisma_migrations (khong loc finished_at: dong that bai cung bi xoa) + hau kiem
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261117000000_sales_opportunity';
+DO $$ BEGIN
+  IF to_regclass('public.opportunity') IS NOT NULL
+     OR to_regclass('public.opportunity_change') IS NOT NULL
+     OR to_regclass('public.opportunity_code_seq') IS NOT NULL
+     OR to_regclass('public.activity_opportunity_id_idx') IS NOT NULL
+     OR to_regtype('public.opportunity_status') IS NOT NULL
+     OR to_regtype('public.opportunity_won_doc_type') IS NOT NULL
+     OR to_regtype('public.opportunity_change_field') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity' AND column_name = 'opportunity_id')
+     OR to_regproc('public.fn_next_opportunity_code') IS NOT NULL
+     OR to_regproc('public.fn_opportunity_lookups') IS NOT NULL
+     OR to_regproc('public.fn_opportunity_customer_fixed') IS NOT NULL
+     OR to_regproc('public.fn_check_opportunity_contact') IS NOT NULL
+     OR to_regproc('public.fn_contact_customer_fixed_opp') IS NOT NULL
+     OR to_regproc('public.fn_check_activity_opportunity') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN ('trg_activity_opportunity', 'trg_contact_customer_fixed_opp'))
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261117000000_sales_opportunity')
+     -- doi tuong dung chung cua B1.2 / B3 phai con nguyen
+     OR to_regproc('public.fn_assert_lookup') IS NULL
+     OR to_regproc('public.fn_forbid_code_change') IS NULL
+     OR to_regproc('public.fn_block_mutation') IS NULL
+     OR to_regproc('public.fn_contact_customer_fixed') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_contact_customer_fixed')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_activity_contact') THEN
+    RAISE EXCEPTION 'Rollback Sales S2 chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK Sales S2 (20261117000000_sales_opportunity) XONG' AS ket_qua;

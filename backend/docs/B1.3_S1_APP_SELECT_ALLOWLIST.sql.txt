@@ -18,12 +18,12 @@ DO $$ BEGIN
 END $$;
 CREATE TEMP TABLE b3_al_res (ok boolean, label text);
 CREATE TEMP TABLE b3_al_allow (t text PRIMARY KEY);
--- DANH SACH CHO PHEP (16 bang, sau B3 A2 + V4). Bang KHONG duoc co o day: auth_session, employee_credential, remember_device,
+-- DANH SACH CHO PHEP (18 bang, sau B3 A2 + V4 + Sales S2: opportunity, opportunity_change = bang nghiep vu, app doc - ghi o V5/S3). Bang KHONG duoc co o day: auth_session, employee_credential, remember_device,
 --   privileged_change_request, password_reset_token (du lieu xac thuc / dac quyen - VERIFY B1d/B1e/B1f kiem rieng).
 INSERT INTO b3_al_allow (t) VALUES
  ('_prisma_migrations'), ('activity'), ('activity_access'), ('activity_transfer_request'), ('app_meta'), ('audit_log'),
  ('contact'), ('customer'), ('customer_assignment'), ('department'), ('employee'), ('employee_role'),
- ('lookup_item'), ('permission'), ('role'), ('role_permission');
+ ('lookup_item'), ('opportunity'), ('opportunity_change'), ('permission'), ('role'), ('role_permission');
 
 -- AL1: moi quan he (bang/view/matview/foreign/partition) trong public ma app SELECT duoc (ke ca theo cot) PHAI nam trong danh sach
 INSERT INTO b3_al_res SELECT count(*) = 0,

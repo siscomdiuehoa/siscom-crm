@@ -44,6 +44,35 @@ enum ActivityStatus {
   @@map("activity_status")
 }
 
+// ───────── Sales S2 (20261117000000_sales_opportunity) ─────────
+enum OpportunityStatus {
+  OPEN
+  ON_HOLD
+  WON
+  LOST
+
+  @@map("opportunity_status")
+}
+
+enum OpportunityWonDocType {
+  HOP_DONG
+  DON_DAT_HANG
+
+  @@map("opportunity_won_doc_type")
+}
+
+enum OpportunityChangeField {
+  STAGE
+  STATUS
+  OWNER
+  AMOUNT
+  PROBABILITY
+  CLOSE_DATE
+  HOLD
+
+  @@map("opportunity_change_field")
+}
+
 enum ActivityAccessRevokeReason {
   REASSIGNED
   COMPLETED
@@ -117,6 +146,10 @@ model LookupItem {
   provinceOf Customer[] @relation("CustProvince")
   tierOf     Customer[] @relation("CustTier")
   statusOf   Customer[] @relation("CustStatus")
+  // Sales S2
+  opportunityTypeOf       Opportunity[] @relation("OppType")
+  opportunityStageOf      Opportunity[] @relation("OppStage")
+  opportunityLostReasonOf Opportunity[] @relation("OppLostReason")
 
   @@unique([type, code])
   @@index([type, isActive, sortOrder])
@@ -189,6 +222,12 @@ model Employee {
   activityTransfersFrom    ActivityTransferRequest[] @relation("ActivityTransferFrom")
   activityTransfersTo      ActivityTransferRequest[] @relation("ActivityTransferTo")
   activityTransfersDecided ActivityTransferRequest[] @relation("ActivityTransferDecidedBy")
+  // Sales S2
+  opportunitiesOwned   Opportunity[]       @relation("OpportunityOwner")
+  opportunitiesCreated Opportunity[]       @relation("OpportunityCreatedBy")
+  opportunitiesUpdated Opportunity[]       @relation("OpportunityUpdatedBy")
+  opportunitiesDeleted Opportunity[]       @relation("OpportunityDeletedBy")
+  opportunityChanges   OpportunityChange[] @relation("OpportunityChangedBy")
   assignments        CustomerAssignment[] @relation("AssignmentEmployee")
   assignmentsMade    CustomerAssignment[] @relation("AssignmentAssignedBy")
   auditEntries       AuditLog[]
@@ -316,6 +355,7 @@ model Customer {
   contacts    Contact[]
   activities  Activity[]
   assignments CustomerAssignment[]
+  opportunities Opportunity[] // Sales S2
 
   @@index([ownerId])
   @@index([tierId])
@@ -351,6 +391,7 @@ model Contact {
   updatedBy Employee?  @relation("ContactUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
   deletedBy Employee?  @relation("ContactDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
   activities Activity[]
+  opportunities Opportunity[] // Sales S2
 
   @@index([customerId])
   @@index([deletedAt])
@@ -378,6 +419,8 @@ model Activity {
   completedAt   DateTime?      @map("completed_at") @db.Timestamptz(3)
   completedById String?        @map("completed_by") @db.Uuid
   version       Int            @default(1)
+  // Sales S2 (cong them; trigger cung khach nam trong SQL migration)
+  opportunityId String?        @map("opportunity_id") @db.Uuid
 
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   createdById String?   @map("created_by") @db.Uuid
@@ -395,11 +438,13 @@ model Activity {
   completedBy Employee? @relation("ActivityCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
   accesses         ActivityAccess[]
   transferRequests ActivityTransferRequest[]
+  opportunity      Opportunity?              @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
 
   @@index([customerId, occurredAt(sort: Desc)])
   @@index([nextActionAt])
   @@index([performedById])
   @@index([contactId])
+  @@index([opportunityId])
   @@map("activity")
 }
 
@@ -442,6 +487,84 @@ model ActivityTransferRequest {
   decidedBy    Employee? @relation("ActivityTransferDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
 
   @@map("activity_transfer_request")
+}
+
+// Sales S2 §4.1 — co hoi kinh doanh (CHECK/trigger nam trong SQL migration; quy tac theo ma danh muc o service)
+model Opportunity {
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                  String                 @unique @default(dbgenerated("fn_next_opportunity_code()")) @db.VarChar(20)
+  customerId            String                 @map("customer_id") @db.Uuid
+  contactId             String?                @map("contact_id") @db.Uuid
+  title                 String                 @db.VarChar(200)
+  needSummary           String?                @map("need_summary")
+  typeId                String                 @map("type_id") @db.Uuid
+  isProjectLinked       Boolean                @default(false) @map("is_project_linked")
+  projectName           String?                @map("project_name") @db.VarChar(200)
+  offerScope            String?                @map("offer_scope")
+  stageId               String                 @map("stage_id") @db.Uuid
+  status                OpportunityStatus      @default(OPEN)
+  expectedAmountVnd     BigInt?                @map("expected_amount_vnd")
+  probability           Int                    @default(0) @db.SmallInt
+  probabilityOverridden Boolean                @default(false) @map("probability_overridden")
+  expectedCloseDate     DateTime?              @map("expected_close_date") @db.Date
+  ownerId               String                 @map("owner_id") @db.Uuid
+  holdUntil             DateTime?              @map("hold_until") @db.Date
+  holdReason            String?                @map("hold_reason")
+  wonAmountVnd          BigInt?                @map("won_amount_vnd")
+  wonDocType            OpportunityWonDocType? @map("won_doc_type")
+  wonDocNo              String?                @map("won_doc_no") @db.VarChar(100)
+  wonDocDate            DateTime?              @map("won_doc_date") @db.Date
+  wonDocUrl             String?                @map("won_doc_url") @db.VarChar(1000)
+  lostReasonId          String?                @map("lost_reason_id") @db.Uuid
+  lostNote              String?                @map("lost_note")
+  closedAt              DateTime?              @map("closed_at") @db.Timestamptz(3)
+  isDemo                Boolean                @default(false) @map("is_demo")
+  version               Int                    @default(1)
+
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById  String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById  String?   @map("updated_by") @db.Uuid
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById  String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason") @db.VarChar(500)
+
+  customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contact    Contact?    @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  type       LookupItem  @relation("OppType", fields: [typeId], references: [id], onDelete: Restrict)
+  stage      LookupItem  @relation("OppStage", fields: [stageId], references: [id], onDelete: Restrict)
+  lostReason LookupItem? @relation("OppLostReason", fields: [lostReasonId], references: [id], onDelete: Restrict)
+  owner      Employee    @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy  Employee?   @relation("OpportunityCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy  Employee?   @relation("OpportunityUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  deletedBy  Employee?   @relation("OpportunityDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+  changes    OpportunityChange[]
+  activities Activity[]
+
+  @@index([customerId])
+  @@index([ownerId, status])
+  @@index([stageId])
+  @@index([contactId])
+  @@index([deletedAt])
+  @@map("opportunity")
+}
+
+// Sales S2 — lich su co hoi (chi them; trigger chan UPDATE/DELETE/TRUNCATE trong SQL)
+model OpportunityChange {
+  id            String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  opportunityId String                 @map("opportunity_id") @db.Uuid
+  field         OpportunityChangeField
+  oldValue      String?                @map("old_value")
+  newValue      String?                @map("new_value")
+  reason        String?                @db.VarChar(500)
+  changedById   String                 @map("changed_by") @db.Uuid
+  changedAt     DateTime               @default(now()) @map("changed_at") @db.Timestamptz(3)
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  changedBy   Employee    @relation("OpportunityChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([opportunityId, changedAt])
+  @@map("opportunity_change")
 }
 
 // ───────── Phan cong (lich su). Partial unique "1 OWNER dang hieu luc / khach hang" o HAND_SQL ─────────
