@@ -26,7 +26,25 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- (a) Nhan dien + (b) tu choi de khong mat du lieu
+-- (0) PR237-R1-02: KHOA CHONG GHI moi bang lien quan TRUOC khi kiem du lieu, giu toi COMMIT. Neu kiem truoc roi moi DROP, giao dich khac co the
+--     ghi + commit trong khoang giua => DROP TABLE xoa mat dong vua ghi (da tai hien tren ban cu). ACCESS EXCLUSIVE (DROP/ALTER cung can muc nay):
+--     ghi dang chay => rollback CHO toi khi ghi commit roi moi dem (thay dong do => TU CHOI); rollback dang giu khoa => ghi CHO, rollback xong thi
+--     bang da go, ghi that bai, khong dong da commit nao bi mat. Chi khoa bang DANG TON TAI (migration co the moi ap MOT PHAN).
+--     contact: chi muc contact_id_customer_id_key bi go o (c). activity: cot opportunity_id bi go o (c). Chan ca DOC trong luc rollback - chay khi bao tri.
+--     Kiem bang hai ket noi: scripts/ci/sales-s2-concurrency.mjs R1/R2 (CI).
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['opportunity_change', 'opportunity', 'activity', 'contact'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN EXECUTE format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', t); END IF;
+  END LOOP;
+END $$;
+-- Moc chi cho test dong thoi (R2): tam dung SAU khi da khoa. Khong dat bien nay khi van hanh.
+\if :{?s2_rollback_test_pause}
+SELECT pg_sleep(:s2_rollback_test_pause);
+\endif
+
+-- (a) Nhan dien + (b) tu choi de khong mat du lieu (sau khi da khoa: so dem khong doi cho toi COMMIT)
 DO $$
 DECLARE n bigint;
 BEGIN
@@ -61,13 +79,12 @@ DROP FUNCTION IF EXISTS public.fn_check_activity_opportunity();
 ALTER TABLE public.activity DROP CONSTRAINT IF EXISTS activity_opportunity_id_fkey;
 DROP INDEX IF EXISTS public.activity_opportunity_id_idx;
 ALTER TABLE public.activity DROP COLUMN IF EXISTS opportunity_id;
-DROP TRIGGER IF EXISTS trg_contact_customer_fixed_opp ON public.contact;
-DROP FUNCTION IF EXISTS public.fn_contact_customer_fixed_opp();
 DROP TABLE IF EXISTS public.opportunity_change;
-DROP TABLE IF EXISTS public.opportunity;
+DROP TABLE IF EXISTS public.opportunity;   -- go kem FK ghep opportunity_contact_id_contact_customer_id_fkey
+DROP INDEX IF EXISTS public.contact_id_customer_id_key;
 DROP FUNCTION IF EXISTS public.fn_opportunity_lookups();
 DROP FUNCTION IF EXISTS public.fn_opportunity_customer_fixed();
-DROP FUNCTION IF EXISTS public.fn_check_opportunity_contact();
+DROP FUNCTION IF EXISTS public.fn_opportunity_contact_customer();
 DROP FUNCTION IF EXISTS public.fn_next_opportunity_code();
 DROP SEQUENCE IF EXISTS public.opportunity_code_seq;
 DROP TYPE IF EXISTS public.opportunity_change_field;
@@ -88,10 +105,10 @@ DO $$ BEGIN
      OR to_regproc('public.fn_next_opportunity_code') IS NOT NULL
      OR to_regproc('public.fn_opportunity_lookups') IS NOT NULL
      OR to_regproc('public.fn_opportunity_customer_fixed') IS NOT NULL
-     OR to_regproc('public.fn_check_opportunity_contact') IS NOT NULL
-     OR to_regproc('public.fn_contact_customer_fixed_opp') IS NOT NULL
+     OR to_regproc('public.fn_opportunity_contact_customer') IS NOT NULL
      OR to_regproc('public.fn_check_activity_opportunity') IS NOT NULL
-     OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN ('trg_activity_opportunity', 'trg_contact_customer_fixed_opp'))
+     OR to_regclass('public.contact_id_customer_id_key') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_activity_opportunity')
      OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261117000000_sales_opportunity')
      -- doi tuong dung chung cua B1.2 / B3 phai con nguyen
      OR to_regproc('public.fn_assert_lookup') IS NULL

@@ -263,6 +263,10 @@ jobs:
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
           MIGRATE_DATABASE_URL: ${{ env.TEST_MIGRATE_DATABASE_URL }}
+      # Sales S2 (PR237-R1-01/02): HAI KET NOI that tren DB tam RIENG (tao + DROP trong buoc): lien he cung khach o ca hai thu tu (FK ghep),
+      # rollback khoa ghi truoc khi kiem (ghi den truoc => tu choi, rollback den truoc => ghi bi chan, khong mat dong da commit), rollback khi ap mot phan.
+      - name: Sales S2 - kiem dong thoi hai ket noi (lien he cung khach, rollback khoa truoc khi kiem) + rollback khi migration ap mot phan
+        run: bash scripts/ci/sales-s2-concurrency.sh
       - name: Integration test tren DB tam DA TACH ROLE (ung dung = siscom_app; bootstrap/ALTER DATABASE qua TEST_MIGRATE_DATABASE_URL)
         run: |
           set -euo pipefail

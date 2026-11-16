@@ -26,6 +26,7 @@ CREATE TABLE "opportunity" (
     "code" VARCHAR(20) NOT NULL DEFAULT fn_next_opportunity_code(),
     "customer_id" UUID NOT NULL,
     "contact_id" UUID,
+    "contact_customer_id" UUID,
     "title" VARCHAR(200) NOT NULL,
     "need_summary" TEXT,
     "type_id" UUID NOT NULL,
@@ -68,7 +69,13 @@ CREATE INDEX "opportunity_stage_id_idx" ON "opportunity"("stage_id");
 CREATE INDEX "opportunity_contact_id_idx" ON "opportunity"("contact_id");
 CREATE INDEX "opportunity_deleted_at_idx" ON "opportunity"("deleted_at");
 ALTER TABLE "opportunity" ADD CONSTRAINT "opportunity_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "opportunity" ADD CONSTRAINT "opportunity_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "contact"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- PR237-R1-01: "lien he cung khach" bang FK GHEP (khong dung trigger EXISTS - co khe ho khi chay dong thoi). Kiem FK cua PostgreSQL khoa dong
+--   lien he (KEY SHARE) va kiem lai bang snapshot moi nhat => dung o MOI muc co lap (READ COMMITTED / REPEATABLE READ / SERIALIZABLE):
+--   tao co hoi gan lien he  vs  chuyen lien he sang khach khac luon bi tuan tu hoa, ben den sau that bai (da kiem bang hai ket noi: scripts/ci/
+--   sales-s2-concurrency.mjs C1/C2). contact_customer_id = customer_id khi co lien he (trigger dien + ck_opp_contact_customer), NULL khi khong
+--   co (FK MATCH SIMPLE bo qua). ON UPDATE RESTRICT: khong doi khach cua lien he dang gan co hoi. Khong doi cot nao cua contact (chi them chi muc).
+CREATE UNIQUE INDEX "contact_id_customer_id_key" ON "contact"("id", "customer_id");
+ALTER TABLE "opportunity" ADD CONSTRAINT "opportunity_contact_id_contact_customer_id_fkey" FOREIGN KEY ("contact_id", "contact_customer_id") REFERENCES "contact"("id", "customer_id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 ALTER TABLE "opportunity" ADD CONSTRAINT "opportunity_type_id_fkey" FOREIGN KEY ("type_id") REFERENCES "lookup_item"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "opportunity" ADD CONSTRAINT "opportunity_stage_id_fkey" FOREIGN KEY ("stage_id") REFERENCES "lookup_item"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "opportunity" ADD CONSTRAINT "opportunity_lost_reason_id_fkey" FOREIGN KEY ("lost_reason_id") REFERENCES "lookup_item"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -81,6 +88,7 @@ ALTER TABLE "opportunity" ADD CONSTRAINT "opportunity_deleted_by_fkey" FOREIGN K
 ALTER TABLE "opportunity"
   ADD CONSTRAINT ck_opp_code        CHECK (code ~ '^CH-[0-9]{4,}$'),
   ADD CONSTRAINT ck_opp_title       CHECK (btrim(title) <> ''),
+  ADD CONSTRAINT ck_opp_contact_customer CHECK ((contact_id IS NULL AND contact_customer_id IS NULL) OR (contact_id IS NOT NULL AND contact_customer_id = customer_id)),
   ADD CONSTRAINT ck_opp_need        CHECK (need_summary IS NULL OR btrim(need_summary) <> ''),
   ADD CONSTRAINT ck_opp_project     CHECK (NOT is_project_linked OR (project_name IS NOT NULL AND btrim(project_name) <> '' AND offer_scope IS NOT NULL AND btrim(offer_scope) <> '')),
   ADD CONSTRAINT ck_opp_amount      CHECK (expected_amount_vnd IS NULL OR expected_amount_vnd >= 0),
@@ -116,24 +124,14 @@ BEGIN
 END $$;
 CREATE TRIGGER trg_opportunity_customer_fixed BEFORE UPDATE OF customer_id ON opportunity FOR EACH ROW EXECUTE FUNCTION public.fn_opportunity_customer_fixed();
 CREATE TRIGGER trg_opportunity_code_fixed BEFORE UPDATE ON opportunity FOR EACH ROW EXECUTE FUNCTION public.fn_forbid_code_change();
--- 5c. Nguoi lien he cua co hoi phai thuoc CUNG khach (mau fn_check_activity_contact)
-CREATE OR REPLACE FUNCTION public.fn_check_opportunity_contact() RETURNS trigger LANGUAGE plpgsql AS $$
+-- 5c. contact_customer_id do DB dien (ung dung khong can biet cot nay): = customer_id khi co lien he, NULL khi khong. Lien he cung khach va
+--     "khong chuyen khach lien he dang gan co hoi" do FK ghep opportunity_contact_id_contact_customer_id_fkey bao dam (muc 3).
+CREATE OR REPLACE FUNCTION public.fn_opportunity_contact_customer() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.contact_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.contact WHERE id = NEW.contact_id AND customer_id = NEW.customer_id) THEN
-    RAISE EXCEPTION 'Lien he % khong thuoc khach hang cua co hoi.', NEW.contact_id USING ERRCODE = 'foreign_key_violation';
-  END IF;
+  NEW.contact_customer_id := CASE WHEN NEW.contact_id IS NULL THEN NULL ELSE NEW.customer_id END;
   RETURN NEW;
 END $$;
-CREATE TRIGGER trg_opportunity_contact BEFORE INSERT OR UPDATE OF contact_id, customer_id ON opportunity FOR EACH ROW EXECUTE FUNCTION public.fn_check_opportunity_contact();
--- 5d. Lien he da gan co hoi khong duoc chuyen sang khach khac (bo sung trg_contact_customer_fixed cua B1.2 - ham B1.2 GIU NGUYEN, trigger rieng)
-CREATE OR REPLACE FUNCTION public.fn_contact_customer_fixed_opp() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  IF NEW.customer_id IS DISTINCT FROM OLD.customer_id AND EXISTS (SELECT 1 FROM public.opportunity WHERE contact_id = OLD.id) THEN
-    RAISE EXCEPTION 'Khong doi khach hang cua lien he % khi da gan co hoi.', OLD.code USING ERRCODE = 'restrict_violation';
-  END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER trg_contact_customer_fixed_opp BEFORE UPDATE OF customer_id ON contact FOR EACH ROW EXECUTE FUNCTION public.fn_contact_customer_fixed_opp();
+CREATE TRIGGER trg_opportunity_contact_customer BEFORE INSERT OR UPDATE ON opportunity FOR EACH ROW EXECUTE FUNCTION public.fn_opportunity_contact_customer();
 
 -- 6. Bang opportunity_change: lich su (chi them; khong sua, khong xoa - dung chung fn_block_mutation nhu audit_log)
 CREATE TABLE "opportunity_change" (
@@ -155,7 +153,9 @@ ALTER TABLE "opportunity_change" ADD CONSTRAINT ck_oc_reason CHECK (reason IS NU
 CREATE TRIGGER trg_opportunity_change_append_only BEFORE UPDATE OR DELETE ON opportunity_change FOR EACH ROW EXECUTE FUNCTION public.fn_block_mutation();
 CREATE TRIGGER trg_opportunity_change_no_truncate BEFORE TRUNCATE ON opportunity_change FOR EACH STATEMENT EXECUTE FUNCTION public.fn_block_mutation();
 
--- 7. activity.opportunity_id (NULL; hoat dong cu de NULL) + cung khach voi co hoi
+-- 7. activity.opportunity_id (NULL; hoat dong cu de NULL) + cung khach voi co hoi.
+--    Trigger EXISTS o day KHONG co khe ho dong thoi nhu lien he (PR237-R1-01): ca hai phia deu co dinh khach - opportunity.customer_id
+--    (trg_opportunity_customer_fixed) va activity.customer_id (trg_activity_customer_fixed cua B3) - nen khong co thao tac doi khach nao chay song song.
 ALTER TABLE "activity" ADD COLUMN "opportunity_id" UUID;
 CREATE INDEX "activity_opportunity_id_idx" ON "activity"("opportunity_id");
 ALTER TABLE "activity" ADD CONSTRAINT "activity_opportunity_id_fkey" FOREIGN KEY ("opportunity_id") REFERENCES "opportunity"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -393,6 +393,7 @@ model Contact {
   activities Activity[]
   opportunities Opportunity[] // Sales S2
 
+  @@unique([id, customerId]) // Sales S2 (PR237-R1-01): dich cua FK ghep opportunity(contact_id, contact_customer_id)
   @@index([customerId])
   @@index([deletedAt])
   @@map("contact")
@@ -495,6 +496,8 @@ model Opportunity {
   code                  String                 @unique @default(dbgenerated("fn_next_opportunity_code()")) @db.VarChar(20)
   customerId            String                 @map("customer_id") @db.Uuid
   contactId             String?                @map("contact_id") @db.Uuid
+  // PR237-R1-01: = customerId khi co lien he (trigger DB dien, CHECK ck_opp_contact_customer) - FK ghep (contactId, contactCustomerId) -> contact(id, customerId)
+  contactCustomerId     String?                @map("contact_customer_id") @db.Uuid
   title                 String                 @db.VarChar(200)
   needSummary           String?                @map("need_summary")
   typeId                String                 @map("type_id") @db.Uuid
@@ -530,7 +533,7 @@ model Opportunity {
   deleteReason String?   @map("delete_reason") @db.VarChar(500)
 
   customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  contact    Contact?    @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  contact    Contact?    @relation(fields: [contactId, contactCustomerId], references: [id, customerId], onDelete: Restrict, onUpdate: Restrict)
   type       LookupItem  @relation("OppType", fields: [typeId], references: [id], onDelete: Restrict)
   stage      LookupItem  @relation("OppStage", fields: [stageId], references: [id], onDelete: Restrict)
   lostReason LookupItem? @relation("OppLostReason", fields: [lostReasonId], references: [id], onDelete: Restrict)
