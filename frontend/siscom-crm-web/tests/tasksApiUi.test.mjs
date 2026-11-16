@@ -4,7 +4,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import React from 'react';
-import { installDom, text, findAll, buttonByText, inputByLabel, click, type } from './helpers/miniDom.mjs';
+import { installDom, text, findAll, buttonByText, inputByLabel, click, type, keydown } from './helpers/miniDom.mjs';
 
 const BASE = 'http://127.0.0.1:3000/api/v1';
 const ON = { VITE_CRM_API_ENABLED: 'true', VITE_CRM_API_BASE: BASE };
@@ -110,6 +110,25 @@ test('Hoàn thành: hộp thoại gửi POST /complete {version, outcome}; đọ
     assert.equal(w.p, '/activities/t1/complete'); assert.deepEqual(w.body, { version: 3, outcome: 'Đã gửi email báo giá' });
     assert.ok(f.lists().length > nList); assert.ok(f.count('/activities/reminders/summary') > nSum);
     assert.equal(modal(m.container), undefined); assert.match(m.toasts[0].title, /Đã hoàn thành/);
+  } finally { await m.unmount(); }
+});
+
+test('F-A8-02 (#218): hộp "Hoàn thành công việc" — mở => focus ô Kết quả; Tab/Shift+Tab vòng trong hộp; Escape đóng => focus về nút Hoàn thành', async () => {
+  const f = server(); const m = await page_(f, SALES);
+  try {
+    const opener = buttonByText(m.container, /^Hoàn thành$/); opener.focus();
+    await doAct(() => click(opener));
+    const d = modal(m.container); assert.ok(d);
+    assert.equal(dom.doc.activeElement, inputByLabel(d, /^Kết quả/), 'mở => focus vào ô Kết quả trong hộp thoại');
+    const list = findAll(d, (e) => ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT'].includes(e.tagName) && !e.disabled && e.attributes.tabindex !== '-1' && e.attributes.type !== 'hidden');
+    const first = list[0]; const last = list[list.length - 1]; assert.ok(list.length >= 3 && first !== last);
+    last.focus(); let ev;
+    await doAct(() => { ev = keydown(last, 'Tab'); }); assert.equal(dom.doc.activeElement, first); assert.equal(ev.defaultPrevented, true);
+    await doAct(() => { ev = keydown(first, 'Tab', { shiftKey: true }); }); assert.equal(dom.doc.activeElement, last); assert.equal(ev.defaultPrevented, true);
+    await doAct(() => { keydown(dom.doc.activeElement, 'Escape'); });
+    assert.equal(modal(m.container), undefined, 'Escape đóng hộp thoại');
+    assert.equal(dom.doc.activeElement, opener, 'đóng => focus về nút Hoàn thành');
+    assert.equal(f.writes().length, 0);
   } finally { await m.unmount(); }
 });
 
