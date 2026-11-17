@@ -32,7 +32,10 @@ describe('Sales S4 — seed danh mục cơ hội trên PostgreSQL', () => {
     const r2 = await withAdmin((a) => seedLookupCatalog(a as unknown as SeedDb, SALES_LOOKUP_CATALOG));
     expect(r2).toMatchObject({ inserted: 0, existing: 16, missing: [], inactive: [] });
     const rows = await salesRows(prisma);
-    const count = (t: string) => rows.filter((r) => r.type === t).length;
+    // DB thử dùng chung: bộ test khác (Sales S6/S7) có thể đã thêm mục danh mục RIÊNG của test (mã T_*) vào cùng type => chỉ đếm mục THUỘC catalog.
+    // "Không trùng" vẫn được kiểm bằng truy vấn GROUP BY (type, code) ở cuối ca này.
+    const inCatalog = (r: Row) => SALES_LOOKUP_CATALOG.some((x) => x.type === r.type && x.code === r.code);
+    const count = (t: string) => rows.filter((r) => r.type === t && inCatalog(r)).length;
     expect([count('opportunity_stage'), count('opportunity_type'), count('opportunity_lost_reason')]).toEqual([4, 3, 9]);
     for (const x of SALES_LOOKUP_CATALOG) expect(rows).toContainEqual(expect.objectContaining({ type: x.type, code: x.code, label_vi: x.labelVi, sort_order: x.sortOrder, is_active: true }));
     expect(await prisma.$queryRawUnsafe<{ n: number }[]>('SELECT count(*)::int AS n FROM (SELECT type, code FROM lookup_item GROUP BY type, code HAVING count(*) > 1) d')).toEqual([{ n: 0 }]);
