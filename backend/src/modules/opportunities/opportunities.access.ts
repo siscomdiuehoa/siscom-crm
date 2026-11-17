@@ -91,12 +91,23 @@ export function assertWrite(actor: Actor, scopeOf: ScopeOf, code: OppWriteCode, 
 // ---------- NGƯỜI NHẬN khi chuyển người phụ trách [O3] ----------
 // Quyền của NGƯỜI CHUYỂN: allowsWrite(..., 'opportunity.assign', o). Hàm này chỉ xét NGƯỜI NHẬN (điều kiện thu hẹp, không cấp quyền cho ai).
 //  1. Nhân viên ACTIVE (chưa xoá mềm) VÀ tài khoản dùng được — canSignIn lấy từ cổng auth (AssigneeEligibility), KHÔNG từ pool nghiệp vụ.
-//  2. Quyền hiệu lực của người nhận có CẢ opportunity.read VÀ opportunity.update (bất kỳ phạm vi).
+//  2. Quyền hiệu lực của người nhận có CẢ opportunity.read VÀ opportunity.update, và hai mã đó phải ĐỦ để người nhận đọc + sửa cơ hội SAU KHI
+//     NHẬN. Kiểm bằng CHÍNH readsFull / allowsWrite trên cơ hội giả định "người nhận là người phụ trách" (PR240-R1-03) — không chỉ kiểm mã có
+//     tồn tại. Giới hạn triển khai hiện tại: phạm vi DEPARTMENT chưa được hỗ trợ cho opportunity.* (fail-closed), nên người nhận có read hoặc
+//     update ở phạm vi DEPARTMENT bị từ chối; chỉ OWN hoặc ALL được nhận. Khi DEPARTMENT được hỗ trợ sau này, điều kiện này tự đi theo vị từ.
 //  3. Cùng phòng với người phụ trách hiện tại, trừ khi người chuyển có opportunity.assign phạm vi ALL; phòng của một trong hai chưa xác định
 //     => chỉ phạm vi ALL được chuyển.
 //  4. KHÔNG yêu cầu người nhận có quyền trên chính cơ hội đó từ trước, KHÔNG yêu cầu đọc được khách.
 // Lý do trả về chỉ dùng nội bộ (test, nhật ký máy chủ); client luôn nhận MỘT mã OPPORTUNITY_ASSIGNEE_INELIGIBLE.
 export type AssigneeRefusal = 'INACTIVE' | 'CANNOT_SIGN_IN' | 'LACKS_PERMISSION' | 'OTHER_DEPARTMENT';
+// "Đủ quyền đảm nhận": với quyền hiệu lực của CHÍNH người đó, nếu họ là người phụ trách một cơ hội đang hoạt động thì họ đọc được (đường đầy đủ)
+// VÀ sửa được nó. Khách của cơ hội giả định không do họ phụ trách — quyền phải đến từ việc phụ trách CƠ HỘI, không nhờ phụ trách khách.
+export function canWorkAsOwner(e: Pick<EmployeeAccess, 'id' | 'departmentId' | 'scopes'>): boolean {
+  const who: Actor = { employeeId: e.id, departmentId: e.departmentId };
+  const scopeOf: ScopeOf = (p) => e.scopes[p] ?? null;
+  const asOwner: OppRef = { ownerId: e.id, deletedAt: null, customer: { ownerId: null, deletedAt: null } };
+  return readsFull(who, scopeOf, asOwner) && allowsWrite(who, scopeOf, 'opportunity.update', asOwner);
+}
 export function assigneeRefusal(
   scopeOf: ScopeOf,
   currentOwner: Pick<EmployeeAccess, 'departmentId'> | undefined,
@@ -105,7 +116,7 @@ export function assigneeRefusal(
 ): AssigneeRefusal | null {
   if (!recipient || !recipient.active) return 'INACTIVE';
   if (canSignIn !== true) return 'CANNOT_SIGN_IN';
-  if (!recipient.scopes['opportunity.read'] || !recipient.scopes['opportunity.update']) return 'LACKS_PERMISSION';
+  if (!canWorkAsOwner(recipient)) return 'LACKS_PERMISSION';
   if (scopeOf('opportunity.assign') !== 'ALL') {
     const from = currentOwner ? currentOwner.departmentId : null;
     if (from === null || recipient.departmentId === null || from !== recipient.departmentId) return 'OTHER_DEPARTMENT';

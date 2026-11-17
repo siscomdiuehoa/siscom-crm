@@ -286,6 +286,10 @@ jobs:
       # rollback khoa ghi truoc khi kiem (ghi den truoc => tu choi, rollback den truoc => ghi bi chan, khong mat dong da commit), rollback khi ap mot phan.
       - name: Sales S2 - kiem dong thoi hai ket noi (lien he cung khach, rollback khoa truoc khi kiem) + rollback khi migration ap mot phan
         run: bash scripts/ci/sales-s2-concurrency.sh
+      # Sales S5 (PR240-R1-01/02): HAI KET NOI that tren DB tam RIENG (tao + DROP trong buoc): migration phan loai quyen doi dau cap quyen cho admin,
+      # rollback doi dau chen ma / script ADD, script REMOVE doi dau cap quyen ngoai ma tran / doi scope - ca hai thu tu; ben den sau cho roi bi tu choi.
+      - name: Sales S5 - kiem dong thoi hai ket noi (migration / rollback phan loai quyen, script cap va go quyen khoa truoc khi tien kiem)
+        run: bash scripts/ci/sales-s5-concurrency.sh
       - name: Integration test tren DB tam DA TACH ROLE (ung dung = siscom_app; bootstrap/ALTER DATABASE qua TEST_MIGRATE_DATABASE_URL)
         run: |
           set -euo pipefail

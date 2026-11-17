@@ -27,6 +27,17 @@ SELECT current_database() AS db_dich, current_user AS chay_bang;
 \else
 BEGIN;
 \endif
+-- (0) DONG BO (PR240-R1-02): KHOA truoc tien kiem 0a va giu toi COMMIT - quyet dinh "khong co dong ngoai ma tran" va vong go cung nhin MOT
+--     trang thai. Cung thu tu voi migration / rollback / ADD: bang (permission, role_permission) TRUOC, khoa tu van siscom.rbac SAU.
+--     SHARE ROW EXCLUSIVE chan moi lenh ghi cua giao dich khac tren hai bang (van cho doc). Giao dich cap quyen / doi scope dang mo => file nay CHO
+--     no commit roi moi tien kiem (thay dong moi => TU CHOI, khong go gi). File nay dang giu khoa => lenh cap quyen CHO toi khi go xong.
+--     Kiem hai ket noi: scripts/ci/sales-s5-concurrency.mjs X1/X2/X3.
+LOCK TABLE public.permission, public.role_permission IN SHARE ROW EXCLUSIVE MODE;
+DO $$ BEGIN PERFORM pg_advisory_xact_lock(hashtext('siscom.rbac')); END $$;
+-- Moc chi cho test dong thoi (X2): tam dung SAU khi da khoa, TRUOC tien kiem 0a. Khong dat bien nay khi van hanh.
+\if :{?s5_test_pause}
+SELECT pg_sleep(:s5_test_pause);
+\endif
 -- 10 ma cua S5 (khop OPPORTUNITY_PERMISSIONS trong actor.ts - unit test opportunity-permissions.spec.ts kiem)
 SELECT set_config('s5.sysadmin', :'s5_sysadmin', true), set_config('s5.approver', :'s5_approver', true),
        set_config('s5.codes', 'opportunity.read,opportunity.read_assigned,opportunity.create,opportunity.update,opportunity.move_stage,opportunity.close,opportunity.assign,opportunity.reopen,opportunity.delete,opportunity.restore', true);
@@ -51,12 +62,10 @@ BEGIN
   IF v_sys = v_app THEN RAISE EXCEPTION 'TU CHOI: nguoi yeu cau va nguoi duyet phai KHAC nhau (2 nguoi).'; END IF;
 END $$;
 
--- 0a. Quyen NGOAI ma tran S5 tren 10 ma => TU CHOI (khong go gi). Ma tran 17 dong = SALES_S5_OPPORTUNITY_PERMISSIONS.sql.txt (unit test giu 2 file khop).
-SELECT (count(*) > 0) AS s5_rm_unexpected, coalesce(string_agg(x, ', ' ORDER BY x), '') AS s5_rm_unexpected_list FROM (
-  SELECT ro.code || ':' || p.code || ':' || rp.scope::text AS x
-  FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id JOIN public.role ro ON ro.id = rp.role_id
-  WHERE p.code = ANY (string_to_array(current_setting('s5.codes'), ','))
-    AND (ro.code, p.code, rp.scope::text) NOT IN (SELECT m.role_code, m.perm_code, m.scope FROM (VALUES
+-- Ma tran 17 dong = SALES_S5_OPPORTUNITY_PERMISSIONS.sql.txt (unit test giu 2 file khop). MOT ban duy nhat trong file nay (bang tam), dung cho
+--   ca tien kiem 0a LAN vong go o buoc 1 (PR240-R1-02: vong go CHI lay dong khop ma tran - lop bao ve thu hai ngoai khoa).
+CREATE TEMP TABLE s5_matrix (role_code text, perm_code text, scope text, PRIMARY KEY (role_code, perm_code)) ON COMMIT DROP;
+INSERT INTO s5_matrix (role_code, perm_code, scope) VALUES
       ('crm_admin',  'opportunity.read',          'ALL'),
       ('crm_admin',  'opportunity.create',        'ALL'),
       ('crm_admin',  'opportunity.update',        'ALL'),
@@ -73,8 +82,13 @@ SELECT (count(*) > 0) AS s5_rm_unexpected, coalesce(string_agg(x, ', ' ORDER BY 
       ('sales',      'opportunity.close',         'OWN'),
       ('sales',      'opportunity.assign',        'OWN'),
       ('technician', 'opportunity.read_assigned', 'OWN'),
-      ('accountant', 'opportunity.read',          'ALL')
-    ) AS m(role_code, perm_code, scope))
+      ('accountant', 'opportunity.read',          'ALL');
+-- 0a. Quyen NGOAI ma tran S5 tren 10 ma (vai tro khac HOAC scope khac) => TU CHOI (khong go gi)
+SELECT (count(*) > 0) AS s5_rm_unexpected, coalesce(string_agg(x, ', ' ORDER BY x), '') AS s5_rm_unexpected_list FROM (
+  SELECT ro.code || ':' || p.code || ':' || rp.scope::text AS x
+  FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id JOIN public.role ro ON ro.id = rp.role_id
+  WHERE p.code = ANY (string_to_array(current_setting('s5.codes'), ','))
+    AND NOT EXISTS (SELECT 1 FROM s5_matrix m WHERE m.role_code = ro.code AND m.perm_code = p.code AND m.scope = rp.scope::text)
 ) u \gset
 \if :s5_rm_unexpected
 \echo 'TU CHOI REMOVE: 10 ma S5 dang duoc cap NGOAI ma tran (co the la thay doi co duyet sau S5) - xu ly tay roi chay lai:' :s5_rm_unexpected_list
@@ -87,12 +101,19 @@ FROM public.permission WHERE code LIKE 'opportunity.%' AND code <> ALL (string_t
 SELECT set_config('s5.keep_fp', (SELECT coalesce(md5(string_agg(rp.role_id::text || '/' || rp.permission_id::text || '/' || rp.scope::text, ',' ORDER BY rp.role_id, rp.permission_id)), '-')
   FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id WHERE p.code <> ALL (string_to_array(current_setting('s5.codes'), ','))), true);
 
--- 1. Go TUNG dong role_permission cua 10 ma (moi dong mot yeu cau REMOVE)
+-- 1. Go TUNG dong role_permission cua 10 ma (moi dong mot yeu cau REMOVE). Kiem LAI "khong co dong ngoai ma tran" ngay trong khoi nay va
+--    vong go CHI lay dong KHOP ma tran (vai tro + ma + scope): du co loi khoa, dong ngoai ma tran khong bao gio bi go o day.
 DO $$
-DECLARE v_sys uuid := current_setting('s5.sysadmin')::uuid; v_app uuid := current_setting('s5.approver')::uuid; r record; v_req uuid; n int := 0;
+DECLARE v_sys uuid := current_setting('s5.sysadmin')::uuid; v_app uuid := current_setting('s5.approver')::uuid; r record; v_req uuid; n int := 0; v_bad text;
 BEGIN
+  SELECT string_agg(ro.code || ':' || p.code || ':' || rp.scope::text, ', ' ORDER BY ro.code, p.code) INTO v_bad
+    FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id JOIN public.role ro ON ro.id = rp.role_id
+   WHERE p.code = ANY (string_to_array(current_setting('s5.codes'), ','))
+     AND NOT EXISTS (SELECT 1 FROM s5_matrix m WHERE m.role_code = ro.code AND m.perm_code = p.code AND m.scope = rp.scope::text);
+  IF v_bad IS NOT NULL THEN RAISE EXCEPTION 'TU CHOI REMOVE: co dong ngoai ma tran S5 tai thoi diem go: % - khong go gi.', v_bad; END IF;
   FOR r IN SELECT rp.role_id, rp.permission_id, ro.code AS role_code, p.code AS perm_code
            FROM public.role_permission rp JOIN public.permission p ON p.id = rp.permission_id JOIN public.role ro ON ro.id = rp.role_id
+           JOIN s5_matrix m ON m.role_code = ro.code AND m.perm_code = p.code AND m.scope = rp.scope::text
            WHERE p.code = ANY (string_to_array(current_setting('s5.codes'), ',')) ORDER BY ro.code, p.code
   LOOP
     v_req := public.fn_auth_api_request_create(v_sys, 'ROLE_PERMISSION_CHANGE', NULL, r.role_id,

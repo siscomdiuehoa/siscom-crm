@@ -5,6 +5,12 @@
 -- THU TU ROLLBACK (docs/SALES_DESIGN.md §9 "Duong lui"): quyen ung dung (SALES_S5_OPPORTUNITY_PERMISSIONS_REMOVE) -> file nay.
 -- TU CHOI khi permission con ma opportunity.* : neu van con ma ma ham bi tra ve ban cu thi cac ma do roi khoi nhom BIZ va SoD khong con bao ve.
 --   Khong tu xoa ma/quyen. Khong co co "ep buoc".
+-- DONG BO (PR240-R1-01): MOT transaction, KHOA BANG TRUOC khi kiem, giu toi COMMIT:
+--   LOCK TABLE permission, role_permission IN SHARE ROW EXCLUSIVE MODE (chan moi INSERT/UPDATE/DELETE cua giao dich khac, ke ca lenh chen ma KHONG
+--   dung khoa tu van; van cho doc) roi pg_advisory_xact_lock('siscom.rbac') - cung thu tu voi migration va script ADD/REMOVE cua S5.
+--   Lenh chen ma dang mo => rollback CHO no commit roi dem (thay ma do => TU CHOI). Rollback dang giu khoa => lenh chen / script ADD CHO;
+--   rollback xong thi script ADD tu choi (opportunity.* khong con la BIZ - ADD kiem SAU khi lay khoa).
+--   Kiem hai ket noi: scripts/ci/sales-s5-concurrency.mjs R1/R2/R3 (CI).
 -- Chay bang CHU SO HUU ham (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi unsplit); khong phai chu so huu => 42501, huy.
 \set ON_ERROR_STOP on
 \set ON_ERROR_ROLLBACK off
@@ -12,18 +18,25 @@
 SET client_encoding TO 'UTF8';
 SELECT current_database() AS db_rollback, current_user AS chay_bang;
 BEGIN;
-DO $$
-DECLARE n int;
-BEGIN
+DO $$ BEGIN
   IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
      OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
     RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
   END IF;
+END $$;
+-- (0) KHOA truoc moi phep kiem du lieu
+LOCK TABLE public.permission, public.role_permission IN SHARE ROW EXCLUSIVE MODE;
+DO $$ BEGIN PERFORM pg_advisory_xact_lock(hashtext('siscom.rbac')); END $$;
+-- Moc chi cho test dong thoi (R2/R3): tam dung SAU khi da khoa. Khong dat bien nay khi van hanh.
+\if :{?s5_test_pause}
+SELECT pg_sleep(:s5_test_pause);
+\endif
+DO $$
+DECLARE n int;
+BEGIN
   IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261118000000_sales_perm_class') THEN
     RAISE EXCEPTION 'TU CHOI: chua ap 20261118000000_sales_perm_class (khong co gi de rollback).';
   END IF;
-  -- Khoa RBAC nhu trigger SoD (cung khoa advisory) de khong co yeu cau cap quyen chen giua luc kiem va luc doi ham.
-  PERFORM pg_advisory_xact_lock(hashtext('siscom.rbac'));
   SELECT count(*) INTO n FROM public.permission WHERE code ~ '^opportunity\.';
   IF n > 0 THEN
     RAISE EXCEPTION 'TU CHOI: con % ma opportunity.* trong permission - chay SALES_S5_OPPORTUNITY_PERMISSIONS_REMOVE truoc.', n;
@@ -42,7 +55,8 @@ DELETE FROM public._prisma_migrations WHERE migration_name = '20261118000000_sal
 DO $$ BEGIN
   IF public.fn_auth_perm_class('opportunity.read') <> 'OTHER' OR public.fn_auth_perm_class('customer.read') <> 'BIZ'
      OR public.fn_auth_perm_class('access.approve') <> 'APPROVE' OR public.fn_auth_perm_class('role.manage') <> 'REQUEST'
-     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261118000000_sales_perm_class') THEN
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261118000000_sales_perm_class')
+     OR EXISTS (SELECT 1 FROM public.permission WHERE code ~ '^opportunity\.') THEN
     RAISE EXCEPTION 'Rollback Sales S5 (perm_class) chua sach.';
   END IF;
 END $$;

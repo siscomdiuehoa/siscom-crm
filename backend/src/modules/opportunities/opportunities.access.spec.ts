@@ -5,7 +5,7 @@ import type { EmployeeAccess } from '../../common/auth/scope-merge';
 import { DomainException } from '../../common/errors/domain.exception';
 import { BIZ, ROLE_CODE } from '../auth/bootstrap';
 import {
-  accessPath, allowsCreate, allowsWrite, assertAssignee, assertMayLoadDeleted, assertRestorable, assertWrite, assigneeRefusal, deletedListWhere,
+  accessPath, allowsCreate, allowsWrite, assertAssignee, assertMayLoadDeleted, assertRestorable, assertWrite, assigneeRefusal, canWorkAsOwner, deletedListWhere,
   fullReadWhere, hasAssignedReadCode, mayRestore, OppRef, OppWriteCode, ownerLostAccess, readsFull, restoreDecision, ScopeOf, seesOwnerLostFlag,
 } from './opportunities.access';
 
@@ -194,6 +194,44 @@ describe('Người nhận khi chuyển người phụ trách [O3] (TC 8, 9a(iv),
   });
   it('người nhận chỉ có update mà thiếu read => từ chối (tránh người phụ trách không đọc được cơ hội của mình)', () => {
     expect(assigneeRefusal(admin, owner, { id: 'r', departmentId: 'd1', active: true, scopes: { 'opportunity.update': 'OWN' } }, true)).toBe('LACKS_PERMISSION');
+  });
+  // PR240-R1-03: phạm vi DEPARTMENT chưa được hỗ trợ cho opportunity.* => người nhận có read/update DEPARTMENT sẽ KHÔNG đọc/sửa được sau khi nhận.
+  const withScopes = (read: Scope | undefined, update: Scope | undefined): EmployeeAccess => ({
+    id: 'r', departmentId: 'd1', active: true,
+    scopes: { ...(read ? { 'opportunity.read': read } : {}), ...(update ? { 'opportunity.update': update } : {}) } as Partial<Record<Permission, Scope>>,
+  });
+  it.each([
+    ['read DEPARTMENT + update DEPARTMENT', 'DEPARTMENT', 'DEPARTMENT'],
+    ['read OWN + update DEPARTMENT', 'OWN', 'DEPARTMENT'],
+    ['read DEPARTMENT + update OWN', 'DEPARTMENT', 'OWN'],
+    ['read ALL + update DEPARTMENT', 'ALL', 'DEPARTMENT'],
+    ['read DEPARTMENT + update ALL', 'DEPARTMENT', 'ALL'],
+  ] as Array<[string, Scope, Scope]>)('người nhận có %s => từ chối bằng OPPORTUNITY_ASSIGNEE_INELIGIBLE (cả Kinh doanh lẫn Quản trị CRM chuyển)', (_n, read, update) => {
+    const r = withScopes(read, update);
+    expect(canWorkAsOwner(r)).toBe(false);
+    for (const s of [sale, admin]) {
+      expect(assigneeRefusal(s, owner, r, true)).toBe('LACKS_PERMISSION');
+      expect(code(() => assertAssignee(s, owner, r, true))).toBe('400 OPPORTUNITY_ASSIGNEE_INELIGIBLE');
+    }
+  });
+  it.each([
+    ['OWN + OWN', 'OWN', 'OWN'], ['ALL + ALL', 'ALL', 'ALL'], ['OWN + ALL', 'OWN', 'ALL'], ['ALL + OWN', 'ALL', 'OWN'],
+  ] as Array<[string, Scope, Scope]>)('người nhận có read/update %s => được nhận, và SAU KHI NHẬN đọc + sửa được đúng cơ hội đó', (_n, read, update) => {
+    const r = withScopes(read, update);
+    expect(canWorkAsOwner(r)).toBe(true);
+    expect(assigneeRefusal(sale, owner, r, true)).toBeNull();
+    const after = opp({ ownerId: 'r' }); const who: Actor = { employeeId: 'r', departmentId: 'd1' }; const s = of(r.scopes);
+    expect(readsFull(who, s, after)).toBe(true);
+    expect(allowsWrite(who, s, 'opportunity.update', after)).toBe(true);
+  });
+  it('điều kiện người nhận luôn khớp vị từ đọc/ghi: mọi tổ hợp phạm vi read × update — được nhận ⇔ sau khi nhận đọc được VÀ sửa được', () => {
+    const all: Array<Scope | undefined> = [undefined, 'OWN', 'DEPARTMENT', 'ALL'];
+    for (const read of all) for (const update of all) {
+      const r = withScopes(read, update);
+      const after = opp({ ownerId: 'r' }); const who: Actor = { employeeId: 'r', departmentId: 'd1' }; const s = of(r.scopes);
+      const works = readsFull(who, s, after) && allowsWrite(who, s, 'opportunity.update', after);
+      expect({ read, update, accepted: assigneeRefusal(admin, owner, r, true) === null }).toEqual({ read, update, accepted: works });
+    }
   });
   it('khác phòng: Kinh doanh bị từ chối; Quản trị CRM (assign ALL) được', () => {
     expect(assigneeRefusal(sale, owner, emp('r', 'd2', ['sale']), true)).toBe('OTHER_DEPARTMENT');

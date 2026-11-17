@@ -25,6 +25,16 @@ SELECT current_database() AS db_dich, current_user AS chay_bang;
 \else
 BEGIN;
 \endif
+-- (0) DONG BO (PR240-R1-01): KHOA truoc MOI phep kiem (ke ca kiem "opportunity.* la BIZ") va truoc khi chen ma, giu toi COMMIT. Cung thu tu voi
+--     migration 20261118000000 / rollback / REMOVE: bang (permission, role_permission) TRUOC, khoa tu van siscom.rbac SAU. SHARE ROW EXCLUSIVE chan
+--     moi lenh ghi cua giao dich khac tren hai bang (van cho doc); chinh transaction nay van ghi duoc. Rollback phan loai dang chay => file nay CHO,
+--     roi tu choi vi opportunity.* khong con la BIZ. Kiem hai ket noi: scripts/ci/sales-s5-concurrency.mjs R3.
+LOCK TABLE public.permission, public.role_permission IN SHARE ROW EXCLUSIVE MODE;
+DO $$ BEGIN PERFORM pg_advisory_xact_lock(hashtext('siscom.rbac')); END $$;
+-- Moc chi cho test dong thoi: tam dung SAU khi da khoa. Khong dat bien nay khi van hanh.
+\if :{?s5_test_pause}
+SELECT pg_sleep(:s5_test_pause);
+\endif
 -- 10 ma cua S5 (khop OPPORTUNITY_PERMISSIONS trong actor.ts - unit test opportunity-permissions.spec.ts kiem)
 SELECT set_config('s5.sysadmin', :'s5_sysadmin', true), set_config('s5.approver', :'s5_approver', true),
        set_config('s5.codes', 'opportunity.read,opportunity.read_assigned,opportunity.create,opportunity.update,opportunity.move_stage,opportunity.close,opportunity.assign,opportunity.reopen,opportunity.delete,opportunity.restore', true);
