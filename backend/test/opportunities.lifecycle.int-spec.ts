@@ -382,3 +382,143 @@ describe('Nhật ký THẬT và rollback nguyên tử cho năm thao tác vòng �
     expect(await snapshot(won.id)).toMatchObject({ row: { status: 'OPEN', version: 3 }, tasks: [{ opportunityAutoKind: 'WIN_HANDOVER', status: 'CANCELLED' }] });
   });
 });
+
+// ───── Review R1 của PR #244 ─────
+// Việc TASK dựng thẳng bằng Prisma (không qua API) để có việc "không phải việc nhắc" gắn cùng cơ hội.
+const rawTask = (opportunityId: string, performedById: string, kind: 'WIN_HANDOVER' | null) => prisma.activity.create({
+  data: { customerId: cA.id, type: 'TASK', title: 'S8b việc thử ' + uniq(), content: 'Nội dung việc thử', occurredAt: new Date(), dueAt: new Date(nineAm(day(3))), status: 'OPEN', performedById, opportunityId, opportunityAutoKind: kind, isDemo: true, createdById: fx.empA, updatedById: fx.empA },
+  select: { id: true, version: true },
+});
+
+describe('PR244-R1-01 — ngoại lệ việc nhắc chỉ cho ĐỌC + HOÀN THÀNH đúng việc; không mở work-card, không thành quyền cập nhật B3', () => {
+  beforeAll(() => { t.actors!.presets['techXp'] = { actor: { employeeId: techX, departmentId: fx.d2 }, scopes: { ...TECH } }; });
+  it('B (phụ trách cơ hội, không đọc khách, không có activity_access): chi tiết / danh sách / hoàn thành được; work-card, lịch sử, PATCH (kể cả outcome), giao lại, mở lại, đề xuất chuyển đều bị từ chối; không lọt thẻ khách hay liên hệ', async () => {
+    const o = await opp(fx.empB);
+    expect((await post('salesB', o.id, 'hold', { version: 1, holdUntil: day(5), holdReason: 'Chờ' })).status).toBe(200);
+    let task = (await tasks(o.id))[0];
+    expect(await prisma.activityAccess.count({ where: { activityId: task.id } })).toBe(0);
+    // Người phụ trách KHÁCH (quyền B3 theo phạm vi) gắn một liên hệ của khách vào việc nhắc.
+    const contactName = 'Liên hệ kín ' + uniq();
+    const ct = await prisma.contact.create({ data: { customerId: cA.id, fullName: contactName, phone: '0987000111', isDemo: true }, select: { id: true } });
+    expect((await a('salesA').patch(ACT + '/' + task.id, { version: task.version, contactId: ct.id })).status).toBe(200);
+    task = (await tasks(o.id))[0];
+    const cust = await prisma.customer.findUniqueOrThrow({ where: { id: cA.id }, select: { phone: true, address: true } });
+
+    const detail = await a('salesB').get(ACT + '/' + task.id);
+    expect(detail.status).toBe(200);
+    expect(detail.body.data).toMatchObject({ id: task.id, contact: null, access: 'REMINDER' });
+    expect(JSON.stringify(detail.body)).not.toContain(contactName);
+    const list = await a('salesB').get(ACT + '?assignee=me&pageSize=100');
+    expect(list.body.data.items.find((x: { id: string }) => x.id === task.id)).toMatchObject({ contact: null, access: 'REMINDER' });
+
+    const card = await a('salesB').get(ACT + '/' + task.id + '/work-card');
+    expect(card.status).toBe(404);
+    const dump = JSON.stringify(card.body);
+    for (const secret of [contactName, '0987000111', cust.phone]) expect(dump).not.toContain(secret);
+    expect((await a('salesB').get(ACT + '/' + task.id + '/history')).status).toBe(404);
+    expect((await a('salesB').patch(ACT + '/' + task.id, { version: task.version, outcome: 'B ghi kết quả qua PATCH' })).status).toBe(403);
+    expect((await a('salesB').patch(ACT + '/' + task.id, { version: task.version, status: 'CANCELLED' })).status).toBe(403);
+    expect((await a('salesB').post(ACT + '/' + task.id + '/assign', { version: task.version, performedById: fx.empA })).status).toBe(403);
+    expect([403, 404]).toContain((await a('salesB').post(ACT + '/' + task.id + '/transfer-requests', { toEmployeeId: fx.empA, reason: 'thử' })).status);
+    expect((await tasks(o.id))[0]).toMatchObject({ version: task.version, status: 'OPEN', outcome: null, performedById: fx.empB });
+
+    expect((await a('salesB').post(ACT + '/' + task.id + '/complete', { version: task.version, outcome: 'Đã gọi lại' })).status).toBe(200);
+    expect((await tasks(o.id))[0]).toMatchObject({ status: 'DONE', outcome: 'Đã gọi lại' });
+    expect((await a('salesB').post(ACT + '/' + task.id + '/reopen', { version: task.version + 1 })).status).toBe(403);
+  });
+  it('đối chứng: quyền B3 độc lập vẫn nguyên — người đọc theo khách và người có activity_access mở được work-card, người có quyền theo việc vẫn PATCH được outcome', async () => {
+    const o = await opp(fx.empA);
+    expect((await post('salesA', o.id, 'hold', { version: 1, holdUntil: day(5), holdReason: 'Chờ' })).status).toBe(200);
+    const reminder = (await tasks(o.id, 'HOLD_REMINDER'))[0];
+    const scoped = await a('salesA').get(ACT + '/' + reminder.id + '/work-card'); // A phụ trách khách: đường theo phạm vi
+    expect(scoped.status).toBe(200);
+    expect(scoped.body.data.customer.code).toBe(cA.code);
+    expect((await a('salesA').get(ACT + '/' + reminder.id)).body.data.access).toBe('SCOPE');
+    expect((await post('salesA', o.id, 'win', { version: 2, ...WIN, handoverToId: techX })).status).toBe(200);
+    const hand = (await tasks(o.id, 'WIN_HANDOVER'))[0];
+    expect((await a('techXp').get(ACT + '/' + hand.id)).body.data).toMatchObject({ access: 'TASK', contact: null });
+    const card = await a('techXp').get(ACT + '/' + hand.id + '/work-card'); // techX: quyền theo việc (activity_access) của B3
+    expect(card.status).toBe(200);
+    expect(card.body.data.customer.code).toBe(cA.code);
+    expect((await a('techXp').patch(ACT + '/' + hand.id, { version: hand.version, outcome: 'Đã khảo sát' })).status).toBe(200);
+    expect((await a('techXp').patch(ACT + '/' + hand.id, { version: hand.version + 1, content: 'sửa nội dung' })).status).toBe(403);
+  });
+});
+
+describe('PR244-R1-02 — người chỉ có mã opportunity.* (không có activity.*) vẫn dùng được đúng nhánh việc nhắc, và chỉ nhánh đó', () => {
+  const OPP_ONLY = { 'opportunity.read': 'OWN', 'opportunity.close': 'OWN', 'opportunity.assign': 'OWN', 'lookup.read': 'ALL' } as const;
+  const setScopes = (scopes: object) => { t.actors!.presets['oppOnlyB'] = { actor: t.actors!.presets['oppOnlyB']?.actor ?? { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { ...scopes } }; };
+  beforeAll(() => setScopes(OPP_ONLY));
+  afterEach(() => setScopes(OPP_ONLY));
+  const bell = async () => { const r = await a('oppOnlyB').get(ACT + '/reminders/summary'); expect(r.status).toBe(200); return r.body.data as { overdue: number; today: number; upcoming7d: number }; };
+  const myList = async () => { const r = await a('oppOnlyB').get(ACT + '?assignee=me&pageSize=100'); expect(r.status).toBe(200); return r.body.data as { total: number; items: Array<{ id: string; access: string; contact: unknown }> }; };
+
+  it('danh sách / chi tiết / chuông / hoàn thành đúng việc nhắc của mình; việc người dùng tạo và việc bàn giao KHÔNG mở nhờ ngoại lệ; work-card và PATCH bị từ chối', async () => {
+    const before = await bell();
+    const o = await opp(fx.empB);
+    expect((await post('oppOnlyB', o.id, 'hold', { version: 1, holdUntil: day(4), holdReason: 'Chờ' })).status).toBe(200);
+    const task = (await tasks(o.id, 'HOLD_REMINDER'))[0];
+    const manual = await rawTask(o.id, fx.empB, null); // việc người dùng tạo, cùng cơ hội, cùng người làm
+    const handover = await rawTask(o.id, fx.empB, 'WIN_HANDOVER'); // việc bàn giao: chỉ theo activity_access của B3
+    expect(await bell()).toEqual({ ...before, upcoming7d: before.upcoming7d + 1 }); // chỉ việc nhắc được đếm
+
+    const list = await myList();
+    const ids = list.items.map((x) => x.id);
+    expect(ids).toContain(task.id);
+    expect(ids).not.toContain(manual.id);
+    expect(ids).not.toContain(handover.id);
+    // Mọi dòng trả về đều là việc nhắc tạm hoãn của chính B; tổng số khớp số dòng (lọc trước khi đếm / phân trang).
+    const kinds = await prisma.activity.findMany({ where: { id: { in: ids } }, select: { opportunityAutoKind: true, performedById: true } });
+    expect(kinds.every((k) => k.opportunityAutoKind === 'HOLD_REMINDER' && k.performedById === fx.empB)).toBe(true);
+    expect(list.total).toBe(list.items.length);
+    expect(list.items.every((x) => x.access === 'REMINDER' && x.contact === null)).toBe(true);
+
+    expect((await a('oppOnlyB').get(ACT + '/' + task.id)).body.data).toMatchObject({ id: task.id, access: 'REMINDER', contact: null });
+    expect((await a('oppOnlyB').get(ACT + '/' + manual.id)).status).toBe(404);
+    expect((await a('oppOnlyB').get(ACT + '/' + handover.id)).status).toBe(404);
+    expect((await a('oppOnlyB').post(ACT + '/' + manual.id + '/complete', { version: manual.version })).status).toBe(404);
+    expect((await a('oppOnlyB').post(ACT + '/' + handover.id + '/complete', { version: handover.version })).status).toBe(404);
+    expect([403, 404]).toContain((await a('oppOnlyB').get(ACT + '/' + task.id + '/work-card')).status);
+    expect([403, 404]).toContain((await a('oppOnlyB').get(ACT + '/' + task.id + '/history')).status);
+    expect((await a('oppOnlyB').patch(ACT + '/' + task.id, { version: task.version, outcome: 'x' })).status).toBe(403);
+    expect((await a('oppOnlyB').get('/api/v1/customers/' + cA.id + '/activities')).status).toBeGreaterThanOrEqual(403); // timeline khách không mở
+
+    const done = await a('oppOnlyB').post(ACT + '/' + task.id + '/complete', { version: task.version, outcome: 'Đã gọi' });
+    expect(done.status).toBe(200);
+    expect(done.body.data).toMatchObject({ status: 'DONE', contact: null });
+    expect(await bell()).toEqual(before);
+    expect(await prisma.activity.findUniqueOrThrow({ where: { id: manual.id }, select: { status: true, version: true } })).toEqual({ status: 'OPEN', version: manual.version });
+  });
+  it('mất opportunity.read => 403 ở request kế tiếp; chuyển người làm hoặc xoá mềm cơ hội => 404 và biến khỏi danh sách / chuông', async () => {
+    const o1 = await opp(fx.empB); const o2 = await opp(fx.empB);
+    for (const o of [o1, o2]) expect((await post('oppOnlyB', o.id, 'hold', { version: 1, holdUntil: day(4), holdReason: 'Chờ' })).status).toBe(200);
+    const t1 = (await tasks(o1.id))[0]; const t2 = (await tasks(o2.id))[0];
+    const withBoth = await bell();
+    expect((await a('oppOnlyB').get(ACT + '/' + t1.id)).status).toBe(200);
+
+    setScopes({ 'opportunity.close': 'OWN', 'lookup.read': 'ALL' }); // gỡ opportunity.read
+    expect((await a('oppOnlyB').get(ACT + '/' + t1.id)).status).toBe(403);
+    expect((await a('oppOnlyB').get(ACT + '?assignee=me')).status).toBe(403);
+    expect((await a('oppOnlyB').get(ACT + '/reminders/summary')).status).toBe(403);
+    expect((await a('oppOnlyB').post(ACT + '/' + t1.id + '/complete', { version: t1.version })).status).toBe(403);
+    setScopes(OPP_ONLY);
+
+    // Người phụ trách khách giao việc nhắc của cơ hội 1 cho người khác.
+    expect((await a('salesA').post(ACT + '/' + t1.id + '/assign', { version: t1.version, performedById: fx.empA })).status).toBe(200);
+    expect((await a('oppOnlyB').get(ACT + '/' + t1.id)).status).toBe(404);
+    expect((await a('oppOnlyB').post(ACT + '/' + t1.id + '/complete', { version: t1.version + 1 })).status).toBe(404);
+    // Quản trị CRM xoá mềm cơ hội 2.
+    expect((await a('crmAdmin').delete(O + '/' + o2.id, { version: 2, reason: 'thử' })).status).toBe(200);
+    expect((await a('oppOnlyB').get(ACT + '/' + t2.id)).status).toBe(404);
+    expect((await a('oppOnlyB').post(ACT + '/' + t2.id + '/complete', { version: t2.version })).status).toBe(404);
+    const ids = (await myList()).items.map((x) => x.id);
+    expect(ids).not.toContain(t1.id);
+    expect(ids).not.toContain(t2.id);
+    expect(await bell()).toEqual({ ...withBoth, upcoming7d: withBoth.upcoming7d - 2 });
+  });
+  it('người không có mã nào liên quan (không activity.*, không opportunity.read) vẫn 403 ở mọi đường của Hoạt động', async () => {
+    setScopes({ 'lookup.read': 'ALL' });
+    for (const u of [ACT, ACT + '/reminders/summary', ACT + '/' + GHOST, ACT + '/' + GHOST + '/work-card']) expect({ u, s: (await a('oppOnlyB').get(u)).status }).toEqual({ u, s: 403 });
+    expect((await a('oppOnlyB').post(ACT + '/' + GHOST + '/complete', { version: 1 })).status).toBe(403);
+  });
+});

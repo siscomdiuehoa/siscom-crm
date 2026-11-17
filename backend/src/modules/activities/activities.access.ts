@@ -14,7 +14,9 @@ import { activityErrors } from './activities.errors';
 
 type Tx = Prisma.TransactionClient;
 export type ScopeOf = (p: Permission) => Scope | null;
-export type AccessMode = 'SCOPE' | 'TASK';
+// SCOPE: đọc theo khách (B3). TASK: quyền theo việc qua activity_access (B3 §5.4). REMINDER: CHỈ ngoại lệ việc nhắc tạm hoãn của Sales S8b §5.5(e) —
+// đọc đúng việc đó + hoàn thành; KHÔNG work-card, lịch sử, PATCH, giao lại, mở lại (PR244-R1-01: không được coi như TASK).
+export type AccessMode = 'SCOPE' | 'TASK' | 'REMINDER';
 export type RevokeReason = 'REASSIGNED' | 'COMPLETED' | 'CANCELLED' | 'DELETED' | 'CUSTOMER_DELETED' | 'EXPIRED' | 'ROLE_LOST' | 'DUE_CHANGED' | 'MANUAL';
 
 export const ownerInfo = (r: { ownerId: string | null; owner: { departmentId: string | null } | null }): OwnerInfo => ({ ownerId: r.ownerId, ownerDepartmentId: r.owner ? r.owner.departmentId : null });

@@ -58,6 +58,14 @@ export class ActivityTasksService {
   private needReadOrTask(actor: Actor): void {
     if (!this.actors.scopeFor(actor, 'activity.read') && !this.actors.scopeFor(actor, 'activity.update_own')) throw activityErrors.forbidden();
   }
+  // Sales S8b §5.5(e), PR244-R1-02: người phụ trách cơ hội có thể KHÔNG có mã activity.* nào nhưng vẫn phải thấy / hoàn thành được việc nhắc tạm hoãn
+  // của mình. Hai cổng dưới đây CHỈ mở cửa vào; từng dòng vẫn phải đạt vị từ (resolve / reminderReadWhere). Chỉ dùng ở: danh sách, chuông, chi tiết,
+  // hoàn thành. Work-card, lịch sử, PATCH, giao lại, mở lại, xoá giữ nguyên cổng B3.
+  private hasReminderPath(actor: Actor): boolean { return this.actors.scopeFor(actor, 'opportunity.read') !== null; }
+  private needListRead(actor: Actor): void { if (!this.actors.scopeFor(actor, 'activity.read') && !this.hasReminderPath(actor)) throw activityErrors.forbidden(); }
+  private needReadTaskOrReminder(actor: Actor): void {
+    if (!this.actors.scopeFor(actor, 'activity.read') && !this.actors.scopeFor(actor, 'activity.update_own') && !this.hasReminderPath(actor)) throw activityErrors.forbidden();
+  }
 
   // Ai đọc được hoạt động này, theo đường nào. forWrite: khách đã xoá vẫn trả SCOPE để nơi gọi báo 409 CUSTOMER_DELETED (như A5).
   private async resolve(db: Pick<Tx, '$queryRaw'>, actor: Actor, row: ActivityTaskRow, forWrite: boolean): Promise<Vis | null> {
@@ -70,10 +78,12 @@ export class ActivityTasksService {
       return { mode: 'SCOPE', owner };
     }
     if (row.customer.deletedAt) return null;
-    // Sales S8b §5.5(e): việc nhắc tạm hoãn của CHÍNH người phụ trách cơ hội (có thể không đọc được khách) — ngoại lệ duy nhất, quyền như đường theo việc.
-    if (readsOwnReminder(actor, s, row)) return { mode: 'TASK', owner };
+    // Quyền B3 thật (activity_access) xét TRƯỚC: người có quyền theo việc độc lập giữ nguyên mọi hành vi B3.
     const acc = await activeTaskAccess(db, actor, s, row.id);
-    return acc ? { mode: 'TASK', owner, accessExpiresAt: acc.expiresAt } : null;
+    if (acc) return { mode: 'TASK', owner, accessExpiresAt: acc.expiresAt };
+    // Sales S8b §5.5(e): việc nhắc tạm hoãn của CHÍNH người phụ trách cơ hội (có thể không đọc được khách) — ngoại lệ duy nhất. Mode RIÊNG (REMINDER),
+    // KHÔNG phải TASK: chỉ chi tiết + hoàn thành; mọi đường khác của B3 từ chối mode này (PR244-R1-01).
+    return readsOwnReminder(actor, s, row) ? { mode: 'REMINDER', owner } : null;
   }
 
   private async loadVisible(actor: Actor, id: string): Promise<{ row: ActivityTaskRow; vis: Vis }> {
@@ -88,7 +98,8 @@ export class ActivityTasksService {
   private async present(db: Pick<Tx, 'activityAccess' | '$queryRaw'>, actor: Actor, row: ActivityTaskRow, vis: Vis, extra: Record<string, unknown> = {}) {
     const base = { ...toActivity(row), customer: { id: row.customer.id, code: row.customer.code, name: row.customer.name }, access: vis.mode };
     // R1 PR #211 (§5.4): người chỉ có quyền theo việc KHÔNG nhận contact qua chi tiết/phản hồi ghi — contact tối thiểu chỉ qua /work-card.
-    if (vis.mode === 'TASK') return { ...base, contact: null, accessExpiresAt: iso(vis.accessExpiresAt ?? null), assigneeLostAccess: false, ...extra };
+    // REMINDER (ngoại lệ việc nhắc): cùng bản tối thiểu, không contact.
+    if (vis.mode !== 'SCOPE') return { ...base, contact: null, accessExpiresAt: iso(vis.accessExpiresAt ?? null), assigneeLostAccess: false, ...extra };
     const s = this.scopeOf(actor);
     const rows = await activeAccessRows(db, [row.id], await dbNow(db));
     const perf = row.performedById ? (await this.access.load(this.prisma, [row.performedById])).get(row.performedById) : undefined;
@@ -105,7 +116,7 @@ export class ActivityTasksService {
   // ───── GET /activities ─────
   async list(ctx: RequestCtx, q: QueryTasksDto) {
     const { actor } = ctx;
-    this.need(actor, 'activity.read');
+    this.needListRead(actor);
     const s = this.scopeOf(actor);
     const page = q.page ?? 1;
     const pageSize = q.pageSize ?? 20;
@@ -138,12 +149,13 @@ export class ActivityTasksService {
       return { total, rows: rows as ActivityTaskRow[] };
     });
     const scoped = rows.filter((r) => readsByScope(actor, s, ownerInfo(r.customer)));
-    const accRows = await activeAccessRows(this.prisma, scoped.map((r) => r.id), now);
+    const accRows = await activeAccessRows(this.prisma, rows.map((r) => r.id), now);
     const perfIds = [...new Set(scoped.filter((r) => r.status === 'OPEN' && r.performedById).map((r) => r.performedById as string))];
     const perf = await this.access.load(this.prisma, perfIds);
     const items = rows.map((r) => {
       const owner = ownerInfo(r.customer);
-      const mode: AccessMode = readsByScope(actor, s, owner) ? 'SCOPE' : 'TASK';
+      // Ngoài phạm vi khách: có dòng activity_access hiệu lực của chính mình => TASK (B3); không có => chỉ lọt nhờ ngoại lệ việc nhắc => REMINDER.
+      const mode: AccessMode = readsByScope(actor, s, owner) ? 'SCOPE' : accRows.some((x) => x.activityId === r.id && x.employeeId === actor.employeeId) ? 'TASK' : 'REMINDER';
       const a = toActivity(r);
       const lost = mode === 'SCOPE' && assigneeLost(r.status, r.performedById, owner, r.performedById ? perf.get(r.performedById) : undefined, accRows.some((x) => x.activityId === r.id && x.employeeId === r.performedById));
       // R1 PR #211 (§5.4): TASK => không contact (chỉ qua /work-card); SCOPE => chỉ khi có contact.read trong phạm vi chủ khách.
@@ -152,13 +164,13 @@ export class ActivityTasksService {
     return { items, page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
   }
 
-  assertCanReadList(ctx: RequestCtx): void { this.need(ctx.actor, 'activity.read'); }
+  assertCanReadList(ctx: RequestCtx): void { this.needListRead(ctx.actor); }
 
   // ───── GET /activities/reminders/summary (§7) ─────
   // 3 số đầu: CHỈ TASK OPEN tôi phụ trách, chưa xoá, khách chưa xoá, tôi CÒN đọc được (theo khách hoặc quyền theo việc). Ba nhóm không chồng nhau.
   async summary(ctx: RequestCtx, transfers: { pendingApprovals: number; transferDecisions: number }) {
     const { actor } = ctx;
-    this.need(actor, 'activity.read');
+    this.needListRead(actor);
     const s = this.scopeOf(actor);
     const now = await dbNow(this.prisma); // quyết định Owner #4: đồng hồ PostgreSQL cho cả vị từ quyền và mốc ngày VN
     const vis: Prisma.ActivityWhereInput[] = [scopeReadWhere(actor, s)];
@@ -179,7 +191,7 @@ export class ActivityTasksService {
   // ───── GET /activities/:id ─────
   async detail(ctx: RequestCtx, id: string) {
     const { actor } = ctx;
-    this.needReadOrTask(actor);
+    this.needReadTaskOrReminder(actor);
     const { row, vis } = await this.loadVisible(actor, id);
     return this.present(this.prisma, actor, row, vis);
   }
@@ -190,7 +202,9 @@ export class ActivityTasksService {
   async workCard(ctx: RequestCtx, id: string) {
     const { actor } = ctx;
     this.needReadOrTask(actor);
-    const { row } = await this.loadVisible(actor, id);
+    const { row, vis } = await this.loadVisible(actor, id);
+    // PR244-R1-01: thẻ khách + liên hệ chỉ theo quyền B3 (đọc theo khách hoặc activity_access). Ngoại lệ việc nhắc KHÔNG mở thẻ khách => 404 như không thấy.
+    if (vis.mode === 'REMINDER') throw activityErrors.notFound();
     const c = await this.prisma.customer.findUniqueOrThrow({ where: { id: row.customerId }, select: { code: true, name: true, shortName: true, address: true, phone: true, province: { select: { labelVi: true } } } });
     const ct = row.contactId ? await this.prisma.contact.findFirst({ where: { id: row.contactId, deletedAt: null }, select: { fullName: true, title: true, phone: true } }) : null;
     return {
@@ -278,6 +292,8 @@ export class ActivityTasksService {
     const touched = (['title', 'content', 'outcome', 'occurredAt', 'dueAt', 'remindAt', 'contactId', 'performedById', 'status', 'external'] as const).filter((k) => dto[k] !== undefined);
     if (!touched.length) throw activityErrors.validation(['Không có trường nào để cập nhật.']);
     return this.write(ctx, id, async (tx, row, vis, w) => {
+      // PR244-R1-01: ngoại lệ việc nhắc không phải quyền cập nhật — kết quả chỉ ghi khi hoàn thành (/complete).
+      if (vis.mode === 'REMINDER') throw activityErrors.forbidden('Việc nhắc này chỉ hoàn thành được; không sửa được nội dung.');
       if (vis.mode === 'TASK') {
         // §5.4: người CHỈ có quyền theo việc chỉ sửa kết quả (outcome) — trường khác => 403, dù có activity.update_own.
         if (touched.some((k) => k !== 'outcome')) throw activityErrors.forbidden('Bạn chỉ được cập nhật kết quả của công việc được giao.');
@@ -390,10 +406,10 @@ export class ActivityTasksService {
   // activity.update / activity.update_own (mình tạo/được giao) / performed_by = tôi — luôn áp lại phạm vi đọc HOẶC quyền theo việc.
   async complete(ctx: RequestCtx, id: string, dto: CompleteActivityDto) {
     const { actor } = ctx;
-    this.needReadOrTask(actor); // rà soát A6 M-1: không có quyền hoạt động nào => 403 (không 404)
+    this.needReadTaskOrReminder(actor); // rà soát A6 M-1: không có quyền hoạt động nào (và không có nhánh việc nhắc của Sales) => 403 (không 404)
     return this.write(ctx, id, async (tx, row, vis, w) => {
       const mine = row.performedById === actor.employeeId;
-      const ok = vis.mode === 'TASK' ? mine : (mine || this.canEditByScope(actor, row, vis.owner));
+      const ok = vis.mode === 'SCOPE' ? (mine || this.canEditByScope(actor, row, vis.owner)) : mine; // TASK / REMINDER: chỉ việc của chính mình
       if (!ok) throw activityErrors.forbidden();
       if (row.type !== 'TASK') throw activityErrors.notTask();
       if (row.status !== 'OPEN') throw activityErrors.notOpen();
@@ -408,7 +424,7 @@ export class ActivityTasksService {
       const fresh = await this.reload(tx, row.id);
       // Người chỉ có quyền theo việc: quyền vừa hết cùng transaction => trả bản tối thiểu (không gọi lại present theo SCOPE).
       // R2 PR #211 (§5.4): như present() nhánh TASK — không trả contact (liên hệ tối thiểu chỉ qua /work-card).
-      return vis.mode === 'TASK' ? { ...toActivity(fresh), contact: null, customer: { id: fresh.customer.id, code: fresh.customer.code, name: fresh.customer.name }, access: 'TASK' as const, accessExpiresAt: null, assigneeLostAccess: false } : this.present(tx, actor, fresh, vis);
+      return vis.mode !== 'SCOPE' ? { ...toActivity(fresh), contact: null, customer: { id: fresh.customer.id, code: fresh.customer.code, name: fresh.customer.name }, access: vis.mode, accessExpiresAt: null, assigneeLostAccess: false } : this.present(tx, actor, fresh, vis);
     });
   }
 
