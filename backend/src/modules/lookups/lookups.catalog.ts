@@ -6,8 +6,11 @@
 // province (B1.4, owner duyệt 2026-11-01): 34 đơn vị hành chính cấp tỉnh có hiệu lực từ 01/07/2025 (6 thành phố trực thuộc trung ương
 // + 28 tỉnh). Thứ tự hiển thị: Hà Nội, TP. Hồ Chí Minh, Đà Nẵng (10/20/30), còn lại ABC tiếng Việt (từ 100, bước 10). Chỉ là DỮ LIỆU
 // (bảng lookup_item có sẵn), không đổi cấu trúc. Mã ASCII cố định (trigger cấm đổi); đổi tên hiển thị = sửa label_vi.
+// Sales S4: nối thêm danh mục cơ hội (sales.catalog.ts) vào CÙNG lệnh seed. 3 type Sales được SEED nhưng CHƯA mở qua GET /lookups
+// (LOOKUP_ALLOWED_TYPES không đổi ở S4; API đọc thuộc S6/S10) => kiểm type theo SEED_ALLOWED_TYPES.
 import { DEFAULT_STATUS_CODE, DEFAULT_TIER_CODE } from '../customers/customers.defaults';
 import { LOOKUP_ALLOWED_TYPES } from './lookups.service';
+import { SALES_LOOKUP_CATALOG, SALES_LOOKUP_TYPES, salesCatalogProblems } from './sales.catalog';
 
 export interface LookupSeedItem { type: string; code: string; labelVi: string; sortOrder: number; isSystem: boolean }
 const it = (type: string, code: string, labelVi: string, sortOrder: number, isSystem = false): LookupSeedItem => ({ type, code, labelVi, sortOrder, isSystem });
@@ -75,7 +78,11 @@ export const LOOKUP_CATALOG: readonly LookupSeedItem[] = [
   it('province', 'THANH_HOA', 'Thanh Hóa', 380),
   it('province', 'TUYEN_QUANG', 'Tuyên Quang', 390),
   it('province', 'VINH_LONG', 'Vĩnh Long', 400),
+  // Sales S4: opportunity_stage / opportunity_type / opportunity_lost_reason (docs/SALES_DESIGN.md §4.2, §4.3)
+  ...SALES_LOOKUP_CATALOG,
 ];
+// Type được phép SEED = type đọc qua API + type Sales (chỉ dùng qua trigger fn_opportunity_lookups / service S7).
+export const SEED_ALLOWED_TYPES: readonly string[] = [...LOOKUP_ALLOWED_TYPES, ...SALES_LOOKUP_TYPES];
 // Loại bắt buộc để tạo được khách hàng (customer.tier_id/status_id NOT NULL) + nguồn (chủ dự án yêu cầu kiểm tra).
 export const REQUIRED_SEED_TYPES: readonly string[] = ['customer_tier', 'customer_status', 'source'];
 export const LOOKUP_CODE_RE = /^[A-Z0-9][A-Z0-9_]*$/;
@@ -128,7 +135,7 @@ export async function seedLookupCatalog(db: SeedDb, catalog: readonly LookupSeed
 export function catalogProblems(catalog: readonly LookupSeedItem[] = LOOKUP_CATALOG): string[] {
   const p: string[] = []; const seen = new Set<string>();
   for (const x of catalog) {
-    if (!LOOKUP_ALLOWED_TYPES.includes(x.type)) p.push('type ngoai bang trang: ' + x.type);
+    if (!SEED_ALLOWED_TYPES.includes(x.type)) p.push('type ngoai bang trang: ' + x.type);
     if (!LOOKUP_CODE_RE.test(x.code) || x.code.length > 60) p.push('code sai dinh dang: ' + x.type + '/' + x.code);
     if (x.labelVi.trim() === '' || x.labelVi.length > 200) p.push('label rong/qua dai: ' + x.type + '/' + x.code);
     if (!Number.isInteger(x.sortOrder)) p.push('sortOrder khong phai so nguyen: ' + x.type + '/' + x.code);
@@ -137,5 +144,6 @@ export function catalogProblems(catalog: readonly LookupSeedItem[] = LOOKUP_CATA
   for (const t of REQUIRED_SEED_TYPES) if (!catalog.some((x) => x.type === t)) p.push('thieu loai bat buoc: ' + t);
   if (!catalog.some((x) => x.type === 'customer_tier' && x.code === DEFAULT_TIER_CODE)) p.push('thieu tier mac dinh ' + DEFAULT_TIER_CODE);
   if (!catalog.some((x) => x.type === 'customer_status' && x.code === DEFAULT_STATUS_CODE)) p.push('thieu status mac dinh ' + DEFAULT_STATUS_CODE);
+  p.push(...salesCatalogProblems(catalog));
   return p;
 }
