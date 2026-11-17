@@ -93,3 +93,30 @@ export class MoveStageDto {
   @SkipIfUndefined() @IsIn(['KEEP', 'RESET'], { message: 'probability phải là KEEP hoặc RESET' })
   probability?: 'KEEP' | 'RESET';
 }
+
+// POST /opportunities/:id/assign (§6.8). Lý do bắt buộc.
+export class AssignOpportunityDto {
+  @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
+  version!: number;
+
+  @IsUUID(undefined, { message: 'ownerId phải là uuid của nhân viên' })
+  ownerId!: string;
+
+  @Trim() @IsString() @IsNotEmpty({ message: 'Chuyển người phụ trách phải ghi lý do' }) @MaxLength(500, { message: 'Lý do tối đa 500 ký tự' })
+  reason!: string;
+}
+
+// DELETE /opportunities/:id (§6.9) — xoá mềm, lý do bắt buộc (cột delete_reason ≤ 500).
+export class DeleteOpportunityDto {
+  @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
+  version!: number;
+
+  @Trim() @IsString() @IsNotEmpty({ message: 'Xoá cơ hội phải ghi lý do' }) @MaxLength(500, { message: 'Lý do tối đa 500 ký tự' })
+  reason!: string;
+}
+
+// POST /opportunities/:id/restore (§5.4).
+export class RestoreOpportunityDto {
+  @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
+  version!: number;
+}
