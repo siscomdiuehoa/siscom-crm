@@ -35,6 +35,11 @@ export async function ensureFixtures(prisma: PrismaService): Promise<Fixtures> {
     ['opportunity_type', 'T_SUPPLY', 'Cung cấp (thử)', 10, true], ['opportunity_type', 'T_INSTALL', 'Thi công (thử)', 20, true],
     ['opportunity_stage', 'T_APPROACH', 'Tiếp cận (thử)', 10, true], ['opportunity_stage', 'T_QUOTE', 'Báo giá (thử)', 30, true],
     ['opportunity_lost_reason', 'T_PRICE', 'Giá (thử)', 10, true],
+    // Sales S7: MÃ THẬT của danh mục S4 (service ghi kiểm luật theo mã). Nếu lệnh seed S4 đã nạp thì skipDuplicates giữ nguyên dòng có sẵn.
+    ['opportunity_stage', 'PROSPECTING', 'Tiếp cận', 10, true], ['opportunity_stage', 'SURVEY', 'Khảo sát', 20, true],
+    ['opportunity_stage', 'QUOTATION', 'Báo giá', 30, true], ['opportunity_stage', 'NEGOTIATION', 'Đàm phán', 40, true],
+    ['opportunity_type', 'SUPPLY', 'Cung cấp thiết bị, vật tư', 10, true], ['opportunity_type', 'INSTALLATION', 'Thi công', 20, true],
+    ['opportunity_type', 'SUPPLY_INSTALLATION', 'Cung cấp và thi công', 30, true],
   ] as const;
   const { d1, d2, empA, empB, empC } = await withAdmin(async (admin) => {
     await admin.lookupItem.createMany({ data: items.map(([type, code, labelVi, sortOrder, isActive]) => ({ type, code, labelVi, sortOrder, isActive })), skipDuplicates: true });

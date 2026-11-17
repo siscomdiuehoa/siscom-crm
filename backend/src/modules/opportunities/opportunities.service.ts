@@ -18,6 +18,7 @@ type Tx = Prisma.TransactionClient;
 const MAX_OFFSET_WINDOW = 100000;
 const MIN_YEAR = 2000;
 const MAX_YEAR = 2100;
+const CHANGES_MAX = 500;
 // Ngày kiểu YYYY-MM-DD cho cột DATE (không múi giờ). Ngày không có thật (2026-02-30) hoặc ngoài khoảng năm => null.
 function parseYmd(v: string): Date | null {
   const d = new Date(v + 'T00:00:00.000Z');
@@ -40,8 +41,8 @@ interface ListPlan { page: number; pageSize: number; deletedOnly: boolean; filte
 // auth (không thể chung snapshot) — chỉ ảnh hưởng cờ ownerLostAccess, không ảnh hưởng quyền đọc hay dữ liệu trả về.
 // Kiểm bằng hai kết nối có đồng bộ rõ ràng: test/opportunities.consistency.int-spec.ts.
 //
-// CHƯA có ở S6 (có chủ đích): đường đọc theo việc của Kỹ thuật (§5.5(d), S9) — người chỉ có opportunity.read_assigned nhận danh sách rỗng và
-// 404 ở chi tiết; lịch sử thay đổi /changes (S7); tổng giá trị theo cột kanban (S11).
+// CHƯA có (có chủ đích): đường đọc theo việc của Kỹ thuật (§5.5(d), S9) — người chỉ có opportunity.read_assigned nhận danh sách rỗng và
+// 404 ở chi tiết; tổng giá trị theo cột kanban (S11). Lịch sử thay đổi /changes: thêm ở S7 (bên dưới).
 @Injectable()
 export class OpportunitiesService {
   constructor(
@@ -155,7 +156,13 @@ export class OpportunitiesService {
     const { actor } = ctx;
     const scopeOf = this.scopeOf(actor);
     this.needAnyRead(scopeOf);
-    return this.snapshot(async (tx) => {
+    return this.snapshot((tx) => this.detailIn(tx, actor, scopeOf, id));
+  }
+
+  // Đọc chi tiết TRONG transaction đã mở. Đường đọc dùng snapshot REPEATABLE READ ở trên; đường ghi (S7) gọi lại hàm này trong chính transaction
+  // ghi, sau khi đã khoá dòng khách (FOR SHARE) và dòng cơ hội (FOR UPDATE) — căn cứ quyền và dữ liệu trả về không thể đổi giữa chừng.
+  async detailIn(tx: Tx, actor: Actor, scopeOf: ScopeOf, id: string) {
+    {
       // Nạp QUA vị từ phạm vi (cùng điều kiện với danh sách) rồi kiểm lại bằng hàm thuần — hai lớp cùng nguồn, không lớp nào bỏ qua.
       const row = (await tx.opportunity.findFirst({ where: { AND: [{ id }, fullReadWhere(actor, scopeOf)] }, select: OPP_DETAIL_SELECT })) as OppDetailRow | null;
       const path = row ? accessPath(readsFull(actor, scopeOf, oppRef(row)), false /* đường theo việc: S9 */) : null;
@@ -176,6 +183,25 @@ export class OpportunitiesService {
       const contact: ContactCard | null = ct ? { id: ct.id, code: ct.code, fullName: ct.fullName, title: ct.title, phone: ct.phone } : null;
       const flag = await this.ownerFlags(tx, scopeOf, [row]);
       return toOpportunityDetail(row, { customer, customerReadable, contact, ownerLostAccess: flag(row) });
+    }
+  }
+
+  // ───── GET /opportunities/:id/changes (S7) ─────
+  // Lịch sử thay đổi (giai đoạn, giá trị, xác suất, ngày dự kiến chốt…): CHỈ đường đọc đầy đủ (§5.4 — đường theo việc không bao giờ nhận).
+  // Cùng snapshot với bước kiểm quyền. Mới nhất trước; tối đa CHANGES_MAX dòng.
+  async changes(ctx: RequestCtx, id: string) {
+    const { actor } = ctx;
+    const scopeOf = this.scopeOf(actor);
+    this.needAnyRead(scopeOf);
+    return this.snapshot(async (tx) => {
+      const row = await tx.opportunity.findFirst({ where: { AND: [{ id }, fullReadWhere(actor, scopeOf)] }, select: { id: true } });
+      if (!row) throw opportunityErrors.notFound();
+      const rows = await tx.opportunityChange.findMany({
+        where: { opportunityId: id }, orderBy: [{ changedAt: 'desc' }, { id: 'desc' }], take: CHANGES_MAX,
+        select: { id: true, field: true, oldValue: true, newValue: true, reason: true, changedAt: true, changedBy: { select: { id: true, code: true, fullName: true } } },
+      });
+      return { items: rows.map((r) => ({ id: r.id, field: r.field, oldValue: r.oldValue, newValue: r.newValue, reason: r.reason, changedAt: r.changedAt.toISOString(),
+        changedBy: { id: r.changedBy.id, code: r.changedBy.code, fullName: r.changedBy.fullName } })) };
     });
   }
 }
