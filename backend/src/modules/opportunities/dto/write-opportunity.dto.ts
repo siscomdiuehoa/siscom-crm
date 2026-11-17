@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsString, IsUrl, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { SkipIfBlank, SkipIfUndefined, Trim } from '../../customers/dto/dto-helpers';
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -119,4 +119,74 @@ export class DeleteOpportunityDto {
 export class RestoreOpportunityDto {
   @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
   version!: number;
+}
+
+// ───── S8b: vòng đời trạng thái (§6.4–6.7) ─────
+// POST /opportunities/:id/hold — Tạm hoãn, hoặc đổi hạn / lý do khi đang tạm hoãn. Cả hai trường bắt buộc.
+export class HoldOpportunityDto {
+  @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
+  version!: number;
+
+  @Matches(YMD, { message: YMD_MESSAGE })
+  holdUntil!: string;
+
+  @Trim() @IsString() @IsNotEmpty({ message: 'Tạm hoãn phải ghi lý do' }) @MaxLength(500, { message: 'Lý do tối đa 500 ký tự' })
+  holdReason!: string;
+}
+
+// POST /opportunities/:id/resume — Tạm hoãn → Đang mở. Lý do tuỳ chọn.
+export class ResumeOpportunityDto {
+  @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
+  version!: number;
+
+  @SkipIfBlank() @Trim() @IsString() @MaxLength(500, { message: 'Lý do tối đa 500 ký tự' })
+  reason?: string | null;
+}
+
+// POST /opportunities/:id/win — Thắng: giá trị chốt + chứng từ (loại, số, ngày, đường dẫn https) + người nhận bàn giao. Hạn bàn giao tuỳ chọn (mặc định 7 ngày).
+export class WinOpportunityDto {
+  @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
+  version!: number;
+
+  @IsString() @Matches(AMOUNT, { message: AMOUNT_MESSAGE })
+  wonAmountVnd!: string;
+
+  @IsIn(['HOP_DONG', 'DON_DAT_HANG'], { message: 'wonDocType phải là HOP_DONG hoặc DON_DAT_HANG' })
+  wonDocType!: 'HOP_DONG' | 'DON_DAT_HANG';
+
+  @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập số chứng từ' }) @MaxLength(100)
+  wonDocNo!: string;
+
+  @Matches(YMD, { message: YMD_MESSAGE })
+  wonDocDate!: string;
+
+  @IsString() @MaxLength(1000) @IsUrl({ protocols: ['https'], require_protocol: true }, { message: 'Đường dẫn chứng từ phải là địa chỉ https hợp lệ' })
+  wonDocUrl!: string;
+
+  @IsUUID(undefined, { message: 'handoverToId phải là uuid của nhân viên' })
+  handoverToId!: string;
+
+  @SkipIfBlank() @Matches(YMD, { message: YMD_MESSAGE })
+  handoverDueDate?: string | null;
+}
+
+// POST /opportunities/:id/lose — Thua: lý do theo danh mục; lý do "Khác" phải kèm ghi chú.
+export class LoseOpportunityDto {
+  @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
+  version!: number;
+
+  @IsUUID(undefined, { message: 'lostReasonId phải là uuid của lý do thua' })
+  lostReasonId!: string;
+
+  @SkipIfBlank() @Trim() @IsString() @MaxLength(2000)
+  lostNote?: string | null;
+}
+
+// POST /opportunities/:id/reopen — Mở lại cơ hội đã Thắng / Thua. Lý do bắt buộc.
+export class ReopenOpportunityDto {
+  @IsInt({ message: 'version phải là số nguyên' }) @Min(1)
+  version!: number;
+
+  @Trim() @IsString() @IsNotEmpty({ message: 'Mở lại cơ hội phải ghi lý do' }) @MaxLength(500, { message: 'Lý do tối đa 500 ký tự' })
+  reason!: string;
 }

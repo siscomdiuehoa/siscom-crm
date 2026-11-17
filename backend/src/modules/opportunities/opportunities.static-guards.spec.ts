@@ -12,19 +12,19 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
   const c = text('opportunities.controller.ts');
   const s = text('opportunities.service.ts');
   const w = text('opportunities.write.service.ts');
+  const l = text('opportunities.lifecycle.service.ts');
   const routes = (cls: string) => {
     const start = c.indexOf('export class ' + cls);
     const next = c.indexOf('export class', start + 1);
     const body = c.slice(start, next === -1 ? undefined : next);
     return [...body.matchAll(/@(Get|Post|Patch|Put|Delete)\(([^)]*)\)/g)].map((m) => m[1] + '(' + m[2] + ')');
   };
-  it('đúng tập route S6 + S7 + S8a; chưa có route của S8b (hold / win / lose / resume / reopen)', () => {
+  it('đúng tập route S6 + S7 + S8a + S8b', () => {
     expect(c).toMatch(/@Controller\('customers\/:customerId\/opportunities'\)/);
     expect(c).toMatch(/@Controller\('opportunities'\)/);
     expect(routes('CustomerOpportunitiesController')).toEqual(['Get()']);
-    expect(routes('OpportunitiesController')).toEqual(['Get()', 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Delete(':id')"]);
+    expect(routes('OpportunitiesController')).toEqual(['Get()', 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Post(':id/hold')", "Post(':id/resume')", "Post(':id/win')", "Post(':id/lose')", "Post(':id/reopen')", "Delete(':id')"]);
     expect(c).not.toMatch(/@Put\(/);
-    expect(c).not.toMatch(/':id\/(hold|win|lose|resume|reopen)'/);
   });
   it('mọi controller đều sau ActorGuard', () => {
     expect((c.match(/@Controller\(/g) ?? []).length).toBe(2);
@@ -78,7 +78,7 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect(w).toMatch(/this\.loadForWrite\(tx, actor, scopeOf, id, 'opportunity\.update'\)/);
     expect(w).toMatch(/this\.loadForWrite\(tx, actor, scopeOf, id, 'opportunity\.move_stage'\)/);
     // Trong loadForWrite: khoá xong mới đọc lại dòng và kiểm quyền.
-    const lf = w.slice(w.indexOf('private async loadForWrite('), w.indexOf('// ───── POST /opportunities ─────'));
+    const lf = w.slice(w.indexOf('async loadForWrite('), w.indexOf('// ───── POST /opportunities ─────'));
     expect(lf.indexOf('FOR UPDATE`')).toBeLessThan(lf.indexOf('assertWrite('));
     expect(lf.indexOf('this.lockCustomer(')).toBeLessThan(lf.indexOf('FOR UPDATE`'));
     // Mọi lệnh cập nhật cơ hội đều kèm điều kiện version; không có update() không điều kiện.
@@ -100,5 +100,40 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect((w.match(/ruleViolations\(/g) ?? []).length).toBe(3);
     // Nhật ký chung không mang số liệu nghiệp vụ.
     for (const k of ['title', 'needSummary', 'projectName', 'offerScope', 'expectedAmountVnd', 'expectedCloseDate', 'probability']) expect(w).toContain('changes.' + k + ' = AUDIT_REDACTED_TEXT');
+  });
+  it('S8b — service VÒNG ĐỜI: năm thao tác đều qua inTx + loadForWrite của đường ghi, kiểm đúng mã, ghi theo version, có nhật ký và không mang số liệu', () => {
+    expect(l).not.toMatch(/\$queryRaw|\$executeRaw|this\.prisma\b|\$transaction/); // không tự mở transaction, không SQL thô
+    expect(l).not.toMatch(/tx\.opportunity\.update\(/);
+    expect((l.match(/tx\.opportunity\.updateMany\(/g) ?? []).length).toBe(1); // một chỗ ghi duy nhất (apply), kèm điều kiện version
+    expect(l).toMatch(/tx\.opportunity\.updateMany\(\{ where: \{ id: row\.id, version: row\.version \}/);
+    expect((l.match(/await this\.audit\.record\(tx, \{/g) ?? []).length).toBe(1);
+    const fns: Array<[string, string]> = [['hold', 'opportunity.close'], ['resume', 'opportunity.close'], ['win', 'opportunity.close'], ['lose', 'opportunity.close'], ['reopen', 'opportunity.reopen']];
+    fns.forEach(([fn, code], i) => {
+      const start = l.indexOf('  async ' + fn + '(');
+      expect(start).toBeGreaterThan(-1);
+      const end = i + 1 < fns.length ? l.indexOf('  async ' + fns[i + 1][0] + '(') : l.length;
+      const body = l.slice(start, end);
+      const load = body.indexOf("this.writes.loadForWrite(tx, actor, scopeOf, id, '" + code + "')");
+      expect(body.indexOf('this.writes.inTx(')).toBeGreaterThan(-1);
+      expect(load).toBeGreaterThan(body.indexOf('this.writes.inTx('));
+      // Thứ tự: nạp + kiểm mã -> kiểm trạng thái nguồn -> kiểm version -> ghi (apply) -> việc tự sinh.
+      expect(body.indexOf('opportunityErrors.state(')).toBeGreaterThan(load);
+      expect(body.indexOf('row.version !== dto.version')).toBeGreaterThan(body.indexOf('opportunityErrors.state('));
+      expect(body.indexOf('await this.apply(tx, ctx, row,')).toBeGreaterThan(body.indexOf('row.version !== dto.version'));
+      expect(body.indexOf('await this.tasks.')).toBeGreaterThan(body.indexOf('await this.apply(tx, ctx, row,'));
+      expect(body).toContain("'opportunity." + fn + "'"); // hành động nhật ký riêng của thao tác
+    });
+    // Trở về Đang mở (tiếp tục, mở lại) phải áp lại luật R-S.
+    expect((l.match(/ruleViolations\(asOpen\(row\)\)/g) ?? []).length).toBe(2);
+    // Nhật ký chung: không có giá trị chốt, số / ngày / đường dẫn chứng từ, ghi chú thua; lý do luôn được che.
+    const changes = [...l.matchAll(/'opportunity\.(hold|resume|win|lose|reopen)',([^;]*)\);/g)].map((m) => m[2]);
+    expect(changes.length).toBe(5);
+    for (const ch of changes) {
+      expect(ch).not.toMatch(/wonAmount|wonDoc|lostNote|holdReason|\bnote\b/);
+      expect(ch).not.toMatch(/reason: (?!AUDIT_REDACTED_TEXT)/);
+    }
+    // Chuyển người phụ trách (S8a) kéo theo việc nhắc tạm hoãn trong cùng transaction.
+    const asg = w.slice(w.indexOf('async assign('), w.indexOf('async remove('));
+    expect(asg.indexOf('this.tasks.reassignReminder(')).toBeGreaterThan(asg.indexOf('tx.opportunity.updateMany('));
   });
 });
