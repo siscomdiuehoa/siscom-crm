@@ -36,6 +36,19 @@ export const BIZ: Record<string, Partial<Record<Exclude<BootstrapRoleCode, 'sysa
   'activity.transfer_request': { technician: 'DEPARTMENT' },
   // FV-4A (D-E1): chỉ crm_admin ALL; sales/technician/accountant KHÔNG cấp (mặc định từ chối). DB đã bootstrap: docs/FV4_EXPORT_PERMISSION.sql.txt (2 người).
   'customer.export':           { admin: 'ALL' },
+  // Sales S5 — ma trận docs/SALES_DESIGN.md §5.2: 10 mã, 17 dòng (crm_admin 9, sales 6, technician 1, accountant 1; admin/sysadmin 0).
+  // read_assigned (đường theo việc §5.5(d)) chỉ cần "đang hiệu lực": phạm vi OWN = hẹp nhất, không được dùng để nới.
+  // DB đã bootstrap: docs/SALES_S5_OPPORTUNITY_PERMISSIONS.sql.txt (2 người); unit test opportunity-permissions.spec.ts giữ các nguồn khớp nhau.
+  'opportunity.read':          { admin: 'ALL', sale: 'OWN', accountant: 'ALL' },
+  'opportunity.read_assigned': { technician: 'OWN' },
+  'opportunity.create':        { admin: 'ALL', sale: 'OWN' },
+  'opportunity.update':        { admin: 'ALL', sale: 'OWN' },
+  'opportunity.move_stage':    { admin: 'ALL', sale: 'OWN' },
+  'opportunity.close':         { admin: 'ALL', sale: 'OWN' },
+  'opportunity.assign':        { admin: 'ALL', sale: 'OWN' },
+  'opportunity.reopen':        { admin: 'ALL' },
+  'opportunity.delete':        { admin: 'ALL' },
+  'opportunity.restore':       { admin: 'ALL' },
 };
 // Quyền hệ thống của M1: sysadmin (mã vai trò `admin`) = nhóm REQUEST; crm_admin = APPROVE (access.approve) + đọc.
 const SYS_ADMIN = ['employee.read', 'employee.manage', 'role.read', 'role.manage', 'auth.credential.manage', 'auth.reset.request', 'access.request', 'audit.read'];

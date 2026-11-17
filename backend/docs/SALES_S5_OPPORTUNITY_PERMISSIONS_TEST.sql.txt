@@ -1,0 +1,131 @@
+-- SISCOM CRM - Sales S5: DIEN TAP script cap quyen 2 nguoi SALES_S5_OPPORTUNITY_PERMISSIONS.sql.txt (+ REMOVE) tren DB TAM cua CI.
+-- Dich: backend\docs\SALES_S5_OPPORTUNITY_PERMISSIONS_TEST.sql.txt (file moi, 17/11/2026). Mau: B3_ACTIVITY_PERMISSIONS_TEST.sql.txt.
+-- CHI CHAY TREN BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) bang chu so huu (siscom_migrator sau tach role), TRUOC bootstrap:
+--   tien dieu kien RBAC rong + chua co auth_bootstrap_done (nhu M1.2). Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu).
+-- Kich ban: phan loai BIZ (migration 20261118000000_sales_perm_class) -> seed admin (REQUEST) + crm_admin (APPROVE) co credential, 4 vai tro BIZ
+--   + 1 vai tro ngoai ma tran, dong bootstrap -> \ir ADD -> kiem 10 ma / 17 dong / scope / audit -> \ir ADD lan 2 (idempotent) -> SoD (admin khong
+--   nhan duoc opportunity.*) -> cap 2 quyen KHONG thuoc S5 -> REMOVE phai TU CHOI khi ma S5 bi cap ngoai ma tran (trong SAVEPOINT) -> REMOVE binh
+--   thuong: chi go 10 ma S5, moi quyen khac giong het truoc. In "PASS|n" / "FAIL|n".
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF to_regprocedure('public.fn_auth_api_role_permission_change(uuid, uuid)') IS NULL THEN RAISE EXCEPTION 'Chua ap M1.2.'; END IF;
+  IF NOT has_function_privilege(current_user, 'public.fn_auth_bootstrap_close(text)', 'EXECUTE') THEN RAISE EXCEPTION 'Phai chay bang chu so huu.'; END IF;
+  IF EXISTS (SELECT 1 FROM role) OR EXISTS (SELECT 1 FROM permission) OR EXISTS (SELECT 1 FROM employee_role)
+     OR EXISTS (SELECT 1 FROM privileged_change_request) OR EXISTS (SELECT 1 FROM app_meta WHERE key = 'auth_bootstrap_done') THEN
+    RAISE EXCEPTION 'Tien dieu kien: bang RBAC/auth phai rong va chua co auth_bootstrap_done.';
+  END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text) ON COMMIT DROP;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_sql text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v boolean;
+BEGIN
+  EXECUTE 'SELECT (' || p_sql || ')' INTO v;
+  INSERT INTO res VALUES (coalesce(v, false), p_label);
+EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQLSTATE || ' ' || left(SQLERRM, 80) || ']');
+END $$;
+-- Bieu thuc "x thuoc 10 ma S5" dung lai trong cac cau kiem (danh sach tuong minh, khong LIKE)
+\set s5_in '(''opportunity.read'', ''opportunity.read_assigned'', ''opportunity.create'', ''opportunity.update'', ''opportunity.move_stage'', ''opportunity.close'', ''opportunity.assign'', ''opportunity.reopen'', ''opportunity.delete'', ''opportunity.restore'')'
+
+-- 0. Phan loai (migration 20261118000000_sales_perm_class): opportunity.* la BIZ; cac nhom cu khong doi
+SELECT pg_temp.expect_true('T00 opportunity.* thuoc nhom BIZ; phan loai cu khong doi', $q$ (SELECT bool_and(fn_auth_perm_class(c) = 'BIZ') FROM unnest(ARRAY['opportunity.read', 'opportunity.read_assigned', 'opportunity.create', 'opportunity.update', 'opportunity.move_stage', 'opportunity.close', 'opportunity.assign', 'opportunity.reopen', 'opportunity.delete', 'opportunity.restore', 'customer.read', 'contact.read', 'activity.read', 'customer.export']) AS c) AND fn_auth_perm_class('access.approve') = 'APPROVE' AND fn_auth_perm_class('role.manage') = 'REQUEST' AND fn_auth_perm_class('lookup.read') = 'OTHER' AND fn_auth_perm_class('opportunityx.read') = 'OTHER' AND fn_auth_perm_class('xopportunity.read') = 'OTHER' $q$);
+
+-- Seed toi thieu: quyen he thong, 5 vai tro that (ma nhu bootstrap.ts ROLE_CODE), 2 nguoi co credential, dong bootstrap
+INSERT INTO permission (id, code) VALUES ('55400000-0000-4000-8000-000000000001', 'access.approve'), ('55400000-0000-4000-8000-000000000002', 'access.request'),
+ ('55400000-0000-4000-8000-000000000003', 'customer.read'), ('55400000-0000-4000-8000-000000000004', 'opportunity.xuat_ngoai_s5');
+INSERT INTO role (id, code, name, is_system, is_confirmed) VALUES
+ ('55401000-0000-4000-8000-000000000001', 'admin',      'S5 sysadmin',   true, true),
+ ('55401000-0000-4000-8000-000000000002', 'crm_admin',  'S5 crm_admin',  true, true),
+ ('55401000-0000-4000-8000-000000000003', 'sales',      'S5 sales',      true, true),
+ ('55401000-0000-4000-8000-000000000004', 'technician', 'S5 technician', true, true),
+ ('55401000-0000-4000-8000-000000000005', 'accountant', 'S5 accountant', true, true),
+ ('55401000-0000-4000-8000-000000000006', 'director',   'S5 vai tro ngoai ma tran', false, true);
+INSERT INTO role_permission (role_id, permission_id, scope) VALUES
+ ('55401000-0000-4000-8000-000000000001', '55400000-0000-4000-8000-000000000002', 'ALL'),
+ ('55401000-0000-4000-8000-000000000002', '55400000-0000-4000-8000-000000000001', 'ALL');
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('55402000-0000-4000-8000-000000000001', 'S5 Sysadmin', 's5.sys@example.invalid', 'ACTIVE', true),
+ ('55402000-0000-4000-8000-000000000002', 'S5 CRM admin', 's5.crm@example.invalid', 'ACTIVE', true);
+INSERT INTO employee_credential (employee_id, password_hash, password_algo, password_params) VALUES
+ ('55402000-0000-4000-8000-000000000001', '$argon2id$v=19$thu-s5s', 'argon2id', '{"m":65536,"t":3,"p":1}'),
+ ('55402000-0000-4000-8000-000000000002', '$argon2id$v=19$thu-s5c', 'argon2id', '{"m":65536,"t":3,"p":1}');
+INSERT INTO employee_role (employee_id, role_id) VALUES
+ ('55402000-0000-4000-8000-000000000001', '55401000-0000-4000-8000-000000000001'),
+ ('55402000-0000-4000-8000-000000000002', '55401000-0000-4000-8000-000000000002');
+SELECT fn_auth_bootstrap_close('s5') AS dong_khoi_tao;
+SELECT pg_temp.expect_true('T01 bootstrap da dong', $q$ NOT fn_auth_bootstrap_open() $q$);
+CREATE TEMP TABLE s5_base ON COMMIT DROP AS SELECT (SELECT count(*) FROM privileged_change_request) AS yeu_cau_truoc, (SELECT count(*) FROM audit_log) AS audit_truoc, 0::bigint AS yeu_cau_sau1;
+
+-- 1. ADD
+\set s5_nested 1
+\set s5_sysadmin 55402000-0000-4000-8000-000000000001
+\set s5_approver 55402000-0000-4000-8000-000000000002
+\ir SALES_S5_OPPORTUNITY_PERMISSIONS.sql.txt
+SELECT pg_temp.expect_true('T02 du 10 ma S5 trong permission (+1 ma opportunity.* khong thuoc S5 cua seed); khong co opportunity.export', '(SELECT count(*) = 10 FROM permission WHERE code IN ' || :'s5_in' || $q$) AND (SELECT count(*) = 11 FROM permission WHERE code LIKE 'opportunity.%') AND NOT EXISTS (SELECT 1 FROM permission WHERE code = 'opportunity.export') $q$);
+SELECT pg_temp.expect_true('T03 17 dong role_permission cua 10 ma S5', '(SELECT count(*) = 17 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code IN ' || :'s5_in' || ')');
+SELECT pg_temp.expect_true('T04 accountant 1 / admin 0 / crm_admin 9 / sales 6 / technician 1', '(SELECT array_agg(n ORDER BY c) = ARRAY[1, 0, 9, 6, 1]::bigint[] FROM (SELECT r.code AS c, count(p.id) AS n FROM role r LEFT JOIN role_permission rp ON rp.role_id = r.id LEFT JOIN permission p ON p.id = rp.permission_id AND p.code IN ' || :'s5_in' || $q$ WHERE r.code IN ('admin','crm_admin','sales','technician','accountant') GROUP BY r.code) s) $q$);
+SELECT pg_temp.expect_true('T05 scope dung ma tran §5.2 (crm_admin ALL; sales OWN; technician OWN; accountant ALL)', 'NOT EXISTS (SELECT 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id JOIN role r ON r.id = rp.role_id WHERE p.code IN ' || :'s5_in' || $q$ AND rp.scope::text <> CASE r.code WHEN 'crm_admin' THEN 'ALL' WHEN 'sales' THEN 'OWN' WHEN 'technician' THEN 'OWN' WHEN 'accountant' THEN 'ALL' END) $q$);
+SELECT pg_temp.expect_true('T06 technician CHI co read_assigned; accountant CHI co read; sales khong co reopen/delete/restore/read_assigned', $q$ (SELECT array_agg(p.code::text ORDER BY p.code) = ARRAY['opportunity.read_assigned'] FROM role_permission rp JOIN permission p ON p.id = rp.permission_id JOIN role r ON r.id = rp.role_id WHERE r.code = 'technician' AND p.code LIKE 'opportunity.%') AND (SELECT array_agg(p.code::text ORDER BY p.code) = ARRAY['opportunity.read'] FROM role_permission rp JOIN permission p ON p.id = rp.permission_id JOIN role r ON r.id = rp.role_id WHERE r.code = 'accountant' AND p.code LIKE 'opportunity.%') AND NOT EXISTS (SELECT 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id JOIN role r ON r.id = rp.role_id WHERE r.code = 'sales' AND p.code IN ('opportunity.reopen','opportunity.delete','opportunity.restore','opportunity.read_assigned')) $q$);
+SELECT pg_temp.expect_true('T07 17 yeu cau ROLE_PERMISSION_CHANGE da EXECUTED (moi dong mot yeu cau)', $q$ (SELECT count(*) = (SELECT yeu_cau_truoc FROM s5_base) + 17 FROM privileged_change_request WHERE type = 'ROLE_PERMISSION_CHANGE' AND status = 'EXECUTED') $q$);
+SELECT pg_temp.expect_true('T08 audit_log co 17 dong ROLE_PERMISSION_CHANGE (+ tao/duyet yeu cau)', $q$ (SELECT count(*) = 17 FROM audit_log WHERE action = 'ROLE_PERMISSION_CHANGE') AND (SELECT count(*) > (SELECT audit_truoc FROM s5_base) + 17 FROM audit_log) $q$);
+-- 2. ADD lan 2: idempotent (khong them yeu cau, khong them dong)
+UPDATE s5_base SET yeu_cau_sau1 = (SELECT count(*) FROM privileged_change_request);
+\ir SALES_S5_OPPORTUNITY_PERMISSIONS.sql.txt
+SELECT pg_temp.expect_true('T09 chay lai: van 17 dong, khong tao them yeu cau', '(SELECT count(*) = 17 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code IN ' || :'s5_in' || ') AND (SELECT count(*) = (SELECT yeu_cau_sau1 FROM s5_base) FROM privileged_change_request)');
+-- 3. SoD: admin (sysadmin) khong duoc cap opportunity.* ke ca qua API (trigger M1 tu choi nho phan loai BIZ; khoi EXCEPTION huy ca yeu cau/duyet vua tao)
+CREATE FUNCTION pg_temp.sod_try(p_code text) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE v_req uuid;
+BEGIN
+  v_req := fn_auth_api_request_create('55402000-0000-4000-8000-000000000001', 'ROLE_PERMISSION_CHANGE', NULL, '55401000-0000-4000-8000-000000000001',
+             jsonb_build_object('op', 'ADD', 'permissionId', (SELECT id FROM permission WHERE code = p_code), 'scope', 'ALL'), 60);
+  PERFORM fn_auth_api_request_decide('55402000-0000-4000-8000-000000000002', v_req, true);
+  PERFORM fn_auth_api_role_permission_change('55402000-0000-4000-8000-000000000001', v_req);
+  RETURN 'CHAY DUOC';
+EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE;
+END $$;
+SELECT pg_temp.expect_true('T10 SoD: cap opportunity.read / read_assigned / restore cho admin (sysadmin) qua API bi tu choi (23514/42501), khong de lai dong', $q$ (pg_temp.sod_try('opportunity.read') IN ('23514', '42501')) AND (pg_temp.sod_try('opportunity.read_assigned') IN ('23514', '42501')) AND (pg_temp.sod_try('opportunity.restore') IN ('23514', '42501')) AND NOT EXISTS (SELECT 1 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE rp.role_id = '55401000-0000-4000-8000-000000000001' AND p.code LIKE 'opportunity.%') $q$);
+-- 3b. Quyen KHONG thuoc S5: 1 ma opportunity.* khac + 1 ma customer.* cap qua dung luong 2 nguoi => REMOVE phai GIU NGUYEN
+CREATE FUNCTION pg_temp.cap(p_role uuid, p_code text, p_scope text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_req uuid;
+BEGIN
+  v_req := fn_auth_api_request_create('55402000-0000-4000-8000-000000000001', 'ROLE_PERMISSION_CHANGE', NULL, p_role,
+             jsonb_build_object('op', 'ADD', 'permissionId', (SELECT id FROM permission WHERE code = p_code), 'scope', p_scope, 't', p_code), 60);
+  PERFORM fn_auth_api_request_decide('55402000-0000-4000-8000-000000000002', v_req, true);
+  PERFORM fn_auth_api_role_permission_change('55402000-0000-4000-8000-000000000001', v_req);
+END $$;
+SELECT pg_temp.cap('55401000-0000-4000-8000-000000000003', 'customer.read', 'OWN');
+SELECT pg_temp.cap('55401000-0000-4000-8000-000000000004', 'opportunity.xuat_ngoai_s5', 'DEPARTMENT');
+CREATE TEMP TABLE s5_keep ON COMMIT DROP AS
+  SELECT rp.role_id, rp.permission_id, rp.scope FROM role_permission rp JOIN permission p ON p.id = rp.permission_id
+  WHERE p.code NOT IN ('opportunity.read', 'opportunity.read_assigned', 'opportunity.create', 'opportunity.update', 'opportunity.move_stage',
+                       'opportunity.close', 'opportunity.assign', 'opportunity.reopen', 'opportunity.delete', 'opportunity.restore');
+SELECT pg_temp.expect_true('T13 truoc REMOVE: 4 dong ngoai S5 (2 access.* he thong, sales:customer.read, technician:opportunity.xuat_ngoai_s5)', $q$ (SELECT count(*) = 4 FROM s5_keep) $q$);
+
+-- 3c. REMOVE phai TU CHOI (khong go gi) khi mot trong 10 ma S5 bi cap NGOAI ma tran (director:opportunity.read:OWN). Chay trong SAVEPOINT,
+--     ON_ERROR_STOP tat de bat loi cua script; ket qua lay tu bien psql s5_rm_unexpected (script \gset truoc khi tu choi).
+SAVEPOINT s5_rf;
+SELECT pg_temp.cap('55401000-0000-4000-8000-000000000006', 'opportunity.read', 'OWN');
+\set ON_ERROR_STOP off
+\ir SALES_S5_OPPORTUNITY_PERMISSIONS_REMOVE.sql.txt
+\set ON_ERROR_STOP on
+ROLLBACK TO SAVEPOINT s5_rf;
+SELECT pg_temp.expect_true('T14 REMOVE TU CHOI khi ma S5 bi cap ngoai ma tran (director:opportunity.read:OWN) - phat hien truoc khi go', quote_literal(:'s5_rm_unexpected') || '::boolean AND ' || quote_literal(:'s5_rm_unexpected_list') || ' = ''director:opportunity.read:OWN''');
+SELECT pg_temp.expect_true('T15 sau tu choi: 17 dong S5 + 4 dong khac con nguyen', '(SELECT count(*) = 17 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code IN ' || :'s5_in' || ') AND (SELECT count(*) = 4 FROM role_permission rp JOIN permission p ON p.id = rp.permission_id WHERE p.code NOT IN ' || :'s5_in' || ')');
+
+-- 4. REMOVE (binh thuong)
+\ir SALES_S5_OPPORTUNITY_PERMISSIONS_REMOVE.sql.txt
+SELECT pg_temp.expect_true('T11 REMOVE: 0 dong / 0 ma cua 10 ma S5; ma opportunity.xuat_ngoai_s5 (khong thuoc S5) VAN CON', 'NOT EXISTS (SELECT 1 FROM permission WHERE code IN ' || :'s5_in' || $q$) AND EXISTS (SELECT 1 FROM permission WHERE code = 'opportunity.xuat_ngoai_s5') $q$);
+SELECT pg_temp.expect_true('T12 REMOVE: dung 17 yeu cau REMOVE EXECUTED; 6 vai tro con nguyen', $q$ (SELECT count(*) = 17 FROM privileged_change_request WHERE type = 'ROLE_PERMISSION_CHANGE' AND payload->>'op' = 'REMOVE' AND status = 'EXECUTED') AND (SELECT count(*) = 6 FROM role) $q$);
+SELECT pg_temp.expect_true('T16 BAO TOAN: moi dong role_permission ngoai 10 ma S5 GIONG HET truoc REMOVE (role, quyen, scope)', $q$ NOT EXISTS ((SELECT role_id, permission_id, scope FROM s5_keep) EXCEPT (SELECT role_id, permission_id, scope FROM role_permission)) AND NOT EXISTS ((SELECT role_id, permission_id, scope FROM role_permission) EXCEPT (SELECT role_id, permission_id, scope FROM s5_keep)) $q$);
+
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
+SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+ROLLBACK;

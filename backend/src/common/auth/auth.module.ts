@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ACTOR_PROVIDER } from './actor';
 import { ActorGuard } from './actor.guard';
+import { ASSIGNEE_ELIGIBILITY, AuthPoolAssigneeEligibility } from './assignee-eligibility';
 import { AUTH_CONFIG, AuthConfig, authConfigFrom } from './auth.config';
 import { CsrfOriginGuard } from './csrf-origin.guard';
 import { PasswordChangeRequiredGuard } from './password-change-required.guard';
@@ -37,7 +38,9 @@ const SAFE_DEFAULT: AuthConfig = Object.freeze({
     // trừ route @AllowPasswordChangeRequired() (/auth/me, /auth/change-password, /auth/logout, /health).
     { provide: APP_GUARD, useClass: PasswordChangeRequiredGuard },
     ActorGuard,
+    // Sales S5 (§5.4): cổng nội bộ trả MỘT cờ "tài khoản dùng được" từ pool auth cho người nhận cơ hội / ownerLostAccess. Không có endpoint.
+    { provide: ASSIGNEE_ELIGIBILITY, useClass: AuthPoolAssigneeEligibility },
   ],
-  exports: [ACTOR_PROVIDER, AUTH_CONFIG, ActorGuard],
+  exports: [ACTOR_PROVIDER, AUTH_CONFIG, ActorGuard, ASSIGNEE_ELIGIBILITY],
 })
 export class AuthModule {}

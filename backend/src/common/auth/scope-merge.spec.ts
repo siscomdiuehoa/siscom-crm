@@ -25,8 +25,10 @@ describe('mergeScopes', () => {
     const r = mergeScopes([role('x', true, [['employee.manage', 'ALL'], ['customer.read', 'GLOBAL'], ['activity.read', 'OWN']])]);
     expect(r.scopes).toEqual({ 'activity.read': 'OWN' });
   });
-  it('KNOWN gồm 8 quyền B1 + 9 quyền activity.* (A4) + customer.export (FV-4A)', () => {
-    expect(KNOWN.size).toBe(18);
+  it('KNOWN gồm 8 quyền B1 + 9 quyền activity.* (A4) + customer.export (FV-4A) + 10 quyền opportunity.* (Sales S5)', () => {
+    expect(KNOWN.size).toBe(28);
+    expect(KNOWN.has('opportunity.read_assigned')).toBe(true);
+    expect(KNOWN.has('opportunity.export')).toBe(false);
     expect(KNOWN.has('activity.assign_external')).toBe(true);
     expect(KNOWN.has('customer.export')).toBe(true);
   });
