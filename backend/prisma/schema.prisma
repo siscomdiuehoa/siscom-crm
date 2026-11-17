@@ -61,6 +61,14 @@ enum OpportunityWonDocType {
   @@map("opportunity_won_doc_type")
 }
 
+// Sales S9b — loai tai lieu co hoi: TECHNICAL (moi nguoi xem duoc co hoi) | COMMERCIAL (chi duong doc day du)
+enum OpportunityDocumentKind {
+  TECHNICAL
+  COMMERCIAL
+
+  @@map("opportunity_document_kind")
+}
+
 enum OpportunityChangeField {
   STAGE
   STATUS
@@ -228,6 +236,8 @@ model Employee {
   opportunitiesUpdated Opportunity[]       @relation("OpportunityUpdatedBy")
   opportunitiesDeleted Opportunity[]       @relation("OpportunityDeletedBy")
   opportunityChanges   OpportunityChange[] @relation("OpportunityChangedBy")
+  opportunityDocumentsCreated OpportunityDocument[] @relation("OpportunityDocumentCreatedBy")
+  opportunityDocumentsDeleted OpportunityDocument[] @relation("OpportunityDocumentDeletedBy")
   assignments        CustomerAssignment[] @relation("AssignmentEmployee")
   assignmentsMade    CustomerAssignment[] @relation("AssignmentAssignedBy")
   auditEntries       AuditLog[]
@@ -520,6 +530,8 @@ model Opportunity {
   wonDocNo              String?                @map("won_doc_no") @db.VarChar(100)
   wonDocDate            DateTime?              @map("won_doc_date") @db.Date
   wonDocUrl             String?                @map("won_doc_url") @db.VarChar(1000)
+  // Sales S9b: ten tep cua chung tu Thang (C10)
+  wonDocFileName        String?                @map("won_doc_file_name") @db.VarChar(255)
   lostReasonId          String?                @map("lost_reason_id") @db.Uuid
   lostNote              String?                @map("lost_note")
   closedAt              DateTime?              @map("closed_at") @db.Timestamptz(3)
@@ -544,6 +556,7 @@ model Opportunity {
   updatedBy  Employee?   @relation("OpportunityUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
   deletedBy  Employee?   @relation("OpportunityDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
   changes    OpportunityChange[]
+  documents  OpportunityDocument[]
   activities Activity[]
 
   @@index([customerId])
@@ -570,6 +583,27 @@ model OpportunityChange {
 
   @@index([opportunityId, changedAt])
   @@map("opportunity_change")
+}
+
+// Sales S9b — tai lieu co hoi: CHI duong dan https + ten tep. Chi them / xoa mem (trigger trg_opportunity_document_guard trong SQL)
+model OpportunityDocument {
+  id            String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  opportunityId String                  @map("opportunity_id") @db.Uuid
+  kind          OpportunityDocumentKind
+  fileName      String                  @map("file_name") @db.VarChar(255)
+  url           String                  @db.VarChar(1000)
+  createdById   String                  @map("created_by") @db.Uuid
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  deletedAt     DateTime?               @map("deleted_at") @db.Timestamptz(3)
+  deletedById   String?                 @map("deleted_by") @db.Uuid
+  deleteReason  String?                 @map("delete_reason") @db.VarChar(500)
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  createdBy   Employee    @relation("OpportunityDocumentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  deletedBy   Employee?   @relation("OpportunityDocumentDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+
+  @@index([opportunityId])
+  @@map("opportunity_document")
 }
 
 // ───────── Phan cong (lich su). Partial unique "1 OWNER dang hieu luc / khach hang" o HAND_SQL ─────────

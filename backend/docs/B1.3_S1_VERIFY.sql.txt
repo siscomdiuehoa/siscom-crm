@@ -76,7 +76,11 @@ INSERT INTO s1_result SELECT 'B1s app INSERT/UPDATE opportunity (KHONG DELETE/TR
              AND NOT has_table_privilege('siscom_app', 'public.opportunity', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.opportunity', 'TRUNCATE') END)
   AND (CASE WHEN to_regclass('public.opportunity_change') IS NULL THEN true
         ELSE has_table_privilege('siscom_app', 'public.opportunity_change', 'INSERT') AND NOT has_any_column_privilege('siscom_app', 'public.opportunity_change', 'UPDATE')
-             AND NOT has_table_privilege('siscom_app', 'public.opportunity_change', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.opportunity_change', 'TRUNCATE') END);
+             AND NOT has_table_privilege('siscom_app', 'public.opportunity_change', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.opportunity_change', 'TRUNCATE') END)
+  -- Sales S9b: opportunity_document (khi co bang): INSERT + UPDATE (xoa mem), KHONG DELETE/TRUNCATE.
+  AND (CASE WHEN to_regclass('public.opportunity_document') IS NULL THEN true
+        ELSE has_table_privilege('siscom_app', 'public.opportunity_document', 'INSERT') AND has_table_privilege('siscom_app', 'public.opportunity_document', 'UPDATE')
+             AND NOT has_table_privilege('siscom_app', 'public.opportunity_document', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.opportunity_document', 'TRUNCATE') END);
 INSERT INTO s1_result SELECT 'B1e app KHONG co quyen nao (ke ca SELECT theo cot) tren auth_session va employee_credential (P3c, S3)',
   bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'SELECT') AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT')
        AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE'))
@@ -215,7 +219,9 @@ SELECT pg_temp.expect_ok('E6 app UPDATE contact',
 SELECT pg_temp.expect_ok('E5s app INSERT/UPDATE opportunity va INSERT opportunity_change khi co bang (WHERE false) - Sales S3 V5',
   'DO $s3$ BEGIN IF to_regclass($t$public.opportunity$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.opportunity (customer_id, title, type_id, stage_id, owner_id) SELECT gen_random_uuid(), chr(120), gen_random_uuid(), gen_random_uuid(), gen_random_uuid() WHERE false$s$; '
   'EXECUTE $s$UPDATE public.opportunity SET status = status, stage_id = stage_id, owner_id = owner_id, version = version, closed_at = closed_at, deleted_at = deleted_at WHERE false$s$; END IF; '
-  'IF to_regclass($t$public.opportunity_change$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.opportunity_change (opportunity_id, field, changed_by) SELECT gen_random_uuid(), $v$STAGE$v$, gen_random_uuid() WHERE false$s$; END IF; END $s3$');
+  'IF to_regclass($t$public.opportunity_change$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.opportunity_change (opportunity_id, field, changed_by) SELECT gen_random_uuid(), $v$STAGE$v$, gen_random_uuid() WHERE false$s$; END IF; '
+  'IF to_regclass($t$public.opportunity_document$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.opportunity_document (opportunity_id, kind, file_name, url, created_by) SELECT gen_random_uuid(), $v$TECHNICAL$v$, chr(120), $v$https://x$v$, gen_random_uuid() WHERE false$s$; '
+  'EXECUTE $s$UPDATE public.opportunity_document SET deleted_at = deleted_at, deleted_by = deleted_by, delete_reason = delete_reason WHERE false$s$; END IF; END $s3$');
 -- M-8 (ra soat P3b): ham runtime can EXECUTE (qua PUBLIC): tim kiem (f_vn_fold), khoi phuc (fn_customer_restore_conflicts), sinh ma trong
 -- DEFAULT khi app INSERT (fn_next_customer_code / fn_next_contact_code). Migration sau nay lo REVOKE FROM PUBLIC => FAIL o day, khong doi 500.
 INSERT INTO s1_result SELECT 'E7 app EXECUTE duoc 5 ham runtime (f_vn_fold, fn_customer_restore_conflicts, fn_next_customer_code, fn_next_contact_code, fn_next_activity_code - B3 A3)',

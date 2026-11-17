@@ -1,0 +1,73 @@
+-- SISCOM CRM - ROLLBACK Sales S9b (20261120000000_sales_opportunity_document). VIET SAN, KHONG TU CHAY.
+-- Dich: backend\docs\SALES_S9_DOCUMENT_ROLLBACK.sql.txt (noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/staging/production: CAM, tru khi co phe duyet RIENG.
+-- Viec lam: go bang opportunity_document (+ trigger, ham fn_opportunity_document_guard, enum opportunity_document_kind), CHECK ck_opp_won_file_name,
+--   cot opportunity.won_doc_file_name + xoa dong _prisma_migrations.
+-- THU TU (docs/SALES_DESIGN.md §9 "Duong lui"): (1) trien khai lai backend ban TRUOC S9b; (2) file nay; roi moi toi rollback cua migration cu hon
+--   (SALES_S8_AUTO_KIND_ROLLBACK ...). Quyen INSERT/UPDATE cua siscom_app tren bang mat cung bang (khong can script go quyen rieng).
+-- MOT transaction. KHONG BAO GIO tu xoa/sua du lieu. TU CHOI khi (1) con BAT KY dong opportunity_document nao (ke ca da xoa mem), hoac
+--   (2) con co hoi co won_doc_file_name khac NULL (ke ca co hoi da xoa mem). Xu ly tay TRUOC (Owner duyet rieng, tren ban sao, xuat CSV, ghi evidence).
+--   Khong co co "ep buoc".
+-- KHOA TRUOC KHI KIEM (nhu SALES_S2_ROLLBACK, PR237-R1-02): LOCK TABLE ACCESS EXCLUSIVE ca hai bang roi moi dem => khong co giao dich nao chen
+--   tai lieu / ghi ten tep giua luc dem va luc go. Chan ca doc trong luc rollback - chay khi bao tri.
+-- Chay bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi unsplit); khong phai chu so huu => 42501, huy.
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261120000000_sales_opportunity_document') THEN
+    RAISE EXCEPTION 'TU CHOI: chua ap 20261120000000_sales_opportunity_document (khong co gi de rollback).';
+  END IF;
+END $$;
+LOCK TABLE public.opportunity IN ACCESS EXCLUSIVE MODE;
+DO $$ BEGIN
+  IF to_regclass('public.opportunity_document') IS NOT NULL THEN
+    EXECUTE 'LOCK TABLE public.opportunity_document IN ACCESS EXCLUSIVE MODE';
+  END IF;
+END $$;
+DO $$
+DECLARE n int;
+BEGIN
+  IF to_regclass('public.opportunity_document') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM public.opportunity_document' INTO n;
+    IF n > 0 THEN
+      RAISE EXCEPTION 'TU CHOI: con % dong opportunity_document (ke ca da xoa mem) - xuat CSV truoc, khong tu xoa.', n;
+    END IF;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'opportunity' AND column_name = 'won_doc_file_name') THEN
+    EXECUTE 'SELECT count(*) FROM public.opportunity WHERE won_doc_file_name IS NOT NULL' INTO n;
+    IF n > 0 THEN
+      RAISE EXCEPTION 'TU CHOI: con % co hoi co won_doc_file_name khac NULL - khong go cot.', n;
+    END IF;
+  END IF;
+END $$;
+
+DROP TABLE IF EXISTS public.opportunity_document;
+DROP FUNCTION IF EXISTS public.fn_opportunity_document_guard();
+DROP TYPE IF EXISTS public.opportunity_document_kind;
+ALTER TABLE public.opportunity DROP CONSTRAINT IF EXISTS ck_opp_won_file_name;
+ALTER TABLE public.opportunity DROP COLUMN IF EXISTS won_doc_file_name;
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261120000000_sales_opportunity_document';
+
+DO $$ BEGIN
+  IF to_regclass('public.opportunity_document') IS NOT NULL
+     OR to_regtype('public.opportunity_document_kind') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace WHERE ns.nspname = 'public' AND p.proname = 'fn_opportunity_document_guard')
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_opp_won_file_name')
+     OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'opportunity' AND column_name = 'won_doc_file_name')
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261120000000_sales_opportunity_document')
+     -- doi tuong cua S2 phai con nguyen
+     OR to_regclass('public.opportunity') IS NULL OR to_regclass('public.opportunity_change') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'opportunity' AND column_name = 'won_doc_url') THEN
+    RAISE EXCEPTION 'Rollback Sales S9b (opportunity_document) chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK Sales S9b (20261120000000_sales_opportunity_document) XONG' AS ket_qua;

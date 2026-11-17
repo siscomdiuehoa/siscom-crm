@@ -20,5 +20,8 @@ export const opportunityErrors = {
   customerNoOwner: () => new DomainException(409, 'OPPORTUNITY_CUSTOMER_NO_OWNER', 'Khách hàng chưa có người phụ trách. Hãy phân công người phụ trách khách trước khi tạo cơ hội.'),
   // Danh mục giai đoạn chưa được nạp (lệnh seed S4) hoặc có giai đoạn mà mã nguồn không biết xác suất mặc định.
   catalogMissing: () => new DomainException(409, 'OPPORTUNITY_CATALOG_MISSING', 'Danh mục giai đoạn cơ hội chưa sẵn sàng. Vui lòng báo quản trị.'),
+  // Sales S9b: tài liệu cơ hội.
+  documentNotFound: () => new DomainException(404, 'OPPORTUNITY_DOCUMENT_NOT_FOUND', 'Không tìm thấy tài liệu.'),
+  documentLimit: (max: number) => new DomainException(409, 'OPPORTUNITY_DOCUMENT_LIMIT', 'Cơ hội đã có tối đa ' + max + ' tài liệu. Hãy xoá bớt trước khi thêm.'),
   customerDeleted: () => new DomainException(409, 'OPPORTUNITY_CUSTOMER_DELETED', 'Khách hàng của cơ hội đang bị xoá. Hãy khôi phục khách hàng trước.'),
 };

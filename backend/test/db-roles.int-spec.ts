@@ -175,6 +175,18 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
     expect(await appTry('DELETE FROM public.opportunity WHERE false')).toBe('42501');
   });
 
+  it('Sales S9b (APP_GRANTS_V5 mục 2d): app INSERT + UPDATE (xoá mềm) opportunity_document; DELETE / TRUNCATE bị 42501', async () => {
+    const r = await prisma.$queryRaw<{ ins: boolean; upd: boolean; del: boolean; trunc: boolean; sel: boolean }[]>`
+      SELECT has_table_privilege('siscom_app', 'public.opportunity_document', 'INSERT') AS ins, has_table_privilege('siscom_app', 'public.opportunity_document', 'UPDATE') AS upd,
+             has_table_privilege('siscom_app', 'public.opportunity_document', 'DELETE') AS del, has_table_privilege('siscom_app', 'public.opportunity_document', 'TRUNCATE') AS trunc,
+             has_table_privilege('siscom_app', 'public.opportunity_document', 'SELECT') AS sel`;
+    expect(r).toEqual([{ ins: true, upd: true, del: false, trunc: false, sel: true }]);
+    await prisma.$executeRawUnsafe("INSERT INTO public.opportunity_document (opportunity_id, kind, file_name, url, created_by) SELECT gen_random_uuid(), 'TECHNICAL', 'x', 'https://x', gen_random_uuid() WHERE false");
+    await prisma.$executeRawUnsafe('UPDATE public.opportunity_document SET deleted_at = deleted_at, deleted_by = deleted_by, delete_reason = delete_reason WHERE false');
+    expect(await appTry('DELETE FROM public.opportunity_document WHERE false')).toBe('42501');
+    expect(await appTry('TRUNCATE public.opportunity_document')).toBe('42501');
+  });
+
   it('siscom_app không tự nâng quyền: GRANT cho chính mình (PostgreSQL chỉ WARNING, không lỗi) KHÔNG có hiệu lực; đổi chủ sở hữu/role/SET ROLE bị 42501', async () => {
     // GRANT bởi role không sở hữu và không có grant option: PostgreSQL trả "no privileges were granted" (WARNING) và thoát 0 —
     // nên kiểm HIỆU QUẢ (quyền sau đó vẫn không có), không kiểm mã lỗi. Thử ngoài transaction để chắc không có gì "dính" lại.

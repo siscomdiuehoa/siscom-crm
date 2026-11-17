@@ -3,6 +3,7 @@ import type { RequestCtx } from '../../common/auth/actor';
 import { CurrentCtx } from '../../common/auth/actor.decorator';
 import { ActorGuard } from '../../common/auth/actor.guard';
 import { CreateActivityDto } from '../activities/dto/create-activity.dto';
+import { AddOpportunityDocumentDto, DeleteOpportunityDocumentDto } from './dto/opportunity-document.dto';
 import { QueryOpportunitiesDto } from './dto/query-opportunities.dto';
 import { QueryOpportunityActivitiesDto } from './dto/query-opportunity-activities.dto';
 import {
@@ -10,6 +11,7 @@ import {
   ResumeOpportunityDto, UpdateOpportunityDto, WinOpportunityDto,
 } from './dto/write-opportunity.dto';
 import { OpportunityActivitiesService } from './opportunities.activities.service';
+import { OpportunityDocumentsService } from './opportunities.documents.service';
 import { OpportunityLifecycleService } from './opportunities.lifecycle.service';
 import { OpportunitiesService } from './opportunities.service';
 import { OpportunityWritesService } from './opportunities.write.service';
@@ -31,7 +33,7 @@ export class CustomerOpportunitiesController {
 @UseGuards(ActorGuard)
 export class OpportunitiesController {
   constructor(private readonly service: OpportunitiesService, private readonly writes: OpportunityWritesService, private readonly lifecycle: OpportunityLifecycleService,
-    private readonly oppActivities: OpportunityActivitiesService) {}
+    private readonly oppActivities: OpportunityActivitiesService, private readonly documents: OpportunityDocumentsService) {}
 
   @Get()
   async list(@CurrentCtx() ctx: RequestCtx, @Query() q: QueryOpportunitiesDto) {
@@ -113,6 +115,23 @@ export class OpportunitiesController {
   @Post(':id/activities')
   async createActivity(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: CreateActivityDto) {
     return { data: await this.oppActivities.create(ctx, id, dto) };
+  }
+
+  // S9b — tài liệu cơ hội (§6.14): chỉ đường dẫn + tên tệp. Xem theo đường truy cập; thêm / xoá mềm cần opportunity.update.
+  @Get(':id/documents')
+  async listDocuments(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string) {
+    return { data: await this.documents.list(ctx, id) };
+  }
+
+  @Post(':id/documents')
+  async addDocument(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: AddOpportunityDocumentDto) {
+    return { data: await this.documents.add(ctx, id, dto) };
+  }
+
+  @Delete(':id/documents/:docId')
+  @HttpCode(200)
+  async removeDocument(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Param('docId', new ParseUUIDPipe()) docId: string, @Body() dto: DeleteOpportunityDocumentDto) {
+    return { data: await this.documents.remove(ctx, id, docId, dto) };
   }
 
   // Xoá mềm: lý do + version ở body (như DELETE /activities/:id).
