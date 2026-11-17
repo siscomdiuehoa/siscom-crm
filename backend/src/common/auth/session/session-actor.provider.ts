@@ -5,6 +5,7 @@ import { AUTH_CONFIG, AuthConfig } from '../auth.config';
 import type { Actor, ActorProvider, Permission, Scope } from '../actor';
 import { readSessionCookie, sha256Hex } from './session-token';
 import { mergeScopes, ROLE_GRANTS_SELECT } from '../scope-merge';
+import { accountUsable } from '../assignee-eligibility';
 // B3 A5: KNOWN/RANK chuyển sang scope-merge.ts (hàm thuần dùng chung với effectiveAccessOf). Giữ re-export để mã/test cũ không đổi import.
 export { KNOWN } from '../scope-merge';
 
@@ -61,7 +62,8 @@ export class SessionActorProvider implements ActorProvider {
     });
     if (!s || s.revokedAt !== null || s.idleExpiresAt <= now || s.absExpiresAt <= now) return null;
     const e = s.employee;
-    if (e.status !== 'ACTIVE' || e.deletedAt !== null || e.credential?.status !== 'ACTIVE') return null;
+    // Sales S5: cùng MỘT tiêu chí với cổng AssigneeEligibility (người nhận cơ hội) — hai nơi không thể lệch nhau.
+    if (!accountUsable(e) || !e.credential) return null;
 
     // B3 A5: cùng một hàm thuần với effectiveAccessOf (người khác) — hai nơi không thể lệch nhau.
     const { roles, scopes } = mergeScopes(e.roles);

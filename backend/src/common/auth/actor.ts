@@ -8,9 +8,14 @@ export type Permission =
   | 'activity.read' | 'activity.create' | 'activity.create_tech' | 'activity.update' | 'activity.update_own'
   | 'activity.assign' | 'activity.delete' | 'activity.assign_external' | 'activity.transfer_request'
   // FV-4A (đặc tả FV4A bản 5 §1): quyền xuất riêng; phạm vi xuất = phạm vi HẸP hơn giữa customer.read và customer.export.
-  | 'customer.export';
+  | 'customer.export'
+  // Sales S5 (docs/SALES_DESIGN.md §5.2, §5.4): MỖI mã cấp riêng — service kiểm đúng mã của thao tác, không suy move_stage/close/assign từ update.
+  | 'opportunity.read' | 'opportunity.read_assigned' | 'opportunity.create' | 'opportunity.update' | 'opportunity.move_stage'
+  | 'opportunity.close' | 'opportunity.assign' | 'opportunity.reopen' | 'opportunity.delete' | 'opportunity.restore';
 // B3 A4: 9 mã quyền hoạt động (dùng cho kiểm nhất quán KNOWN / ALL_PERMS / BIZ / script cấp quyền 2 người).
 export const ACTIVITY_PERMISSIONS: readonly Permission[] = ['activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request'];
+// Sales S5: 10 mã quyền cơ hội (kiểm nhất quán Permission / KNOWN / BIZ / script cấp quyền 2 người). opportunity.export KHÔNG tồn tại ở đợt này (§5.2).
+export const OPPORTUNITY_PERMISSIONS: readonly Permission[] = ['opportunity.read', 'opportunity.read_assigned', 'opportunity.create', 'opportunity.update', 'opportunity.move_stage', 'opportunity.close', 'opportunity.assign', 'opportunity.reopen', 'opportunity.delete', 'opportunity.restore'];
 export type Scope = 'ALL' | 'DEPARTMENT' | 'OWN';
 
 export interface Actor {

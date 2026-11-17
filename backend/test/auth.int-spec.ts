@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { applyTrustProxy, TrustProxySetting } from '../src/app.setup';
 import { AUTH_CONFIG, AuthConfig } from '../src/common/auth/auth.config';
+import { ASSIGNEE_ELIGIBILITY, AssigneeEligibility, AuthPoolAssigneeEligibility } from '../src/common/auth/assignee-eligibility';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
 import { requestContext } from '../src/common/middleware/request-context.middleware';
 import { AuthApiModule } from '../src/modules/auth/auth-api.module';
@@ -1296,5 +1297,77 @@ describe('FV-5 — account-admin (thêm / đặt lại mật khẩu / khoá) qua
   });
   it('FV5-8. CLI không cấp crm_admin (tạm cấm, Owner 08/11/2026)', () => {
     expect(() => parseArgs(['add', ...base(), '--email', 'x@' + DOMAIN, '--full-name', 'X', '--department', 'KD', '--role', 'crm_admin', '--out', 'x'])).toThrow('INPUT');
+  });
+});
+
+// Sales S5 (docs/SALES_DESIGN.md §5.2, §5.4; TC 9a(vii)) — trên DB thử thật đã bootstrap bằng ma trận BIZ mới:
+//  (1) 10 mã opportunity.* / 17 dòng đúng vai trò, thuộc nhóm BIZ ở DB (SoD: vai trò admin kỹ thuật không giữ mã nào);
+//  (2) cổng AssigneeEligibility chạy trên POOL AUTH thật: tài khoản dùng được => true, bị khoá => false, mở khoá => true lại, id lạ => false;
+//  (3) cùng cổng đó dựng trên pool NGHIỆP VỤ (đã tách role) => truy vấn bị DB từ chối => fail-closed (false) — app không đọc được credential.
+describe('Sales S5 — mã quyền opportunity.* và cổng AssigneeEligibility trên DB thật', () => {
+  const email = 's5-' + Date.now().toString(36) + '@' + DOMAIN;
+  const base = () => ['--requester', codes.sysadmin, '--approver', codes.admin];
+  let tool: AccountAdmin; let port: AssigneeEligibility; let empId = ''; let empCode = '';
+
+  beforeAll(async () => {
+    tool = new AccountAdmin(adminPrisma);
+    port = app.get<AssigneeEligibility>(ASSIGNEE_ELIGIBILITY, { strict: false }); // đúng provider của AuthModule (pool auth đã ghi đè bằng authPrisma)
+    const r = await tool.add(parseArgs(['add', ...base(), '--email', email, '--full-name', 'Nhân viên S5', '--department', 'KD', '--role', 'sales', '--out', 'khong-dung']));
+    empCode = r.code;
+    empId = (await adminPrisma.employee.findFirstOrThrow({ where: { email }, select: { id: true } })).id;
+  });
+
+  it('S5-1. bootstrap cấp đúng 17 dòng của 10 mã: crm_admin 9, sales 6, technician 1, accountant 1; admin (quản trị hệ thống) 0; không có opportunity.export', async () => {
+    const rows = await adminPrisma.$queryRaw<{ role: string; n: bigint }[]>`
+      SELECT r.code AS role, count(p.id) AS n FROM public.role r
+      LEFT JOIN public.role_permission rp ON rp.role_id = r.id
+      LEFT JOIN public.permission p ON p.id = rp.permission_id AND p.code LIKE 'opportunity.%'
+      WHERE r.code IN ('admin', 'crm_admin', 'sales', 'technician', 'accountant') GROUP BY r.code`;
+    expect(Object.fromEntries(rows.map((x) => [x.role, Number(x.n)]))).toEqual({ admin: 0, crm_admin: 9, sales: 6, technician: 1, accountant: 1 });
+    const codesInDb = await adminPrisma.permission.findMany({ where: { code: { startsWith: 'opportunity.' } }, select: { code: true } });
+    expect(codesInDb).toHaveLength(10);
+    expect(codesInDb.map((c) => c.code)).not.toContain('opportunity.export');
+  });
+  it('S5-2. DB xếp opportunity.* vào nhóm BIZ (migration 20261118000000) => SoD áp cho vai trò admin; các nhóm cũ không đổi', async () => {
+    const r = await adminPrisma.$queryRaw<{ a: string; b: string; c: string; d: string; e: string }[]>`
+      SELECT public.fn_auth_perm_class('opportunity.read') AS a, public.fn_auth_perm_class('opportunity.read_assigned') AS b,
+             public.fn_auth_perm_class('customer.read') AS c, public.fn_auth_perm_class('access.approve') AS d, public.fn_auth_perm_class('lookup.read') AS e`;
+    expect(r[0]).toEqual({ a: 'BIZ', b: 'BIZ', c: 'BIZ', d: 'APPROVE', e: 'OTHER' });
+  });
+  it('S5-3. vai trò thật của 5 tài khoản bootstrap: đúng tập mã opportunity.* theo §5.2; Quản trị hệ thống không có mã nào', async () => {
+    const perms = async (key: string) => {
+      const u = USERS.find((x) => x.key === key)!;
+      const rows = await adminPrisma.$queryRaw<{ code: string }[]>`
+        SELECT DISTINCT p.code::text AS code FROM public.employee e JOIN public.employee_role er ON er.employee_id = e.id
+        JOIN public.role_permission rp ON rp.role_id = er.role_id JOIN public.permission p ON p.id = rp.permission_id
+        WHERE lower(e.email) = lower(${u.email}) AND p.code LIKE 'opportunity.%'`;
+      return rows.map((x) => x.code.replace('opportunity.', '')).sort();
+    };
+    expect(await perms('sysadmin')).toEqual([]);
+    expect(await perms('sale')).toEqual(['assign', 'close', 'create', 'move_stage', 'read', 'update']);
+    expect(await perms('technician')).toEqual(['read_assigned']);
+    expect(await perms('accountant')).toEqual(['read']);
+    expect(await perms('admin')).toEqual(['assign', 'close', 'create', 'delete', 'move_stage', 'read', 'reopen', 'restore', 'update']);
+  });
+  it('S5-4. cổng trên pool auth thật: tài khoản dùng được => true; id không tồn tại => false; id không phải uuid => false cho cả lô (fail-closed)', async () => {
+    const ghost = randomUUID();
+    const r = await port.canSignIn([empId, ghost]);
+    expect([...r.entries()]).toEqual([[empId, true], [ghost, false]]);
+    const bad = await port.canSignIn([empId, 'khong-phai-uuid']);
+    expect([...bad.entries()]).toEqual([[empId, false], ['khong-phai-uuid', false]]);
+  });
+  it('S5-5. nhân viên ACTIVE nhưng tài khoản bị khoá => false; mở khoá => true lại; employee.status không đổi (TC 9a(vii))', async () => {
+    await tool.disable(parseArgs(['disable', '--requester', codes.sysadmin, '--employee', empCode, '--reason', 'S5 thử khoá']));
+    const emp = await adminPrisma.employee.findUniqueOrThrow({ where: { id: empId }, select: { status: true, deletedAt: true } });
+    expect(emp).toEqual({ status: 'ACTIVE', deletedAt: null }); // pool nghiệp vụ (helper B3) vẫn thấy "active" — vì vậy mới cần cổng auth
+    expect((await port.canSignIn([empId])).get(empId)).toBe(false);
+    await tool.unlock(parseArgs(['unlock', ...base(), '--employee', empCode, '--reason', 'S5 thử mở khoá', '--out', 'khong-dung', '--confirm-unlock', empCode]));
+    expect((await port.canSignIn([empId])).get(empId)).toBe(true);
+  });
+  it('S5-6. cổng dựng trên pool NGHIỆP VỤ (siscom_app, đã tách role) không đọc được credential => fail-closed false; chưa tách role thì bỏ qua có lý do', async () => {
+    if (!authPrisma.separate) { console.warn('S5-6 bỏ qua: DB thử chưa tách pool auth (không có TEST_AUTH_DATABASE_URL).'); return; }
+    const viaApp = new AuthPoolAssigneeEligibility(prisma as unknown as AuthPrismaService);
+    expect((await viaApp.canSignIn([empId])).get(empId)).toBe(false);
+    expect((await port.canSignIn([empId])).get(empId)).toBe(true); // cùng thời điểm, pool auth vẫn trả true
   });
 });

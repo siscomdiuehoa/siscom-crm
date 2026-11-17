@@ -1,0 +1,50 @@
+-- SISCOM CRM - ROLLBACK Sales S5 (20261118000000_sales_perm_class). VIET SAN, KHONG TU CHAY.
+-- Dich: backend\docs\SALES_S5_PERM_CLASS_ROLLBACK.sql.txt (noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/staging/production: CAM, tru khi co phe duyet RIENG.
+-- Viec lam: tra fn_auth_perm_class ve dung than ham cua M1 (20261020000000_b1_3_auth_core: khong co "opportunity") + xoa dong _prisma_migrations.
+-- THU TU ROLLBACK (docs/SALES_DESIGN.md §9 "Duong lui"): quyen ung dung (SALES_S5_OPPORTUNITY_PERMISSIONS_REMOVE) -> file nay.
+-- TU CHOI khi permission con ma opportunity.* : neu van con ma ma ham bi tra ve ban cu thi cac ma do roi khoi nhom BIZ va SoD khong con bao ve.
+--   Khong tu xoa ma/quyen. Khong co co "ep buoc".
+-- Chay bang CHU SO HUU ham (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi unsplit); khong phai chu so huu => 42501, huy.
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$
+DECLARE n int;
+BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261118000000_sales_perm_class') THEN
+    RAISE EXCEPTION 'TU CHOI: chua ap 20261118000000_sales_perm_class (khong co gi de rollback).';
+  END IF;
+  -- Khoa RBAC nhu trigger SoD (cung khoa advisory) de khong co yeu cau cap quyen chen giua luc kiem va luc doi ham.
+  PERFORM pg_advisory_xact_lock(hashtext('siscom.rbac'));
+  SELECT count(*) INTO n FROM public.permission WHERE code ~ '^opportunity\.';
+  IF n > 0 THEN
+    RAISE EXCEPTION 'TU CHOI: con % ma opportunity.* trong permission - chay SALES_S5_OPPORTUNITY_PERMISSIONS_REMOVE truoc.', n;
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.fn_auth_perm_class(p_code text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN p_code = 'access.approve' THEN 'APPROVE'
+    WHEN p_code IN ('employee.manage', 'role.manage', 'auth.credential.manage', 'auth.reset.request', 'access.request') THEN 'REQUEST'
+    WHEN p_code ~ '^(customer|contact|activity|interaction|approval)\.' THEN 'BIZ'
+    ELSE 'OTHER' END $$;
+COMMENT ON FUNCTION public.fn_auth_perm_class(text) IS 'B1.3: phan loai quyen APPROVE/REQUEST/BIZ/OTHER cho SoD. Doi = migration moi.';
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261118000000_sales_perm_class';
+
+DO $$ BEGIN
+  IF public.fn_auth_perm_class('opportunity.read') <> 'OTHER' OR public.fn_auth_perm_class('customer.read') <> 'BIZ'
+     OR public.fn_auth_perm_class('access.approve') <> 'APPROVE' OR public.fn_auth_perm_class('role.manage') <> 'REQUEST'
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261118000000_sales_perm_class') THEN
+    RAISE EXCEPTION 'Rollback Sales S5 (perm_class) chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK Sales S5 (20261118000000_sales_perm_class) XONG' AS ket_qua;
