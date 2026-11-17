@@ -2,6 +2,9 @@ import { DomainException } from '../../common/errors/domain.exception';
 
 // Mã lỗi ổn định theo docs/SALES_DESIGN.md §5.4, §7. Thông điệp tiếng Việt an toàn để trả về client (không lộ chi tiết nội bộ).
 export const opportunityErrors = {
+  validation: (details: string[]) => new DomainException(400, 'VALIDATION_FAILED', 'Dữ liệu gửi lên không hợp lệ.', details),
+  // Khách không tồn tại / đã xoá / ngoài phạm vi và không có cơ hội nào nhìn thấy được => 404, cùng mã với module khách hàng.
+  customerNotFound: () => new DomainException(404, 'CUSTOMER_NOT_FOUND', 'Không tìm thấy khách hàng.'),
   // Ngoài phạm vi xem (kể cả cơ hội đã xoá mềm với người không có quyền khôi phục) => 404, không lộ tồn tại.
   notFound: () => new DomainException(404, 'OPPORTUNITY_NOT_FOUND', 'Không tìm thấy cơ hội.'),
   // Thấy được nhưng thiếu mã ghi hoặc ngoài điều kiện của mã đó.
