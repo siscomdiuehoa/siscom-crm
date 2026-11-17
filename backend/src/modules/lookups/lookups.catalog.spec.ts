@@ -10,7 +10,7 @@ describe('lookups.catalog — danh mục chuẩn D3', () => {
     const t = LOOKUP_CATALOG.find((x) => x.type === 'customer_tier' && x.code === DEFAULT_TIER_CODE);
     const s = LOOKUP_CATALOG.find((x) => x.type === 'customer_status' && x.code === DEFAULT_STATUS_CODE);
     expect(t?.isSystem).toBe(true); expect(s?.isSystem).toBe(true);
-    expect(LOOKUP_CATALOG.filter((x) => x.isSystem)).toHaveLength(2);
+    expect(LOOKUP_CATALOG.filter((x) => x.isSystem && x.type.startsWith('customer_'))).toHaveLength(2);
   });
   it('catalogProblems bắt lỗi: code thường, trùng, type lạ, thiếu mặc định', () => {
     const bad: LookupSeedItem[] = [

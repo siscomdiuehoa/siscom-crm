@@ -119,7 +119,7 @@ cd /root/siscom-src/backend/scripts/linux
 bash deploy.sh --src /root/siscom-src --frontend /root/siscom-web-dist --migrate --dry-run   # xem kế hoạch
 bash deploy.sh --src /root/siscom-src --frontend /root/siscom-web-dist --migrate
 # (sau khi Owner duyệt tạo tag trên main: bash deploy.sh --tag v0.1.0 ... — cần clone /opt/siscom-crm/repo + deploy key)
-bash /opt/siscom-crm/current/backend/scripts/linux/run-cli.sh seed-lookups        # danh mục D3 (57 mục)
+bash /opt/siscom-crm/current/backend/scripts/linux/run-cli.sh seed-lookups        # danh mục D3 (57 mục) + Sales S4 (16 mục: 4 giai đoạn, 3 loại, 9 lý do thua) = 73 mục; chạy lại không ghi đè nhãn/thứ tự, không bật lại mục đã ẩn
 # 5 mật khẩu bootstrap do Owner tự gõ, KHÔNG ghi file/chat (trong shell root):
 for k in SYSADMIN ADMIN SALE TECHNICIAN ACCOUNTANT; do read -rsp "BOOTSTRAP_PASSWORD_$k: " v; export "BOOTSTRAP_PASSWORD_$k=$v"; echo; done
 export BOOTSTRAP_EMAIL_DOMAIN=<tên-miền-email-công-ty>
