@@ -3,7 +3,8 @@ import { Test } from '@nestjs/testing';
 import type { Request } from 'express';
 import request from 'supertest';
 import { AUDIT_PORT, AuditEntry, AuditPort } from '../../src/common/audit/audit.port';
-import { ACTOR_PROVIDER, Actor, ActorProvider, Permission, Scope } from '../../src/common/auth/actor';
+import { ACTOR_PROVIDER, Actor, ActorProvider, OPPORTUNITY_PERMISSIONS, Permission, Scope } from '../../src/common/auth/actor';
+import { ASSIGNEE_ELIGIBILITY, AssigneeEligibility } from '../../src/common/auth/assignee-eligibility';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import type { Prisma } from '../../src/generated/prisma/client';
 import type { EmployeeAccess } from '../../src/common/auth/scope-merge';
@@ -12,6 +13,8 @@ import { ActivitiesModule } from '../../src/modules/activities/activities.module
 import { ACTIVE_LINKS_CHECKER, ActiveLinksChecker } from '../../src/modules/customers/customers.deletion-guard';
 import { CustomersModule } from '../../src/modules/customers/customers.module';
 import { LookupsModule } from '../../src/modules/lookups/lookups.module';
+import { OPP_EMPLOYEE_ACCESS } from '../../src/modules/opportunities/opportunities.employee-access';
+import { OpportunitiesModule } from '../../src/modules/opportunities/opportunities.module';
 import { DbAuditPort } from '../../src/common/audit/db-audit.port';
 import { EXPORT_ACCESS, EXPORT_CONFIG, ExportAccessReader, ExportConfig, exportConfigFromEnv } from '../../src/modules/customers/export/customers-export.service';
 import { AuthPrismaService } from '../../src/prisma/auth-prisma.service';
@@ -24,14 +27,21 @@ const ALL_PERMS: Permission[] = ['customer.read', 'customer.create', 'customer.u
   // B3 A4
   'activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request',
   // FV-4A
-  'customer.export'];
+  'customer.export',
+  // Sales S5/S6
+  ...OPPORTUNITY_PERMISSIONS];
 const uniform = (s: Scope): Partial<Record<Permission, Scope>> => Object.fromEntries(ALL_PERMS.map((p) => [p, s]));
 // B3 A5: phạm vi theo vai trò thật (bootstrap.ts BIZ) \u2014 dùng cho preset và cho người được giao việc (TestEmployeeAccess).
 export const SALES: Partial<Record<Permission, Scope>> = { 'customer.read': 'OWN', 'customer.create': 'OWN', 'customer.update': 'OWN', 'contact.read': 'OWN', 'contact.create': 'OWN', 'lookup.read': 'ALL',
-  'activity.read': 'OWN', 'activity.create': 'OWN', 'activity.update': 'OWN', 'activity.assign': 'OWN', 'activity.assign_external': 'OWN' };
+  'activity.read': 'OWN', 'activity.create': 'OWN', 'activity.update': 'OWN', 'activity.assign': 'OWN', 'activity.assign_external': 'OWN',
+  // Sales S5 §5.2
+  'opportunity.read': 'OWN', 'opportunity.create': 'OWN', 'opportunity.update': 'OWN', 'opportunity.move_stage': 'OWN', 'opportunity.close': 'OWN', 'opportunity.assign': 'OWN' };
 export const TECH: Partial<Record<Permission, Scope>> = { 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'lookup.read': 'ALL',
-  'activity.read': 'DEPARTMENT', 'activity.create_tech': 'DEPARTMENT', 'activity.update_own': 'DEPARTMENT', 'activity.transfer_request': 'DEPARTMENT' };
-export const ACCT: Partial<Record<Permission, Scope>> = { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL', 'activity.read': 'ALL' };
+  'activity.read': 'DEPARTMENT', 'activity.create_tech': 'DEPARTMENT', 'activity.update_own': 'DEPARTMENT', 'activity.transfer_request': 'DEPARTMENT',
+  'opportunity.read_assigned': 'OWN' };
+export const ACCT: Partial<Record<Permission, Scope>> = { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL', 'activity.read': 'ALL', 'opportunity.read': 'ALL' };
+// Sales S6: Quản trị CRM theo ma trận thật (mọi mã BIZ phạm vi ALL trừ các mã chỉ của Kỹ thuật).
+export const CRM_ADMIN: Partial<Record<Permission, Scope>> = Object.fromEntries(ALL_PERMS.filter((p) => !['activity.create_tech', 'activity.update_own', 'activity.transfer_request', 'opportunity.read_assigned'].includes(p)).map((p) => [p, 'ALL' as Scope]));
 
 export class TestActorProvider implements ActorProvider {
   readonly presets: Record<string, { actor: Actor; scopes: Partial<Record<Permission, Scope>> }>;
@@ -48,6 +58,10 @@ export class TestActorProvider implements ActorProvider {
       none: { actor: { ...a }, scopes: {} },
       // B3 A5 \u2014 giống ma trận thật §5 (sales/technician/accountant), để kiểm hoạt động theo vai trò:
       salesA: { actor: { ...a }, scopes: { ...SALES } },
+      // Sales S6: Kinh doanh B (cùng phòng) / C (phòng khác) và Quản trị CRM theo ma trận thật.
+      salesB: { actor: { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { ...SALES } },
+      salesC: { actor: { employeeId: fx.empC, departmentId: fx.d2 }, scopes: { ...SALES } },
+      crmAdmin: { actor: { employeeId: fx.empC, departmentId: fx.d2 }, scopes: { ...CRM_ADMIN } },
       techB: { actor: { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { ...TECH } },
       techC: { actor: { employeeId: fx.empC, departmentId: fx.d2 }, scopes: { ...TECH } },
       acctA: { actor: { ...a }, scopes: { ...ACCT } },
@@ -100,12 +114,21 @@ export class TestExportAccess implements ExportAccessReader {
   }
 }
 
+// Sales S6 — CHỈ TRONG TEST: cổng "tài khoản dùng được" do test đặt (nhân viên thử không có credential). Mặc định: dùng được.
+export class TestAssigneeEligibility implements AssigneeEligibility {
+  readonly blocked = new Set<string>();
+  async canSignIn(ids: readonly string[]): Promise<ReadonlyMap<string, boolean>> { return new Map(ids.map((id) => [id, !this.blocked.has(id)])); }
+}
+
 // B3 A6: actors (null khi denyAll) để test thêm preset cho nhân viên tạo trong beforeAll.
-export interface TestApp { app: INestApplication; audit: RecordingAuditPort; access: TestEmployeeAccess; actors: TestActorProvider | null; exportAccess: TestExportAccess }
+export interface TestApp { app: INestApplication; audit: RecordingAuditPort; access: TestEmployeeAccess; actors: TestActorProvider | null; exportAccess: TestExportAccess; eligibility: TestAssigneeEligibility }
 export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verifiedLinks?: boolean; denyAll?: boolean; realAudit?: boolean; exportConfig?: Partial<ExportConfig> } = {}): Promise<TestApp> {
   const audit = new RecordingAuditPort();
   const access = new TestEmployeeAccess();
-  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule, ActivitiesModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(EMPLOYEE_ACCESS).useValue(access);
+  const eligibility = new TestAssigneeEligibility();
+  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule, ActivitiesModule, OpportunitiesModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(EMPLOYEE_ACCESS).useValue(access)
+    // Sales S6: quyền hiệu lực của người phụ trách cơ hội dùng CHUNG bảng do test đặt (access.scopes); tài khoản dùng được do test đặt.
+    .overrideProvider(OPP_EMPLOYEE_ACCESS).useValue(access).overrideProvider(ASSIGNEE_ELIGIBILITY).useValue(eligibility);
   // FV-4A: realAudit => DbAuditPort thật (hạn mức xuất đếm từ audit_log trong DB).
   b = opts.realAudit ? b.overrideProvider(AUDIT_PORT).useValue(new DbAuditPort()) : b.overrideProvider(AUDIT_PORT).useValue(audit);
   const exportAccess = new TestExportAccess();
@@ -123,7 +146,7 @@ export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verif
   // Lắng nghe sẵn cổng tạm 127.0.0.1: nếu không, supertest gọi server.listen(0) cho MỖI yêu cầu trên cùng http.Server chưa lắng nghe;
   // nhiều yêu cầu song song cộng dồn listener 'listening'/'close' -> MaxListenersExceededWarning. app.close() đóng server này.
   await app.listen(0, '127.0.0.1');
-  return { app, audit, access, actors, exportAccess };
+  return { app, audit, access, actors, exportAccess, eligibility };
 }
 
 export function as(app: INestApplication, who?: string) {

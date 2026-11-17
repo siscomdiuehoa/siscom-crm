@@ -4,6 +4,8 @@ import { createAdminTestPrisma } from './test-db';
 export interface Fixtures {
   d1: string; d2: string; empA: string; empB: string; empC: string;
   tier: Record<string, string>; status: Record<string, string>; industry: Record<string, string>;
+  // Sales S6: danh mục thử cho cơ hội (mã riêng của test, không phải danh mục thật của S4).
+  oppType: Record<string, string>; oppStage: Record<string, string>; oppLostReason: Record<string, string>;
 }
 
 let seq = 0;
@@ -30,6 +32,9 @@ export async function ensureFixtures(prisma: PrismaService): Promise<Fixtures> {
     ['customer_status', 'POTENTIAL', 'Tiềm năng', 10, true], ['customer_status', 'ACTIVE', 'Đang giao dịch', 20, true],
     ['industry', 'IND_A', 'Ngành A', 10, true], ['industry', 'IND_B', 'Ngành B', 20, true],
     ['source', 'SRC_A', 'Nguồn A', 10, true], ['province', 'PROV_A', 'Tỉnh A', 10, true],
+    ['opportunity_type', 'T_SUPPLY', 'Cung cấp (thử)', 10, true], ['opportunity_type', 'T_INSTALL', 'Thi công (thử)', 20, true],
+    ['opportunity_stage', 'T_APPROACH', 'Tiếp cận (thử)', 10, true], ['opportunity_stage', 'T_QUOTE', 'Báo giá (thử)', 30, true],
+    ['opportunity_lost_reason', 'T_PRICE', 'Giá (thử)', 10, true],
   ] as const;
   const { d1, d2, empA, empB, empC } = await withAdmin(async (admin) => {
     await admin.lookupItem.createMany({ data: items.map(([type, code, labelVi, sortOrder, isActive]) => ({ type, code, labelVi, sortOrder, isActive })), skipDuplicates: true });
@@ -44,7 +49,8 @@ export async function ensureFixtures(prisma: PrismaService): Promise<Fixtures> {
   });
   const rows = await prisma.lookupItem.findMany({ where: { OR: items.map(([type, code]) => ({ type, code })) }, select: { id: true, type: true, code: true } });
   const pick = (t: string): Record<string, string> => Object.fromEntries(rows.filter((r) => r.type === t).map((r) => [r.code, r.id]));
-  return { d1, d2, empA, empB, empC, tier: pick('customer_tier'), status: pick('customer_status'), industry: pick('industry') };
+  return { d1, d2, empA, empB, empC, tier: pick('customer_tier'), status: pick('customer_status'), industry: pick('industry'),
+    oppType: pick('opportunity_type'), oppStage: pick('opportunity_stage'), oppLostReason: pick('opportunity_lost_reason') };
 }
 
 // Tạo khách trực tiếp bằng Prisma (bỏ qua API) để dựng trạng thái cho test.
@@ -61,4 +67,27 @@ export async function makeCustomer(prisma: PrismaService, fx: Fixtures, o: { nam
 
 export async function makeContact(prisma: PrismaService, customerId: string, fullName: string, isPrimary = false) {
   return prisma.contact.create({ data: { customerId, fullName, phone: '0912345678', isPrimary, isDemo: true }, select: { id: true, code: true } });
+}
+
+// Sales S6: tạo cơ hội trực tiếp bằng Prisma (bỏ qua API — S7 mới có API tạo) để dựng trạng thái cho test đọc. Pool nghiệp vụ ghi được opportunity (V5).
+export async function makeOpportunity(prisma: PrismaService, fx: Fixtures, o: {
+  customerId: string; ownerId: string; title?: string; status?: 'OPEN' | 'ON_HOLD' | 'WON' | 'LOST'; stage?: string; type?: string; contactId?: string | null;
+  amount?: bigint | null; probability?: number; closeDate?: string | null; projectName?: string | null; deleted?: boolean; needSummary?: string | null;
+}) {
+  const status = o.status ?? 'OPEN';
+  return prisma.opportunity.create({
+    data: {
+      customerId: o.customerId, ownerId: o.ownerId, title: o.title ?? 'CH thử ' + uniq(), typeId: fx.oppType[o.type ?? 'T_SUPPLY'] as string, stageId: fx.oppStage[o.stage ?? 'T_APPROACH'] as string,
+      status, contactId: o.contactId ?? null, needSummary: o.needSummary ?? null,
+      expectedAmountVnd: o.amount === undefined ? null : o.amount, probability: o.probability ?? 10,
+      expectedCloseDate: o.closeDate ? new Date(o.closeDate + 'T00:00:00.000Z') : null,
+      isProjectLinked: !!o.projectName, projectName: o.projectName ?? null, offerScope: o.projectName ? 'Phạm vi chào thử' : null,
+      ...(status === 'ON_HOLD' ? { holdUntil: new Date('2027-01-15T00:00:00.000Z'), holdReason: 'Khách hoãn (thử)' } : {}),
+      ...(status === 'WON' ? { wonAmountVnd: 5_000_000_000n, wonDocType: 'HOP_DONG' as const, wonDocNo: 'HD-THU-01', wonDocDate: new Date('2026-11-10T00:00:00.000Z'), wonDocUrl: 'https://drive.google.com/thu', closedAt: new Date() } : {}),
+      ...(status === 'LOST' ? { lostReasonId: fx.oppLostReason['T_PRICE'] as string, lostNote: 'Ghi chú thua (thử)', closedAt: new Date() } : {}),
+      ...(o.deleted ? { deletedAt: new Date(), deletedById: fx.empA, deleteReason: 'xoá thử' } : {}),
+      isDemo: true, createdById: fx.empA, updatedById: fx.empA,
+    },
+    select: { id: true, code: true, version: true, title: true },
+  });
 }

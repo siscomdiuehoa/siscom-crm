@@ -17,5 +17,7 @@ export async function loadFixturesReadOnly(prisma: PrismaService): Promise<Fixtu
   const empA = emp('TEST NV A', d1); const empB = emp('TEST NV B', d1); const empC = emp('TEST NV C', d2);
   if (!empA) miss.push('employee/TEST NV A (phòng T_D1)'); if (!empB) miss.push('employee/TEST NV B (phòng T_D1)'); if (!empC) miss.push('employee/TEST NV C (phòng T_D2)');
   if (miss.length) throw new Error('DB thử thiếu fixture: ' + miss.join(', ') + '. Benchmark KHÔNG tự tạo. Chạy một lần run-customers-tests.bat -Suite e2e trên DB này (đã nghiệm thu) rồi chạy lại.');
-  return { d1: d1 as string, d2: d2 as string, empA: empA as string, empB: empB as string, empC: empC as string, tier, status, industry };
+  return { d1: d1 as string, d2: d2 as string, empA: empA as string, empB: empB as string, empC: empC as string, tier, status, industry,
+    // Sales S6: benchmark khách hàng không dùng danh mục cơ hội.
+    oppType: {}, oppStage: {}, oppLostReason: {} };
 }
