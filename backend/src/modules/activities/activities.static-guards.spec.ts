@@ -41,7 +41,7 @@ describe('kiểm tra tĩnh module activities (A5 + A6)', () => {
     const m = text('activities.module.ts');
     expect(m).toMatch(/provide: EMPLOYEE_ACCESS, useClass: DbEmployeeAccess/);
     expect(m).toMatch(/imports: \[[^\]]*AuditModule/);
-    expect(m).toMatch(/exports: \[ACTIVITY_CUSTOMER_HOOKS, OPPORTUNITY_AUTO_TASKS\]/); // S8b: cổng việc tự sinh của cơ hội
+    expect(m).toMatch(/exports: \[ACTIVITY_CUSTOMER_HOOKS, OPPORTUNITY_AUTO_TASKS, OPPORTUNITY_ACTIVITIES\]/); // S8b: cổng việc tự sinh; S9a: cổng tạo hoạt động từ cơ hội
     expect(m).not.toMatch(/Test|Fake|Mock/);
   });
   it('service không dùng SQL thô không tham số hoá và không gán quyền người khác vào actor', () => {

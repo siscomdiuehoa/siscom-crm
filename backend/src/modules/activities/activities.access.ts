@@ -94,9 +94,12 @@ export function assigneeLost(status: string, performedById: string | null, owner
 //  - external=true và người nhận KHÔNG đọc được khách: người giao cần thêm activity.assign_external trong phạm vi khách (403); chỉ TASK OPEN và
 //    người nhận có thẩm quyền kỹ thuật (activity.update_own) => 'EXTERNAL' (cấp activity_access). Quyết định Owner #2 (06/11/2026):
 //    không phải TASK OPEN => 400 ACTIVITY_EXTERNAL_NOT_ALLOWED; người nhận thiếu update_own => 403 cùng mã.
-export function planAssignment(actor: Actor, scopeOf: ScopeOf, owner: OwnerInfo, a: EmployeeAccess | undefined, opts: { external: boolean; openTask: boolean }): 'INTERNAL' | 'EXTERNAL' {
+// anyScope (CHỈ đường POST /opportunities/:id/activities, Sales §5.5(b)): mã activity.assign / activity.assign_external chỉ cần ĐANG HIỆU LỰC ở bất
+// kỳ phạm vi — phạm vi do quyền trên cơ hội quyết định (nơi gọi đã kiểm opportunity.update). Mọi điều kiện về NGƯỜI NHẬN giữ nguyên.
+export function planAssignment(actor: Actor, scopeOf: ScopeOf, owner: OwnerInfo, a: EmployeeAccess | undefined, opts: { external: boolean; openTask: boolean; anyScope?: boolean }): 'INTERNAL' | 'EXTERNAL' {
   const assignScope = scopeOf('activity.assign');
-  if (!inScope(actor, assignScope, owner)) throw activityErrors.forbidden('Không có quyền giao việc cho người khác trên khách hàng này.');
+  const holds = (s: Scope | null): boolean => (opts.anyScope === true ? s !== null : inScope(actor, s, owner));
+  if (!holds(assignScope)) throw activityErrors.forbidden('Không có quyền giao việc cho người khác trên khách hàng này.');
   if (!a || !a.active) throw activityErrors.assigneeInvalid();
   const reads = readsCustomer(a, owner);
   if (!opts.external || reads) {
@@ -104,7 +107,7 @@ export function planAssignment(actor: Actor, scopeOf: ScopeOf, owner: OwnerInfo,
     if (!reads) throw activityErrors.assigneeNoAccess();
     return 'INTERNAL';
   }
-  if (!inScope(actor, scopeOf('activity.assign_external'), owner)) throw activityErrors.forbidden('Không có quyền giao việc cho người ngoài phạm vi khách hàng.');
+  if (!holds(scopeOf('activity.assign_external'))) throw activityErrors.forbidden('Không có quyền giao việc cho người ngoài phạm vi khách hàng.');
   if (!opts.openTask) throw activityErrors.externalNotAllowed();
   if (!a.scopes['activity.update_own']) throw activityErrors.externalAssigneeForbidden();
   return 'EXTERNAL';

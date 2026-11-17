@@ -11,9 +11,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OPPORTUNITY_AUTO_TASKS, OpportunityAutoTasks } from '../activities/activities.opportunity-tasks';
 import { OPPORTUNITY_STAGE } from '../lookups/sales.catalog';
 import {
-  accessPath, allowsCreate, assertAssignee, assertMayLoadDeleted, assertRestorable, assertWrite, hasAssignedReadCode, OppRef, OppWriteCode, readsFull, ScopeOf,
+  allowsCreate, assertAssignee, assertMayLoadDeleted, assertRestorable, assertWrite, hasAssignedReadCode, OppRef, OppWriteCode, readsFull, ScopeOf,
 } from './opportunities.access';
 import { OPP_EMPLOYEE_ACCESS, OppEmployeeAccessReader } from './opportunities.employee-access';
+import { resolvePath } from './opportunities.task-path';
 import { opportunityErrors } from './opportunities.errors';
 import { defaultProbability, FieldError, isConstructionType, ruleViolations } from './opportunities.rules';
 import { OpportunitiesService } from './opportunities.service';
@@ -115,7 +116,8 @@ export class OpportunityWritesService {
     const row = locked.length ? ((await tx.opportunity.findFirst({ where: { id }, select: W_SELECT })) as WRow | null) : null;
     if (!row) throw opportunityErrors.notFound();
     const ref = refOf(row);
-    assertWrite(actor, scopeOf, code, ref, accessPath(readsFull(actor, scopeOf, ref), false /* đường theo việc: S9 — không có quyền ghi */));
+    // Đường theo việc (S9a) chỉ quyết định 404 hay 403: thấy được qua việc nhưng không có mã ghi => 403; nó không bao giờ cho quyền ghi.
+    assertWrite(actor, scopeOf, code, ref, await resolvePath(tx, actor, scopeOf, id, ref));
     return row;
   }
 

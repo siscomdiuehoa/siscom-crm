@@ -13,6 +13,7 @@ import {
 } from './activities.access';
 import { EMPLOYEE_ACCESS, EmployeeAccessReader } from './activities.employee-access';
 import { activityErrors } from './activities.errors';
+import { assertOpportunityLink } from './activities.opportunity-link';
 import { readsOwnReminder, reminderReadWhere } from './activities.opportunity-tasks';
 import { ACTIVITY_TASK_SELECT, ActivityTaskRow, toActivity } from './activities.mapper';
 import { vnDayRange } from './activities.time';
@@ -289,7 +290,7 @@ export class ActivityTasksService {
     const { actor } = ctx;
     const s = this.scopeOf(actor);
     if (!s('activity.update') && !s('activity.update_own')) throw activityErrors.forbidden();
-    const touched = (['title', 'content', 'outcome', 'occurredAt', 'dueAt', 'remindAt', 'contactId', 'performedById', 'status', 'external'] as const).filter((k) => dto[k] !== undefined);
+    const touched = (['title', 'content', 'outcome', 'occurredAt', 'dueAt', 'remindAt', 'contactId', 'opportunityId', 'performedById', 'status', 'external'] as const).filter((k) => dto[k] !== undefined);
     if (!touched.length) throw activityErrors.validation(['Không có trường nào để cập nhật.']);
     return this.write(ctx, id, async (tx, row, vis, w) => {
       // PR244-R1-01: ngoại lệ việc nhắc không phải quyền cập nhật — kết quả chỉ ghi khi hoàn thành (/complete).
@@ -338,6 +339,15 @@ export class ActivityTasksService {
         const v = dto.contactId ? dto.contactId.toLowerCase() : null;
         if (v && !(await tx.contact.findFirst({ where: { id: v, customerId: row.customerId, deletedAt: null }, select: { id: true } }))) throw activityErrors.contactMismatch();
         if (v !== row.contactId) { data.contactId = v; changes.contactId = [row.contactId, v]; }
+      }
+      // Sales S9a §5.5(c): gắn / đổi / bỏ cơ hội — kiểm TỪNG cơ hội liên quan (cũ và mới). Việc tự sinh của cơ hội không đổi được (từ chối TRƯỚC khi khoá cơ hội).
+      if (dto.opportunityId !== undefined) {
+        const v = dto.opportunityId ? dto.opportunityId.toLowerCase() : null;
+        if (v !== row.opportunityId) {
+          if (row.opportunityAutoKind) throw activityErrors.autoTaskLinkFixed();
+          for (const oid of [row.opportunityId, v]) if (oid) await assertOpportunityLink(tx, actor, s, oid, row.customerId);
+          data.opportunityId = v; changes.opportunityId = [row.opportunityId, v];
+        }
       }
       // Đổi người phụ trách qua PATCH => cần activity.assign (+ assign_external khi external=true và người nhận ngoài phạm vi).
       const to = dto.performedById ? dto.performedById.toLowerCase() : null;

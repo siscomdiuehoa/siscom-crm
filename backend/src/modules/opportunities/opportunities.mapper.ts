@@ -1,7 +1,7 @@
 import type { OppRef } from './opportunities.access';
 
 // Sales S6 — trường trả về của cơ hội cho ĐƯỜNG ĐỌC ĐẦY ĐỦ (docs/SALES_DESIGN.md §5.4 "đường truy cập quyết định trường được trả").
-// Bản kỹ thuật cho đường theo việc (không giá trị / xác suất / lịch sử / lý do thua / won_doc_*) thuộc S9 — mapper RIÊNG, không dùng lại select này.
+// Bản kỹ thuật cho đường theo việc (S9a): hai hàm toOpportunityTech* ở cuối file — chỉ CHỌN RA các trường kỹ thuật, không bao giờ sao chép cả dòng.
 const LOOKUP = { select: { id: true, code: true, labelVi: true } } as const;
 const EMP = { select: { id: true, code: true, fullName: true } } as const;
 // Phần khách mà vị từ quyền cần (chủ, phòng chủ, đã xoá) + nhận diện.
@@ -50,7 +50,7 @@ const shownProbability = (status: string, stored: number): number => (status ===
 // ownerLostAccess: undefined = người gọi không được biết (không có opportunity.assign) => KHÔNG có khoá này trong phản hồi.
 export function toOpportunityListItem(r: OppListRow, ownerLostAccess: boolean | undefined) {
   return {
-    id: r.id, code: r.code, title: r.title, status: r.status,
+    id: r.id, code: r.code, title: r.title, status: r.status, access: 'FULL' as const,
     type: lookup(r.type), stage: lookup(r.stage),
     customer: { id: r.customer.id, code: r.customer.code, name: r.customer.name },
     owner: emp(r.owner),
@@ -89,4 +89,23 @@ export function toOpportunityDetail(r: OppDetailRow, extra: { customer: Customer
     version: r.version, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString(),
     ...(extra.ownerLostAccess === undefined ? {} : { ownerLostAccess: extra.ownerLostAccess }),
   };
+}
+
+// ───── Bản KỸ THUẬT — đường đọc theo việc (§5.1 [C7], §5.4 "đường truy cập quyết định trường được trả") ─────
+// Chỉ: tiêu đề, loại, giai đoạn, trạng thái, tên dự án / công trình, phạm vi chào, nhu cầu, ngày dự kiến, khách (mã + tên), người phụ trách.
+// KHÔNG BAO GIỜ: giá trị dự kiến / chốt, xác suất, hold_*, won_*, lost_*, closed_at, cờ ownerLostAccess, người liên hệ, thẻ khách (địa chỉ, điện
+// thoại — lấy qua /activities/:id/work-card của B3). Liệt kê tường minh từng trường: thêm cột mới vào select không tự lọt ra ngoài.
+export function toOpportunityTechListItem(r: OppListRow) {
+  return {
+    id: r.id, code: r.code, title: r.title, status: r.status, access: 'TASK' as const,
+    type: lookup(r.type), stage: lookup(r.stage),
+    customer: { id: r.customer.id, code: r.customer.code, name: r.customer.name },
+    owner: emp(r.owner),
+    isProjectLinked: r.isProjectLinked, projectName: r.projectName,
+    expectedCloseDate: ymd(r.expectedCloseDate),
+    version: r.version, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString(),
+  };
+}
+export function toOpportunityTechDetail(r: OppDetailRow) {
+  return { ...toOpportunityTechListItem(r), needSummary: r.needSummary, offerScope: r.offerScope };
 }

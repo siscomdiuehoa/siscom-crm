@@ -41,6 +41,11 @@ export class CreateActivityDto {
   @IsOptional() @IsBoolean()
   external?: boolean;
 
+  // Sales S9a (§5.5(c)): gắn hoạt động vào một cơ hội CỦA CÙNG KHÁCH. Người gọi phải thấy cơ hội (không thấy => 404) VÀ đạt opportunity.update
+  // trên cơ hội đó (không đạt => 403) — cùng khách là chưa đủ.
+  @IsOptional() @IsUUID()
+  opportunityId?: string;
+
   // Bắt buộc với TASK (kiểm ở service + CHECK ck_activity_task_due).
   @IsOptional() @IsISO8601({ strict: true }) @Matches(TZ_RE, { message: TZ_MESSAGE })
   dueAt?: string;
