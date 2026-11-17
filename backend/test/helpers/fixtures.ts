@@ -1,4 +1,5 @@
 import type { PrismaService } from '../../src/prisma/prisma.service';
+import { SALES_LOOKUP_CATALOG } from '../../src/modules/lookups/sales.catalog';
 import { createAdminTestPrisma } from './test-db';
 
 export interface Fixtures {
@@ -35,14 +36,12 @@ export async function ensureFixtures(prisma: PrismaService): Promise<Fixtures> {
     ['opportunity_type', 'T_SUPPLY', 'Cung cấp (thử)', 10, true], ['opportunity_type', 'T_INSTALL', 'Thi công (thử)', 20, true],
     ['opportunity_stage', 'T_APPROACH', 'Tiếp cận (thử)', 10, true], ['opportunity_stage', 'T_QUOTE', 'Báo giá (thử)', 30, true],
     ['opportunity_lost_reason', 'T_PRICE', 'Giá (thử)', 10, true],
-    // Sales S7: MÃ THẬT của danh mục S4 (service ghi kiểm luật theo mã). Nếu lệnh seed S4 đã nạp thì skipDuplicates giữ nguyên dòng có sẵn.
-    ['opportunity_stage', 'PROSPECTING', 'Tiếp cận', 10, true], ['opportunity_stage', 'SURVEY', 'Khảo sát', 20, true],
-    ['opportunity_stage', 'QUOTATION', 'Báo giá', 30, true], ['opportunity_stage', 'NEGOTIATION', 'Đàm phán', 40, true],
-    ['opportunity_type', 'SUPPLY', 'Cung cấp thiết bị, vật tư', 10, true], ['opportunity_type', 'INSTALLATION', 'Thi công', 20, true],
-    ['opportunity_type', 'SUPPLY_INSTALLATION', 'Cung cấp và thi công', 30, true],
   ] as const;
   const { d1, d2, empA, empB, empC } = await withAdmin(async (admin) => {
     await admin.lookupItem.createMany({ data: items.map(([type, code, labelVi, sortOrder, isActive]) => ({ type, code, labelVi, sortOrder, isActive })), skipDuplicates: true });
+    // Sales S7: service ghi kiểm luật theo MÃ THẬT của danh mục S4 => nạp ĐÚNG catalog của S4 (cùng nhãn, thứ tự, is_system như lệnh seed thật);
+    // lệnh seed thật hoặc bộ test S4 chạy trước/sau đều không tạo trùng (skipDuplicates / ON CONFLICT DO NOTHING).
+    await admin.lookupItem.createMany({ data: SALES_LOOKUP_CATALOG.map((x) => ({ type: x.type, code: x.code, labelVi: x.labelVi, sortOrder: x.sortOrder, isSystem: x.isSystem ?? false })), skipDuplicates: true });
     const dept = async (code: string, name: string) => (await admin.department.upsert({ where: { code }, create: { code, name }, update: {}, select: { id: true } })).id;
     const d1 = await dept('T_D1', 'Phòng thử 1');
     const d2 = await dept('T_D2', 'Phòng thử 2');
@@ -52,7 +51,7 @@ export async function ensureFixtures(prisma: PrismaService): Promise<Fixtures> {
     };
     return { d1, d2, empA: await emp('TEST NV A', d1), empB: await emp('TEST NV B', d1), empC: await emp('TEST NV C', d2) };
   });
-  const rows = await prisma.lookupItem.findMany({ where: { OR: items.map(([type, code]) => ({ type, code })) }, select: { id: true, type: true, code: true } });
+  const rows = await prisma.lookupItem.findMany({ where: { OR: [...items.map(([type, code]) => ({ type, code })), ...SALES_LOOKUP_CATALOG.map((x) => ({ type: x.type, code: x.code }))] }, select: { id: true, type: true, code: true } });
   const pick = (t: string): Record<string, string> => Object.fromEntries(rows.filter((r) => r.type === t).map((r) => [r.code, r.id]));
   return { d1, d2, empA, empB, empC, tier: pick('customer_tier'), status: pick('customer_status'), industry: pick('industry'),
     oppType: pick('opportunity_type'), oppStage: pick('opportunity_stage'), oppLostReason: pick('opportunity_lost_reason') };
