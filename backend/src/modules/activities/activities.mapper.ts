@@ -20,10 +20,13 @@ const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 // B3 A6: dòng hoạt động kèm thông tin khách tối thiểu cho kiểm quyền (chủ, phòng chủ, đã xoá) + trường xoá mềm.
 export const ACTIVITY_TASK_SELECT = {
   ...ACTIVITY_SELECT, deletedAt: true,
+  // Sales S8b: việc tự sinh của cơ hội + phần cơ hội mà ngoại lệ đọc việc nhắc (§5.5(e)) cần.
+  opportunityAutoKind: true, opportunity: { select: { ownerId: true, deletedAt: true } },
   customer: { select: { id: true, code: true, name: true, deletedAt: true, ownerId: true, owner: { select: { departmentId: true } } } },
 } as const;
 export interface ActivityTaskRow extends ActivityRow {
   deletedAt: Date | null;
+  opportunityAutoKind: string | null; opportunity: { ownerId: string; deletedAt: Date | null } | null;
   customer: { id: string; code: string; name: string; deletedAt: Date | null; ownerId: string | null; owner: { departmentId: string | null } | null };
 }
 

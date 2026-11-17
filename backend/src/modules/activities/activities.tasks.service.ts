@@ -13,6 +13,7 @@ import {
 } from './activities.access';
 import { EMPLOYEE_ACCESS, EmployeeAccessReader } from './activities.employee-access';
 import { activityErrors } from './activities.errors';
+import { readsOwnReminder, reminderReadWhere } from './activities.opportunity-tasks';
 import { ACTIVITY_TASK_SELECT, ActivityTaskRow, toActivity } from './activities.mapper';
 import { vnDayRange } from './activities.time';
 import type { AssignActivityDto, CompleteActivityDto, DeleteActivityDto, QueryTasksDto, RevokeAccessDto, UpdateActivityDto, VersionDto } from './dto/task-actions.dto';
@@ -69,6 +70,8 @@ export class ActivityTasksService {
       return { mode: 'SCOPE', owner };
     }
     if (row.customer.deletedAt) return null;
+    // Sales S8b §5.5(e): việc nhắc tạm hoãn của CHÍNH người phụ trách cơ hội (có thể không đọc được khách) — ngoại lệ duy nhất, quyền như đường theo việc.
+    if (readsOwnReminder(actor, s, row)) return { mode: 'TASK', owner };
     const acc = await activeTaskAccess(db, actor, s, row.id);
     return acc ? { mode: 'TASK', owner, accessExpiresAt: acc.expiresAt } : null;
   }
@@ -111,6 +114,8 @@ export class ActivityTasksService {
     const vis: Prisma.ActivityWhereInput[] = [scopeReadWhere(actor, s)];
     const ta = taskAccessWhere(actor, s, now);
     if (ta) vis.push(ta);
+    const rr = reminderReadWhere(actor, s); // Sales S8b §5.5(e): việc nhắc tạm hoãn của chính mình
+    if (rr) vis.push(rr);
     const filters: Prisma.ActivityWhereInput = {};
     if (q.assignee) filters.performedById = q.assignee === 'me' ? actor.employeeId : q.assignee.toLowerCase();
     if (q.type) filters.type = q.type;
@@ -159,6 +164,8 @@ export class ActivityTasksService {
     const vis: Prisma.ActivityWhereInput[] = [scopeReadWhere(actor, s)];
     const ta = taskAccessWhere(actor, s, now);
     if (ta) vis.push(ta);
+    const rr = reminderReadWhere(actor, s); // Sales S8b §5.5(e): việc nhắc tạm hoãn của chính mình
+    if (rr) vis.push(rr);
     const base: Prisma.ActivityWhereInput = { type: 'TASK', status: 'OPEN', performedById: actor.employeeId, deletedAt: null, customer: { is: { deletedAt: null } }, OR: vis };
     const tomorrow = vnDayRange(now).end;
     const [overdue, today, upcoming7d] = await Promise.all([
