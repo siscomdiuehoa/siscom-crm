@@ -26,7 +26,7 @@ async function main(): Promise<void> {
     if (db !== dbName) throw new Error('Dang noi vao "' + db + '" thay vi "' + dbName + '". Dung lai.');
     const r = await seedLookupCatalog(prisma, LOOKUP_CATALOG);
     console.log('Seed danh muc tren ' + dbName + ': tong ' + r.total + ', chen moi ' + r.inserted + ', da co ' + r.existing + '.');
-    for (const [t, v] of Object.entries(r.byType)) console.log('  ' + t.padEnd(16) + ' ' + v.present + '/' + v.total);
+    for (const [t, v] of Object.entries(r.byType)) console.log('  ' + t.padEnd(24) + ' ' + v.present + '/' + v.total);
     if (r.inactive.length) console.log('  CANH BAO: dang is_active=false (giu nguyen): ' + r.inactive.join(', '));
     if (r.missing.length) throw new Error('Sau seed van thieu: ' + r.missing.join(', '));
     if (!r.defaultsOk) throw new Error('tier/status mac dinh (customers.defaults.ts) khong ton tai hoac khong hoat dong => POST /customers se LOOKUP_INVALID.');
