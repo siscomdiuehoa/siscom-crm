@@ -164,6 +164,14 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh unsplit
+          # Sales S8b (20261119000000_sales_activity_auto_kind) moi nhat => rollback DAU chuoi, truoc Sales S5
+          # Sales S8b: rollback cot viec tu sinh PHAI TU CHOI khi con viec tu sinh (ke ca da xoa mem) - RED mong doi; kem kiem cau truc CHECK + chi muc unique; transaction ngoai huy => khong de lai du lieu thu
+          out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST.sql.txt run app 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST)'; exit 1; } || true
+          echo "$out" | grep -E 'TU CHOI: con 3 dong activity la viec tu sinh' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST)'; exit 1; }
+          if echo "$out" | grep -q 'CAU TRUC KHONG DAT'; then echo "$out" | grep 'CAU TRUC'; echo 'KHONG DAT: cau truc viec tu sinh (SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST)'; exit 1; fi
+          [ "$(echo "$out" | grep -c 'CAU TRUC ok')" = 5 ] || { echo "$out" | grep 'CAU TRUC'; echo 'KHONG DAT: thieu dong kiem cau truc viec tu sinh'; exit 1; }
+          echo 'DAT (RED mong doi): SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST.sql.txt - 5 kiem cau truc ok, rollback tu choi khi con viec tu sinh'
+          bash scripts/ci/pg-sql-check.sh docs/SALES_S8_AUTO_KIND_ROLLBACK.sql.txt run app
           # Sales S5 (20261118000000_sales_perm_class) moi nhat => rollback DAU chuoi (tra fn_auth_perm_class ve ban M1), truoc Sales S2
           # Sales S5: rollback phan loai quyen PHAI TU CHOI khi permission con ma opportunity.* (RED mong doi; transaction ngoai huy => khong de lai ma thu, ham khong doi)
           out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S5_PERM_CLASS_ROLLBACK_REFUSE_TEST.sql.txt run app 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S5_PERM_CLASS_ROLLBACK_REFUSE_TEST)'; exit 1; } || true
@@ -215,6 +223,14 @@ jobs:
       - name: B1.4 Remember Me - rollback (migrator) => V3 => VERIFY PASS; migrate deploy (migrator) => VERIFY FAIL B1f (quyen mac dinh) => V3 => PASS app + auth + cau truc
         run: |
           set -euo pipefail
+          # Sales S8b: moi nhat => rollback TRUOC Sales S5 (bang chu so huu sau tach role)
+          # Sales S8b: rollback cot viec tu sinh PHAI TU CHOI khi con viec tu sinh (ke ca da xoa mem) - RED mong doi; kem kiem cau truc CHECK + chi muc unique; transaction ngoai huy => khong de lai du lieu thu
+          out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST)'; exit 1; } || true
+          echo "$out" | grep -E 'TU CHOI: con 3 dong activity la viec tu sinh' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST)'; exit 1; }
+          if echo "$out" | grep -q 'CAU TRUC KHONG DAT'; then echo "$out" | grep 'CAU TRUC'; echo 'KHONG DAT: cau truc viec tu sinh (SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST)'; exit 1; fi
+          [ "$(echo "$out" | grep -c 'CAU TRUC ok')" = 5 ] || { echo "$out" | grep 'CAU TRUC'; echo 'KHONG DAT: thieu dong kiem cau truc viec tu sinh'; exit 1; }
+          echo 'DAT (RED mong doi): SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST.sql.txt - 5 kiem cau truc ok, rollback tu choi khi con viec tu sinh'
+          bash scripts/ci/pg-sql-check.sh docs/SALES_S8_AUTO_KIND_ROLLBACK.sql.txt run migrator
           # Sales S5: moi nhat => rollback TRUOC Sales S2. Bai tu choi con chung minh chuoi truoc da ap lai migration (tien dieu kien: opportunity.* dang la BIZ)
           # Sales S5: rollback phan loai quyen PHAI TU CHOI khi permission con ma opportunity.* (RED mong doi; transaction ngoai huy => khong de lai ma thu, ham khong doi)
           out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S5_PERM_CLASS_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S5_PERM_CLASS_ROLLBACK_REFUSE_TEST)'; exit 1; } || true
@@ -274,6 +290,13 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_PHONE_OPTIONAL_STRUCTURE_TESTS.sql.txt res migrator
           # Sales S2: sau ca tu choi, cau truc va du lieu con nguyen
           bash scripts/ci/pg-sql-check.sh docs/SALES_S2_STRUCTURE_TESTS.sql.txt res migrator
+          # Sales S8b: sau khi ap lai (migrator), cot + CHECK + chi muc viec tu sinh co lai va rollback van tu choi khi con viec tu sinh
+          # Sales S8b: rollback cot viec tu sinh PHAI TU CHOI khi con viec tu sinh (ke ca da xoa mem) - RED mong doi; kem kiem cau truc CHECK + chi muc unique; transaction ngoai huy => khong de lai du lieu thu
+          out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST)'; exit 1; } || true
+          echo "$out" | grep -E 'TU CHOI: con 3 dong activity la viec tu sinh' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST)'; exit 1; }
+          if echo "$out" | grep -q 'CAU TRUC KHONG DAT'; then echo "$out" | grep 'CAU TRUC'; echo 'KHONG DAT: cau truc viec tu sinh (SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST)'; exit 1; fi
+          [ "$(echo "$out" | grep -c 'CAU TRUC ok')" = 5 ] || { echo "$out" | grep 'CAU TRUC'; echo 'KHONG DAT: thieu dong kiem cau truc viec tu sinh'; exit 1; }
+          echo 'DAT (RED mong doi): SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST.sql.txt - 5 kiem cau truc ok, rollback tu choi khi con viec tu sinh'
           # Sales S5: sau khi ap lai (migrator), opportunity.* lai thuoc nhom BIZ (tien dieu kien cua bai) va rollback van tu choi khi con ma
           # Sales S5: rollback phan loai quyen PHAI TU CHOI khi permission con ma opportunity.* (RED mong doi; transaction ngoai huy => khong de lai ma thu, ham khong doi)
           out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S5_PERM_CLASS_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S5_PERM_CLASS_ROLLBACK_REFUSE_TEST)'; exit 1; } || true

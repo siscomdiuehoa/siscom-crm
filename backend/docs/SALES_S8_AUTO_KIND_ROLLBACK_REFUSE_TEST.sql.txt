@@ -1,0 +1,59 @@
+-- SISCOM CRM - Sales S8b: BAI TAI HIEN (RED mong doi) - SALES_S8_AUTO_KIND_ROLLBACK PHAI TU CHOI khi con viec tu sinh cua co hoi (ke ca da xoa mem),
+--   kem kiem cau truc: CHECK chan gia tri la / viec khong phai TASK / thieu co hoi; chi muc unique chan viec tu sinh thu hai dang mo cung loai.
+-- CHI CHAY TREN DB TAM CUA CI (siscom_crm_test_*), bang chu so huu bang. Mo transaction ngoai, chen du lieu thu roi goi rollback (\ir):
+--   rollback RAISE "TU CHOI: con 1 dong activity la viec tu sinh ..." => psql thoat khac 0, transaction ngoai bi huy: KHONG con du lieu thu va KHONG co
+--   gi bi rollback. CI kiem thong bao TU CHOI va cac dong "CAU TRUC ok" (mau SALES_S2_ROLLBACK_REFUSE_TEST).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_test_[0-9]{8}_[0-9]{6}$' THEN RAISE EXCEPTION 'TU CHOI CHAY BAI THU: % khong phai DB tam CI.', current_database(); END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261119000000_sales_activity_auto_kind') THEN
+    RAISE EXCEPTION 'Chua ap migration 20261119000000_sales_activity_auto_kind.';
+  END IF;
+END $$;
+BEGIN;
+INSERT INTO lookup_item (id, type, code, label_vi) VALUES
+ ('58b00000-0000-4000-8000-000000000011', 'customer_tier',     'ZZ_S8_RF_TIER',   'S8 RF hang thu'),
+ ('58b00000-0000-4000-8000-000000000012', 'customer_status',   'ZZ_S8_RF_STATUS', 'S8 RF trang thai thu'),
+ ('58b00000-0000-4000-8000-000000000013', 'opportunity_type',  'ZZ_S8_RF_TYPE',   'S8 RF loai thu'),
+ ('58b00000-0000-4000-8000-000000000014', 'opportunity_stage', 'ZZ_S8_RF_STAGE',  'S8 RF giai doan thu');
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES ('58b00000-0000-4000-8000-000000000021', 'S8 RF NV', 's8.rf@example.invalid', 'ACTIVE', true);
+INSERT INTO customer (id, name, phone, tier_id, status_id, is_demo) VALUES ('58b00000-0000-4000-8000-000000000031', 'S8 RF Khach', '0905100008', '58b00000-0000-4000-8000-000000000011', '58b00000-0000-4000-8000-000000000012', true);
+INSERT INTO opportunity (id, customer_id, title, type_id, stage_id, owner_id, is_demo)
+ VALUES ('58b00000-0000-4000-8000-000000000041', '58b00000-0000-4000-8000-000000000031', 'S8 RF co hoi', '58b00000-0000-4000-8000-000000000013', '58b00000-0000-4000-8000-000000000014', '58b00000-0000-4000-8000-000000000021', true);
+-- Viec nhac dang mo (hop le)
+INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, performed_by, opportunity_id, opportunity_auto_kind, is_demo)
+ VALUES ('58b00000-0000-4000-8000-000000000031', 'TASK', now(), 'S8 RF viec nhac', 'OPEN', now() + interval '1 day', '58b00000-0000-4000-8000-000000000021', '58b00000-0000-4000-8000-000000000041', 'HOLD_REMINDER', true);
+
+-- Kiem cau truc: moi cau lenh sai phai bi DB chan dung ma loi; ket qua in "CAU TRUC ok|..." hoac "CAU TRUC KHONG DAT|...".
+CREATE FUNCTION pg_temp.must_fail(p_label text, p_state text, p_sql text) RETURNS text LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE p_sql;
+  RETURN 'CAU TRUC KHONG DAT|' || p_label || ' (khong bi chan)';
+EXCEPTION WHEN OTHERS THEN
+  RETURN CASE WHEN SQLSTATE = p_state THEN 'CAU TRUC ok|' ELSE 'CAU TRUC KHONG DAT|' END || p_label || ' [' || SQLSTATE || ']';
+END $$;
+SELECT pg_temp.must_fail('viec nhac THU HAI dang mo cung co hoi bi chi muc unique chan', '23505', $q$
+  INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, performed_by, opportunity_id, opportunity_auto_kind, is_demo)
+  VALUES ('58b00000-0000-4000-8000-000000000031', 'TASK', now(), 'S8 RF viec nhac 2', 'OPEN', now() + interval '2 day', '58b00000-0000-4000-8000-000000000021', '58b00000-0000-4000-8000-000000000041', 'HOLD_REMINDER', true) $q$);
+SELECT pg_temp.must_fail('gia tri la bi CHECK chan', '23514', $q$
+  INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, performed_by, opportunity_id, opportunity_auto_kind, is_demo)
+  VALUES ('58b00000-0000-4000-8000-000000000031', 'TASK', now(), 'S8 RF la', 'OPEN', now() + interval '2 day', '58b00000-0000-4000-8000-000000000021', '58b00000-0000-4000-8000-000000000041', 'KHAC', true) $q$);
+SELECT pg_temp.must_fail('viec tu sinh thieu co hoi bi CHECK chan', '23514', $q$
+  INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, performed_by, opportunity_auto_kind, is_demo)
+  VALUES ('58b00000-0000-4000-8000-000000000031', 'TASK', now(), 'S8 RF thieu co hoi', 'OPEN', now() + interval '2 day', '58b00000-0000-4000-8000-000000000021', 'WIN_HANDOVER', true) $q$);
+SELECT pg_temp.must_fail('viec tu sinh khong phai TASK bi CHECK chan', '23514', $q$
+  INSERT INTO activity (customer_id, type, occurred_at, content, opportunity_id, opportunity_auto_kind, is_demo)
+  VALUES ('58b00000-0000-4000-8000-000000000031', 'NOTE', now(), 'S8 RF khong phai task', '58b00000-0000-4000-8000-000000000041', 'HOLD_REMINDER', true) $q$);
+-- Duoc phep: mot viec BAN GIAO dang mo canh viec nhac; viec nhac da xoa mem khong chiem cho trong chi muc
+INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, performed_by, opportunity_id, opportunity_auto_kind, is_demo)
+ VALUES ('58b00000-0000-4000-8000-000000000031', 'TASK', now(), 'S8 RF ban giao', 'OPEN', now() + interval '3 day', '58b00000-0000-4000-8000-000000000021', '58b00000-0000-4000-8000-000000000041', 'WIN_HANDOVER', true);
+UPDATE activity SET deleted_at = now(), deleted_by = '58b00000-0000-4000-8000-000000000021' WHERE opportunity_id = '58b00000-0000-4000-8000-000000000041' AND opportunity_auto_kind = 'HOLD_REMINDER';
+INSERT INTO activity (customer_id, type, occurred_at, content, status, due_at, performed_by, opportunity_id, opportunity_auto_kind, is_demo)
+ VALUES ('58b00000-0000-4000-8000-000000000031', 'TASK', now(), 'S8 RF viec nhac moi sau khi viec cu bi xoa mem', 'OPEN', now() + interval '4 day', '58b00000-0000-4000-8000-000000000021', '58b00000-0000-4000-8000-000000000041', 'HOLD_REMINDER', true);
+SELECT 'CAU TRUC ok|cho phep 1 viec ban giao + 1 viec nhac moi sau khi viec nhac cu bi xoa mem (' || count(*) || ' viec tu sinh)' FROM activity WHERE opportunity_id = '58b00000-0000-4000-8000-000000000041' AND opportunity_auto_kind IS NOT NULL;
+
+-- Rollback PHAI tu choi: con 3 viec tu sinh (1 da xoa mem)
+\ir SALES_S8_AUTO_KIND_ROLLBACK.sql.txt
+SELECT 'KHONG DAT: rollback KHONG tu choi khi con viec tu sinh' AS loi;

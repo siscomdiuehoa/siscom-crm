@@ -422,6 +422,8 @@ model Activity {
   version       Int            @default(1)
   // Sales S2 (cong them; trigger cung khach nam trong SQL migration)
   opportunityId String?        @map("opportunity_id") @db.Uuid
+  // Sales S8b (cong them; CHECK + chi muc unique rieng phan nam trong SQL migration): viec tu sinh HOLD_REMINDER | WIN_HANDOVER, NULL = viec thuong
+  opportunityAutoKind String?  @map("opportunity_auto_kind") @db.VarChar(20)
 
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   createdById String?   @map("created_by") @db.Uuid
