@@ -53,6 +53,11 @@ BEGIN
      AND NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261117000000_sales_opportunity') THEN
     RAISE EXCEPTION 'Chua ap migration Sales S2 (khong co bang opportunity / cot activity.opportunity_id / dong _prisma_migrations). Khong co gi de rollback.';
   END IF;
+  -- Sales S9b: bang opportunity_document tro toi opportunity => phai go S9b TRUOC (thu tu lui, docs/SALES_DESIGN.md §9). Tu choi ro rang thay vi de
+  --   DROP TABLE loi phu thuoc.
+  IF to_regclass('public.opportunity_document') IS NOT NULL THEN
+    RAISE EXCEPTION 'TU CHOI: con bang opportunity_document (Sales S9b) - chay SALES_S9_DOCUMENT_ROLLBACK.sql.txt truoc.';
+  END IF;
   IF to_regclass('public.opportunity') IS NOT NULL THEN
     EXECUTE 'SELECT count(*) FROM public.opportunity' INTO n;
     IF n > 0 THEN
