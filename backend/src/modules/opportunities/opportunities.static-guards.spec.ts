@@ -19,11 +19,11 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     const body = c.slice(start, next === -1 ? undefined : next);
     return [...body.matchAll(/@(Get|Post|Patch|Put|Delete)\(([^)]*)\)/g)].map((m) => m[1] + '(' + m[2] + ')');
   };
-  it('đúng tập route S6 + S7 + S8a + S8b + S9a + S9b', () => {
+  it('đúng tập route S6 + S7 + S8a + S8b + S9a + S9b + S10a', () => {
     expect(c).toMatch(/@Controller\('customers\/:customerId\/opportunities'\)/);
     expect(c).toMatch(/@Controller\('opportunities'\)/);
     expect(routes('CustomerOpportunitiesController')).toEqual(['Get()']);
-    expect(routes('OpportunitiesController')).toEqual(['Get()', 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Post(':id/hold')", "Post(':id/resume')", "Post(':id/win')", "Post(':id/lose')", "Post(':id/reopen')", "Get(':id/activities')", "Post(':id/activities')", "Get(':id/documents')", "Post(':id/documents')", "Delete(':id/documents/:docId')", "Delete(':id')"]);
+    expect(routes('OpportunitiesController')).toEqual(['Get()', "Get('meta')", 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Post(':id/hold')", "Post(':id/resume')", "Post(':id/win')", "Post(':id/lose')", "Post(':id/reopen')", "Get(':id/owner-candidates')", "Get(':id/handover-candidates')", "Get(':id/activities')", "Post(':id/activities')", "Get(':id/documents')", "Post(':id/documents')", "Delete(':id/documents/:docId')", "Delete(':id')"]);
     expect(c).not.toMatch(/@Put\(/);
   });
   it('mọi controller đều sau ActorGuard', () => {
@@ -153,6 +153,47 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect(changes.length).toBe(2);
     for (const ch of changes) expect(ch).not.toMatch(/dto\.fileName|dto\.url|dto\.reason|: reason\b/);
   });
+  it('S10a — lựa chọn cho giao diện: chỉ đọc, một snapshot; ứng viên lọc bằng CHÍNH điều kiện của thao tác ghi và kiểm đúng mã trên đúng cơ hội', () => {
+    const ch = text('opportunities.choices.service.ts');
+    // Đường tĩnh 'meta' đứng TRƯỚC ':id' (nếu không ParseUUIDPipe của ':id' nuốt mất).
+    expect(c.indexOf("@Get('meta')")).toBeGreaterThan(-1);
+    expect(c.indexOf("@Get('meta')")).toBeLessThan(c.indexOf("@Get(':id')"));
+    // Chỉ đọc: không ghi bảng nào, không SQL thô, không truy vấn nào đi thẳng qua this.prisma (chỉ $transaction của snapshot()).
+    expect(ch).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(/);
+    expect(ch).not.toMatch(/\$queryRaw|\$executeRaw/);
+    expect((ch.match(/this\.prisma\./g) ?? []).length).toBe(1);
+    expect(ch).toMatch(/this\.prisma\.\$transaction\(fn, \{ isolationLevel: Prisma\.TransactionIsolationLevel\.RepeatableRead/);
+    for (const fn of ['async meta(', 'async ownerCandidates(', 'async handoverCandidates(']) {
+      const i = ch.indexOf(fn);
+      expect(i).toBeGreaterThan(-1);
+      expect(ch.slice(i, ch.indexOf('\n  }\n', i))).toMatch(/return this\.snapshot\(/);
+    }
+    // meta: kiểm mã đọc TRƯỚC khi truy vấn.
+    const meta = ch.slice(ch.indexOf('async meta('), ch.indexOf('async ownerCandidates('));
+    expect(meta.indexOf("scopeOf('opportunity.read') === null")).toBeGreaterThan(-1);
+    expect(meta.indexOf("scopeOf('opportunity.read') === null")).toBeLessThan(meta.indexOf('this.snapshot('));
+    // Ứng viên: kiểm ĐÚNG mã của thao tác trên ĐÚNG cơ hội trước khi đọc bảng nhân viên; lọc bằng chính vị từ của đường ghi.
+    const oc = ch.slice(ch.indexOf('async ownerCandidates('), ch.indexOf('async handoverCandidates('));
+    expect(oc.indexOf("this.writes.peekForWrite(tx, actor, scopeOf, id, 'opportunity.assign')")).toBeGreaterThan(-1);
+    expect(oc.indexOf("this.writes.peekForWrite(tx, actor, scopeOf, id, 'opportunity.assign')")).toBeLessThan(oc.indexOf('tx.employee.findMany('));
+    expect(oc).toContain('assigneeRefusal(scopeOf, owner, acc.get(r.id), can.get(r.id) === true) === null');
+    const hc = ch.slice(ch.indexOf('async handoverCandidates('));
+    expect(hc.indexOf("this.writes.peekForWrite(tx, actor, scopeOf, id, 'opportunity.close')")).toBeGreaterThan(-1);
+    expect(hc.indexOf("this.writes.peekForWrite(tx, actor, scopeOf, id, 'opportunity.close')")).toBeLessThan(hc.indexOf('this.tasks.handoverCandidates('));
+    // peekForWrite: cùng phép kiểm với loadForWrite nhưng KHÔNG khoá; không đường ghi nào dùng nó.
+    const pk = w.slice(w.indexOf('async peekForWrite('), w.indexOf('  // Khoá (khách FOR SHARE'));
+    expect(pk).toContain('assertWrite(actor, scopeOf, code, ref, await resolvePath(tx, actor, scopeOf, id, ref))');
+    expect(pk).not.toMatch(/FOR UPDATE|FOR SHARE|lockCustomer/);
+    expect((w.match(/peekForWrite\(/g) ?? []).length).toBe(1);
+    expect(l).not.toMatch(/peekForWrite\(/);
+    // Việc bàn giao: ghi và danh sách gợi ý dùng CHUNG handoverKind.
+    const at = readFileSync(join(__dirname, '..', 'activities', 'activities.opportunity-tasks.ts'), 'utf8');
+    expect((at.match(/handoverKind\(/g) ?? []).length).toBe(3); // định nghĩa + createHandover + handoverCandidates
+    // Một nguồn cho "lý do thua bắt buộc ghi chú".
+    expect(l).toContain('lostReasonNeedsNote(why.code)');
+    expect(ch).toContain('lostReasonNeedsNote(r.code)');
+  });
+
   it('S8b — service VÒNG ĐỜI: năm thao tác đều qua inTx + loadForWrite của đường ghi, kiểm đúng mã, ghi theo version, có nhật ký và không mang số liệu', () => {
     expect(l).not.toMatch(/\$queryRaw|\$executeRaw|this\.prisma\b|\$transaction/); // không tự mở transaction, không SQL thô
     expect(l).not.toMatch(/tx\.opportunity\.update\(/);

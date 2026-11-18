@@ -11,6 +11,7 @@ import {
   ResumeOpportunityDto, UpdateOpportunityDto, WinOpportunityDto,
 } from './dto/write-opportunity.dto';
 import { OpportunityActivitiesService } from './opportunities.activities.service';
+import { OpportunityChoicesService } from './opportunities.choices.service';
 import { OpportunityDocumentsService } from './opportunities.documents.service';
 import { OpportunityLifecycleService } from './opportunities.lifecycle.service';
 import { OpportunitiesService } from './opportunities.service';
@@ -33,11 +34,17 @@ export class CustomerOpportunitiesController {
 @UseGuards(ActorGuard)
 export class OpportunitiesController {
   constructor(private readonly service: OpportunitiesService, private readonly writes: OpportunityWritesService, private readonly lifecycle: OpportunityLifecycleService,
-    private readonly oppActivities: OpportunityActivitiesService, private readonly documents: OpportunityDocumentsService) {}
+    private readonly oppActivities: OpportunityActivitiesService, private readonly documents: OpportunityDocumentsService, private readonly choices: OpportunityChoicesService) {}
 
   @Get()
   async list(@CurrentCtx() ctx: RequestCtx, @Query() q: QueryOpportunitiesDto) {
     return { data: await this.service.list(ctx, q) };
+  }
+
+  // S10a — danh mục cho giao diện (giai đoạn, loại, lý do thua kèm ID). ĐƯỜNG TĨNH: phải khai báo TRƯỚC ':id' (static-guards.spec ghim thứ tự).
+  @Get('meta')
+  async meta(@CurrentCtx() ctx: RequestCtx) {
+    return { data: await this.choices.meta(ctx) };
   }
 
   @Post()
@@ -104,6 +111,17 @@ export class OpportunitiesController {
   @HttpCode(200)
   async reopen(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: ReopenOpportunityDto) {
     return { data: await this.lifecycle.reopen(ctx, id, dto) };
+  }
+
+  // S10a — người có thể nhận: khi chuyển người phụ trách (cùng điều kiện với /assign) và khi bàn giao lúc Thắng (cùng điều kiện với /win).
+  @Get(':id/owner-candidates')
+  async ownerCandidates(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string) {
+    return { data: await this.choices.ownerCandidates(ctx, id) };
+  }
+
+  @Get(':id/handover-candidates')
+  async handoverCandidates(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string) {
+    return { data: await this.choices.handoverCandidates(ctx, id) };
   }
 
   // S9a — hoạt động theo cơ hội (§5.5(a)(b)). Chi tiết / sửa / hoàn thành từng hoạt động vẫn qua API Hoạt động của B3.
