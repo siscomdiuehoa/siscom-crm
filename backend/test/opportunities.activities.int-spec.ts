@@ -57,7 +57,8 @@ const actIds = async (who: string, oppId: string, qs = '') => {
   expect({ who, s: r.status }).toEqual({ who, s: 200 });
   return { ids: (r.body.data.items as Array<{ id: string }>).map((x) => x.id).sort(), total: r.body.data.total as number, access: r.body.data.access as string, items: r.body.data.items as Array<{ id: string; contact: unknown; opportunityId: string }> };
 };
-const TECH_KEYS = ['access', 'code', 'createdAt', 'customer', 'expectedCloseDate', 'id', 'isProjectLinked', 'owner', 'projectName', 'stage', 'status', 'title', 'type', 'updatedAt', 'version'];
+// Hợp đồng trả về của bản kỹ thuật (§5.4) — danh sách khoá ĐÓNG: thêm / bớt trường phải sửa ở đây (review R1 #245: không status, không owner).
+const TECH_KEYS = ['access', 'code', 'createdAt', 'customer', 'expectedCloseDate', 'id', 'isProjectLinked', 'projectName', 'stage', 'title', 'type', 'updatedAt', 'version'];
 
 describe('§5.5(d) — đường đọc theo việc của Kỹ thuật: bản kỹ thuật, không giá trị, không quyền ghi', () => {
   it('Kỹ thuật ngoài phạm vi khách: chỉ thấy cơ hội khi có việc OPEN được giao cho mình và đang đọc được việc đó; nhận ĐÚNG bộ trường kỹ thuật', async () => {
@@ -71,7 +72,7 @@ describe('§5.5(d) — đường đọc theo việc của Kỹ thuật: bản k�
     const d = await getOpp('techXp', o.id);
     expect(d.status).toBe(200);
     expect(Object.keys(d.body.data).sort()).toEqual([...TECH_KEYS, 'needSummary', 'offerScope'].sort());
-    expect(d.body.data).toMatchObject({ id: o.id, access: 'TASK', needSummary: 'Cần 3 chiller 500RT', offerScope: 'Phạm vi chào thử', expectedCloseDate: '2027-03-31', customer: { id: cA.id, code: cA.code }, owner: { id: fx.empA }, type: { code: 'T_SUPPLY' }, stage: { code: 'PROSPECTING' } });
+    expect(d.body.data).toMatchObject({ id: o.id, access: 'TASK', needSummary: 'Cần 3 chiller 500RT', offerScope: 'Phạm vi chào thử', expectedCloseDate: '2027-03-31', customer: { id: cA.id, code: cA.code }, type: { code: 'T_SUPPLY' }, stage: { code: 'PROSPECTING' } });
     expect(Object.keys(d.body.data.customer).sort()).toEqual(['code', 'id', 'name']); // không địa chỉ / điện thoại: thẻ khách lấy qua work-card của B3
     expect(JSON.stringify(d.body)).not.toContain(SECRET_AMOUNT);
 
@@ -148,7 +149,7 @@ describe('§5.5(d) — đường đọc theo việc của Kỹ thuật: bản k�
     t.access.scopes.set(fx.empB, { ...SALES, 'activity.update_own': 'DEPARTMENT' });
     try {
       const mine = await opp(fx.empB, { amount: BigInt(SECRET_AMOUNT) }); // B phụ trách cơ hội
-      await task('bothB', mine.id, undefined);
+      await task('bothB', mine.id, undefined, true); // B không đọc được khách => tự nhận phải qua nhánh giao ngoài phạm vi (PR245-R1-01)
       const theirs = await opp(fx.empA, { amount: BigInt(SECRET_AMOUNT) }); // cơ hội của A, B chỉ có việc được giao (ngoài phạm vi khách)
       await task('salesA', theirs.id, fx.empB, true);
       expect((await getOpp('bothB', mine.id)).body.data).toMatchObject({ access: 'FULL', expectedAmountVnd: SECRET_AMOUNT });
@@ -170,7 +171,8 @@ describe('§5.5(a) — GET /opportunities/:id/activities: chỉ hoạt động c
     o = await opp(fx.empB); // B phụ trách cơ hội ở khách của A
     contactName = 'S9 liên hệ ' + uniq();
     const ct = await makeContact(prisma, cA.id, contactName);
-    const note = await a('salesB').post(O + '/' + o.id + '/activities', { type: 'NOTE', content: 'Ghi chú của cơ hội', contactId: ct.id });
+    // Liên hệ này KHÔNG phải liên hệ của cơ hội => chỉ người có contact.read trong phạm vi mới gắn được (PR245-R1-02).
+    const note = await a('crmAdmin').post(O + '/' + o.id + '/activities', { type: 'NOTE', content: 'Ghi chú của cơ hội', contactId: ct.id });
     expect(note.status).toBe(201);
     n1 = note.body.data.id;
     t1 = (await task('salesB', o.id, techX, true)).id;
@@ -351,5 +353,99 @@ describe('§5.5(c) — opportunityId qua API Hoạt động chung: cùng khách 
     expect(err(await a('salesA').patch(ACT + '/' + r.id, { version: r.version, opportunityId: null }))).toEqual({ s: 409, code: 'ACTIVITY_AUTO_TASK' });
     expect(err(await a('salesA').patch(ACT + '/' + r.id, { version: r.version, opportunityId: mine.id }))).toEqual({ s: 409, code: 'ACTIVITY_AUTO_TASK' });
     expect(await linkOf(r.id)).toEqual({ opportunityId: h.id, version: r.version });
+  });
+});
+
+// ───── Review R1 của PR #245 ─────
+describe('PR245-R1-01 — TASK ở đường Sales luôn qua kiểm NGƯỜI NHẬN, kể cả khi để mặc định hoặc tự chọn chính mình', () => {
+  const create = (who: string, id: string, body: object) => a(who).post(O + '/' + id + '/activities', body);
+  const err = (r: { status: number; body: { error?: { code?: string } } }) => ({ s: r.status, code: r.body.error?.code });
+  const TASK = () => ({ type: 'TASK', content: 'Việc tự nhận ' + uniq(), dueAt: due() });
+  const count = (oppId: string) => prisma.activity.count({ where: { opportunityId: oppId } });
+  afterEach(() => { t.access.scopes.set(fx.empB, SALES); });
+
+  it('người phụ trách cơ hội NGOÀI phạm vi khách, không có thẩm quyền kỹ thuật: tự nhận TASK (mặc định hoặc gửi UUID của mình) bị từ chối, không ghi gì; hoạt động không phải TASK vẫn tạo được', async () => {
+    const o = await opp(fx.empB); // B phụ trách cơ hội ở khách của A; B không đọc được khách
+    for (const body of [TASK(), { ...TASK(), performedById: fx.empB }, { ...TASK(), performedById: fx.empB.toUpperCase() }]) {
+      expect({ body, ...err(await create('salesB', o.id, body)) }).toEqual({ body, s: 400, code: 'ACTIVITY_ASSIGNEE_NO_ACCESS' });
+      // Xin giao ngoài phạm vi cho chính mình: B không có activity.update_own => không thể được cấp quyền theo việc => từ chối.
+      expect({ body, ...err(await create('salesB', o.id, { ...body, external: true })) }).toEqual({ body, s: 403, code: 'ACTIVITY_EXTERNAL_NOT_ALLOWED' });
+    }
+    expect(await count(o.id)).toBe(0);
+    expect(await prisma.activityAccess.count({ where: { employeeId: fx.empB, activity: { opportunityId: o.id } } })).toBe(0);
+    expect((await create('salesB', o.id, { type: 'NOTE', content: 'Ghi chú của người phụ trách cơ hội' })).status).toBe(201);
+  });
+
+  it('người phụ trách cơ hội ngoài phạm vi khách CÓ thẩm quyền kỹ thuật: tự nhận với external=true => được cấp activity_access cùng transaction, đọc và hoàn thành được qua API Công việc; thiếu external / thiếu quyền giao => từ chối, không ghi dở', async () => {
+    const withTech = { ...SALES, 'activity.update_own': 'DEPARTMENT' } as Scopes;
+    t.access.scopes.set(fx.empB, withTech);
+    preset('extB', fx.empB, fx.d1, withTech);
+    const o = await opp(fx.empB);
+    expect(err(await create('extB', o.id, TASK()))).toEqual({ s: 400, code: 'ACTIVITY_ASSIGNEE_NO_ACCESS' }); // không xin external
+    const noExt: Scopes = { ...withTech }; delete noExt['activity.assign_external'];
+    preset('extB', fx.empB, fx.d1, noExt);
+    expect(err(await create('extB', o.id, { ...TASK(), external: true }))).toEqual({ s: 403, code: 'FORBIDDEN' });
+    const noAssign: Scopes = { ...withTech }; delete noAssign['activity.assign'];
+    preset('extB', fx.empB, fx.d1, noAssign);
+    expect(err(await create('extB', o.id, { ...TASK(), external: true }))).toEqual({ s: 403, code: 'FORBIDDEN' });
+    expect(await count(o.id)).toBe(0);
+    expect(await prisma.activityAccess.count({ where: { employeeId: fx.empB, activity: { opportunityId: o.id } } })).toBe(0);
+
+    preset('extB', fx.empB, fx.d1, withTech);
+    for (const extra of [{}, { performedById: fx.empB }]) {
+      const r = await create('extB', o.id, { ...TASK(), external: true, ...extra });
+      expect(r.status).toBe(201);
+      expect(r.body.data.performedBy.id).toBe(fx.empB);
+      expect(await prisma.activityAccess.findMany({ where: { activityId: r.body.data.id, revokedAt: null }, select: { employeeId: true, grantedById: true } })).toEqual([{ employeeId: fx.empB, grantedById: fx.empB }]);
+      // Việc không còn "mồ côi": chính người được giao đọc và hoàn thành được qua API Công việc của B3.
+      expect((await a('extB').get(ACT + '/' + r.body.data.id)).body.data).toMatchObject({ id: r.body.data.id, access: 'TASK' });
+      expect((await a('extB').post(ACT + '/' + r.body.data.id + '/complete', { version: r.body.data.version })).status).toBe(200);
+    }
+  });
+
+  it('đối chứng: người phụ trách cơ hội ĐỌC ĐƯỢC khách tự nhận TASK như cũ (không cần activity.assign, không cấp activity_access); đường theo khách của B3 không đổi', async () => {
+    const o = await opp(fx.empA);
+    const noAssign: Scopes = { ...SALES }; delete noAssign['activity.assign']; delete noAssign['activity.assign_external'];
+    preset('ownA', fx.empA, fx.d1, noAssign);
+    for (const body of [TASK(), { ...TASK(), performedById: fx.empA }]) {
+      const r = await create('ownA', o.id, body);
+      expect(r.status).toBe(201);
+      expect(await prisma.activityAccess.count({ where: { activityId: r.body.data.id } })).toBe(0);
+      expect((await a('ownA').post(ACT + '/' + r.body.data.id + '/complete', { version: r.body.data.version })).status).toBe(200);
+    }
+    const viaCustomer = await a('ownA').post('/api/v1/customers/' + cA.id + '/activities', TASK());
+    expect(viaCustomer.status).toBe(201);
+    expect((await a('salesB').post('/api/v1/customers/' + cA.id + '/activities', TASK())).status).toBe(404); // B vẫn không tạo được theo khách
+  });
+});
+
+describe('PR245-R1-02 — người liên hệ ở đường Sales: cùng một chính sách cho phản hồi POST và danh sách; không gắn được liên hệ ngoài phạm vi', () => {
+  const create = (who: string, id: string, body: object) => a(who).post(O + '/' + id + '/activities', body);
+  it('người phụ trách cơ hội ngoài phạm vi contact.read: chỉ gắn được liên hệ CỦA CHÍNH CƠ HỘI; phản hồi POST và danh sách đều che liên hệ; liên hệ khác của khách => 400, không ghi', async () => {
+    const oppContactName = 'S9 liên hệ của cơ hội ' + uniq(); const otherName = 'S9 liên hệ khác ' + uniq();
+    const oppContact = await makeContact(prisma, cA.id, oppContactName);
+    const other = await makeContact(prisma, cA.id, otherName);
+    const o = await opp(fx.empB, { contactId: oppContact.id });
+
+    const bad = await create('salesB', o.id, { type: 'NOTE', content: 'Gắn liên hệ khác của khách', contactId: other.id });
+    expect({ s: bad.status, code: bad.body.error?.code }).toEqual({ s: 400, code: 'ACTIVITY_CONTACT_MISMATCH' });
+    expect(JSON.stringify(bad.body)).not.toContain(otherName);
+    expect(await prisma.activity.count({ where: { opportunityId: o.id } })).toBe(0);
+
+    const ok = await create('salesB', o.id, { type: 'NOTE', content: 'Gắn liên hệ của cơ hội', contactId: oppContact.id });
+    expect(ok.status).toBe(201);
+    expect(ok.body.data.contact).toBeNull(); // cùng chính sách với danh sách: không có contact.read trong phạm vi => che
+    expect(JSON.stringify(ok.body)).not.toContain(oppContactName);
+    expect((await prisma.activity.findUniqueOrThrow({ where: { id: ok.body.data.id }, select: { contactId: true } })).contactId).toBe(oppContact.id); // vẫn lưu đúng
+    expect((await actIds('salesB', o.id)).items.find((x) => x.id === ok.body.data.id)?.contact).toBeNull();
+    // Đối chứng: người có contact.read trong phạm vi chủ khách thấy liên hệ ở cả danh sách lẫn phản hồi POST, và gắn được liên hệ bất kỳ của khách.
+    expect((await actIds('salesA', o.id)).items.find((x) => x.id === ok.body.data.id)?.contact).toMatchObject({ fullName: oppContactName });
+    const admin = await create('crmAdmin', o.id, { type: 'NOTE', content: 'Quản trị gắn liên hệ khác', contactId: other.id });
+    expect(admin.status).toBe(201);
+    expect(admin.body.data.contact).toMatchObject({ id: other.id, fullName: otherName });
+    const mine = await opp(fx.empA);
+    const own = await create('salesA', mine.id, { type: 'NOTE', content: 'A gắn liên hệ của khách mình phụ trách', contactId: other.id });
+    expect(own.status).toBe(201);
+    expect(own.body.data.contact).toMatchObject({ id: other.id, fullName: otherName });
   });
 });

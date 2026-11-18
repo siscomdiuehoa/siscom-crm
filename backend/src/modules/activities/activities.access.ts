@@ -96,17 +96,22 @@ export function assigneeLost(status: string, performedById: string | null, owner
 //    không phải TASK OPEN => 400 ACTIVITY_EXTERNAL_NOT_ALLOWED; người nhận thiếu update_own => 403 cùng mã.
 // anyScope (CHỈ đường POST /opportunities/:id/activities, Sales §5.5(b)): mã activity.assign / activity.assign_external chỉ cần ĐANG HIỆU LỰC ở bất
 // kỳ phạm vi — phạm vi do quyền trên cơ hội quyết định (nơi gọi đã kiểm opportunity.update). Mọi điều kiện về NGƯỜI NHẬN giữ nguyên.
-export function planAssignment(actor: Actor, scopeOf: ScopeOf, owner: OwnerInfo, a: EmployeeAccess | undefined, opts: { external: boolean; openTask: boolean; anyScope?: boolean }): 'INTERNAL' | 'EXTERNAL' {
+export function planAssignment(actor: Actor, scopeOf: ScopeOf, owner: OwnerInfo, a: EmployeeAccess | undefined, opts: { external: boolean; openTask: boolean; anyScope?: boolean; self?: boolean }): 'INTERNAL' | 'EXTERNAL' {
   const assignScope = scopeOf('activity.assign');
   const holds = (s: Scope | null): boolean => (opts.anyScope === true ? s !== null : inScope(actor, s, owner));
-  if (!holds(assignScope)) throw activityErrors.forbidden('Không có quyền giao việc cho người khác trên khách hàng này.');
+  // self (PR245-R1-01, CHỈ đường Sales): người gọi tự nhận TASK. Đọc được khách => tự nhận như B3 (không cần activity.assign, không xét phòng).
+  // KHÔNG đọc được khách => đi ĐỦ nhánh giao ngoài phạm vi như giao cho người khác: external=true, activity.assign + activity.assign_external,
+  // TASK đang mở, có thẩm quyền kỹ thuật => 'EXTERNAL' (nơi gọi cấp activity_access cùng transaction); thiếu điều kiện nào => từ chối, không ghi.
+  const self = opts.self === true;
+  if (!self && !holds(assignScope)) throw activityErrors.forbidden('Không có quyền giao việc cho người khác trên khách hàng này.');
   if (!a || !a.active) throw activityErrors.assigneeInvalid();
   const reads = readsCustomer(a, owner);
   if (!opts.external || reads) {
-    if (assignScope !== 'ALL' && (actor.departmentId === null || a.departmentId !== actor.departmentId)) throw activityErrors.assigneeInvalid();
+    if (!self && assignScope !== 'ALL' && (actor.departmentId === null || a.departmentId !== actor.departmentId)) throw activityErrors.assigneeInvalid();
     if (!reads) throw activityErrors.assigneeNoAccess();
     return 'INTERNAL';
   }
+  if (self && !holds(assignScope)) throw activityErrors.forbidden('Không có quyền giao việc ngoài phạm vi khách hàng.');
   if (!holds(scopeOf('activity.assign_external'))) throw activityErrors.forbidden('Không có quyền giao việc cho người ngoài phạm vi khách hàng.');
   if (!opts.openTask) throw activityErrors.externalNotAllowed();
   if (!a.scopes['activity.update_own']) throw activityErrors.externalAssigneeForbidden();

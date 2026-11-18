@@ -92,15 +92,16 @@ export function toOpportunityDetail(r: OppDetailRow, extra: { customer: Customer
 }
 
 // ───── Bản KỸ THUẬT — đường đọc theo việc (§5.1 [C7], §5.4 "đường truy cập quyết định trường được trả") ─────
-// Chỉ: tiêu đề, loại, giai đoạn, trạng thái, tên dự án / công trình, phạm vi chào, nhu cầu, ngày dự kiến, khách (mã + tên), người phụ trách.
+// Chỉ các trường đã duyệt ở §5.4: tiêu đề, loại, giai đoạn, tên dự án / công trình, phạm vi chào, nhu cầu, ngày dự kiến; kèm nhận diện (id, mã,
+// version, mốc thời gian) và khách (mã + tên — chính là thông tin B3 đã trả cùng công việc). KHÔNG có trạng thái, người phụ trách (review R1 #245):
+// muốn thêm phải có quyết định riêng và sửa test chốt hợp đồng (TECH_KEYS trong test/opportunities.activities.int-spec.ts).
 // KHÔNG BAO GIỜ: giá trị dự kiến / chốt, xác suất, hold_*, won_*, lost_*, closed_at, cờ ownerLostAccess, người liên hệ, thẻ khách (địa chỉ, điện
 // thoại — lấy qua /activities/:id/work-card của B3). Liệt kê tường minh từng trường: thêm cột mới vào select không tự lọt ra ngoài.
 export function toOpportunityTechListItem(r: OppListRow) {
   return {
-    id: r.id, code: r.code, title: r.title, status: r.status, access: 'TASK' as const,
+    id: r.id, code: r.code, title: r.title, access: 'TASK' as const,
     type: lookup(r.type), stage: lookup(r.stage),
     customer: { id: r.customer.id, code: r.customer.code, name: r.customer.name },
-    owner: emp(r.owner),
     isProjectLinked: r.isProjectLinked, projectName: r.projectName,
     expectedCloseDate: ymd(r.expectedCloseDate),
     version: r.version, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString(),

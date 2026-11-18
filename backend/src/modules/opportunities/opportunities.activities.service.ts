@@ -83,7 +83,7 @@ export class OpportunityActivitiesService {
     const scopeOf = this.scopeOf(actor);
     return this.writes.inTx(async (tx) => {
       const row = await this.writes.loadForWrite(tx, actor, scopeOf, id, 'opportunity.update');
-      return this.gate.createForOpportunity(tx, ctx, { id: row.id, customerId: row.customerId }, dto);
+      return this.gate.createForOpportunity(tx, ctx, { id: row.id, customerId: row.customerId, contactId: row.contactId }, dto);
     });
   }
 }
