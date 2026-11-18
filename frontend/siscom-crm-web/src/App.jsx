@@ -15,6 +15,8 @@ import { createCustomerApiUi } from './features/customers/customerApiUi.js';
 import { useCustomerApiState } from './features/customers/useCustomerApi.js';
 import TasksPage, { TaskView } from './features/activities/TasksPage.jsx';
 import { parseTasksRoute, bellCount } from './features/activities/tasksModel.js';
+import OpportunitiesPage, { OpportunityView } from './features/opportunities/OpportunitiesPage.jsx';
+import { parseOpportunitiesRoute, canSeeOpportunities } from './features/opportunities/opportunitiesModel.js';
 import ApiModeUnsupported, { API_UNSUPPORTED_NOTE } from './features/apiMode/ApiModeUnsupported.jsx';
 import ChangePasswordDialog from './features/auth/ChangePasswordDialog.jsx';
 import { CHANGE_PASSWORD_UI_TEXT } from './auth/changePasswordModel.js';
@@ -38,6 +40,7 @@ const INIT = (() => { const p = new URLSearchParams(location.search); const rout
 function parseRoute(h) {
   const p = (h || '').replace(/^#\/?/, '').split('/');
   if (p[0] === 'activities') return parseTasksRoute(p); // B3 A8: #/activities[/:filter], #/activities/view/:id
+  if (p[0] === 'pipeline') return parseOpportunitiesRoute(p); // Sales S10: #/pipeline, #/pipeline/view/:id
   if (p[0] === 'customers' && p[1]) { let id = p[1]; try { id = decodeURIComponent(id); } catch (e) { /* malformed %-escape: keep the raw text; the id check rejects it, the app must not crash */ } return { page: 'customers', id }; }
   return { page: p[0] || 'dashboard' };
 }
@@ -107,6 +110,8 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
   // B3 A8: mục "Công việc" (Kinh doanh) chỉ khi máy chủ cấp activity.read; chuông = quá hạn + hôm nay + chờ duyệt (đọc lại mỗi 5 phút và sau mỗi thao tác).
   const TASKS = API_ON && CUSTOMER_API.tasks && API_CAN('activity.read') ? CUSTOMER_API.tasks : null;
   const NAV = React.useMemo(() => { if (!TASKS) return NAV0; const i = NAV0.findIndex((n) => n.id === 'customers'); return [...NAV0.slice(0, i + 1), { id: 'activities', label: 'Công việc', icon: 'list-checks' }, ...NAV0.slice(i + 1)]; }, [NAV0, TASKS]);
+  // Sales S10: mục "Cơ hội kinh doanh" mở màn hình thật CHỈ khi máy chủ cấp mã đọc cơ hội (đầy đủ hoặc theo việc); không có => giữ trạng thái "chưa vận hành" như cũ.
+  const OPPS = API_ON && CUSTOMER_API.opportunities && canSeeOpportunities((p) => (me && me.permissions ? me.permissions[p] : null)) ? CUSTOMER_API.opportunities : null;
   const tasksState = useCustomerApiState(TASKS);
   React.useEffect(() => { if (!TASKS || !me) return undefined; TASKS.loadSummary(); const t = setInterval(() => TASKS.loadSummary(), 5 * 60 * 1000); return () => clearInterval(t); }, [TASKS, me && me.employeeId]);
   const bell = TASKS && tasksState ? bellCount(tasksState.summary.data) : 0;
@@ -178,6 +183,8 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
   else if (route.page === 'dashboard') { title = 'Tổng quan điều hành'; crumbs = ['SISCOM CRM', 'Tổng quan']; body = <DashboardPage ui={ui} />; }
   else if (route.page === 'activities' && TASKS && route.id) { title = 'Công việc'; crumbs = ['SISCOM CRM', 'Công việc', 'Chi tiết']; body = <TaskView ui={ui} id={route.id} />; }
   else if (route.page === 'activities' && TASKS) { title = 'Công việc của tôi'; crumbs = ['SISCOM CRM', 'Kinh doanh', 'Công việc']; body = <TasksPage ui={ui} filter={route.filter} />; }
+  else if (route.page === 'pipeline' && OPPS && route.id) { title = 'Cơ hội kinh doanh'; crumbs = ['SISCOM CRM', 'Cơ hội kinh doanh', 'Chi tiết']; body = <OpportunityView ui={ui} id={route.id} />; }
+  else if (route.page === 'pipeline' && OPPS) { title = 'Cơ hội kinh doanh'; crumbs = ['SISCOM CRM', 'Kinh doanh', 'Cơ hội kinh doanh']; body = <OpportunitiesPage ui={ui} />; }
   else if (route.page === 'customers' && route.id && CUSTOMER_API) { title = 'Chi tiết khách hàng'; crumbs = ['SISCOM CRM', 'Khách hàng', 'Chi tiết']; body = <CustomerApiDetail ui={ui} id={route.id} />; }
   else if (route.page === 'customers' && route.id) { title = cust ? cust.short : 'Không tìm thấy'; crumbs = ['SISCOM CRM', 'Khách hàng', route.id]; body = cust ? <CustomerProfilePage ui={ui} c={cust} /> : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description={'Mã ' + route.id + ' không tồn tại hoặc đã bị xoá.'} action={<Button onClick={() => navigate('/customers')}>Về danh sách</Button>} /></div>; }
   else if (route.page === 'customers') { title = 'Quản lý khách hàng'; crumbs = ['SISCOM CRM', 'Kinh doanh']; body = <CustomerListPage ui={ui} />; }
@@ -203,7 +210,7 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
           user={{ name: API_ON ? sessionUser.name : user.name }} actions={<>{API_ON ? null : <RoleSwitch user={user} setUserId={setUserId} />}<ThemeSwitch mode={mode} setMode={setMode} />{changePasswordButton}{logoutButton}</>} />
         <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px var(--page-gutter)', font: 'var(--type-caption)', color: 'var(--warning-text)', background: 'var(--warning-soft)', borderBottom: '1px solid var(--warning-border)', flexWrap: 'wrap' }}>
           <Icon name={API_ON ? 'server' : 'flask-conical'} size={14} />
-          {API_ON ? <span style={{ flex: 1, minWidth: 200 }}>{me ? 'Đang đăng nhập: ' + me.fullName + ' (' + me.code + ') — ' : 'Chế độ API — '}khách hàng, hoạt động và công việc lấy từ máy chủ. Các mô-đun khác {API_UNSUPPORTED_NOTE}; không hiển thị dữ liệu minh hoạ.</span>
+          {API_ON ? <span style={{ flex: 1, minWidth: 200 }}>{me ? 'Đang đăng nhập: ' + me.fullName + ' (' + me.code + ') — ' : 'Chế độ API — '}{OPPS ? 'khách hàng, hoạt động, công việc và cơ hội' : 'khách hàng, hoạt động và công việc'} lấy từ máy chủ. Các mô-đun khác {API_UNSUPPORTED_NOTE}; không hiển thị dữ liệu minh hoạ.</span>
             : <span style={{ flex: 1, minWidth: 200 }}>Bản demo giao diện — toàn bộ khách hàng và số liệu là <b>dữ liệu minh hoạ</b>, không phải hồ sơ kinh doanh thực tế. Thay đổi chỉ lưu trên trình duyệt này.</span>}
           {API_ON ? null : <DataTools ui={ui} getDb={() => dbRef.current} onRestoreText={(text) => { const next = parseBackupFile(text); backupNow('auto-restore'); replaceDb(next); }} onReset={() => { backupNow('auto-reset'); replaceDb(seedV2()); }} />}
         </div>

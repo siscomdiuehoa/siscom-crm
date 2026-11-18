@@ -117,3 +117,59 @@ test('get: 404 => thông báo của CƠ HỘI (không phải "không tìm thấy
   assert.equal((await ctl.get('a/b')).ok, true);
   assert.equal(repo.calls[1].path, '/opportunities/a%2Fb');
 });
+
+test('act: thiếu trường => không gọi mạng; đủ => gọi đúng phương thức + đường dẫn + version, đọc lại danh sách, gọi hook; bấm đúp chỉ gửi một lần', async () => {
+  const changed = [];
+  let release; const gate = new Promise((x) => { release = x; });
+  const repo = repoOf(async (m, path) => { if (m !== 'GET') { if (path.endsWith('/reopen')) await gate; return { ...opp(1), version: 2 }; } return path === '/opportunities/meta' ? META : pageOf([opp(1)], 1, 1, 1); });
+  const ctl = createOpportunitiesController(repo, describeRepoError, { onChanged: (o) => changed.push(o.version) });
+  await ctl.loadMeta(); await ctl.load({});
+  const o = { id: 'o/1', version: 1, stage: { id: 's1' } };
+  const before = repo.calls.length;
+  assert.deepEqual(await ctl.act('delete', o, { reason: ' ' }), { ok: false, invalid: true, fieldErrors: { reason: 'Xoá cơ hội phải ghi lý do' } });
+  assert.equal(repo.calls.length, before);
+  const r = await ctl.act('delete', o, { reason: 'Nhập nhầm' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(repo.calls[before], { method: 'DELETE', path: '/opportunities/o%2F1', body: { version: 1, reason: 'Nhập nhầm' } });
+  assert.equal(repo.calls[before + 1].method, 'GET');
+  assert.deepEqual(changed, [2]);
+  const a = ctl.act('reopen', o, { reason: 'Ký lại' }); const b = await ctl.act('reopen', o, { reason: 'Ký lại' });
+  assert.deepEqual(b, { ok: false, duplicate: true });
+  release(); assert.equal((await a).ok, true);
+  assert.equal(repo.calls.filter((c) => c.path.endsWith('/reopen')).length, 1);
+  assert.equal(ctl.getState().busy, null);
+});
+
+test('act: 409 => stale = true và danh sách được đọc lại; 400 theo trường gắn đúng ô (wonAmountVnd -> ô giá trị chốt); 403 không đọc lại', async () => {
+  let mode = 409;
+  const repo = repoOf((m) => {
+    if (m === 'GET') return pageOf([opp(1)], 1, 1, 1);
+    if (mode === 409) throw new CustomerRepoError('conflict', 'Xung đột dữ liệu', { status: 409, code: 'OPPORTUNITY_VERSION_CONFLICT' });
+    if (mode === 400) throw new CustomerRepoError('bad_request', 'Dữ liệu gửi lên không hợp lệ.', { status: 400, details: [{ field: 'wonAmountVnd', message: 'Giá trị không hợp lệ' }, { field: 'handoverToId', message: 'Người nhận bàn giao không hợp lệ' }] });
+    throw new CustomerRepoError('forbidden', 'Không có quyền', { status: 403, code: 'FORBIDDEN' });
+  });
+  const ctl = createOpportunitiesController(repo, describeRepoError);
+  await ctl.load({});
+  const o = { id: 'o1', version: 1 };
+  const stale = await ctl.act('reopen', o, { reason: 'x' });
+  assert.deepEqual([stale.ok, stale.stale, stale.error.code], [false, true, 'OPPORTUNITY_VERSION_CONFLICT']);
+  assert.equal(repo.calls.filter((c) => c.method === 'GET').length, 2);
+  mode = 400;
+  const win = { wonAmount: '1', wonDocType: 'HOP_DONG', wonDocNo: 'x', wonDocDate: '2026-11-10', wonDocUrl: 'https://a.example/x', handoverToId: 'e7' };
+  assert.deepEqual((await ctl.act('win', o, win)).fieldErrors, { wonAmount: 'Giá trị không hợp lệ', handoverToId: 'Người nhận bàn giao không hợp lệ' });
+  mode = 403;
+  const denied = await ctl.act('reopen', o, { reason: 'x' });
+  assert.deepEqual([denied.ok, denied.stale, denied.error.kind], [false, false, 'forbidden']);
+  assert.equal(repo.calls.filter((c) => c.method === 'GET').length, 2);
+});
+
+test('candidates: gọi đúng API ứng viên theo thao tác; thao tác không cần người nhận => không gọi mạng; lỗi được trả về', async () => {
+  const repo = repoOf((m, path) => { if (path.endsWith('/handover-candidates')) throw new CustomerRepoError('forbidden', 'Không có quyền', { status: 403 }); return { items: [{ id: 'e2', code: 'NV-2', fullName: 'Hai', departmentCode: 'KD' }] }; });
+  const ctl = createOpportunitiesController(repo, describeRepoError);
+  assert.deepEqual((await ctl.candidates('assign', 'o1')).items.map((x) => x.id), ['e2']);
+  assert.equal(repo.calls[0].path, '/opportunities/o1/owner-candidates');
+  const denied = await ctl.candidates('win', 'o1');
+  assert.deepEqual([denied.ok, denied.error.kind], [false, 'forbidden']);
+  assert.deepEqual(await ctl.candidates('stage', 'o1'), { ok: true, items: [] });
+  assert.equal(repo.calls.length, 2);
+});

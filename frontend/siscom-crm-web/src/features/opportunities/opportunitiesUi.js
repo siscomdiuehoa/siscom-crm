@@ -1,6 +1,6 @@
 // Sales S10: controller màn hình Cơ hội trên API Sales (không React/DOM/lưu trữ cục bộ). Mẫu của tasksUi.js (B3 A8).
 // Mọi dữ liệu chỉ từ máy chủ; thao tác ghi thành công => đọc lại danh sách từ máy chủ (không tự sửa dòng); lỗi => báo, không thử lại ngầm.
-import { buildListQuery, validateCreate, toCreateBody, serverFieldErrors } from './opportunitiesModel.js';
+import { buildListQuery, validateCreate, toCreateBody, serverFieldErrors, validateAction, toActionRequest, ACTION_CANDIDATES } from './opportunitiesModel.js';
 
 const enc = encodeURIComponent;
 const idle = { status: 'idle', data: null, error: null };
@@ -78,6 +78,30 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
         return { ok: true, data };
       } catch (e) { const error = err(e); return { ok: false, error, fieldErrors: error.fieldErrors || {} }; }
       finally { inflight = false; set({ busy: null }); }
+    },
+    // Thao tác trên một cơ hội đã tải (o: id, version, stage, probabilityOverridden). Kiểm tại chỗ trước; thành công => đọc lại danh sách + hook.
+    // 409 (phiên bản lệch / sai trạng thái) => cũng đọc lại danh sách để người dùng thấy dữ liệu mới; lỗi được trả về cho hộp thoại.
+    async act(kind, o, form) {
+      const fieldErrors = validateAction(kind, form || {}, { meta: state.meta.data, o });
+      if (Object.keys(fieldErrors).length) return { ok: false, invalid: true, fieldErrors };
+      if (inflight) return { ok: false, duplicate: true };
+      const r = toActionRequest(kind, form || {}, o);
+      inflight = true; set({ busy: kind + ':' + o.id });
+      try {
+        const data = await req(r.method, '/opportunities/' + enc(o.id) + r.suffix, r.body);
+        if (state.list.status !== 'idle') await ctl.reload();
+        if (typeof hooks.onChanged === 'function') { try { await hooks.onChanged(data); } catch (e) { /* bỏ qua */ } }
+        return { ok: true, data };
+      } catch (e) {
+        const error = err(e);
+        if (error.kind === 'conflict' && state.list.status !== 'idle') await ctl.reload();
+        return { ok: false, error, fieldErrors: error.fieldErrors || {}, stale: error.kind === 'conflict' };
+      } finally { inflight = false; set({ busy: null }); }
+    },
+    // Người có thể nhận (S10a): kind = assign (chuyển người phụ trách) | win (bàn giao). Máy chủ lọc đúng điều kiện của thao tác ghi.
+    async candidates(kind, id) {
+      const path = ACTION_CANDIDATES[kind]; if (!path) return { ok: true, items: [] };
+      try { const d = await req('GET', '/opportunities/' + enc(id) + '/' + path); return { ok: true, items: d.items }; } catch (e) { return { ok: false, error: err(e) }; }
     },
     // Đọc phụ (không lưu state chung): chi tiết một cơ hội.
     async get(id) { try { return { ok: true, data: await req('GET', '/opportunities/' + enc(id)) }; } catch (e) { return { ok: false, error: err(e) }; } },

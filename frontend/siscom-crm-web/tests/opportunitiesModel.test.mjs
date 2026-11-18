@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   moneyVN, parseAmountInput, AMOUNT_UNKNOWN, dateVN, isValidYmd, todayVN, isCloseOverdue, buildListQuery, parseOpportunitiesRoute, opportunityActions,
   canCreate, canSeeOpportunities, typeRequiresProject, projectLinked, validateCreate, toCreateBody, serverFieldErrors, statusLabel, EMPTY_CREATE, TYPE_HINT,
+  initAction, validateAction, toActionRequest, ACTION_TITLE, ACTION_LABEL, ACTION_CANDIDATES,
 } from '../src/features/opportunities/opportunitiesModel.js';
 
 const ME = 'e-me';
@@ -144,4 +145,64 @@ test('serverFieldErrors: lỗi 400 theo trường của máy chủ gắn đúng 
   assert.deepEqual(serverFieldErrors(undefined), { fieldErrors: {}, extra: [] });
   assert.equal(statusLabel('ON_HOLD'), 'Tạm hoãn');
   assert.equal(statusLabel('LẠ'), 'LẠ');
+});
+
+// ───── Hộp thoại thao tác ─────
+const O = { id: 'o1', version: 5, stage: { id: 's1' }, probabilityOverridden: false, expectedAmountVnd: '7200000000', holdUntil: '2026-12-01', holdReason: 'Chờ ngân sách' };
+const LOST_META = { lostReasons: [{ id: 'r-price', requiresNote: false }, { id: 'r-other', requiresNote: true }] };
+
+test('thao tác: mỗi loại có tiêu đề + nhãn nút; chỉ Chuyển người và Thắng cần danh sách người nhận từ máy chủ', () => {
+  const kinds = ['stage', 'hold', 'holdEdit', 'resume', 'win', 'lose', 'assign', 'reopen', 'delete'];
+  for (const k of kinds) { assert.ok(ACTION_TITLE[k], k); assert.ok(ACTION_LABEL[k], k); }
+  assert.deepEqual(ACTION_CANDIDATES, { assign: 'owner-candidates', win: 'handover-candidates' });
+  assert.deepEqual(Object.keys(validateAction('khong-co', {}, {})), ['_']);
+  assert.equal(toActionRequest('khong-co', {}, O), null);
+});
+
+test('initAction: đổi hạn hoãn lấy hạn + lý do đang có; Thắng gợi ý giá trị chốt từ giá trị dự kiến (trống thì để trống, không thành 0)', () => {
+  assert.deepEqual([initAction('holdEdit', O).holdUntil, initAction('holdEdit', O).holdReason], ['2026-12-01', 'Chờ ngân sách']);
+  assert.equal(initAction('hold', O).holdUntil, '');
+  assert.equal(initAction('win', O).wonAmount, '7200000000');
+  assert.equal(initAction('win', { ...O, expectedAmountVnd: null }).wonAmount, '');
+});
+
+test('chuyển giai đoạn: bắt buộc chọn, không chọn lại giai đoạn hiện tại; chỉ gửi KEEP / RESET khi xác suất đang nhập tay', () => {
+  assert.deepEqual(validateAction('stage', { stageId: '' }, { o: O }), { stageId: 'Chọn giai đoạn' });
+  assert.deepEqual(validateAction('stage', { stageId: 's1' }, { o: O }), { stageId: 'Cơ hội đang ở giai đoạn này' });
+  assert.deepEqual(validateAction('stage', { stageId: 's2' }, { o: O }), {});
+  assert.deepEqual(toActionRequest('stage', { stageId: 's2', probability: 'RESET' }, O), { method: 'POST', suffix: '/stage', body: { version: 5, stageId: 's2' } });
+  assert.deepEqual(toActionRequest('stage', { stageId: 's2', probability: 'RESET' }, { ...O, probabilityOverridden: true }).body, { version: 5, stageId: 's2', probability: 'RESET' });
+  assert.deepEqual(toActionRequest('stage', { stageId: 's2', probability: 'lạ' }, { ...O, probabilityOverridden: true }).body.probability, 'KEEP');
+});
+
+test('tạm hoãn / tiếp tục / mở lại / xoá / chuyển người: lý do bắt buộc đúng chỗ (chỉ khoảng trắng vẫn bị chặn), giới hạn 500 ký tự, thân yêu cầu đúng', () => {
+  assert.deepEqual(Object.keys(validateAction('hold', { holdUntil: '2026-02-30', holdReason: '   ' })).sort(), ['holdReason', 'holdUntil']);
+  assert.deepEqual(toActionRequest('holdEdit', { holdUntil: '2026-12-15', holdReason: ' Chờ ngân sách ' }, O), { method: 'POST', suffix: '/hold', body: { version: 5, holdUntil: '2026-12-15', holdReason: 'Chờ ngân sách' } });
+  assert.deepEqual(validateAction('resume', { reason: '' }), {});
+  assert.deepEqual(Object.keys(validateAction('resume', { reason: 'x'.repeat(501) })), ['reason']);
+  assert.deepEqual(toActionRequest('resume', { reason: '  ' }, O).body, { version: 5 });
+  assert.deepEqual(toActionRequest('resume', { reason: ' Khách liên hệ lại ' }, O).body, { version: 5, reason: 'Khách liên hệ lại' });
+  for (const k of ['reopen', 'delete']) { assert.deepEqual(Object.keys(validateAction(k, { reason: ' ' })), ['reason']); assert.deepEqual(validateAction(k, { reason: 'Nhập nhầm' }), {}); }
+  assert.deepEqual(toActionRequest('delete', { reason: 'Nhập nhầm' }, O), { method: 'DELETE', suffix: '', body: { version: 5, reason: 'Nhập nhầm' } });
+  assert.deepEqual(toActionRequest('reopen', { reason: 'Ký lại' }, O), { method: 'POST', suffix: '/reopen', body: { version: 5, reason: 'Ký lại' } });
+  assert.deepEqual(Object.keys(validateAction('assign', { ownerId: '', reason: '' })).sort(), ['ownerId', 'reason']);
+  assert.deepEqual(toActionRequest('assign', { ownerId: 'e2', reason: ' Bàn giao ' }, O).body, { version: 5, ownerId: 'e2', reason: 'Bàn giao' });
+});
+
+test('Thua: bắt buộc lý do; lý do có cờ requiresNote bắt buộc ghi chú; ghi chú trống không gửi', () => {
+  assert.deepEqual(validateAction('lose', { lostReasonId: '' }, { meta: LOST_META }), { lostReasonId: 'Chọn lý do thua' });
+  assert.deepEqual(validateAction('lose', { lostReasonId: 'r-other', lostNote: '  ' }, { meta: LOST_META }), { lostNote: 'Lý do này phải kèm ghi chú' });
+  assert.deepEqual(validateAction('lose', { lostReasonId: 'r-price', lostNote: '' }, { meta: LOST_META }), {});
+  assert.deepEqual(toActionRequest('lose', { lostReasonId: 'r-price', lostNote: ' ' }, O).body, { version: 5, lostReasonId: 'r-price' });
+});
+
+test('Thắng: thiếu giá trị chốt / chứng từ / người nhận bị chặn; đường dẫn phải https; giá trị gửi dạng chuỗi số, 0 là số hợp lệ còn trống thì không', () => {
+  const ok = { wonAmount: '7.000.000.000', wonDocType: 'HOP_DONG', wonDocNo: ' HD-118 ', wonDocDate: '2026-11-10', wonDocUrl: 'https://drive.example.com/hd', wonDocFileName: '', handoverToId: 'e7', handoverDueDate: '' };
+  assert.deepEqual(validateAction('win', ok), {});
+  assert.deepEqual(Object.keys(validateAction('win', { ...ok, wonAmount: '', wonDocType: 'KHAC', wonDocNo: '', wonDocDate: '', wonDocUrl: '', handoverToId: '' })).sort(), ['handoverToId', 'wonAmount', 'wonDocDate', 'wonDocNo', 'wonDocType', 'wonDocUrl']);
+  for (const url of ['http://drive.example.com/x', 'javascript:alert(1)', 'drive.example.com/x', 'https://a b']) assert.deepEqual(Object.keys(validateAction('win', { ...ok, wonDocUrl: url })), ['wonDocUrl'], url);
+  assert.deepEqual(validateAction('win', { ...ok, wonAmount: '0' }), {});
+  assert.deepEqual(Object.keys(validateAction('win', { ...ok, handoverDueDate: '2026-02-30' })), ['handoverDueDate']);
+  assert.deepEqual(toActionRequest('win', ok, O), { method: 'POST', suffix: '/win', body: { version: 5, wonAmountVnd: '7000000000', wonDocType: 'HOP_DONG', wonDocNo: 'HD-118', wonDocDate: '2026-11-10', wonDocUrl: 'https://drive.example.com/hd', handoverToId: 'e7' } });
+  assert.deepEqual(toActionRequest('win', { ...ok, wonDocFileName: ' hd.pdf ', handoverDueDate: '2026-11-20' }, O).body.wonDocFileName, 'hd.pdf');
 });
