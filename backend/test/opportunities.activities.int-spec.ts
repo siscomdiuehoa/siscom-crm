@@ -101,6 +101,45 @@ describe('§5.5(d) — đường đọc theo việc của Kỹ thuật: bản k�
     expect((await getOpp('salesA', o.id)).body.data).toMatchObject({ access: 'FULL', expectedAmountVnd: SECRET_AMOUNT, probability: 37 });
   });
 
+  // L-01 (rà soát S8–S11): bản kỹ thuật không có trạng thái / người phụ trách (review R1 #245) => bộ lọc theo hai trường đó không được trở thành
+  // "máy dò": dòng chỉ đạt đường theo việc KHÔNG được có / không tuỳ theo giá trị lọc.
+  it('L-01: bộ lọc status / ownerId không cho người CHỈ đạt đường theo việc dò ra trạng thái và người phụ trách; bộ lọc trên trường được thấy vẫn dùng được', async () => {
+    const o = await opp(fx.empA, { amount: BigInt(SECRET_AMOUNT), projectName: 'Dò L01 ' + uniq(), closeDate: '2027-04-30' });
+    await task('salesA', o.id, techX, true);
+    const mine = '&customerId=' + cA.id;
+    expect(await listIds('techXp', mine)).toContain(o.id); // không lọc: vẫn thấy qua việc được giao
+    for (const s of ['OPEN', 'ON_HOLD', 'WON', 'LOST']) {
+      const r = await a('techXp').get(O + '?pageSize=100' + mine + '&status=' + s);
+      expect({ s, status: r.status, ids: r.body.data.items.map((x: { id: string }) => x.id), total: r.body.data.total }).toEqual({ s, status: 200, ids: [], total: 0 });
+    }
+    for (const owner of [fx.empA, fx.empB, techX]) {
+      const r = await a('techXp').get(O + '?pageSize=100' + mine + '&ownerId=' + owner);
+      expect({ owner, status: r.status, ids: r.body.data.items.map((x: { id: string }) => x.id), total: r.body.data.total }).toEqual({ owner, status: 200, ids: [], total: 0 });
+    }
+    // Đường theo khách: cùng quy tắc (dòng theo việc không trả lời câu hỏi về trạng thái / người phụ trách).
+    const byCust = await a('techXp').get('/api/v1/customers/' + cA.id + '/opportunities?pageSize=100&status=OPEN');
+    expect({ s: byCust.status, n: byCust.body.data?.items.length }).toEqual({ s: 200, n: 0 });
+    expect((await a('techXp').get('/api/v1/customers/' + cA.id + '/opportunities?pageSize=100&ownerId=' + fx.empA)).body.data.items).toEqual([]);
+    // Bộ lọc trên trường mà bản kỹ thuật ĐƯỢC thấy vẫn hoạt động.
+    expect(await listIds('techXp', mine + '&stageId=' + fx.oppStage['PROSPECTING'])).toContain(o.id);
+    expect(await listIds('techXp', mine + '&closeFrom=2027-04-01&closeTo=2027-04-30')).toEqual([o.id]);
+    expect(await listIds('techXp', mine + '&q=' + encodeURIComponent('Dò L01'))).toEqual([o.id]);
+    // Đối chứng: người xem đầy đủ lọc như cũ.
+    expect(await listIds('salesA', mine + '&status=OPEN&ownerId=' + fx.empA)).toContain(o.id);
+    expect(await listIds('salesA', mine + '&status=WON')).not.toContain(o.id);
+    // Người đạt CẢ HAI loại đường (đầy đủ với cơ hội mình phụ trách, theo việc với cơ hội khác): lọc status / ownerId chỉ trả dòng đầy đủ.
+    const own = await opp(techX, {}, cA2.id);
+    preset('techXp', techX, fx.d2, { ...TECH, 'opportunity.read': 'OWN' });
+    expect((await listIds('techXp', '')).sort()).toEqual(expect.arrayContaining([o.id, own.id]));
+    const both = await a('techXp').get(O + '?pageSize=100&status=OPEN');
+    const mineOnly = (rows: Array<{ id: string; access: string }>) => rows.filter((x) => x.id === o.id || x.id === own.id).map((x) => [x.id, x.access]);
+    expect(mineOnly(both.body.data.items)).toEqual([[own.id, 'FULL']]);
+    expect(both.body.data.items.every((x: { access: string }) => x.access === 'FULL')).toBe(true); // không dòng theo việc nào lọt khi lọc trạng thái
+    expect(await listIds('techXp', '&ownerId=' + fx.empA)).toEqual([]);
+    const byMe = await listIds('techXp', '&ownerId=' + techX);
+    expect(byMe).toContain(own.id); expect(byMe).not.toContain(o.id);
+  });
+
   it('quyền TỰ HẾT ngay khi một điều kiện không còn: việc xong / huỷ / đổi người làm / thu hồi quyền theo việc / bỏ gắn cơ hội / xoá mềm việc / xoá mềm cơ hội / mất mã', async () => {
     const cases: Array<[string, (o: Ref, tk: { id: string; version: number }) => Promise<{ status: number }>, number]> = [
       ['việc hoàn thành', (_o, tk) => a('techXp').post(ACT + '/' + tk.id + '/complete', { version: tk.version }), 404],

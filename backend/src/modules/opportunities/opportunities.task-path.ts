@@ -32,6 +32,12 @@ export function anyReadWhere(actor: Actor, scopeOf: ScopeOf, now: Date): Prisma.
   return hasAssignedReadCode(scopeOf) ? { OR: [fullReadWhere(actor, scopeOf), taskPathWhere(actor, scopeOf, now)] } : fullReadWhere(actor, scopeOf);
 }
 
+// Vị từ đọc cho DANH SÁCH có bộ lọc của người dùng (L-01). fullOnly = yêu cầu lọc theo trường mà bản kỹ thuật KHÔNG được thấy (trạng thái, người
+// phụ trách): khi đó chỉ xét đường đầy đủ, để dòng chỉ đạt đường theo việc không trở thành "máy dò" cho đúng các trường bị ẩn.
+export function listReadWhere(actor: Actor, scopeOf: ScopeOf, now: Date, fullOnly: boolean): Prisma.OpportunityWhereInput {
+  return fullOnly ? fullReadWhere(actor, scopeOf) : anyReadWhere(actor, scopeOf, now);
+}
+
 // Người gọi có đạt đường theo việc với MỘT cơ hội không (truy vấn trong transaction / snapshot của nơi gọi).
 export async function readsByTask(tx: Tx, actor: Actor, scopeOf: ScopeOf, opportunityId: string): Promise<boolean> {
   if (!hasAssignedReadCode(scopeOf)) return false;

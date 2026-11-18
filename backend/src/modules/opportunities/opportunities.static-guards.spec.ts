@@ -43,7 +43,11 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect(s).not.toMatch(/fullReadWhere\(|taskPathWhere\(/);
     expect(s).not.toMatch(/opportunity\.(findUnique|findUniqueOrThrow|findFirstOrThrow)\(/);
     // `where` của danh sách được dựng với vị từ phạm vi ở phần tử ĐẦU.
-    expect(s).toMatch(/const where: Prisma\.OpportunityWhereInput = \{ AND: \[p\.deletedOnly \? deletedListWhere\(actor, scopeOf\) : anyReadWhere\(actor, scopeOf, now\), \.\.\.p\.filters\] \};/);
+    // L-01: vị từ phạm vi của danh sách chọn qua listReadWhere (có bộ lọc status / ownerId => chỉ đường đầy đủ), LUÔN đứng trước bộ lọc của người dùng.
+    expect(s).toMatch(/const scope = p\.deletedOnly \? deletedListWhere\(actor, scopeOf\) : listReadWhere\(actor, scopeOf, now, p\.fullOnly\);\s*\n\s*const where: Prisma\.OpportunityWhereInput = \{ AND: \[scope, \.\.\.p\.filters\] \};/);
+    expect(s).toMatch(/fullOnly: q\.status !== undefined \|\| q\.ownerId !== undefined,/);
+    const tp = readFileSync(join(__dirname, 'opportunities.task-path.ts'), 'utf8');
+    expect(tp).toMatch(/export function listReadWhere\([^)]*fullOnly: boolean\): Prisma\.OpportunityWhereInput \{\s*\n\s*return fullOnly \? fullReadWhere\(actor, scopeOf\) : anyReadWhere\(actor, scopeOf, now\);/);
     // Lịch sử thay đổi chỉ đọc SAU khi cơ hội qua vị từ phạm vi, trong cùng snapshot.
     const ch = s.slice(s.indexOf('async changes('));
     expect(ch.indexOf('anyReadWhere(actor, scopeOf, ')).toBeGreaterThan(-1);
