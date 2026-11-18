@@ -28,6 +28,14 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
     return { ...d, fieldErrors: r.fieldErrors, extra: r.extra };
   };
   let mseq = 0; let lseq = 0; let inflight = false;
+  // muted: trong lúc chạy hook của một thao tác KHÔNG làm đổi hoạt động của cơ hội đang mở (sửa trường, khôi phục, xoá — sắp rời trang), hoặc thao tác
+  // tự báo tab đúng một lần (ghi nhận hoạt động), lời gọi touchActivities() đến qua hook chuông công việc bị bỏ qua để không đọc lại thừa.
+  let muted = false;
+  const runHook = async (data, mute) => {
+    if (typeof hooks.onChanged !== 'function') return;
+    if (mute) muted = true;
+    try { await hooks.onChanged(data); } catch (e) { /* bỏ qua */ } finally { if (mute) muted = false; }
+  };
   // Lỗi 400 của API Hoạt động: chi tiết là chuỗi => gắn theo ô của biểu mẫu hoạt động.
   const errActivity = (e) => { const d = describe(e); if (d.kind === 'not_found') return { ...d, ...NOT_FOUND }; if (d.kind !== 'bad_request') return d; const r = detailsToFieldErrors(e && e.details); return { ...d, fieldErrors: r.fieldErrors, extra: r.extra }; };
   const read = async (path, describeErr = err) => { try { return { ok: true, data: await req('GET', path) }; } catch (e) { return { ok: false, error: describeErr(e) }; } };
@@ -38,7 +46,7 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
     try {
       const data = await fn();
       if (opt.list !== false && state.list.status !== 'idle') await ctl.reload();
-      if (opt.hook !== false && typeof hooks.onChanged === 'function') { try { await hooks.onChanged(data); } catch (e) { /* bỏ qua */ } }
+      if (opt.hook !== false) await runHook(data, opt.mute === true);
       return { ok: true, data };
     } catch (e) {
       const error = (opt.err || err)(e);
@@ -112,7 +120,7 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
       try {
         const data = await req(r.method, '/opportunities/' + enc(o.id) + r.suffix, r.body);
         if (state.list.status !== 'idle') await ctl.reload();
-        if (typeof hooks.onChanged === 'function') { try { await hooks.onChanged(data); } catch (e) { /* bỏ qua */ } }
+        await runHook(data, kind === 'delete'); // xoá: trang chi tiết sắp đóng => không đọc lại tab hoạt động của cơ hội vừa xoá
         return { ok: true, data };
       } catch (e) {
         const error = err(e);
@@ -136,10 +144,10 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
       if (Object.keys(fieldErrors).length) return { ok: false, invalid: true, fieldErrors };
       const body = toPatchBody(o, form, meta);
       if (!Object.keys(body).length) return { ok: true, unchanged: true, data: o };
-      return write('edit:' + o.id, () => req('PATCH', '/opportunities/' + enc(o.id), { version: o.version, ...body }));
+      return write('edit:' + o.id, () => req('PATCH', '/opportunities/' + enc(o.id), { version: o.version, ...body }), { mute: true });
     },
     // Khôi phục cơ hội đã xoá mềm (dòng lấy từ danh sách deleted=only).
-    restore(o) { return write('restore:' + o.id, () => req('POST', '/opportunities/' + enc(o.id) + '/restore', { version: o.version })); },
+    restore(o) { return write('restore:' + o.id, () => req('POST', '/opportunities/' + enc(o.id) + '/restore', { version: o.version }), { mute: true }); },
     // Người liên hệ của khách (cho ô chọn ở biểu mẫu Sửa) — chỉ gọi khi giao diện có contact.read và đọc được khách.
     async contacts(customerId) { try { return { ok: true, items: await repo.contacts(customerId) }; } catch (e) { return { ok: false, error: describe(e) }; } },
     // Hoạt động THEO CƠ HỘI (§5.5): máy chủ lọc theo đường truy cập. f = { type, status }.
@@ -151,12 +159,12 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
     async createActivity(id, draft) {
       const fieldErrors = validateDraft(draft);
       if (Object.keys(fieldErrors).length) return { ok: false, invalid: true, fieldErrors };
-      const r = await write('activity:' + id, () => req('POST', '/opportunities/' + enc(id) + '/activities', buildCreateBody(draft)), { list: false, err: errActivity });
+      const r = await write('activity:' + id, () => req('POST', '/opportunities/' + enc(id) + '/activities', buildCreateBody(draft)), { list: false, err: errActivity, mute: true });
       if (r.ok) ctl.touchActivities();
       return r;
     },
     // Báo cho tab "Hoạt động & công việc" đang mở đọc lại (sau ghi nhận, hoặc sau thao tác trên công việc ở màn hình Công việc).
-    touchActivities() { set({ activityTick: state.activityTick + 1 }); },
+    touchActivities() { if (!muted) set({ activityTick: state.activityTick + 1 }); },
     changes(id) { return read('/opportunities/' + enc(id) + '/changes'); },
     documents(id) { return read('/opportunities/' + enc(id) + '/documents'); },
     async addDocument(id, form) {

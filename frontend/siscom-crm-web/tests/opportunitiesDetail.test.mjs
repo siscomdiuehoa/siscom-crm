@@ -289,3 +289,19 @@ test('contacts: dùng API người liên hệ của khách; lỗi được trả
   const r = await bad.contacts('c1');
   assert.deepEqual([r.ok, r.error.kind], [false, 'forbidden']);
 });
+
+test('tab Hoạt động không đọc lại thừa: hook chuông gọi touchActivities() bị bỏ qua khi sửa trường / khôi phục / xoá; ghi nhận hoạt động báo đúng MỘT lần; thao tác vòng đời (tạm hoãn…) vẫn báo', async () => {
+  let ctl;
+  const repo = repoOf((m, path) => (m === 'GET' ? (path === '/opportunities/meta' ? META : pageOf([opp()])) : path.endsWith('/activities') ? { id: 'a1', code: 'HD-1', type: 'CALL' } : opp({ version: 4 })));
+  ctl = createOpportunitiesController(repo, describeRepoError, { onChanged: async () => { await Promise.resolve(); ctl.touchActivities(); } }); // mô phỏng: hook chuông => tasks.refreshAll => touchActivities
+  await ctl.loadMeta();
+  const tick = () => ctl.getState().activityTick; const t0 = tick();
+  const o = opp();
+  assert.equal((await ctl.update(o, { ...initEdit(o), title: 'Mới' })).ok, true); assert.equal(tick(), t0);
+  assert.equal((await ctl.restore(opp({ deletedAt: 'x' }))).ok, true); assert.equal(tick(), t0);
+  assert.equal((await ctl.act('delete', o, { reason: 'Nhập nhầm' })).ok, true); assert.equal(tick(), t0);
+  const draft = { type: 'CALL', title: '', content: 'Đã gọi', outcome: '', occurredAt: '', dueAt: '', remindAt: '', contactId: '', performedById: '', external: false };
+  assert.equal((await ctl.createActivity('o1', draft)).ok, true); assert.equal(tick(), t0 + 1);
+  assert.equal((await ctl.act('hold', o, { holdUntil: '2026-12-01', holdReason: 'Chờ ngân sách' })).ok, true); assert.equal(tick(), t0 + 2); // tạm hoãn tự tạo công việc nhắc => tab phải đọc lại
+  ctl.touchActivities(); assert.equal(tick(), t0 + 3); // sau các thao tác trên, lời báo bình thường vẫn hoạt động
+});
