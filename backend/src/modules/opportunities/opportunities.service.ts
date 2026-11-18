@@ -8,7 +8,7 @@ import { dbNow } from '../activities/activities.access';
 import {
   deletedListWhere, hasAssignedReadCode, ownerLostAccess, readsFull, ScopeOf, seesOwnerLostFlag,
 } from './opportunities.access';
-import { anyReadWhere, resolvePath } from './opportunities.task-path';
+import { anyReadWhere, listReadWhere, resolvePath } from './opportunities.task-path';
 import { OPP_EMPLOYEE_ACCESS, OppEmployeeAccessReader } from './opportunities.employee-access';
 import { opportunityErrors } from './opportunities.errors';
 import {
@@ -30,7 +30,8 @@ function parseYmd(v: string): Date | null {
   return y < MIN_YEAR || y > MAX_YEAR ? null : d;
 }
 // Tham số đã kiểm hợp lệ của một lần đọc danh sách (dựng TRƯỚC khi mở transaction).
-interface ListPlan { page: number; pageSize: number; deletedOnly: boolean; filters: Prisma.OpportunityWhereInput[]; orderBy: Prisma.OpportunityOrderByWithRelationInput[] }
+// fullOnly: yêu cầu có bộ lọc trên trường mà bản kỹ thuật KHÔNG được thấy (status, ownerId) => chỉ xét dòng đạt đường đầy đủ (L-01).
+interface ListPlan { page: number; pageSize: number; deletedOnly: boolean; fullOnly: boolean; filters: Prisma.OpportunityWhereInput[]; orderBy: Prisma.OpportunityOrderByWithRelationInput[] }
 
 // Sales S6 (docs/SALES_DESIGN.md §5.1, §5.4, §7) — ĐỌC cơ hội: danh sách, chi tiết, theo khách. S9a thêm ĐƯỜNG ĐỌC THEO VIỆC (§5.5(d)).
 // Quy tắc: không có mã đọc nào => 403; ngoài phạm vi xem => 404 (không lộ tồn tại); mọi bộ lọc áp SAU vị từ phạm vi.
@@ -108,14 +109,18 @@ export class OpportunitiesService {
       : q.sortBy === 'code' ? [{ code: order }]
         : q.sortBy === 'createdAt' ? [{ createdAt: order }, { code: order }]
           : [{ updatedAt: order }, { code: order }];
-    return { page, pageSize, deletedOnly: q.deleted === 'only', filters, orderBy };
+    return { page, pageSize, deletedOnly: q.deleted === 'only', fullOnly: q.status !== undefined || q.ownerId !== undefined, filters, orderBy };
   }
 
   // Đọc danh sách TRONG snapshot đã mở: count và rows dùng CÙNG where, cùng snapshot.
   private async listIn(tx: Tx, actor: Actor, scopeOf: ScopeOf, p: ListPlan) {
     // Vị từ phạm vi LUÔN đứng đầu; bộ lọc của người dùng chỉ thu hẹp thêm. Danh sách đã xoá: chỉ đường riêng của khôi phục (không có đường theo việc).
     const now = await dbNow(tx);
-    const where: Prisma.OpportunityWhereInput = { AND: [p.deletedOnly ? deletedListWhere(actor, scopeOf) : anyReadWhere(actor, scopeOf, now), ...p.filters] };
+    // L-01: bản kỹ thuật (đường theo việc) không có trạng thái / người phụ trách (§5.4). Nếu vẫn áp bộ lọc status / ownerId lên dòng theo việc thì việc
+    // dòng đó có / không trong kết quả sẽ tiết lộ đúng hai trường này. Có một trong hai bộ lọc => vị từ phạm vi CHỈ còn đường đầy đủ; dòng theo việc
+    // không tham gia cả đếm lẫn phân trang (không phải lọc sau khi đọc). Bộ lọc trên trường được thấy (giai đoạn, loại, khách, ngày, từ khoá) không đổi.
+    const scope = p.deletedOnly ? deletedListWhere(actor, scopeOf) : listReadWhere(actor, scopeOf, now, p.fullOnly);
+    const where: Prisma.OpportunityWhereInput = { AND: [scope, ...p.filters] };
     const total = await tx.opportunity.count({ where });
     const rows = (total === 0 ? [] : await tx.opportunity.findMany({ where, orderBy: p.orderBy, skip: (p.page - 1) * p.pageSize, take: p.pageSize, select: OPP_LIST_SELECT })) as OppListRow[];
     // Cơ hội đã xoá: không tính cờ người phụ trách (mọi đường đọc qua cơ hội đang tắt).
