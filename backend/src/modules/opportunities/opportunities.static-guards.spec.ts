@@ -18,13 +18,13 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     const body = c.slice(start, next === -1 ? undefined : next);
     return [...body.matchAll(/@(Get|Post|Patch|Put|Delete)\(([^)]*)\)/g)].map((m) => m[1] + '(' + m[2] + ')');
   };
-  it('đúng tập route S6 + S7; chưa có route của S8 (hold / win / lose / resume / reopen / assign / xoá)', () => {
+  it('đúng tập route S6 + S7 + S8a; chưa có route của S8b (hold / win / lose / resume / reopen)', () => {
     expect(c).toMatch(/@Controller\('customers\/:customerId\/opportunities'\)/);
     expect(c).toMatch(/@Controller\('opportunities'\)/);
     expect(routes('CustomerOpportunitiesController')).toEqual(['Get()']);
-    expect(routes('OpportunitiesController')).toEqual(['Get()', 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')"]);
-    expect(c).not.toMatch(/@(Put|Delete)\(/);
-    expect(c).not.toMatch(/':id\/(hold|win|lose|resume|reopen|assign|restore)'/);
+    expect(routes('OpportunitiesController')).toEqual(['Get()', 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Delete(':id')"]);
+    expect(c).not.toMatch(/@Put\(/);
+    expect(c).not.toMatch(/':id\/(hold|win|lose|resume|reopen)'/);
   });
   it('mọi controller đều sau ActorGuard', () => {
     expect((c.match(/@Controller\(/g) ?? []).length).toBe(2);
@@ -82,11 +82,21 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect(lf.indexOf('FOR UPDATE`')).toBeLessThan(lf.indexOf('assertWrite('));
     expect(lf.indexOf('this.lockCustomer(')).toBeLessThan(lf.indexOf('FOR UPDATE`'));
     // Mọi lệnh cập nhật cơ hội đều kèm điều kiện version; không có update() không điều kiện.
-    expect([...w.matchAll(/tx\.opportunity\.updateMany\(\{\s*where: \{ id, version: row\.version \}/g)].length).toBe(2);
+    expect([...w.matchAll(/tx\.opportunity\.updateMany\(\{\s*where: \{ id, version: row\.version[ ,]/g)].length).toBe(5);
     expect(w).not.toMatch(/tx\.opportunity\.update\(/);
-    expect((w.match(/tx\.opportunity\.updateMany\(/g) ?? []).length).toBe(2);
-    // Ba thao tác ghi công khai: mỗi thao tác một lần ghi nhật ký và một lần kiểm luật R-S.
-    expect((w.match(/await this\.audit\.record\(tx, \{/g) ?? []).length).toBe(3);
+    expect((w.match(/tx\.opportunity\.updateMany\(/g) ?? []).length).toBe(5);
+    // Sáu thao tác ghi công khai (tạo, sửa, đổi giai đoạn, chuyển người, xoá mềm, khôi phục): mỗi thao tác một lần ghi nhật ký; luật R-S ở ba thao tác đổi trường.
+    expect((w.match(/await this\.audit\.record\(tx, \{/g) ?? []).length).toBe(6);
+    expect(w).toMatch(/this\.loadForWrite\(tx, actor, scopeOf, id, 'opportunity\.assign'\)/);
+    expect(w).toMatch(/this\.loadForWrite\(tx, actor, scopeOf, id, 'opportunity\.delete'\)/);
+    // Khôi phục: kiểm restore ALL TRƯỚC khi mở transaction / truy vấn (đường nạp riêng, §5.4). Người nhận kiểm bằng assertAssignee trước khi ghi.
+    const rs = w.slice(w.indexOf('async restore('));
+    expect(rs.indexOf('assertMayLoadDeleted(scopeOf)')).toBeGreaterThan(-1);
+    expect(rs.indexOf('assertMayLoadDeleted(scopeOf)')).toBeLessThan(rs.indexOf('this.inTx('));
+    expect(rs.indexOf('assertRestorable(scopeOf, row)')).toBeLessThan(rs.indexOf('tx.opportunity.updateMany('));
+    const asg = w.slice(w.indexOf('async assign('), w.indexOf('async remove('));
+    expect(asg.indexOf('assertAssignee(')).toBeLessThan(asg.indexOf('tx.opportunity.updateMany('));
+    expect(asg).toContain('this.eligibility.canSignIn([dto.ownerId])');
     expect((w.match(/ruleViolations\(/g) ?? []).length).toBe(3);
     // Nhật ký chung không mang số liệu nghiệp vụ.
     for (const k of ['title', 'needSummary', 'projectName', 'offerScope', 'expectedAmountVnd', 'expectedCloseDate', 'probability']) expect(w).toContain('changes.' + k + ' = AUDIT_REDACTED_TEXT');

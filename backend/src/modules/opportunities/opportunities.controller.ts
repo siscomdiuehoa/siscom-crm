@@ -1,14 +1,14 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import type { RequestCtx } from '../../common/auth/actor';
 import { CurrentCtx } from '../../common/auth/actor.decorator';
 import { ActorGuard } from '../../common/auth/actor.guard';
 import { QueryOpportunitiesDto } from './dto/query-opportunities.dto';
-import { CreateOpportunityDto, MoveStageDto, UpdateOpportunityDto } from './dto/write-opportunity.dto';
+import { AssignOpportunityDto, CreateOpportunityDto, DeleteOpportunityDto, MoveStageDto, RestoreOpportunityDto, UpdateOpportunityDto } from './dto/write-opportunity.dto';
 import { OpportunitiesService } from './opportunities.service';
 import { OpportunityWritesService } from './opportunities.write.service';
 
 // Sales S6 (đọc) + S7 (tạo, sửa, đổi giai đoạn, lịch sử) — docs/SALES_DESIGN.md §7. Tập route ghim trong opportunities.static-guards.spec.ts.
-// Tạm hoãn / Thắng / Thua / chuyển người / mở lại / xoá mềm thuộc S8. CSRF/Origin là guard toàn cục như các module khác.
+// S8a: chuyển người phụ trách, xoá mềm, khôi phục. Tạm hoãn / Tiếp tục / Thắng / Thua / mở lại + việc tự tạo thuộc S8b. CSRF/Origin là guard toàn cục như các module khác.
 @Controller('customers/:customerId/opportunities')
 @UseGuards(ActorGuard)
 export class CustomerOpportunitiesController {
@@ -53,5 +53,22 @@ export class OpportunitiesController {
   @Post(':id/stage')
   async moveStage(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: MoveStageDto) {
     return { data: await this.writes.moveStage(ctx, id, dto) };
+  }
+
+  @Post(':id/assign')
+  async assign(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: AssignOpportunityDto) {
+    return { data: await this.writes.assign(ctx, id, dto) };
+  }
+
+  @Post(':id/restore')
+  async restore(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: RestoreOpportunityDto) {
+    return { data: await this.writes.restore(ctx, id, dto) };
+  }
+
+  // Xoá mềm: lý do + version ở body (như DELETE /activities/:id).
+  @Delete(':id')
+  @HttpCode(200)
+  async remove(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: DeleteOpportunityDto) {
+    return { data: await this.writes.remove(ctx, id, dto) };
   }
 }

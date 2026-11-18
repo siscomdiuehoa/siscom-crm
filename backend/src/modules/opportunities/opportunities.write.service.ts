@@ -3,16 +3,20 @@ import type { Prisma } from '../../generated/prisma/client';
 import { Actor, ACTOR_PROVIDER, ActorProvider, RequestCtx } from '../../common/auth/actor';
 import { AUDIT_PORT, AuditPort } from '../../common/audit/audit.port';
 import { AUDIT_REDACTED_TEXT } from '../../common/audit/db-audit.port';
+import { ASSIGNEE_ELIGIBILITY, AssigneeEligibility } from '../../common/auth/assignee-eligibility';
 import { inScope } from '../../common/auth/scope';
 import { DomainException } from '../../common/errors/domain.exception';
 import { mapPrismaError } from '../../common/errors/prisma-error.mapper';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OPPORTUNITY_STAGE } from '../lookups/sales.catalog';
-import { accessPath, allowsCreate, assertWrite, hasAssignedReadCode, OppRef, OppWriteCode, readsFull, ScopeOf } from './opportunities.access';
+import {
+  accessPath, allowsCreate, assertAssignee, assertMayLoadDeleted, assertRestorable, assertWrite, hasAssignedReadCode, OppRef, OppWriteCode, readsFull, ScopeOf,
+} from './opportunities.access';
+import { OPP_EMPLOYEE_ACCESS, OppEmployeeAccessReader } from './opportunities.employee-access';
 import { opportunityErrors } from './opportunities.errors';
 import { defaultProbability, FieldError, isConstructionType, ruleViolations } from './opportunities.rules';
 import { OpportunitiesService } from './opportunities.service';
-import type { CreateOpportunityDto, MoveStageDto, UpdateOpportunityDto } from './dto/write-opportunity.dto';
+import type { AssignOpportunityDto, CreateOpportunityDto, DeleteOpportunityDto, MoveStageDto, RestoreOpportunityDto, UpdateOpportunityDto } from './dto/write-opportunity.dto';
 
 type Tx = Prisma.TransactionClient;
 const MIN_YEAR = 2000;
@@ -65,6 +69,8 @@ export class OpportunityWritesService {
     @Inject(ACTOR_PROVIDER) private readonly actors: ActorProvider,
     @Inject(AUDIT_PORT) private readonly audit: AuditPort,
     private readonly reads: OpportunitiesService,
+    @Inject(OPP_EMPLOYEE_ACCESS) private readonly access: OppEmployeeAccessReader,
+    @Inject(ASSIGNEE_ELIGIBILITY) private readonly eligibility: AssigneeEligibility,
   ) {}
 
   private scopeOf(actor: Actor): ScopeOf { return (p) => this.actors.scopeFor(actor, p); }
@@ -277,6 +283,92 @@ export class OpportunityWritesService {
       await this.audit.record(tx, {
         action: 'opportunity.move_stage', entityType: 'opportunity', entityId: id, entityCode: row.code, summary: 'Đổi giai đoạn cơ hội ' + row.code,
         changes: { stageCode: [row.stage.code, stage.code] }, actorEmployeeId: actor.employeeId, requestId: ctx.requestId,
+      });
+      return this.reads.detailIn(tx, actor, scopeOf, id);
+    });
+  }
+
+  // ───── POST /opportunities/:id/assign (S8a) ─────
+  // §6.8 [C6][O3]: chuyển người phụ trách — bắt buộc lý do; ghi người chuyển, thời điểm, người cũ, người mới (opportunity_change OWNER). KHÔNG đổi
+  // người phụ trách khách. Người chuyển cần opportunity.assign (ALL; hoặc OWN và đang phụ trách cơ hội). Người nhận: assertAssignee (§5.4) — ACTIVE,
+  // tài khoản dùng được (cổng auth), đọc + sửa được cơ hội sau khi nhận, cùng phòng trừ khi người chuyển có phạm vi ALL. Mọi nguyên nhân từ chối
+  // người nhận trả MỘT mã OPPORTUNITY_ASSIGNEE_INELIGIBLE. Áp cho mọi trạng thái (kể cả đã đóng: người phụ trách nghỉ việc vẫn phải chuyển được).
+  // Sau khi chuyển, người chuyển có thể KHÔNG còn thấy cơ hội (Kinh doanh chuyển cơ hội ở khách không do mình phụ trách) => trả bản tối thiểu.
+  // Việc nhắc tạm hoãn tự sinh chuyển theo người phụ trách mới: làm ở S8b (khi có việc tự sinh).
+  async assign(ctx: RequestCtx, id: string, dto: AssignOpportunityDto) {
+    const { actor } = ctx;
+    const scopeOf = this.scopeOf(actor);
+    const reason = text(dto.reason) ?? null;
+    if (!reason) throw opportunityErrors.validation([{ field: 'reason', message: 'Chuyển người phụ trách phải ghi lý do.' }]);
+    return this.inTx(async (tx) => {
+      const row = await this.loadForWrite(tx, actor, scopeOf, id, 'opportunity.assign');
+      if (row.version !== dto.version) throw opportunityErrors.versionConflict(row.version);
+      if (dto.ownerId === row.ownerId) throw opportunityErrors.validation([{ field: 'ownerId', message: 'Người này đang là người phụ trách cơ hội.' }]);
+      const [acc, can] = await Promise.all([this.access.load(tx, [row.ownerId, dto.ownerId]), this.eligibility.canSignIn([dto.ownerId])]);
+      assertAssignee(scopeOf, acc.get(row.ownerId), acc.get(dto.ownerId), can.get(dto.ownerId) === true);
+
+      const upd = await tx.opportunity.updateMany({ where: { id, version: row.version }, data: { ownerId: dto.ownerId, version: { increment: 1 }, updatedById: actor.employeeId } });
+      if (upd.count !== 1) throw opportunityErrors.versionConflict(row.version);
+      await tx.opportunityChange.createMany({ data: [{ opportunityId: id, field: 'OWNER', oldValue: row.ownerId, newValue: dto.ownerId, reason, changedById: actor.employeeId }] });
+      await this.audit.record(tx, {
+        action: 'opportunity.assign', entityType: 'opportunity', entityId: id, entityCode: row.code, summary: 'Chuyển người phụ trách cơ hội ' + row.code,
+        changes: { ownerId: [row.ownerId, dto.ownerId], reason: AUDIT_REDACTED_TEXT }, actorEmployeeId: actor.employeeId, requestId: ctx.requestId,
+      });
+      const after: OppRef = { ...refOf(row), ownerId: dto.ownerId };
+      if (readsFull(actor, scopeOf, after)) return this.reads.detailIn(tx, actor, scopeOf, id);
+      return { id, code: row.code, version: row.version + 1, transferred: true as const };
+    });
+  }
+
+  // ───── DELETE /opportunities/:id (S8a) ─────
+  // §6.9: xoá mềm — chỉ opportunity.delete phạm vi ALL (Quản trị CRM), bắt buộc lý do. Không xoá vĩnh viễn. Không tạo / đóng / đổi công việc nào
+  // (§5.4 "Khôi phục"): việc gắn cơ hội vẫn là hoạt động của khách. Dấu vết ở nhật ký (enum opportunity_change_field không có giá trị cho xoá).
+  async remove(ctx: RequestCtx, id: string, dto: DeleteOpportunityDto) {
+    const { actor } = ctx;
+    const scopeOf = this.scopeOf(actor);
+    const reason = text(dto.reason) ?? null;
+    if (!reason) throw opportunityErrors.validation([{ field: 'reason', message: 'Xoá cơ hội phải ghi lý do.' }]);
+    return this.inTx(async (tx) => {
+      const row = await this.loadForWrite(tx, actor, scopeOf, id, 'opportunity.delete');
+      if (row.version !== dto.version) throw opportunityErrors.versionConflict(row.version);
+      const upd = await tx.opportunity.updateMany({
+        where: { id, version: row.version, deletedAt: null },
+        data: { deletedAt: new Date(), deletedById: actor.employeeId, deleteReason: reason, version: { increment: 1 }, updatedById: actor.employeeId },
+      });
+      if (upd.count !== 1) throw opportunityErrors.versionConflict(row.version);
+      await this.audit.record(tx, {
+        action: 'opportunity.delete', entityType: 'opportunity', entityId: id, entityCode: row.code, summary: 'Xoá mềm cơ hội ' + row.code,
+        changes: { reason: AUDIT_REDACTED_TEXT }, actorEmployeeId: actor.employeeId, requestId: ctx.requestId,
+      });
+      return { id, code: row.code, version: row.version + 1, deleted: true as const };
+    });
+  }
+
+  // ───── POST /opportunities/:id/restore (S8a) ─────
+  // §5.4 "Khôi phục cơ hội đã xoá mềm" (PR234-R3-SEC-02). ĐƯỜNG NẠP RIÊNG: kiểm opportunity.restore phạm vi ALL TRƯỚC khi truy vấn — người thiếu
+  // mã nhận 404 dù id có tồn tại hay không. Chỉ sau đó mới phân biệt: không tồn tại => 404; chưa xoá => 409 OPPORTUNITY_STATE; khách còn bị xoá
+  // mềm => 409 OPPORTUNITY_CUSTOMER_DELETED (phải khôi phục khách trước; không tự khôi phục khách). Trạng thái, giai đoạn, người phụ trách, hold_* /
+  // won_* / lost_*, giá trị giữ nguyên như lúc xoá; không tạo / đổi công việc nào. Dấu vết ở nhật ký.
+  async restore(ctx: RequestCtx, id: string, dto: RestoreOpportunityDto) {
+    const { actor } = ctx;
+    const scopeOf = this.scopeOf(actor);
+    assertMayLoadDeleted(scopeOf);
+    return this.inTx(async (tx) => {
+      const head = await tx.opportunity.findFirst({ where: { id }, select: { customerId: true } });
+      if (head) await this.lockCustomer(tx, head.customerId);
+      const locked = head ? await tx.$queryRaw<{ id: string }[]>`SELECT id FROM opportunity WHERE id = ${id}::uuid FOR UPDATE` : [];
+      const row = locked.length ? await tx.opportunity.findFirst({ where: { id }, select: { code: true, version: true, deletedAt: true, customer: { select: { deletedAt: true } } } }) : null;
+      assertRestorable(scopeOf, row);
+      if (!row) throw opportunityErrors.notFound(); // assertRestorable đã ném; dòng này để TypeScript thu hẹp kiểu
+      if (row.version !== dto.version) throw opportunityErrors.versionConflict(row.version);
+      const upd = await tx.opportunity.updateMany({
+        where: { id, version: row.version, deletedAt: { not: null } },
+        data: { deletedAt: null, deletedById: null, deleteReason: null, version: { increment: 1 }, updatedById: actor.employeeId },
+      });
+      if (upd.count !== 1) throw opportunityErrors.versionConflict(row.version);
+      await this.audit.record(tx, {
+        action: 'opportunity.restore', entityType: 'opportunity', entityId: id, entityCode: row.code, summary: 'Khôi phục cơ hội ' + row.code,
+        actorEmployeeId: actor.employeeId, requestId: ctx.requestId,
       });
       return this.reads.detailIn(tx, actor, scopeOf, id);
     });
