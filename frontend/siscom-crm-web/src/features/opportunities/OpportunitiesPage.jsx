@@ -1,13 +1,14 @@
 import React from 'react';
-import { Avatar, Badge, Button, Checkbox, EmptyState, Icon, Input, Modal, Radio, Select } from '../../ds/index.js';
+import { Avatar, Badge, Button, Checkbox, EmptyState, Icon, Input, Modal, Radio, Select, Tabs } from '../../ds/index.js';
 import * as U from '../../data/util.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import {
-  STATUS_META, STATUS_FILTERS, statusLabel, moneyVN, dateVN, isCloseOverdue, canCreate, canRestore, EMPTY_CREATE, TYPE_HINT, typeRequiresProject, projectLinked, WON_DOC_TYPES,
+  STATUS_META, STATUS_FILTERS, statusLabel, moneyVN, dateVN, isCloseOverdue, canCreate, canRestore, opportunityActions, EMPTY_CREATE, TYPE_HINT, typeRequiresProject, projectLinked, WON_DOC_TYPES,
 } from './opportunitiesModel.js';
-import { OpportunityActions, scopeOfUi } from './OpportunityActions.jsx';
+import { OpportunityActions, scopeOfUi, useStageMove } from './OpportunityActions.jsx';
 import { OpportunityTabs } from './OpportunityDetailTabs.jsx';
+import { OpportunityKanban } from './OpportunityKanban.jsx';
 
 // Sales S10b + S10c: danh sách Cơ hội (#/pipeline, kèm danh sách đã xoá + Khôi phục), biểu mẫu Tạo cơ hội (§8.3) và chi tiết (#/pipeline/view/:id, §8.2,
 // ba tab ở OpportunityDetailTabs.jsx). Dữ liệu CHỈ từ API Sales;
@@ -78,12 +79,12 @@ function CustomerPicker({ ui, value, onPick, error, disabled }) {
   );
 }
 
-function CreateDialog({ ui, onClose }) {
+export function CreateDialog({ ui, onClose, customer = null }) {
   const opps = ui.customerApi.opportunities;
   const s = useCustomerApiState(opps);
   const meta = s.meta.data;
   const [f, setF] = React.useState(EMPTY_CREATE);
-  const [cust, setCust] = React.useState(null);
+  const [cust, setCust] = React.useState(customer); // customer: khách chọn sẵn và khoá (mở từ chi tiết khách)
   const [errs, setErrs] = React.useState({});
   const [error, setError] = React.useState(null);
   React.useEffect(() => { opps.loadMeta(); }, [opps]);
@@ -103,7 +104,7 @@ function CreateDialog({ ui, onClose }) {
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Huỷ</Button><Button loading={busy} disabled={!meta} onClick={submit}>Tạo cơ hội</Button></>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {error ? <ApiErrorBox error={error} /> : null}
-        <CustomerPicker ui={ui} value={cust} onPick={(c) => { setCust(c); clear('customerId'); }} error={errs.customerId} disabled={busy} />
+        <CustomerPicker ui={ui} value={cust} onPick={(c) => { setCust(c); clear('customerId'); }} error={errs.customerId} disabled={busy || !!customer} />
         <Input label="Tiêu đề" required maxLength={200} value={f.title} onChange={set('title')} error={errs.title} disabled={busy} />
         <div className="sg-field" role="radiogroup" aria-label="Loại cơ hội">
           <span className="sg-label">Loại cơ hội<span className="sg-label__req">*</span></span>
@@ -168,11 +169,17 @@ export default function OpportunitiesPage({ ui }) {
   const [deletedMode, setDeletedMode] = React.useState(false); // S10c: danh sách cơ hội ĐÃ XOÁ (deleted=only)
   const [restoring, setRestoring] = React.useState(null);
   const trash = mayRestore && deletedMode;
+  // S11: kanban chỉ ở máy tính, cho người xem đầy đủ, ngoài chế độ "Đã xoá". Điện thoại: danh sách thẻ + thanh chọn giai đoạn + nút "Chuyển giai đoạn" (§8.5).
+  const [view, setView] = React.useState('table');
+  const board = full && !ui.mobile && !trash && view === 'kanban';
+  const mover = useStageMove(ui);
+  const actx = { scopeOf, meId: ui.me ? ui.me.employeeId : null };
   React.useEffect(() => { if (full) opps.loadMeta(); }, [opps, full]);
-  React.useEffect(() => { const [sortBy, sortOrder] = f.sort.split(':'); opps.load({ status: f.status, stageId: f.stageId, typeId: f.typeId, q: f.q, sortBy, sortOrder, ...(trash ? { deleted: 'only' } : {}) }); }, [opps, f, trash]);
+  React.useEffect(() => { if (board) return; const [sortBy, sortOrder] = f.sort.split(':'); opps.load({ status: f.status, stageId: f.stageId, typeId: f.typeId, q: f.q, sortBy, sortOrder, ...(trash ? { deleted: 'only' } : {}) }); }, [opps, f, trash, board]);
   React.useEffect(() => { const next = kw.trim().length >= 2 ? kw.trim() : ''; const id = setTimeout(() => setF((x) => (x.q === next ? x : { ...x, q: next })), 300); return () => clearTimeout(id); }, [kw]);
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
-  const l = s.list; const meta = s.meta.data; const mobile = !!ui.mobile;
+  const l = board ? { ...s.list, status: 'board' } : s.list; // kanban: các khối của bảng không hiển thị
+  const meta = s.meta.data; const mobile = !!ui.mobile;
   const techOnly = l.status === 'ready' && l.items.length > 0 && l.items.every((o) => !isFull(o));
   const filtered = !!(f.status || f.stageId || f.typeId || f.q);
   const lookupOptions = (list, all) => [{ value: '', label: all }, ...((list || []).map((x) => ({ value: x.id, label: x.label })))];
@@ -180,16 +187,31 @@ export default function OpportunitiesPage({ ui }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <section className="sg-card sg-solid" style={{ padding: mobile ? 12 : 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          {full && !mobile && !trash ? <div role="group" aria-label="Kiểu hiển thị"><Tabs items={[{ id: 'table', label: 'Bảng', icon: 'table' }, { id: 'kanban', label: 'Kanban', icon: 'columns-3' }]} value={view} onChange={setView} /></div> : null}
           <div role="search" style={{ flex: '2 1 220px', minWidth: 0 }}><Input size="sm" icon="search" aria-label="Tìm cơ hội" placeholder="Tìm theo tiêu đề hoặc tên dự án…" value={kw} onChange={(e) => setKw(e.target.value)} /></div>
-          {full ? <div role="group" aria-label="Lọc theo trạng thái" style={{ flex: '1 1 140px', maxWidth: 220 }}><Select size="sm" value={f.status} onChange={set('status')} options={STATUS_FILTERS} /></div> : null}
-          {full && meta ? <div role="group" aria-label="Lọc theo giai đoạn" style={{ flex: '1 1 140px', maxWidth: 220 }}><Select size="sm" value={f.stageId} onChange={set('stageId')} options={lookupOptions(meta.stages, 'Mọi giai đoạn')} /></div> : null}
+          {full && !board ? <div role="group" aria-label="Lọc theo trạng thái" style={{ flex: '1 1 140px', maxWidth: 220 }}><Select size="sm" value={f.status} onChange={set('status')} options={STATUS_FILTERS} /></div> : null}
+          {full && meta && !board && !mobile ? <div role="group" aria-label="Lọc theo giai đoạn" style={{ flex: '1 1 140px', maxWidth: 220 }}><Select size="sm" value={f.stageId} onChange={set('stageId')} options={lookupOptions(meta.stages, 'Mọi giai đoạn')} /></div> : null}
           {full && meta ? <div role="group" aria-label="Lọc theo loại" style={{ flex: '1 1 160px', maxWidth: 240 }}><Select size="sm" value={f.typeId} onChange={set('typeId')} options={lookupOptions(meta.types, 'Mọi loại')} /></div> : null}
-          <div role="group" aria-label="Sắp xếp" style={{ flex: '1 1 160px', maxWidth: 220 }}><Select size="sm" value={f.sort} onChange={set('sort')} options={SORTS} /></div>
+          {board ? null : <div role="group" aria-label="Sắp xếp" style={{ flex: '1 1 160px', maxWidth: 220 }}><Select size="sm" value={f.sort} onChange={set('sort')} options={SORTS} /></div>}
           {mayRestore ? <Button variant="secondary" icon="trash-2" aria-pressed={trash} onClick={() => setDeletedMode((x) => !x)}>{trash ? 'Về danh sách' : 'Đã xoá'}</Button> : null}
           {canCreate(scopeOf) && !trash ? <Button icon="plus" onClick={() => setCreating(true)}>Tạo cơ hội</Button> : null}
         </div>
         {trash ? <div role="status" style={{ font: 'var(--type-sm)', color: 'var(--warning-text)' }}>Đang xem các cơ hội đã xoá. Bấm "Khôi phục" để đưa cơ hội trở lại danh sách.</div> : null}
+        {full && meta && mobile ? (
+          <div role="group" aria-label="Lọc theo giai đoạn" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+            {[{ id: '', label: 'Mọi giai đoạn' }].concat(meta.stages || []).map((x) => { const on = f.stageId === x.id; return <button key={x.id || 'all'} type="button" className="sg-chip" aria-pressed={on} onClick={() => set('stageId')(x.id)} style={{ flex: '0 0 auto', ...(on ? { background: 'var(--primary-soft)', borderColor: 'transparent', color: 'var(--primary-text)' } : {}) }}>{x.label}</button>; })}
+          </div>
+        ) : null}
         {kw.trim().length === 1 ? <div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>Gõ ít nhất 2 ký tự để tìm.</div> : null}
+        {board && meta ? (
+          <>
+            <OpportunityKanban ui={ui} meta={meta} typeId={f.typeId} q={f.q} />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', font: 'var(--type-sm)', color: 'var(--text-3)' }}>
+              <span>Kanban chỉ gồm cơ hội đang mở. Xem ở dạng bảng:</span>
+              {[['ON_HOLD', 'Tạm hoãn'], ['WON', 'Đã Thắng'], ['LOST', 'Đã Thua']].map(([k, label]) => <Button key={k} size="sm" variant="ghost" onClick={() => { setF((x) => ({ ...x, status: k, stageId: '' })); setView('table'); }}>{label}</Button>)}
+            </div>
+          </>
+        ) : null}
         {full && s.meta.status === 'error' ? <ApiErrorBox error={s.meta.error} onRetry={() => opps.loadMeta(true)} /> : null}
         {l.status === 'loading' || l.status === 'idle' ? <div role="status" style={{ color: 'var(--text-2)', padding: '12px 0' }}>Đang tải cơ hội…</div> : null}
         {l.status === 'error' ? <ApiErrorBox error={l.error} onRetry={() => opps.reload()} /> : null}
@@ -206,6 +228,7 @@ export default function OpportunitiesPage({ ui }) {
                     {trash ? <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{o.title}</span> : <a href={hrefOf(o)} onClick={(e) => { e.preventDefault(); openOpp(ui, o); }} style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{o.title}</a>}
                     <div style={{ font: 'var(--type-sm)', color: 'var(--text-2)', overflowWrap: 'anywhere' }}>{o.customer ? o.customer.name : '—'}{o.owner ? ' · ' + o.owner.fullName : ''}</div>
                     {isFull(o) ? <div style={{ font: 'var(--type-sm)', display: 'flex', gap: 10, flexWrap: 'wrap' }}><span>{moneyVN(o.expectedAmountVnd)}</span><span>{o.probability + '%'}</span>{o.expectedCloseDate ? <span style={{ color: isCloseOverdue(o) ? 'var(--error-text)' : 'var(--text-2)' }}>{(isCloseOverdue(o) ? 'Quá hạn chốt ' : 'Chốt ') + dateVN(o.expectedCloseDate)}</span> : null}</div> : null}
+                    {!trash && opportunityActions(o, actx).includes('stage') ? <div><Button size="sm" variant="secondary" icon="arrow-right" loading={mover.pendingId === o.id} onClick={() => mover.start(o)}>Chuyển giai đoạn</Button></div> : null}
                     {trash ? <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><span style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>{'Xoá lúc ' + U.dtVN(o.deletedAt)}</span><Button size="sm" variant="secondary" icon="rotate-ccw" onClick={() => setRestoring(o)}>Khôi phục</Button></div> : null}
                   </li>
                 ))}
@@ -238,6 +261,7 @@ export default function OpportunitiesPage({ ui }) {
       </section>
       {creating ? <CreateDialog ui={ui} onClose={() => setCreating(false)} /> : null}
       {restoring ? <RestoreDialog ui={ui} o={restoring} onClose={() => setRestoring(null)} /> : null}
+      {mover.element}
     </div>
   );
 }

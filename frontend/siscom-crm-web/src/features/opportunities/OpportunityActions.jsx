@@ -21,11 +21,11 @@ const INTRO = {
   delete: 'Cơ hội được xoá mềm; Quản trị CRM có thể khôi phục.',
 };
 
-function ActionDialog({ kind, o, ui, onClose, onDone, onStale }) {
+export function ActionDialog({ kind, o, ui, onClose, onDone, onStale, preset = null }) {
   const opps = ui.customerApi.opportunities;
   const s = useCustomerApiState(opps);
   const meta = s.meta.data;
-  const [f, setF] = React.useState(() => initAction(kind, o));
+  const [f, setF] = React.useState(() => ({ ...initAction(kind, o), ...(preset || {}) })); // preset: giá trị chọn sẵn (kanban thả thẻ vào cột => stageId)
   const [errs, setErrs] = React.useState({});
   const [error, setError] = React.useState(null);
   const wantsPeople = !!ACTION_CANDIDATES[kind];
@@ -114,4 +114,23 @@ export function OpportunityActions({ ui, o, onChanged, onStale }) {
         : dlg ? <ActionDialog key={dlg} kind={dlg} o={o} ui={ui} onClose={() => setDlg(null)} onStale={onStale} onDone={(data, kind) => { setDlg(null); if (onChanged) onChanged(data, kind); }} /> : null}
     </>
   );
+}
+
+// S11: mở hộp "Chuyển giai đoạn" cho một dòng của danh sách / thẻ kanban (stageId = giai đoạn chọn sẵn khi thả thẻ vào cột).
+// Dòng danh sách không có cờ "xác suất đang nhập tay" và có thể đã cũ => đọc chi tiết từ máy chủ trước khi mở hộp. Người dùng luôn xác nhận trong hộp thoại.
+export function useStageMove(ui, onDone) {
+  const opps = ui.customerApi.opportunities;
+  const [st, setSt] = React.useState(null); // { o, stageId, detail }
+  const start = async (o, stageId) => {
+    setSt({ o, stageId: stageId || '', detail: null });
+    const r = await opps.get(o.id);
+    if (!r.ok) { setSt(null); ui.toast({ tone: 'error', title: r.error.title || 'Không mở được cơ hội', message: r.error.message || o.code }); return; }
+    setSt((x) => (x && x.o.id === o.id ? { ...x, detail: r.data } : x));
+  };
+  const close = () => setSt(null);
+  const element = st && st.detail ? (
+    <ActionDialog key={st.detail.id + ':' + st.stageId + ':' + st.detail.version} kind="stage" o={st.detail} ui={ui} preset={st.stageId ? { stageId: st.stageId } : null}
+      onClose={close} onStale={() => start(st.o, st.stageId)} onDone={(data) => { close(); if (onDone) onDone(data); }} />
+  ) : null;
+  return { start, element, pendingId: st && !st.detail ? st.o.id : null };
 }
