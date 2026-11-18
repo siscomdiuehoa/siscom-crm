@@ -114,6 +114,12 @@ export function createCustomerApi(config, fetchImpl, options) {
       if (!/^\/(activities|activity-transfer-requests)(\/|\?|$)/.test(String(path)) || /\.\.|\/\//.test(String(path))) throw new Error('Đường dẫn API công việc không hợp lệ.');
       return await call(method, path, body);
     },
+    // Sales S10 cơ hội: MỘT cổng cho /opportunities… và /customers/:uuid/opportunities; đường dẫn khác bị từ chối trước khi gọi mạng.
+    async opportunityRequest(method, path, body) {
+      const p = String(path);
+      if (!/^\/(opportunities(\/|\?|$)|customers\/[0-9a-fA-F-]{36}\/opportunities(\?|$))/.test(p) || /\.\.|\/\//.test(p)) throw new Error('Đường dẫn API cơ hội không hợp lệ.');
+      return await call(method, p, body);
+    },
     qs,
   };
 }
