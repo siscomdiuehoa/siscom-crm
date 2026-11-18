@@ -112,6 +112,7 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect(tech.length).toBeGreaterThan(100);
     expect(tech).not.toMatch(/[aA]mount|[pP]robability|[hH]old|[wW]on|[lL]ost|closedAt|ownerLostAccess|[cC]ontact|[pP]hone|[aA]ddress|\.\.\.r\b/);
     expect(tech).toContain("access: 'TASK' as const");
+    expect(tech).not.toMatch(/\bstatus\b|\bowner\b|emp\(/); // review R1 #245: bám danh sách trường §5.4 — không trạng thái, không người phụ trách
     // Chi tiết: chỉ đạt đường theo việc => trả bản kỹ thuật TRƯỚC khi đọc thẻ khách / liên hệ.
     const d = s.slice(s.indexOf('async detailIn('), s.indexOf('async changes('));
     expect(d.indexOf("if (path === 'TASK') return toOpportunityTechDetail(row);")).toBeGreaterThan(-1);

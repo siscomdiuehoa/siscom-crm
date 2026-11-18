@@ -114,11 +114,11 @@ export class ActivitiesService {
 
   // Sales S9a §5.5(b) — gọi qua OpportunityActivityGate, TRONG transaction của service Sales (đã khoá khách + cơ hội, đã kiểm opportunity.update).
   // Lỗi DB do transaction của nơi gọi ánh xạ.
-  async createForOpportunity(tx: Tx, ctx: RequestCtx, opportunity: { id: string; customerId: string }, dto: CreateActivityDto) {
+  async createForOpportunity(tx: Tx, ctx: RequestCtx, opportunity: { id: string; customerId: string; contactId: string | null }, dto: CreateActivityDto) {
     const { actor } = ctx;
     if (!this.scope(actor, 'activity.create') && !this.scope(actor, 'activity.create_tech')) throw activityErrors.forbidden();
     if (dto.opportunityId !== undefined && dto.opportunityId.toLowerCase() !== opportunity.id) throw activityErrors.validation(['opportunityId lấy từ đường dẫn, không gửi cơ hội khác trong nội dung.']);
-    return this.createIn(tx, ctx, opportunity.customerId, dto, this.parseCreate(ctx, dto), opportunity.id);
+    return this.createIn(tx, ctx, opportunity.customerId, dto, this.parseCreate(ctx, dto), { id: opportunity.id, contactId: opportunity.contactId });
   }
 
   // Kiểm tham số (không đụng DB).
@@ -153,7 +153,7 @@ export class ActivitiesService {
 
   // Ghi hoạt động TRONG transaction đã mở (dòng khách đã khoá). viaOpportunity = null: đường theo KHÁCH của B3 (mọi mã tính theo phạm vi chủ khách).
   // viaOpportunity = id cơ hội: đường Sales §5.5(b) — mã activity.* chỉ cần đang hiệu lực; không đòi đọc được khách.
-  private async createIn(tx: Tx, ctx: RequestCtx, customerId: string, dto: CreateActivityDto, p: ReturnType<ActivitiesService['parseCreate']>, viaOpportunity: string | null) {
+  private async createIn(tx: Tx, ctx: RequestCtx, customerId: string, dto: CreateActivityDto, p: ReturnType<ActivitiesService['parseCreate']>, viaOpportunity: { id: string; contactId: string | null } | null) {
     const { actor } = ctx;
     const { isTask, due, remind, occurredAt, title, outcome, performedById, assigningOther, contactId } = p;
     const anyScope = viaOpportunity !== null;
@@ -173,16 +173,24 @@ export class ActivitiesService {
           if (!tech) throw activityErrors.forbidden();
           if (!TECH_TYPES.includes(dto.type)) throw activityErrors.typeNotAllowed();
         }
+        // PR245-R1-02 (CHỈ đường Sales): người gọi không có contact.read trong phạm vi chủ khách chỉ gắn được người liên hệ CỦA CHÍNH CƠ HỘI
+        // (liên hệ mà họ vốn thấy ở chi tiết cơ hội, [C5]). Kiểm TRƯỚC khi tra DB: liên hệ khác của khách và liên hệ không tồn tại trả cùng một lỗi.
+        const readsContacts = !anyScope || inScope(actor, this.scope(actor, 'contact.read'), owner);
+        if (contactId && !readsContacts && contactId !== viaOpportunity?.contactId) throw activityErrors.contactMismatch();
         if (contactId) {
           const ct = await tx.contact.findFirst({ where: { id: contactId, customerId, deletedAt: null }, select: { id: true } });
           if (!ct) throw activityErrors.contactMismatch();
         }
         // Sales S9a §5.5(c): gắn cơ hội qua đường theo khách => kiểm thấy được + opportunity.update + cùng khách. Đường Sales: cơ hội đã được nơi gọi kiểm và khoá.
-        const opportunityId = anyScope ? viaOpportunity : dto.opportunityId ? dto.opportunityId.toLowerCase() : null;
+        const opportunityId = viaOpportunity ? viaOpportunity.id : dto.opportunityId ? dto.opportunityId.toLowerCase() : null;
         if (!anyScope && opportunityId) await assertOpportunityLink(tx, actor, (q) => this.scope(actor, q), opportunityId, customerId);
         // A6 (§5.4): external=true cho phép giao TASK cho người KHÔNG đọc được khách bằng quyền theo việc; không gửi => đúng quy tắc A5.
-        const kind = assigningOther
-          ? planAssignment(actor, (p) => this.scope(actor, p), owner, (await this.access.load(tx, [performedById])).get(performedById), { external: dto.external === true, openTask: isTask, anyScope })
+        // PR245-R1-01: ở đường Sales, MỌI TASK đều qua kiểm người nhận — kể cả khi người làm để mặc định hoặc là chính người gọi (người phụ trách
+        // cơ hội có thể KHÔNG đọc được khách: không kiểm thì tạo ra việc mà chính họ không đọc / hoàn thành được qua API Công việc).
+        // Đường theo khách của B3 giữ nguyên: tự nhận không qua planAssignment (người gọi đã phải đọc được khách).
+        const selfTaskViaOpportunity = anyScope && isTask && !assigningOther;
+        const kind = assigningOther || selfTaskViaOpportunity
+          ? planAssignment(actor, (p) => this.scope(actor, p), owner, (await this.access.load(tx, [performedById])).get(performedById), { external: dto.external === true, openTask: isTask, anyScope, self: selfTaskViaOpportunity })
           : null;
 
         const row = await tx.activity.create({
@@ -216,7 +224,9 @@ export class ActivitiesService {
         if (kind === 'EXTERNAL') {
           await grantAccess({ tx, audit: this.audit, actorId: actor.employeeId, requestId: ctx.requestId, activity: { id: row.id, code: row.code, type: row.type } }, performedById);
         }
-        return toActivity(row);
+        // PR245-R1-02: phản hồi POST theo CÙNG chính sách với GET /opportunities/:id/activities — không có contact.read trong phạm vi => không trả liên hệ.
+        const created = toActivity(row);
+        return readsContacts ? created : { ...created, contact: null };
       }
     }
   }
