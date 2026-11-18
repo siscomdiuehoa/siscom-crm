@@ -3,7 +3,11 @@ import type { RequestCtx } from '../../common/auth/actor';
 import { CurrentCtx } from '../../common/auth/actor.decorator';
 import { ActorGuard } from '../../common/auth/actor.guard';
 import { QueryOpportunitiesDto } from './dto/query-opportunities.dto';
-import { AssignOpportunityDto, CreateOpportunityDto, DeleteOpportunityDto, MoveStageDto, RestoreOpportunityDto, UpdateOpportunityDto } from './dto/write-opportunity.dto';
+import {
+  AssignOpportunityDto, CreateOpportunityDto, DeleteOpportunityDto, HoldOpportunityDto, LoseOpportunityDto, MoveStageDto, ReopenOpportunityDto, RestoreOpportunityDto,
+  ResumeOpportunityDto, UpdateOpportunityDto, WinOpportunityDto,
+} from './dto/write-opportunity.dto';
+import { OpportunityLifecycleService } from './opportunities.lifecycle.service';
 import { OpportunitiesService } from './opportunities.service';
 import { OpportunityWritesService } from './opportunities.write.service';
 
@@ -23,7 +27,7 @@ export class CustomerOpportunitiesController {
 @Controller('opportunities')
 @UseGuards(ActorGuard)
 export class OpportunitiesController {
-  constructor(private readonly service: OpportunitiesService, private readonly writes: OpportunityWritesService) {}
+  constructor(private readonly service: OpportunitiesService, private readonly writes: OpportunityWritesService, private readonly lifecycle: OpportunityLifecycleService) {}
 
   @Get()
   async list(@CurrentCtx() ctx: RequestCtx, @Query() q: QueryOpportunitiesDto) {
@@ -63,6 +67,37 @@ export class OpportunitiesController {
   @Post(':id/restore')
   async restore(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: RestoreOpportunityDto) {
     return { data: await this.writes.restore(ctx, id, dto) };
+  }
+
+  // S8b — vòng đời trạng thái (§6.4–6.7). Trả 200 kèm chi tiết cơ hội sau thao tác.
+  @Post(':id/hold')
+  @HttpCode(200)
+  async hold(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: HoldOpportunityDto) {
+    return { data: await this.lifecycle.hold(ctx, id, dto) };
+  }
+
+  @Post(':id/resume')
+  @HttpCode(200)
+  async resume(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: ResumeOpportunityDto) {
+    return { data: await this.lifecycle.resume(ctx, id, dto) };
+  }
+
+  @Post(':id/win')
+  @HttpCode(200)
+  async win(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: WinOpportunityDto) {
+    return { data: await this.lifecycle.win(ctx, id, dto) };
+  }
+
+  @Post(':id/lose')
+  @HttpCode(200)
+  async lose(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: LoseOpportunityDto) {
+    return { data: await this.lifecycle.lose(ctx, id, dto) };
+  }
+
+  @Post(':id/reopen')
+  @HttpCode(200)
+  async reopen(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: ReopenOpportunityDto) {
+    return { data: await this.lifecycle.reopen(ctx, id, dto) };
   }
 
   // Xoá mềm: lý do + version ở body (như DELETE /activities/:id).

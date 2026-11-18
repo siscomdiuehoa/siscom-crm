@@ -1,0 +1,54 @@
+-- SISCOM CRM - ROLLBACK Sales S8b (20261119000000_sales_activity_auto_kind). VIET SAN, KHONG TU CHAY.
+-- Dich: backend\docs\SALES_S8_AUTO_KIND_ROLLBACK.sql.txt (noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/staging/production: CAM, tru khi co phe duyet RIENG.
+-- Viec lam: go chi muc uq_activity_opp_auto_open, CHECK ck_activity_opp_auto_kind, cot activity.opportunity_auto_kind + xoa dong _prisma_migrations.
+-- THU TU (docs/SALES_DESIGN.md §9 "Duong lui"): (1) trien khai lai backend ban TRUOC S8b; (2) file nay; roi moi toi rollback cua cac migration cu hon.
+-- MOT transaction. KHONG BAO GIO tu xoa/sua du lieu. TU CHOI khi con BAT KY dong activity nao co opportunity_auto_kind khac NULL (ke ca viec da dong,
+--   da huy, da xoa mem): go cot la mat dau "viec tu sinh". Xu ly tay TRUOC (Owner duyet rieng, tren ban sao, ghi evidence). Khong co co "ep buoc".
+-- KHOA TRUOC KHI KIEM (nhu SALES_S2_ROLLBACK, PR237-R1-02): LOCK TABLE activity ACCESS EXCLUSIVE roi moi dem => khong co giao dich nao chen viec tu sinh
+--   giua luc dem va luc go cot. Chan ca doc activity trong luc rollback - chay khi bao tri.
+-- Chay bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi unsplit); khong phai chu so huu => 42501, huy.
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+END $$;
+LOCK TABLE public.activity IN ACCESS EXCLUSIVE MODE;
+DO $$
+DECLARE n int;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261119000000_sales_activity_auto_kind') THEN
+    RAISE EXCEPTION 'TU CHOI: chua ap 20261119000000_sales_activity_auto_kind (khong co gi de rollback).';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity' AND column_name = 'opportunity_auto_kind') THEN
+    EXECUTE 'SELECT count(*) FROM public.activity WHERE opportunity_auto_kind IS NOT NULL' INTO n;
+    IF n > 0 THEN
+      RAISE EXCEPTION 'TU CHOI: con % dong activity la viec tu sinh cua co hoi (opportunity_auto_kind khac NULL) - khong go cot.', n;
+    END IF;
+  END IF;
+END $$;
+
+DROP INDEX IF EXISTS public.uq_activity_opp_auto_open;
+ALTER TABLE public.activity DROP CONSTRAINT IF EXISTS ck_activity_opp_auto_kind;
+ALTER TABLE public.activity DROP COLUMN IF EXISTS opportunity_auto_kind;
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261119000000_sales_activity_auto_kind';
+
+DO $$ BEGIN
+  IF to_regclass('public.uq_activity_opp_auto_open') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_activity_opp_auto_kind')
+     OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity' AND column_name = 'opportunity_auto_kind')
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261119000000_sales_activity_auto_kind')
+     -- doi tuong cua S2 phai con nguyen
+     OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'activity' AND column_name = 'opportunity_id') THEN
+    RAISE EXCEPTION 'Rollback Sales S8b (activity_auto_kind) chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK Sales S8b (20261119000000_sales_activity_auto_kind) XONG' AS ket_qua;

@@ -8,6 +8,7 @@ import { inScope } from '../../common/auth/scope';
 import { DomainException } from '../../common/errors/domain.exception';
 import { mapPrismaError } from '../../common/errors/prisma-error.mapper';
 import { PrismaService } from '../../prisma/prisma.service';
+import { OPPORTUNITY_AUTO_TASKS, OpportunityAutoTasks } from '../activities/activities.opportunity-tasks';
 import { OPPORTUNITY_STAGE } from '../lookups/sales.catalog';
 import {
   accessPath, allowsCreate, assertAssignee, assertMayLoadDeleted, assertRestorable, assertWrite, hasAssignedReadCode, OppRef, OppWriteCode, readsFull, ScopeOf,
@@ -26,14 +27,15 @@ const MAX_YEAR = 2100;
 const W_SELECT = {
   id: true, code: true, version: true, status: true, ownerId: true, deletedAt: true, title: true, needSummary: true, typeId: true, stageId: true,
   isProjectLinked: true, projectName: true, offerScope: true, contactId: true, expectedAmountVnd: true, probability: true, probabilityOverridden: true,
-  expectedCloseDate: true, customerId: true,
-  type: { select: { code: true } }, stage: { select: { code: true } }, customer: { select: { ownerId: true, deletedAt: true } },
+  expectedCloseDate: true, customerId: true, holdUntil: true, holdReason: true,
+  type: { select: { code: true } }, stage: { select: { code: true } },
+  customer: { select: { ownerId: true, deletedAt: true, owner: { select: { departmentId: true } } } },
 } as const;
-interface WRow {
+export interface WRow {
   id: string; code: string; version: number; status: string; ownerId: string; deletedAt: Date | null; title: string; needSummary: string | null; typeId: string; stageId: string;
   isProjectLinked: boolean; projectName: string | null; offerScope: string | null; contactId: string | null; expectedAmountVnd: bigint | null; probability: number;
-  probabilityOverridden: boolean; expectedCloseDate: Date | null; customerId: string;
-  type: { code: string }; stage: { code: string }; customer: { ownerId: string | null; deletedAt: Date | null };
+  probabilityOverridden: boolean; expectedCloseDate: Date | null; customerId: string; holdUntil: Date | null; holdReason: string | null;
+  type: { code: string }; stage: { code: string }; customer: { ownerId: string | null; deletedAt: Date | null; owner: { departmentId: string | null } | null };
 }
 const refOf = (r: WRow): OppRef => ({ ownerId: r.ownerId, deletedAt: r.deletedAt, customer: { ownerId: r.customer.ownerId, deletedAt: r.customer.deletedAt } });
 
@@ -71,11 +73,13 @@ export class OpportunityWritesService {
     private readonly reads: OpportunitiesService,
     @Inject(OPP_EMPLOYEE_ACCESS) private readonly access: OppEmployeeAccessReader,
     @Inject(ASSIGNEE_ELIGIBILITY) private readonly eligibility: AssigneeEligibility,
+    @Inject(OPPORTUNITY_AUTO_TASKS) private readonly tasks: OpportunityAutoTasks,
   ) {}
 
   private scopeOf(actor: Actor): ScopeOf { return (p) => this.actors.scopeFor(actor, p); }
 
-  private async inTx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  // inTx và loadForWrite dùng chung cho service vòng đời (opportunities.lifecycle.service.ts, S8b): cùng thứ tự khoá, cùng cách kiểm mã.
+  async inTx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
@@ -101,7 +105,7 @@ export class OpportunityWritesService {
   }
 
   // Khoá (khách FOR SHARE -> cơ hội FOR UPDATE), đọc lại, kiểm đúng mã ghi. customer_id của cơ hội là bất biến (trigger S2) nên đọc trước khi khoá là an toàn.
-  private async loadForWrite(tx: Tx, actor: Actor, scopeOf: ScopeOf, id: string, code: OppWriteCode): Promise<WRow> {
+  async loadForWrite(tx: Tx, actor: Actor, scopeOf: ScopeOf, id: string, code: OppWriteCode): Promise<WRow> {
     // Không có mã opportunity.* nào liên quan => 403 như các đường đọc (không phải 404).
     if (scopeOf('opportunity.read') === null && !hasAssignedReadCode(scopeOf) && scopeOf(code) === null) throw opportunityErrors.forbidden();
     const head = await tx.opportunity.findFirst({ where: { id }, select: { customerId: true } });
@@ -294,7 +298,6 @@ export class OpportunityWritesService {
   // tài khoản dùng được (cổng auth), đọc + sửa được cơ hội sau khi nhận, cùng phòng trừ khi người chuyển có phạm vi ALL. Mọi nguyên nhân từ chối
   // người nhận trả MỘT mã OPPORTUNITY_ASSIGNEE_INELIGIBLE. Áp cho mọi trạng thái (kể cả đã đóng: người phụ trách nghỉ việc vẫn phải chuyển được).
   // Sau khi chuyển, người chuyển có thể KHÔNG còn thấy cơ hội (Kinh doanh chuyển cơ hội ở khách không do mình phụ trách) => trả bản tối thiểu.
-  // Việc nhắc tạm hoãn tự sinh chuyển theo người phụ trách mới: làm ở S8b (khi có việc tự sinh).
   async assign(ctx: RequestCtx, id: string, dto: AssignOpportunityDto) {
     const { actor } = ctx;
     const scopeOf = this.scopeOf(actor);
@@ -314,6 +317,8 @@ export class OpportunityWritesService {
         action: 'opportunity.assign', entityType: 'opportunity', entityId: id, entityCode: row.code, summary: 'Chuyển người phụ trách cơ hội ' + row.code,
         changes: { ownerId: [row.ownerId, dto.ownerId], reason: AUDIT_REDACTED_TEXT }, actorEmployeeId: actor.employeeId, requestId: ctx.requestId,
       });
+      // S8b (§6.8): việc nhắc tạm hoãn còn OPEN đổi người làm theo người phụ trách mới, cùng transaction. Việc bàn giao và việc người dùng tạo không đổi.
+      await this.tasks.reassignReminder({ tx, actorId: actor.employeeId, requestId: ctx.requestId, opportunity: { id, code: row.code, customerId: row.customerId } }, dto.ownerId);
       const after: OppRef = { ...refOf(row), ownerId: dto.ownerId };
       if (readsFull(actor, scopeOf, after)) return this.reads.detailIn(tx, actor, scopeOf, id);
       return { id, code: row.code, version: row.version + 1, transferred: true as const };
