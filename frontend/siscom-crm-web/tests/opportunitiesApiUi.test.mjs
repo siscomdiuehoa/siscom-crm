@@ -228,16 +228,16 @@ test('Kỹ thuật (đường theo việc): không gọi danh mục, không có 
 
 test('Kinh doanh: đủ thao tác trên cơ hội MÌNH phụ trách, không thao tác nào trên cơ hội của người khác; Quản trị CRM có thêm Xoá và Mở lại khi đã đóng', async () => {
   const mine = await viewPage(server(), SALES);
-  try { assert.deepEqual(actionButtons(mine.container), ['Chuyển giai đoạn', 'Tạm hoãn', 'Thắng', 'Thua', 'Chuyển người phụ trách']); assert.match(text(mine.container), /Chưa rõ/); } finally { await mine.unmount(); }
+  try { assert.deepEqual(actionButtons(mine.container), ['Sửa', 'Chuyển giai đoạn', 'Tạm hoãn', 'Thắng', 'Thua', 'Chuyển người phụ trách']); assert.match(text(mine.container), /Chưa rõ/); } finally { await mine.unmount(); }
   const other = { owner: { id: 'e-other', code: 'NV-9', fullName: 'Người khác' } };
   const theirs = await viewPage(server({ get: () => res(200, { data: detail(other) }) }), SALES);
   try { assert.deepEqual(actionButtons(theirs.container), []); } finally { await theirs.unmount(); }
   const admin = await viewPage(server({ get: () => res(200, { data: detail(other) }) }), ADMIN);
-  try { assert.deepEqual(actionButtons(admin.container), ['Chuyển giai đoạn', 'Tạm hoãn', 'Thắng', 'Thua', 'Chuyển người phụ trách', 'Xoá']); } finally { await admin.unmount(); }
+  try { assert.deepEqual(actionButtons(admin.container), ['Sửa', 'Chuyển giai đoạn', 'Tạm hoãn', 'Thắng', 'Thua', 'Chuyển người phụ trách', 'Xoá']); } finally { await admin.unmount(); }
   const lost = await viewPage(server({ get: () => res(200, { data: detail({ ...other, status: 'LOST', lostReason: { id: 'r-price', code: 'PRICE_HIGHER', label: 'Giá cao hơn đối thủ' }, closedAt: NOW }) }) }), ADMIN);
   try { assert.deepEqual(actionButtons(lost.container), ['Chuyển người phụ trách', 'Mở lại', 'Xoá']); assert.match(text(lost.container), /Giá cao hơn đối thủ/); } finally { await lost.unmount(); }
   const held = await viewPage(server({ get: () => res(200, { data: detail({ status: 'ON_HOLD', holdUntil: '2026-12-01', holdReason: 'Chờ ngân sách' }) }) }), SALES);
-  try { assert.deepEqual(actionButtons(held.container), ['Đổi hạn hoãn', 'Tiếp tục', 'Thắng', 'Thua', 'Chuyển người phụ trách']); assert.match(text(held.container), /Chờ ngân sách/); } finally { await held.unmount(); }
+  try { assert.deepEqual(actionButtons(held.container), ['Sửa', 'Đổi hạn hoãn', 'Tiếp tục', 'Thắng', 'Thua', 'Chuyển người phụ trách']); assert.match(text(held.container), /Chờ ngân sách/); } finally { await held.unmount(); }
 });
 
 // ───── Tạo cơ hội ─────

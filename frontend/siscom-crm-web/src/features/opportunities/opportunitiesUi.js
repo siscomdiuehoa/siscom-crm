@@ -1,6 +1,10 @@
 // Sales S10: controller màn hình Cơ hội trên API Sales (không React/DOM/lưu trữ cục bộ). Mẫu của tasksUi.js (B3 A8).
 // Mọi dữ liệu chỉ từ máy chủ; thao tác ghi thành công => đọc lại danh sách từ máy chủ (không tự sửa dòng); lỗi => báo, không thử lại ngầm.
-import { buildListQuery, validateCreate, toCreateBody, serverFieldErrors, validateAction, toActionRequest, ACTION_CANDIDATES } from './opportunitiesModel.js';
+import {
+  buildListQuery, validateCreate, toCreateBody, serverFieldErrors, validateAction, toActionRequest, ACTION_CANDIDATES,
+  validateEdit, toPatchBody, validateDocument, toDocumentBody, validateReason,
+} from './opportunitiesModel.js';
+import { validateDraft, buildCreateBody, detailsToFieldErrors } from '../activities/activityModel.js';
 
 const enc = encodeURIComponent;
 const idle = { status: 'idle', data: null, error: null };
@@ -10,7 +14,7 @@ const NOT_FOUND = { title: 'Không tìm thấy cơ hội', message: 'Cơ hội k
 
 // repo: { opportunities(method, path, body), qs(obj) }. describe: describeRepoError của lớp khách hàng (phân loại lỗi dùng chung).
 export function createOpportunitiesController(repo, describe, hooks = {}) {
-  let state = { meta: idle, list: idleList, busy: null };
+  let state = { meta: idle, list: idleList, busy: null, activityTick: 0 };
   const subs = new Set();
   const set = (patch) => { state = { ...state, ...patch }; subs.forEach((f) => f()); };
   const req = (m, p, b) => repo.opportunities(m, p, b);
@@ -24,6 +28,24 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
     return { ...d, fieldErrors: r.fieldErrors, extra: r.extra };
   };
   let mseq = 0; let lseq = 0; let inflight = false;
+  // Lỗi 400 của API Hoạt động: chi tiết là chuỗi => gắn theo ô của biểu mẫu hoạt động.
+  const errActivity = (e) => { const d = describe(e); if (d.kind === 'not_found') return { ...d, ...NOT_FOUND }; if (d.kind !== 'bad_request') return d; const r = detailsToFieldErrors(e && e.details); return { ...d, fieldErrors: r.fieldErrors, extra: r.extra }; };
+  const read = async (path, describeErr = err) => { try { return { ok: true, data: await req('GET', path) }; } catch (e) { return { ok: false, error: describeErr(e) }; } };
+  // Khung chung cho thao tác ghi của S10c: chặn bấm trùng; thành công => đọc lại danh sách (nếu đã tải) + hook; 409 => cũng đọc lại danh sách.
+  const write = async (busy, fn, opt = {}) => {
+    if (inflight) return { ok: false, duplicate: true };
+    inflight = true; set({ busy });
+    try {
+      const data = await fn();
+      if (opt.list !== false && state.list.status !== 'idle') await ctl.reload();
+      if (opt.hook !== false && typeof hooks.onChanged === 'function') { try { await hooks.onChanged(data); } catch (e) { /* bỏ qua */ } }
+      return { ok: true, data };
+    } catch (e) {
+      const error = (opt.err || err)(e);
+      if (error.kind === 'conflict' && opt.list !== false && state.list.status !== 'idle') await ctl.reload();
+      return { ok: false, error, fieldErrors: error.fieldErrors || {}, stale: error.kind === 'conflict' };
+    } finally { inflight = false; set({ busy: null }); }
+  };
 
   const ctl = {
     getState: () => state,
@@ -105,6 +127,48 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
     },
     // Đọc phụ (không lưu state chung): chi tiết một cơ hội.
     async get(id) { try { return { ok: true, data: await req('GET', '/opportunities/' + enc(id)) }; } catch (e) { return { ok: false, error: err(e) }; } },
+
+    // ───── S10c ─────
+    // Sửa trường (PATCH): chỉ gửi trường thực sự đổi + version đã tải. Không đổi gì => không gọi mạng.
+    async update(o, form) {
+      const meta = state.meta.data;
+      const fieldErrors = validateEdit(form, meta, o);
+      if (Object.keys(fieldErrors).length) return { ok: false, invalid: true, fieldErrors };
+      const body = toPatchBody(o, form, meta);
+      if (!Object.keys(body).length) return { ok: true, unchanged: true, data: o };
+      return write('edit:' + o.id, () => req('PATCH', '/opportunities/' + enc(o.id), { version: o.version, ...body }));
+    },
+    // Khôi phục cơ hội đã xoá mềm (dòng lấy từ danh sách deleted=only).
+    restore(o) { return write('restore:' + o.id, () => req('POST', '/opportunities/' + enc(o.id) + '/restore', { version: o.version })); },
+    // Người liên hệ của khách (cho ô chọn ở biểu mẫu Sửa) — chỉ gọi khi giao diện có contact.read và đọc được khách.
+    async contacts(customerId) { try { return { ok: true, items: await repo.contacts(customerId) }; } catch (e) { return { ok: false, error: describe(e) }; } },
+    // Hoạt động THEO CƠ HỘI (§5.5): máy chủ lọc theo đường truy cập. f = { type, status }.
+    activities(id, f = {}, page = 1) {
+      const q = { page, pageSize: 20 }; if (f.type) q.type = f.type; if (f.status) q.status = f.status;
+      return read('/opportunities/' + enc(id) + '/activities' + qs(q), errActivity);
+    },
+    // Ghi nhận hoạt động gắn với cơ hội (người thực hiện = người ghi nhận). Kiểm tại chỗ như biểu mẫu Hoạt động; máy chủ kiểm lại.
+    async createActivity(id, draft) {
+      const fieldErrors = validateDraft(draft);
+      if (Object.keys(fieldErrors).length) return { ok: false, invalid: true, fieldErrors };
+      const r = await write('activity:' + id, () => req('POST', '/opportunities/' + enc(id) + '/activities', buildCreateBody(draft)), { list: false, err: errActivity });
+      if (r.ok) ctl.touchActivities();
+      return r;
+    },
+    // Báo cho tab "Hoạt động & công việc" đang mở đọc lại (sau ghi nhận, hoặc sau thao tác trên công việc ở màn hình Công việc).
+    touchActivities() { set({ activityTick: state.activityTick + 1 }); },
+    changes(id) { return read('/opportunities/' + enc(id) + '/changes'); },
+    documents(id) { return read('/opportunities/' + enc(id) + '/documents'); },
+    async addDocument(id, form) {
+      const fieldErrors = validateDocument(form);
+      if (Object.keys(fieldErrors).length) return { ok: false, invalid: true, fieldErrors };
+      return write('doc:' + id, () => req('POST', '/opportunities/' + enc(id) + '/documents', toDocumentBody(form)), { list: false, hook: false });
+    },
+    async removeDocument(id, docId, reason) {
+      const fieldErrors = validateReason(reason, 'Xoá tài liệu phải ghi lý do');
+      if (Object.keys(fieldErrors).length) return { ok: false, invalid: true, fieldErrors };
+      return write('doc:' + id, () => req('DELETE', '/opportunities/' + enc(id) + '/documents/' + enc(docId), { reason: String(reason).trim() }), { list: false, hook: false });
+    },
   };
   return ctl;
 }

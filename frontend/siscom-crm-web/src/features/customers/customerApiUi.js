@@ -395,7 +395,10 @@ export function createCustomerApiUi({ env, fetchImpl, auth, session } = {}) {
   const repo = createCustomerRepository({ env, fetchImpl, auth, session });
   const ctl = createCustomerApiController(repo);
   // B3 A8: công việc (API A6). Ghi ở một nơi => nơi kia đọc lại từ máy chủ (dòng thời gian khách <-> danh sách việc + chuông).
-  ctl.tasks = createTasksController(repo, describeRepoError, { onChanged: (cid) => { const l = ctl.activities.getState().list; return l.customerId && (!cid || l.customerId === cid) ? ctl.activities.reload() : undefined; } });
+  ctl.tasks = createTasksController(repo, describeRepoError, { onChanged: (cid) => {
+    if (ctl.opportunities) ctl.opportunities.touchActivities(); // Sales S10c: tab "Hoạt động & công việc" của cơ hội đang mở đọc lại
+    const l = ctl.activities.getState().list; return l.customerId && (!cid || l.customerId === cid) ? ctl.activities.reload() : undefined;
+  } });
   ctl.activities = createActivitiesController(repo, describeRepoError, { onCreated: () => (ctl.tasks.getState().summary.status !== 'idle' ? ctl.tasks.refreshAll() : undefined) }); // B3 A7: tab Hoạt động dùng chung repository/phiên
   // Sales S10: cơ hội (API Sales). Tạm hoãn / Thắng / chuyển người làm thay đổi công việc tự sinh => chuông công việc đọc lại nếu đã tải.
   ctl.opportunities = createOpportunitiesController(repo, describeRepoError, { onChanged: () => (ctl.tasks.getState().summary.status !== 'idle' ? ctl.tasks.refreshAll() : undefined) });

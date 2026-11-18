@@ -76,7 +76,7 @@ test('opportunityActions — Kinh doanh (phạm vi OWN): đủ thao tác trên c
   const ctx = { scopeOf: scopes(SALES), meId: ME };
   assert.deepEqual(opportunityActions(opp(), ctx), ['edit', 'stage', 'hold', 'win', 'lose', 'assign']);
   assert.deepEqual(opportunityActions(opp({ status: 'ON_HOLD' }), ctx), ['edit', 'holdEdit', 'resume', 'win', 'lose', 'assign']);
-  assert.deepEqual(opportunityActions(opp({ status: 'WON' }), ctx), ['edit', 'assign']);
+  assert.deepEqual(opportunityActions(opp({ status: 'WON' }), ctx), ['assign']); // S10c: đã đóng => không sửa trường (máy chủ từ chối)
   assert.deepEqual(opportunityActions(opp({ owner: { id: 'e-other' } }), ctx), []);
   assert.deepEqual(opportunityActions(opp(), { scopeOf: scopes(SALES) }), []); // chưa biết mình là ai => không hiện
 });
@@ -84,7 +84,7 @@ test('opportunityActions — Kinh doanh (phạm vi OWN): đủ thao tác trên c
 test('opportunityActions — Quản trị CRM (ALL): thao tác trên mọi cơ hội; mở lại chỉ khi đã Thắng / Thua; có xoá', () => {
   const ctx = { scopeOf: scopes(ADMIN), meId: ME };
   assert.deepEqual(opportunityActions(opp({ owner: { id: 'e-other' } }), ctx), ['edit', 'stage', 'hold', 'win', 'lose', 'assign', 'delete']);
-  assert.deepEqual(opportunityActions(opp({ status: 'LOST', owner: { id: 'e-other' } }), ctx), ['edit', 'assign', 'reopen', 'delete']);
+  assert.deepEqual(opportunityActions(opp({ status: 'LOST', owner: { id: 'e-other' } }), ctx), ['assign', 'reopen', 'delete']);
 });
 
 test('opportunityActions — fail-closed: bản kỹ thuật (TASK), cơ hội đã xoá, phạm vi DEPARTMENT, không quyền, scopeOf ném lỗi => không thao tác nào', () => {
