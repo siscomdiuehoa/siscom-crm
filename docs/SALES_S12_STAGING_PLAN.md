@@ -3,6 +3,7 @@
 - **Ngày lập:** 18/11/2026 · **Trạng thái:** KẾ HOẠCH, **chưa thực hiện bước nào**. Mỗi bước ghi ở mục 4 cần Owner phê duyệt riêng bằng văn bản.
 - **Phạm vi:** cập nhật staging hiện có (`https://42.96.15.235`, DB `siscom_crm_staging`) từ bản trước Sales lên bản `main` sau khi #243–#250 đã merge. **Không** bao gồm production.
 - **Tài liệu nền:** `docs/SALES_DESIGN.md` §9 (dòng S12), §10 (tiêu chí nghiệm thu); `docs/VPS_RUNBOOK.md` §4 (cập nhật), §5 (cách lùi), G6 (sao lưu / khôi phục thử); `docs/evidence/SALES_S8_S11_NGHIEM_THU_20261118.md`.
+- **Cập nhật 19/11/2026:** Owner đã quyết cả bốn điểm mở (mục 8); máy chủ staging đã được khởi động lại theo quyết định đó (mục 1, dòng "Máy chủ"). #243 và #244 đã merge vào `main` (`eb20d5e`).
 - Tài liệu này không chứa mật khẩu, khoá hay giá trị biến môi trường.
 
 ## 1. Hiện trạng staging (kiểm **chỉ đọc** ngày 18/11/2026, 09:33 UTC)
@@ -11,18 +12,18 @@ Cách kiểm: đăng nhập SSH bằng khoá, chỉ chạy lệnh đọc; không
 
 | Hạng mục | Hiện trạng | Nhận xét |
 |---|---|---|
-| Máy chủ | Ubuntu 24.04, chạy liên tục 6 ngày; đĩa dùng 18% (còn 32 GB); RAM 3 GB + swap 2 GB | **Đang chờ khởi động lại** (cập nhật hệ thống) — xem R-4 |
+| Máy chủ | Ubuntu 24.04; đĩa dùng 18% (còn 32 GB); RAM 3 GB + swap 2 GB | Lúc kiểm 18/11 đang chờ khởi động lại. **Đã khởi động lại 19/11/2026 03:08 UTC** (Owner duyệt): gián đoạn khoảng 24 giây; mọi dịch vụ tự lên, không unit lỗi; khoá máy chủ SSH, cấu hình chỉ-khoá, tường lửa, swap giữ nguyên; số khách / liên hệ / nhân viên / migration không đổi (3 / 3 / 5 / 12); hết cờ chờ khởi động lại |
 | Phần mềm | Node 24.22.3 · PostgreSQL 18.6 · Caddy 2.11.9 | Khớp môi trường CI |
 | Dịch vụ | backend, Caddy, PostgreSQL, ufw, fail2ban, timer sao lưu: đều `active` | Đạt |
 | Bản đang chạy | `releases/src-20261113083453` (main `0a87d23`, trước Sales); bản trước `src-20261112055437` | Đường lùi mã có sẵn |
 | Tường lửa | ufw chỉ mở 26266 (SSH), 80, 443; backend chỉ nghe `127.0.0.1:3000`, PostgreSQL chỉ `127.0.0.1` | Đạt |
 | SSH | Chỉ khoá; không cho mật khẩu; root `without-password` | Đạt |
-| HTTPS | Chứng chỉ Let's Encrypt cho địa chỉ IP, hiệu lực 15/11 → **22/11/2026 02:52 UTC** (loại ngắn hạn ~6 ngày, Caddy tự gia hạn; đã tự gia hạn thành công 1 lần). HTTP tự chuyển sang HTTPS (308) | Kiểm lại hạn ngay trước ngày triển khai — xem R-5 |
+| HTTPS | Chứng chỉ Let's Encrypt cho địa chỉ IP, hiệu lực lúc kiểm 18/11: 15/11 → 22/11/2026; **đã tự gia hạn lần hai** tối 18/11, nay 18/11 → **25/11/2026 11:02 UTC** (loại ngắn hạn ~6 ngày, Caddy tự gia hạn). HTTP tự chuyển sang HTTPS (308) | Kiểm lại hạn ngay trước ngày triển khai — xem R-5 |
 | File cấu hình | `backend.env`, `migrate.env`, `db-roles.env`, `caddy.env`: quyền 600, chủ root. Dịch vụ dùng `DATABASE_URL` + `AUTH_DATABASE_URL`; `MIGRATE_DATABASE_URL` nằm riêng, không thuộc env của dịch vụ | Đúng thiết kế tách role |
 | Database | `siscom_crm_staging`, chủ sở hữu `siscom_migrator`; 3 role `siscom_app` / `siscom_migrator` / `siscom_auth`, không role nào là superuser | Đã tách role |
 | Schema | **12 migration**, mới nhất `20261105000100_b3_activity_tasks`; 0 migration lỗi. **Chưa có** bảng `opportunity`; **0** mã quyền `opportunity.*` | Đúng là bản trước Sales |
 | Dữ liệu | 3 khách hàng, 3 liên hệ, 0 hoạt động, 5 nhân viên (5 tài khoản thử) | Mốc để so sau migration |
-| Sao lưu | 9 bộ `.dump.age` (đã mã hoá), 0 bộ chưa mã hoá; bộ mới nhất 17/11 19:04 UTC; timer chạy hằng đêm, lần gần nhất `success` | Đạt |
+| Sao lưu | 9 bộ `.dump.age` (19/11: 10 bộ) (đã mã hoá), 0 bộ chưa mã hoá; bộ mới nhất 17/11 19:04 UTC; timer chạy hằng đêm, lần gần nhất `success` | Đạt |
 | Khôi phục thử | **Không có** dấu `restore-ok` cho các bộ sao lưu hiện có | **Thiếu** — xem R-1 |
 
 ## 2. Điều kiện tiên quyết (phải đủ trước khi xin duyệt bước đầu tiên)
@@ -70,9 +71,9 @@ Thời gian gián đoạn dự kiến ở bước 4: vài giây (lần cập nh�
 | Mã | Rủi ro / thiếu | Đề xuất |
 |---|---|---|
 | R-1 | Chưa có bằng chứng khôi phục thử cho các bộ sao lưu hiện có | Làm bước 2 trước mọi thay đổi; không có thì không chạy bước 4 |
-| R-2 | Staging chỉ có 5 tài khoản thử, **một** tài khoản Kinh doanh. Không thử được: chuyển người phụ trách trong cùng phòng, hai Kinh doanh không thấy cơ hội của nhau, hai người sửa cùng lúc. Công cụ thêm tài khoản (`account-admin`) hiện không chạy được trên VPS | Owner quyết: chấp nhận bằng chứng từ test tự động + kịch bản API cho các ca này, hoặc mở PR riêng để thêm được tài khoản trên VPS trước khi nghiệm thu |
-| R-3 | Cấp quyền `opportunity.*` là thay đổi phân quyền trên DB staging | Chỉ chạy bước 6 khi có phê duyệt riêng; hai người thực hiện do Owner chỉ định |
-| R-4 | Máy chủ đang chờ khởi động lại | Owner quyết khởi động lại **trước** S12 (tách khỏi triển khai, kiểm dịch vụ tự lên, khoá máy chủ SSH giữ nguyên) hay để sau nghiệm thu |
+| R-2 (**đã quyết**) | Staging chỉ có 5 tài khoản thử, **một** tài khoản Kinh doanh. Không thử được: chuyển người phụ trách trong cùng phòng, hai Kinh doanh không thấy cơ hội của nhau, hai người sửa cùng lúc. Công cụ thêm tài khoản (`account-admin`) hiện không chạy được trên VPS | Owner quyết: chấp nhận bằng chứng từ test tự động + kịch bản API cho các ca này, hoặc mở PR riêng để thêm được tài khoản trên VPS trước khi nghiệm thu |
+| R-3 (**đã quyết**) | Cấp quyền `opportunity.*` là thay đổi phân quyền trên DB staging | Chỉ chạy bước 6 khi có phê duyệt riêng; hai người thực hiện do Owner chỉ định |
+| R-4 (**đã xong**) | Máy chủ đang chờ khởi động lại | Owner quyết khởi động lại **trước** S12 (tách khỏi triển khai, kiểm dịch vụ tự lên, khoá máy chủ SSH giữ nguyên) hay để sau nghiệm thu |
 | R-5 | Chứng chỉ theo IP chỉ có hạn ~6 ngày; chưa có cảnh báo tự động khi sắp hết hạn | Chạy `check-tls.sh` ngay trước bước 4; cân nhắc chuyển sang tên miền `crm-staging` (chứng chỉ 90 ngày) — cần Owner thêm bản ghi DNS |
 | R-6 | Bản sao lưu ngoài VPS đang chép tay | Chép bản của bước 2 ra ngoài trước bước 4 |
 | R-7 | `APP_GRANTS_V5` mở rộng tại chỗ; lần đầu chạy trên DB có dữ liệu thật | VERIFY là cổng bắt buộc của bước 4; thất bại ⇒ lùi mã, giữ schema |
@@ -87,5 +88,18 @@ Thời gian gián đoạn dự kiến ở bước 4: vài giây (lần cập nh�
 4. Bước 5: seed danh mục.
 5. Bước 6: cấp quyền `opportunity.*` + chỉ định hai người thực hiện.
 6. Quyết định cho R-2 và R-4.
+
+## 8. Quyết định của Owner (19/11/2026)
+
+Owner duyệt cả bốn điểm mở theo phương án đề xuất:
+
+| Điểm | Quyết định | Trạng thái |
+|---|---|---|
+| Khôi phục thử bản sao lưu (R-1) | Làm trước S12; không có kết quả đạt thì không chạy migration | **Chờ Owner đưa khoá riêng age lên VPS tạm thời** (quy trình G6); khoá bị xoá ngay sau khi kiểm |
+| Số tài khoản thử (R-2) | Chấp nhận bằng chứng từ test tự động và kịch bản gọi API cho các ca cần hai tài khoản Kinh doanh; nghiệm thu staging với 5 tài khoản hiện có | Đã chốt |
+| Cấp mã quyền `opportunity.*` (R-3) | Duyệt. Người yêu cầu: tài khoản thử `sysadmin@` (NV-0001, vai trò `admin`); người duyệt: tài khoản thử `admin@` (NV-0002, vai trò `crm_admin`) | Chỉ chạy ở bước 6, sau khi bước 4 đạt |
+| Khởi động lại máy chủ (R-4) | Làm ngay, tách khỏi S12 | **Đã xong 19/11/2026**, kiểm trước / sau đạt |
+
+Các phê duyệt còn cần ở mục 7: (1) bắt đầu S12 + SHA `main`, (3) migration + deploy, (4) seed danh mục. Phê duyệt cấp quyền (5) đã có; vẫn chỉ thực hiện đúng thứ tự ở mục 3.
 
 Không bước nào trong tài liệu này áp dụng cho production.
