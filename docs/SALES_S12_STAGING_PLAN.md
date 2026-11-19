@@ -309,6 +309,21 @@ Cổng C khi đó chưa được duyệt; kết quả ở mục 10.3.
 
 **Dữ liệu thử sẵn có cho nghiệm thu:** KH-00003 và KH-00004 do NV-0003 (`sale@`) phụ trách; KH-00002 chưa có người phụ trách ⇒ không tạo được cơ hội trên khách này cho tới khi gán người phụ trách (R-8).
 
+### 10.4 Triển khai giao diện sau nghiệm thu đầu tiên (19/11/2026; Owner ghi "Duyệt triển khai")
+
+Đưa #253 (ô tiền có dấu chấm ngăn nhóm hàng nghìn) và #254 (hộp thao tác hiện rõ lý do máy chủ từ chối) lên staging. `main` = `2de465c`, CI 6/6 (run 44496582470).
+
+| Việc | Kết quả |
+|---|---|
+| Đóng gói | Giao diện build bằng PowerShell từ `2de465c` (bundle `index-DDo23VPN.js`, có đủ hai thay đổi); mã máy chủ `git archive 2de465c backend` — **trùng từng tệp** với gói `9bc30b1` đang chạy (chỉ khác thư mục `generated` do build sinh), 16 migration, 0 migration chờ |
+| Sự cố nhỏ | Lần đóng gói đầu rỗng vì kho dùng để đóng gói chưa tải `main` mới; lệnh trên máy chủ dừng ở bước giải nén, chưa chạy gì; đã xoá tệp / thư mục rỗng, đóng gói lại |
+| Chạy thử khô | rc = 0; `check-tls.sh` đạt |
+| `deploy.sh --src … --frontend …` (không `--migrate`) | 09:36:30 → 09:37:25 UTC, `DEPLOY_RC=0`; sao lưu `siscom_crm_staging_20261119_093713` (tự kiểm chữ ký đạt, chưa khôi phục thử, chưa chép ra ngoài); bản chạy `src-20261119093630`, bản trước `src-20261119073843`; sức khoẻ đạt |
+| So nội dung | Dấu vân tay **24 / 24 bảng trùng** trước và sau (gồm các bảng Sales); bộ đếm ghi của 24 bảng không đổi ⇒ không có thao tác ghi nào trong lúc triển khai |
+| Sau triển khai | HTTPS 200, phục vụ đúng bundle mới; `/opportunities` chưa đăng nhập 401; 0 cảnh báo / lỗi trong nhật ký backend ngoài 401 do phép kiểm; 0 unit lỗi; 16 migration |
+
+Lúc triển khai Owner đang dùng staging (có phiên đăng nhập hoạt động); dịch vụ khởi động lại khoảng vài giây. Chưa thử giao diện mới trên staging bằng tài khoản thật — Owner thử khi nghiệm thu.
+
 **Chưa có trong kế hoạch này, Owner cần biết:**
 
 - Nghiệm thu giao diện ở bước 8 là lần đầu có người ngoài tác giả thử giao diện Sales (không có QA độc lập trước đó), và là lần đầu chạy trên iPhone thật.
