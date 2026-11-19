@@ -187,6 +187,77 @@ test('Sửa thất bại: 400 theo trường hiện đúng ô và GIỮ nội du
   } finally { await m.unmount(); }
 });
 
+// PR249-R1-01 — chuỗi đầy đủ qua hộp Sửa + fetch giả có thứ tự: A sửa, B sửa trước, A nhận 409, bản mới được tải, A lưu lại.
+test('PR249-R1-01: A chỉ đổi nhu cầu, B đã đổi tiền 100 -> 200; A nhận 409 rồi lưu lại => thân PATCH chỉ có nhu cầu + version mới; tiền của B còn nguyên 200', async () => {
+  let saved = 0;
+  const f = server({
+    get: (n) => res(200, { data: n === 1 ? detail({ expectedAmountVnd: '100', needSummary: 'old', version: 3 }) : n === 2 ? detail({ expectedAmountVnd: '200', needSummary: 'old', version: 5 }) : detail({ expectedAmountVnd: '200', needSummary: 'my edit', version: 6 }) }),
+    write: () => { saved += 1; return saved === 1 ? fail(409, 'OPPORTUNITY_VERSION_CONFLICT', 'Cơ hội đã được người khác thay đổi.') : res(200, { data: detail({ expectedAmountVnd: '200', needSummary: 'my edit', version: 6 }) }); },
+  });
+  const m = await viewPage(f, SALES);
+  try {
+    await press(m.container, /^Sửa$/); let d = modal(m.container);
+    await fill(d, /Nhu cầu của khách/, 'my edit'); await press(d, /Lưu thay đổi/);
+    assert.deepEqual(f.writes()[0].body, { version: 3, needSummary: 'my edit' });
+    d = modal(m.container); assert.ok(d, 'hộp thoại còn mở sau 409');
+    assert.equal(f.gets('/opportunities/o1').length, 2, 'bản mới đã được tải');
+    assert.equal(inputByLabel(d, /Giá trị dự kiến/).value, '200', 'ô chưa sửa nhận giá trị mới của B');
+    assert.equal(inputByLabel(d, /Nhu cầu của khách/).value, 'my edit', 'ô đã sửa giữ nội dung của A');
+    assert.match(text(d), /chưa sửa đã được cập nhật theo bản mới/);
+    await press(d, /Lưu thay đổi/);
+    assert.equal(f.writes().length, 2);
+    assert.deepEqual(f.writes()[1].body, { version: 5, needSummary: 'my edit' }); // KHÔNG có expectedAmountVnd => không đưa tiền về 100
+    assert.equal(modal(m.container), undefined);
+  } finally { await m.unmount(); }
+});
+
+test('PR249-R1-01: A và B cùng đổi tiền (A 300, B 200) => sau 409 nút Lưu bị chặn tới khi A chọn rõ; "Giữ nội dung của tôi" => gửi 300 với version mới; "Dùng bản mới" => không ghi gì', async () => {
+  const mk = () => { let saved = 0; return server({
+    get: (n) => res(200, { data: n === 1 ? detail({ expectedAmountVnd: '100', version: 3 }) : detail({ expectedAmountVnd: '200', version: 5 }) }),
+    write: () => { saved += 1; return saved === 1 ? fail(409, 'OPPORTUNITY_VERSION_CONFLICT', 'Cơ hội đã được người khác thay đổi.') : res(200, { data: detail({ expectedAmountVnd: '300', version: 6 }) }); },
+  }); };
+  const conflictBox = (d) => findAll(d, (e) => e.attributes['aria-label'] === 'Trường bị sửa đồng thời')[0];
+  let f = mk(); let m = await viewPage(f, SALES);
+  try {
+    await press(m.container, /^Sửa$/); let d = modal(m.container);
+    await fill(d, /Giá trị dự kiến/, '300'); await press(d, /Lưu thay đổi/);
+    d = modal(m.container); const box = conflictBox(d); assert.ok(box, 'có khối xung đột');
+    assert.match(text(box), /Giá trị dự kiến/); assert.match(text(box), /200 đ/); assert.match(text(box), /300 đ/);
+    assert.equal(inputByLabel(d, /Giá trị dự kiến/).value, '300');
+    assert.ok(buttonByText(d, /Lưu thay đổi/).disabled, 'Lưu bị chặn khi còn xung đột');
+    await doAct(() => click(buttonByText(d, /Lưu thay đổi/))); assert.equal(f.writes().length, 1, 'không có lần ghi thứ hai khi chưa xác nhận');
+    await press(box, /Giữ nội dung của tôi/);
+    d = modal(m.container); assert.equal(conflictBox(d), undefined); assert.equal(!!buttonByText(d, /Lưu thay đổi/).disabled, false);
+    await press(d, /Lưu thay đổi/);
+    assert.deepEqual(f.writes()[1].body, { version: 5, expectedAmountVnd: '300' });
+  } finally { await m.unmount(); }
+  f = mk(); m = await viewPage(f, SALES);
+  try {
+    await press(m.container, /^Sửa$/); let d = modal(m.container);
+    await fill(d, /Giá trị dự kiến/, '300'); await press(d, /Lưu thay đổi/);
+    d = modal(m.container); await press(conflictBox(d), /Dùng bản mới/);
+    d = modal(m.container); assert.equal(inputByLabel(d, /Giá trị dự kiến/).value, '200');
+    await press(d, /Lưu thay đổi/);
+    assert.equal(f.writes().length, 1, 'không còn gì để ghi'); assert.equal(m.toasts.pop().title, 'Không có thay đổi');
+  } finally { await m.unmount(); }
+});
+
+test('PR249-R1-01 — null và xác suất qua hộp Sửa: B xoá tiền (null) trong lúc A đổi xác suất có lý do => lưu lại chỉ gửi xác suất + lý do, không gửi tiền (không đưa tiền về giá trị cũ, không thành 0)', async () => {
+  let saved = 0;
+  const f = server({
+    get: (n) => res(200, { data: n === 1 ? detail({ expectedAmountVnd: '100', version: 3 }) : detail({ expectedAmountVnd: null, version: 5 }) }),
+    write: () => { saved += 1; return saved === 1 ? fail(409, 'OPPORTUNITY_VERSION_CONFLICT', 'Cơ hội đã được người khác thay đổi.') : res(200, { data: detail({ expectedAmountVnd: null, probability: 60, version: 6 }) }); },
+  });
+  const m = await viewPage(f, SALES);
+  try {
+    await press(m.container, /^Sửa$/); let d = modal(m.container);
+    await fill(d, /^Xác suất/, '60'); await fill(d, /Lý do sửa xác suất/, 'Khách duyệt'); await press(d, /Lưu thay đổi/);
+    d = modal(m.container); assert.equal(inputByLabel(d, /Giá trị dự kiến/).value, '');
+    await press(d, /Lưu thay đổi/);
+    assert.deepEqual(f.writes()[1].body, { version: 5, probability: 60, probabilityReason: 'Khách duyệt' });
+  } finally { await m.unmount(); }
+});
+
 test('quyền: cơ hội đã Thắng không có nút Sửa; Kế toán không có nút nào; Kỹ thuật (bản theo việc) không có Sửa, không có tab Lịch sử, không gọi API lịch sử', async () => {
   const won = await viewPage(server({ get: () => res(200, { data: detail({ status: 'WON', wonAmountVnd: '980000000', closedAt: NOW }) }) }), SALES);
   try { assert.equal(actionButtons(won.container).includes('Sửa'), false); assert.deepEqual(tabs(won.container), ['Hoạt động & công việc', 'Lịch sử thay đổi', 'Tài liệu']); } finally { await won.unmount(); }
@@ -257,6 +328,7 @@ test('Ghi nhận hoạt động cho cơ hội: thiếu nội dung / công việc
     await press(d, /^Lưu$/);
     assert.equal(f.writes().length, 0); assert.match(text(d), /Vui lòng nhập nội dung/);
     await doAct(() => click(findAll(d, (e) => e.attributes.role === 'radio' && text(e) === 'Công việc')[0]));
+    assert.match(text(d), /được giao cho chính bạn/); assert.match(text(d), /không phụ trách khách hàng này/); // R1 MINOR #249: chỉ dẫn rõ giới hạn tự nhận việc
     await fill(d, /Nội dung/, 'Gửi báo giá'); await press(d, /^Lưu$/);
     assert.equal(f.writes().length, 0); assert.match(text(d), /Công việc phải có hạn/);
     await doAct(() => click(findAll(d, (e) => e.attributes.role === 'radio' && text(e) === 'Cuộc gọi')[0]));
