@@ -28,7 +28,7 @@ Cách kiểm: đăng nhập SSH bằng khoá, chỉ chạy lệnh đọc; không
 
 ## 2. Điều kiện tiên quyết (phải đủ trước khi xin duyệt bước đầu tiên)
 
-1. #243 → #250 đã merge vào `main` theo đúng thứ tự, mỗi PR có kết luận review và mã duyệt của Owner; CI trên `main` đạt 6/6. Ghi lại SHA của `main` sẽ triển khai.
+1. #243 → #250 đã merge vào `main` theo đúng thứ tự (tính đến 19/11/2026: #243, #244 đã merge; còn #245 → #250), mỗi PR có kết luận review và mã duyệt của Owner; CI trên `main` đạt 6/6. Ghi lại SHA của `main` sẽ triển khai.
 2. Một bộ sao lưu staging **mới** được khôi phục thử thành công (`restore-test.sh`: chữ ký manifest hợp lệ, số dòng từng bảng khớp). Việc này cần Owner đưa khoá riêng age lên VPS tạm thời rồi xoá ngay (quy trình G6).
 3. Chứng chỉ HTTPS còn hạn ít nhất 48 giờ tại thời điểm triển khai.
 4. Bản build frontend được tạo trên máy Windows bằng PowerShell từ đúng SHA ở mục 1 (VPS 3 GB không build giao diện; không build bằng Git Bash vì làm hỏng `/api/v1`).
@@ -95,7 +95,7 @@ Owner duyệt cả bốn điểm mở theo phương án đề xuất:
 
 | Điểm | Quyết định | Trạng thái |
 |---|---|---|
-| Khôi phục thử bản sao lưu (R-1) | Làm trước S12; không có kết quả đạt thì không chạy migration | **Chờ Owner đưa khoá riêng age lên VPS tạm thời** (quy trình G6); khoá bị xoá ngay sau khi kiểm |
+| Khôi phục thử bản sao lưu (R-1) | Làm trước S12; không có kết quả đạt thì không chạy migration | **Chờ Owner thực hiện** theo hướng dẫn ở Phụ lục A; khoá riêng chỉ nằm trên VPS trong lúc kiểm và bị xoá ngay sau đó |
 | Số tài khoản thử (R-2) | Chấp nhận bằng chứng từ test tự động và kịch bản gọi API cho các ca cần hai tài khoản Kinh doanh; nghiệm thu staging với 5 tài khoản hiện có | Đã chốt |
 | Cấp mã quyền `opportunity.*` (R-3) | Duyệt. Người yêu cầu: tài khoản thử `sysadmin@` (NV-0001, vai trò `admin`); người duyệt: tài khoản thử `admin@` (NV-0002, vai trò `crm_admin`) | Chỉ chạy ở bước 6, sau khi bước 4 đạt |
 | Khởi động lại máy chủ (R-4) | Làm ngay, tách khỏi S12 | **Đã xong 19/11/2026**, kiểm trước / sau đạt |
@@ -103,3 +103,69 @@ Owner duyệt cả bốn điểm mở theo phương án đề xuất:
 Các phê duyệt còn cần ở mục 7: (1) bắt đầu S12 + SHA `main`, (3) migration + deploy, (4) seed danh mục. Phê duyệt cấp quyền (5) đã có; vẫn chỉ thực hiện đúng thứ tự ở mục 3.
 
 Không bước nào trong tài liệu này áp dụng cho production.
+
+## Phụ lục A — Hướng dẫn khôi phục thử bản sao lưu staging (Owner thực hiện trước S12)
+
+**Mục đích:** chứng minh bản sao lưu đêm của `siscom_crm_staging` giải mã được, đúng chữ ký, và khôi phục ra đủ số dòng — điều kiện bắt buộc trước khi chạy migration (bước 4).
+
+**Nguyên tắc quản lý khoá đã chốt (runbook G6):**
+- Khoá **riêng** age chỉ Owner giữ, ngoài VPS. Chỉ chép lên VPS **tạm thời** để kiểm, xong là xoá bằng `shred`.
+- Không gửi khoá qua chat, email, hay dán vào bất kỳ công cụ nào khác. Không đưa khoá vào dòng lệnh (sẽ nằm trong lịch sử shell).
+- Bước đưa khoá lên và xoá khoá do **Owner tự làm**. Claude chỉ kiểm kết quả ở chế độ chỉ đọc sau khi Owner báo đã xoá khoá.
+
+**An toàn:** việc khôi phục tạo một database **mới** tên `siscom_crm_restore_<thời điểm>`; không ghi vào `siscom_crm_staging`, không dừng dịch vụ. Bản giải mã chỉ nằm trong thư mục tạm quyền 700 và tự xoá khi lệnh kết thúc. Đĩa còn trống khoảng 32 GB (kiểm 19/11).
+
+### Các bước
+
+Đăng nhập VPS bằng PuTTY (tài khoản root, cổng 26266, khoá của Owner), rồi làm lần lượt:
+
+1. **Tạo bản sao lưu mới** (để kiểm đúng bản gần nhất):
+   ```bash
+   systemctl start siscom-crm-backup.service; systemctl show siscom-crm-backup.service -p Result
+   ```
+   Đạt khi in `Result=success`. Xem tên bản mới nhất: `ls -t /var/backups/siscom-crm/*.dump.age | head -1`.
+
+2. **Đối chiếu khoá ký** với bản Owner giữ ngoài VPS:
+   ```bash
+   cat /etc/siscom-crm/backup-signing.allowed_signers
+   ```
+   Dòng in ra phải **trùng** dòng Owner đã cất. Khác ⇒ dừng, báo lại, không làm tiếp.
+
+3. **Đưa khoá riêng lên tạm.** Cách khuyến nghị (không để lại trong lịch sử shell): gõ lệnh dưới, dán nội dung file khoá, nhấn Enter rồi `Ctrl-D`:
+   ```bash
+   umask 077; cat > /root/siscom-backup.key
+   ```
+   Hoặc chép file bằng WinSCP / `pscp` vào đúng đường dẫn `/root/siscom-backup.key` rồi chạy `chmod 600 /root/siscom-backup.key`.
+
+4. **Chạy khôi phục thử:**
+   ```bash
+   cd /opt/siscom-crm/current/backend/scripts/linux && bash restore-test.sh --identity /root/siscom-backup.key
+   ```
+   Đạt khi có dòng `PASS: <n> bang khop so dong.` và dòng `Da ghi …restore-ok.txt`. Lệnh cũng in sẵn một dòng `DROP DATABASE "siscom_crm_restore_…"` để dọn ở bước 6.
+
+5. **Xoá khoá ngay** (kể cả khi bước 4 không đạt):
+   ```bash
+   shred -u /root/siscom-backup.key; ls /root/siscom-backup.key
+   ```
+   Đạt khi `ls` báo không có tệp.
+
+6. **Dọn database thử** bằng đúng lệnh mà bước 4 đã in (tên phải bắt đầu bằng `siscom_crm_restore_`):
+   ```bash
+   sudo -u postgres psql -c 'DROP DATABASE "siscom_crm_restore_<thời điểm>"'
+   ```
+   Nếu bước 4 **không đạt** thì giữ lại database thử để điều tra, chưa dọn.
+
+7. **Chép bộ sao lưu vừa kiểm ra ngoài VPS** (tệp `.dump.age`, `.manifest`, `.manifest.sig`, `.sha256`) vào nơi Owner vẫn lưu.
+
+8. **Báo Claude** "đã khôi phục thử, đã xoá khoá". Claude kiểm chỉ đọc: có tệp `restore-ok` của đúng bản sao lưu, không còn `/root/siscom-backup.key`, không còn database `siscom_crm_restore_*`, dịch vụ vẫn chạy; rồi ghi kết quả vào tài liệu này.
+
+### Khi không đạt
+
+| Thông báo | Ý nghĩa | Xử lý |
+|---|---|---|
+| `Giai ma that bai (sai khoa?)` | Khoá riêng không khớp khoá công khai trên VPS | Xoá khoá (bước 5), kiểm lại đúng tệp khoá; **không** chạy S12 |
+| `chu ky manifest KHONG hop le` | Bản sao lưu hoặc manifest bị sửa, hoặc ký bằng khoá khác | Dừng; không dùng bản đó; báo để điều tra |
+| `SHA-256 ban ro khac manifest da ky` | Tệp sao lưu hỏng | Dừng; tạo bản mới (bước 1) rồi thử lại |
+| `KHONG DAT: so dong khac manifest` | Khôi phục ra thiếu / thừa dòng | Giữ database thử, báo để điều tra; **không** chạy S12 |
+
+Chỉ khi bước 4 đạt và bước 5 xong thì điều kiện tiên quyết số 2 (mục 2) mới được coi là đủ.

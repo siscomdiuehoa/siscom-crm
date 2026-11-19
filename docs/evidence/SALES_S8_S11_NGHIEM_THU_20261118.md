@@ -3,12 +3,13 @@
 - **Ngày:** 18/11/2026 · **Người lập:** Claude (dev) theo giao việc của Owner.
 - **Phạm vi:** PR #243–#250 (S8a, S8b, S9a, S9b, S10a, S10b, S10c, S11). Đỉnh chuỗi: `feat/sales-s11-ui-kanban` @ `68399e5` (rà soát chạy tại `4734d4c`; sau đó gộp bản sửa L-01); `main` @ `5be556b`.
 - **Giới hạn đã giữ:** không merge, không deploy, không force-push, không chuyển Draft thành Ready, không làm S12, không truy cập / sửa DB thật. Mọi kiểm thử DB chạy trên cụm PostgreSQL 18 tạm ở máy dev (127.0.0.1:55471, database `siscom_crm_test_*`).
+- **Cập nhật 19/11/2026:** #243 đã merge (`7d46809`) và #244 đã merge (`eb20d5e`) ngày 18/11, mỗi PR có `[KET-LUAN]` và phê duyệt riêng của Owner; CI trên `main` đạt 6/6 sau từng lần. `main` hiện ở `eb20d5e`. #245 đã đổi base sang `main`. Bảng mục 2, mục 6 và mục 8 đã cập nhật theo; các số liệu kiểm thử giữ nguyên như lúc rà soát.
 - **Cập nhật cuối ngày 18/11:** Owner chọn sửa L-01 trong #245. Đã sửa, gộp lên 5 nhánh phía trên bằng merge thường, CI 6/6 cả 6 PR, đã báo reviewer. Các mục liên quan bên dưới đã được cập nhật.
 - **Trạng thái file này:** đưa vào repo qua PR tài liệu riêng theo quyết định của Owner (18/11/2026). Số liệu, HEAD và kết quả CI giữ nguyên như lúc lập; không chứa mật khẩu, khoá hay dữ liệu khách hàng thật.
 
 ## 1. Kết luận
 
-**Về kỹ thuật, phân hệ Sales S8–S11 sẵn sàng để Owner nghiệm thu; chưa sẵn sàng để merge vì review chưa xong.**
+**Về kỹ thuật, phân hệ Sales S8–S11 sẵn sàng để Owner nghiệm thu. S8 (#243, #244) đã vào `main`; S9–S11 (#245–#250) chưa merge vì review chưa xong.**
 
 - Toàn bộ chức năng trong phạm vi đạt khi kiểm bằng test tự động, gọi API thật và trình duyệt với backend thật. Đợt rà soát tìm ra **1 lỗi mới mức nhỏ** về rò rỉ gián tiếp (mục 5, L-01) — **đã sửa** trong #245; còn một số điểm thiếu đã biết.
 - Điều đang chặn merge là **quy trình**: 6/8 PR chưa có kết luận review cuối (#245, #246 chờ R2; #247–#250 chưa có vòng review nào).
@@ -18,8 +19,8 @@
 
 | PR | Nội dung | HEAD | CI trên HEAD | Review | Việc còn lại |
 |---|---|---|---|---|---|
-| #243 | S8a: chuyển người phụ trách, xoá mềm, khôi phục | `a15cacc` | 6/6 (run 44048290937) | **PASS R1** (1 MINOR) | Chờ Owner duyệt merge |
-| #244 | S8b: Tạm hoãn / Tiếp tục / Thắng / Thua / Mở lại + việc tự tạo | `ca8831d` | 6/6 (44057650006) | **PASS R2** | Kiểm lại trên `main` sau khi #243 vào |
+| #243 | S8a: chuyển người phụ trách, xoá mềm, khôi phục | `a15cacc` | 6/6 (run 44048290937) | **PASS R1** (1 MINOR) | **Đã merge 18/11/2026** — `7d46809`, CI `main` 6/6 (run 44279249446) |
+| #244 | S8b: Tạm hoãn / Tiếp tục / Thắng / Thua / Mở lại + việc tự tạo | `ca8831d` | 6/6 (44057650006) | **PASS R2** | **Đã merge 18/11/2026** — `eb20d5e`, CI `main` 6/6 (run 44280632001). Trước khi merge đã kiểm trên nền `main`: cây trộn trùng cây HEAD |
 | #245 | S9a: hoạt động theo cơ hội, đường đọc theo việc của Kỹ thuật | `2b0f723` | 6/6 (44272823911) | R1 = 2 MAJOR đã sửa; **chờ R2** trên HEAD mới (thêm bản sửa L-01) | Chờ `[REVIEW-R2-RESULT]` |
 | #246 | S9b: tài liệu cơ hội | `30da84c` | 6/6 (44273183796) | PASS R1 phần S9b; **chờ kiểm lại** sau bản sửa #245 | Chờ kết quả kiểm lại |
 | #247 | S10a: API lựa chọn cho giao diện (chỉ đọc) | `5af596e` | 6/6 (44273182917) | **Chưa có** | Chờ review R1 |
@@ -136,7 +137,7 @@ Kỹ thuật (chỉ có đường đọc theo việc) gọi `GET /opportunities?
 - **#245** — chờ `[REVIEW-R2-RESULT]` (đã gửi R2 tại `8bc4933`).
 - **#246** — chờ reviewer kiểm lại sau bản sửa #245 (đã gửi R2 tại `4c239c8`).
 - **#247, #248, #249, #250** — đã gửi `[REVIEW-REQUEST]`, chưa có vòng review nào.
-- #243, #244 đã PASS; chưa merge vì chờ mã duyệt của Owner.
+- #243, #244 đã PASS và **đã merge ngày 18/11/2026** (xem mục 2).
 
 ## 7. Rủi ro còn tồn tại
 
@@ -153,7 +154,7 @@ Kỹ thuật (chỉ có đường đọc theo việc) gọi `GET /opportunities?
 Nguyên tắc: từng PR một, đúng thứ tự chuỗi, Merge Commit khoá theo HEAD, mỗi PR cần mã duyệt riêng của Owner.
 
 1. L-01 đã sửa trong #245; không còn việc tiền đề nào về mã trước khi merge.
-2. **Khối backend:** #243 → #244 → #245 → #246 → #247.
+2. **Khối backend:** ~~#243~~ → ~~#244~~ (đã merge 18/11) → #245 → #246 → #247.
 3. **Khối frontend:** #248 → #249 → #250.
 4. Sau **mỗi** lần merge:
    - chờ CI trên `main` đạt 6/6;
@@ -182,7 +183,7 @@ Mỗi bước cần Owner duyệt riêng (theo §9 của `docs/SALES_DESIGN.md`)
 ## 10. Việc chờ Owner quyết định
 
 1. ~~L-01~~ — đã quyết và đã làm (sửa trong #245).
-2. ~~Thứ tự merge~~ — Owner đã quyết (18/11/2026): merge #243 trước, kiểm `main` và CI, rồi mới #244; không merge đồng thời; #245–#250 tiếp tục chờ review.
+2. ~~Thứ tự merge~~ — Owner đã quyết (18/11/2026): merge #243 trước, kiểm `main` và CI, rồi mới #244; không merge đồng thời — **đã thực hiện xong cả hai**; #245–#250 tiếp tục chờ review.
 3. Thời điểm bắt đầu S12 và hai người dùng thử.
 4. ~~Đưa báo cáo vào repo~~ — Owner đã quyết: có, qua PR tài liệu riêng.
 
