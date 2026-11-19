@@ -60,7 +60,9 @@ export function buildListQuery(f = {}) {
   const kw = t(f.q); if (kw.length >= 2) q.q = kw.slice(0, 100);
   if (f.deleted === 'only') q.deleted = 'only';
   const page = Number.isInteger(f.page) && f.page > 0 ? f.page : 1;
-  return { ...q, page, pageSize: OPP_PAGE_SIZE, sortBy: SORTS.includes(f.sortBy) ? f.sortBy : 'updatedAt', sortOrder: f.sortOrder === 'asc' ? 'asc' : 'desc' };
+  // pageSize: mặc định 20; kanban (S11) xin tối đa 100 thẻ mỗi cột (giới hạn của máy chủ).
+  const pageSize = Number.isInteger(f.pageSize) && f.pageSize >= 1 && f.pageSize <= 100 ? f.pageSize : OPP_PAGE_SIZE;
+  return { ...q, page, pageSize, sortBy: SORTS.includes(f.sortBy) ? f.sortBy : 'updatedAt', sortOrder: f.sortOrder === 'asc' ? 'asc' : 'desc' };
 }
 
 // Route: #/pipeline, #/pipeline/view/:id
@@ -295,6 +297,40 @@ export function validateDocument(f) {
 export const toDocumentBody = (f) => ({ kind: f.kind, fileName: t(f.fileName), url: t(f.url) });
 export function validateReason(reason, msg) { const e = {}; need(e, 'reason', reason, msg, 500); return e; }
 
+// ───── S11: kanban (§8.1) ─────
+export const BOARD_PAGE_SIZE = 100;
+// Tổng giá trị dự kiến của các thẻ ĐÃ TẢI trong một cột, tách riêng số thẻ "chưa rõ giá trị" (không bao giờ cộng chúng như 0).
+// Chỉ tính thẻ đường đầy đủ; cộng bằng BigInt trên chuỗi chữ số. Không có thẻ nào có giá trị => sum = null (không phải "0").
+export function sumAmounts(items) {
+  let sum = 0n; let known = 0; let unknown = 0;
+  for (const o of Array.isArray(items) ? items : []) {
+    if (!o || o.access !== 'FULL') continue;
+    const v = o.expectedAmountVnd;
+    if (v === null || v === undefined || v === '' || !DIGITS.test(String(v))) { unknown += 1; continue; }
+    sum += BigInt(String(v)); known += 1;
+  }
+  return { sum: known ? sum.toString() : null, known, unknown };
+}
+// Số tiền rút gọn cho tiêu đề cột: tỷ / triệu với một chữ số thập phân (cắt, không làm tròn lên); nhỏ hơn 1 triệu thì ghi đủ. null => "Chưa rõ".
+// PR250-R1-01: đây là bộ định dạng của TỔNG nhiều cơ hội nên KHÔNG dùng DIGITS (giới hạn 15 chữ số của MỘT cơ hội) — tổng hợp lệ có thể dài hơn.
+// Nhận mọi chuỗi số nguyên không âm (không có số 0 đứng đầu); tính bằng BigInt, không bao giờ qua Number.
+const TOTAL_DIGITS = /^(0|[1-9]\d*)$/;
+export function moneyShortVN(v) {
+  if (v === null || v === undefined || v === '' || !TOTAL_DIGITS.test(String(v))) return AMOUNT_UNKNOWN;
+  const n = BigInt(String(v));
+  const short = (unit, name) => { const whole = n / unit; const dec = (n % unit) / (unit / 10n); return whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec ? ',' + dec : '') + ' ' + name; };
+  if (n >= 1000000000n) return short(1000000000n, 'tỷ');
+  if (n >= 1000000n) return short(1000000n, 'triệu');
+  return moneyVN(String(v)); // < 1 triệu: luôn trong giới hạn của moneyVN
+}
+// Dòng tổng của cột: "9,8 tỷ", "1,2 tỷ + 2 chưa rõ", "2 chưa rõ"; cột trống => ''.
+export function columnTotalLabel(items) {
+  const t = sumAmounts(items);
+  const parts = [];
+  if (t.sum !== null) parts.push(moneyShortVN(t.sum));
+  if (t.unknown) parts.push(t.unknown + ' chưa rõ');
+  return parts.join(' + ');
+}
 // ───── S10c R2 (PR249-R1-01): lưu lại sau xung đột phiên bản (409) ─────
 // Vấn đề: sau 409, chi tiết được tải lại (version mới) nhưng biểu mẫu vẫn giữ MỌI giá trị cũ; so biểu mẫu cũ với bản mới sẽ coi cả những ô
 // người dùng CHƯA chạm là "đã đổi" và ghi đè thay đổi của người kia. Cách xử lý: so biểu mẫu với bản GỐC lúc mở (base) để biết ô nào người dùng

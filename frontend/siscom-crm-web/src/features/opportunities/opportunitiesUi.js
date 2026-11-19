@@ -2,7 +2,7 @@
 // Mọi dữ liệu chỉ từ máy chủ; thao tác ghi thành công => đọc lại danh sách từ máy chủ (không tự sửa dòng); lỗi => báo, không thử lại ngầm.
 import {
   buildListQuery, validateCreate, toCreateBody, serverFieldErrors, validateAction, toActionRequest, ACTION_CANDIDATES,
-  validateEdit, toPatchBody, validateDocument, toDocumentBody, validateReason,
+  validateEdit, toPatchBody, validateDocument, toDocumentBody, validateReason, BOARD_PAGE_SIZE,
 } from './opportunitiesModel.js';
 import { validateDraft, buildCreateBody, detailsToFieldErrors } from '../activities/activityModel.js';
 
@@ -166,6 +166,13 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
     // Báo cho tab "Hoạt động & công việc" đang mở đọc lại (sau ghi nhận, hoặc sau thao tác trên công việc ở màn hình Công việc).
     touchActivities() { if (!muted) set({ activityTick: state.activityTick + 1 }); },
     changes(id) { return read('/opportunities/' + enc(id) + '/changes'); },
+    // ───── S11 ─────
+    // Một cột kanban: cơ hội ĐANG MỞ của một giai đoạn (Tạm hoãn / đã đóng nằm ngoài kanban), tối đa 100 thẻ mỗi lần. f = { typeId, q }.
+    board(stageId, f = {}, page = 1) { return read('/opportunities' + qs(buildListQuery({ status: 'OPEN', stageId, typeId: f.typeId, q: f.q, page, pageSize: BOARD_PAGE_SIZE, sortBy: 'updatedAt', sortOrder: 'desc' }))); },
+    // Cơ hội của MỘT khách (tab "Cơ hội" ở chi tiết khách). 404 ở đây là của khách hàng => giữ nguyên thông báo của lớp khách hàng.
+    async byCustomer(customerId, page = 1) {
+      try { return { ok: true, data: await req('GET', '/customers/' + enc(customerId) + '/opportunities' + qs(buildListQuery({ page }))) }; } catch (e) { return { ok: false, error: describe(e) }; }
+    },
     documents(id) { return read('/opportunities/' + enc(id) + '/documents'); },
     async addDocument(id, form) {
       const fieldErrors = validateDocument(form);

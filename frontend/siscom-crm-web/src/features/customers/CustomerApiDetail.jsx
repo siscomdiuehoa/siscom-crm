@@ -6,6 +6,7 @@ import { customerDisplayCode } from './customerApiUi.js';
 import { ApiErrorBox } from './ApiListStatus.jsx';
 import { CustomerFormDrawer } from './CustomerForm.jsx';
 import { ActivitiesPanel } from '../activities/ActivitiesPanel.jsx';
+import { CustomerOpportunitiesPanel } from '../opportunities/CustomerOpportunities.jsx';
 
 function InfoRow({ icon, label, children }) {
   return (
@@ -175,6 +176,8 @@ export default function CustomerApiDetail({ ui, id }) {
   const actl = ctl.activities;
   const canReadActivity = !!actl && typeof ui.can === 'function' && !!ui.can('activity.read');
   const acts = useCustomerApiState(canReadActivity ? actl : null);
+  // Sales S11: tab "Cơ hội" chỉ khi máy chủ cấp opportunity.read (fail-closed); không có => trang như trước, không gọi API cơ hội.
+  const canOpps = !!ctl.opportunities && !!(ui.me && ui.me.permissions && ui.me.permissions['opportunity.read']);
   const [tab, setTab] = React.useState('info');
   React.useEffect(() => { setTab('info'); }, [id]);
   React.useEffect(() => { if (canReadActivity && detailReady) actl.load(id, {}); }, [actl, id, canReadActivity, detailReady]);
@@ -213,10 +216,11 @@ export default function CustomerApiDetail({ ui, id }) {
           <Button icon="pencil" disabled={!canEdit} onClick={() => canEdit && setEdit(true)}>Sửa thông tin</Button>
         </div>
       </section>
-      {canReadActivity ? <Tabs variant="line" value={tab} onChange={setTab} items={[{ id: 'info', label: 'Thông tin', icon: 'building-2' }, { id: 'activities', label: 'Hoạt động', icon: 'list-checks', count: actCount }].concat(canReadContact ? [{ id: 'contacts', label: 'Người liên hệ', icon: 'contact' }] : []).map((t) => (ui.mobile ? { ...t, icon: undefined, label: t.id === 'contacts' ? 'Liên hệ' : t.label } : t))} /> : null}
+      {canReadActivity || canOpps ? <Tabs variant="line" value={tab} onChange={setTab} items={[{ id: 'info', label: 'Thông tin', icon: 'building-2' }].concat(canReadActivity ? [{ id: 'activities', label: 'Hoạt động', icon: 'list-checks', count: actCount }] : [], canReadActivity && canReadContact ? [{ id: 'contacts', label: 'Người liên hệ', icon: 'contact' }] : [], canOpps ? [{ id: 'opps', label: 'Cơ hội', icon: 'target' }] : []).map((t) => (ui.mobile ? { ...t, icon: undefined, label: t.id === 'contacts' ? 'Liên hệ' : t.label } : t))} /> : null}
       {canReadActivity && tab === 'activities' ? <ActivitiesPanel ui={ui} customerId={id} /> : null}
       {canReadActivity && tab === 'contacts' && canReadContact ? <ContactsPanel ui={ui} id={id} canUpdate={canUpdateContact} canAdd={canUpdateContact && !!ui.can('contact.create', c)} /> : null}
-      {!canReadActivity || tab === 'info' ? <section className="sg-card sg-solid" style={{ padding: '16px 20px 8px' }}>
+      {canOpps && tab === 'opps' ? <CustomerOpportunitiesPanel ui={ui} customer={{ id, code: customerDisplayCode(c), name: c.short || c.name }} /> : null}
+      {(!canReadActivity && !canOpps) || tab === 'info' ? <section className="sg-card sg-solid" style={{ padding: '16px 20px 8px' }}>
         <h3 style={{ margin: '0 0 4px', font: 'var(--type-h4)' }}>Thông tin doanh nghiệp</h3>
         <InfoRow icon="hash" label="Mã số thuế">{c.taxId ? <span style={{ font: 'var(--type-mono)' }}>{c.taxId}</span> : null}</InfoRow>
         <InfoRow icon="map-pin" label="Địa chỉ">{[c.address, c.city].filter(Boolean).join(', ') || null}</InfoRow>
