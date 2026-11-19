@@ -5,8 +5,20 @@ import assert from 'node:assert/strict';
 import {
   moneyVN, parseAmountInput, AMOUNT_UNKNOWN, dateVN, isValidYmd, todayVN, isCloseOverdue, buildListQuery, parseOpportunitiesRoute, opportunityActions,
   canCreate, canSeeOpportunities, typeRequiresProject, projectLinked, validateCreate, toCreateBody, serverFieldErrors, statusLabel, EMPTY_CREATE, TYPE_HINT,
-  initAction, validateAction, toActionRequest, ACTION_TITLE, ACTION_LABEL, ACTION_CANDIDATES, groupAmountText, amountTyping,
+  initAction, validateAction, toActionRequest, ACTION_TITLE, ACTION_LABEL, ACTION_CANDIDATES, ACTION_FIELDS, unplacedErrors, groupAmountText, amountTyping,
 } from '../src/features/opportunities/opportunitiesModel.js';
+
+test('unplacedErrors: lỗi theo trường của máy chủ cho ô KHÔNG có trong hộp thao tác => thành câu hiển thị; ô có trong hộp thì để ô tự báo', () => {
+  const NEED = 'Phải ghi nhu cầu của khách trước khi rời giai đoạn Tiếp cận.';
+  assert.deepEqual(unplacedErrors('stage', { needSummary: NEED }), { messages: [NEED], editable: true });
+  assert.deepEqual(unplacedErrors('stage', { stageId: 'Giai đoạn không hợp lệ' }), { messages: [], editable: false });
+  assert.deepEqual(unplacedErrors('stage', { expectedAmount: 'Từ Báo giá phải có giá trị dự kiến.', stageId: 'x' }, ['Lỗi chung']), { messages: ['Từ Báo giá phải có giá trị dự kiến.', 'Lỗi chung'], editable: true });
+  assert.deepEqual(unplacedErrors('win', { wonAmount: 'x', handoverToId: 'y' }), { messages: [], editable: false });
+  assert.deepEqual(unplacedErrors('lose', { someServerField: 'Khác' }), { messages: ['Khác'], editable: false });
+  assert.deepEqual(unplacedErrors('stage', { needSummary: NEED }, [NEED]), { messages: [NEED], editable: true }); // không lặp
+  assert.deepEqual(unplacedErrors('stage', null, null), { messages: [], editable: false });
+  for (const k of Object.keys(ACTION_TITLE)) if (k !== 'edit') assert.ok(Array.isArray(ACTION_FIELDS[k]), 'có danh sách ô cho ' + k);
+});
 
 // ───── Ô nhập số tiền: dấu chấm ngăn nhóm hàng nghìn khi gõ (cách ghi số trong văn bản hành chính / kế toán Việt Nam) ─────
 test('groupAmountText: chèn dấu chấm ngăn nhóm hàng nghìn; chỉ khi nội dung là số nguyên, còn lại giữ nguyên để báo lỗi', () => {
