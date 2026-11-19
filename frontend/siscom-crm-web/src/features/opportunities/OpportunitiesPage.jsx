@@ -9,6 +9,7 @@ import {
 import { OpportunityActions, scopeOfUi, useStageMove } from './OpportunityActions.jsx';
 import { OpportunityTabs } from './OpportunityDetailTabs.jsx';
 import { OpportunityKanban } from './OpportunityKanban.jsx';
+import { AmountInput } from './AmountInput.jsx';
 
 // Sales S10b + S10c: danh sách Cơ hội (#/pipeline, kèm danh sách đã xoá + Khôi phục), biểu mẫu Tạo cơ hội (§8.3) và chi tiết (#/pipeline/view/:id, §8.2,
 // ba tab ở OpportunityDetailTabs.jsx). Dữ liệu CHỈ từ API Sales;
@@ -125,7 +126,7 @@ export function CreateDialog({ ui, onClose, customer = null }) {
         </> : null}
         <Input label="Nhu cầu của khách" multiline rows={3} hint="Bắt buộc trước khi rời giai đoạn Tiếp cận." value={f.needSummary} onChange={set('needSummary')} error={errs.needSummary} disabled={busy} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-          <Input label="Giá trị dự kiến (VNĐ, chưa VAT)" suffix="đ" inputMode="numeric" hint='Để trống nếu chưa rõ — hệ thống ghi "Chưa rõ", không ghi 0.' value={f.expectedAmount} onChange={set('expectedAmount')} error={errs.expectedAmount} disabled={busy} />
+          <AmountInput label="Giá trị dự kiến (VNĐ, chưa VAT)" suffix="đ" hint='Để trống nếu chưa rõ — hệ thống ghi "Chưa rõ", không ghi 0.' value={f.expectedAmount} onChange={set('expectedAmount')} error={errs.expectedAmount} disabled={busy} />
           <Input label="Dự kiến chốt" type="date" value={f.expectedCloseDate} onChange={set('expectedCloseDate')} error={errs.expectedCloseDate} disabled={busy} />
         </div>
       </div>
