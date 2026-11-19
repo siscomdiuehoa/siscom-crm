@@ -2,6 +2,7 @@ import React from 'react';
 import { Button, Checkbox, Input, Modal, Select } from '../../ds/index.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
+import { AmountInput } from './AmountInput.jsx';
 import { initEdit, typeRequiresProject, projectLinked, probabilityChanged, TYPE_HINT, rebaseEdit, EDIT_FIELD_LABEL, amountInputText, dateVN } from './opportunitiesModel.js';
 
 // Sales S10c: hộp thoại "Sửa cơ hội" (PATCH /opportunities/:id, §6.3). Chỉ gửi trường thực sự đổi + version đã tải; không đổi khách hàng,
@@ -108,7 +109,7 @@ export function EditOpportunityDialog({ ui, o, onClose, onDone, onStale }) {
         </> : null}
         <Input label="Nhu cầu của khách" multiline rows={3} hint="Bắt buộc trước khi rời giai đoạn Tiếp cận." value={f.needSummary} onChange={set('needSummary')} error={errs.needSummary} disabled={busy} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-          <Input label="Giá trị dự kiến (VNĐ, chưa VAT)" suffix="đ" inputMode="numeric" hint='Để trống = "Chưa rõ" (không ghi 0).' value={f.expectedAmount} onChange={set('expectedAmount')} error={errs.expectedAmount} disabled={busy} />
+          <AmountInput label="Giá trị dự kiến (VNĐ, chưa VAT)" suffix="đ" hint='Để trống = "Chưa rõ" (không ghi 0).' value={f.expectedAmount} onChange={set('expectedAmount')} error={errs.expectedAmount} disabled={busy} />
           <Input label="Dự kiến chốt" type="date" value={f.expectedCloseDate} onChange={set('expectedCloseDate')} error={errs.expectedCloseDate} disabled={busy} />
         </div>
         {canContact ? <Select label="Người liên hệ" options={contactOptions} value={f.contactId} onChange={set('contactId')} error={errs.contactId} disabled={busy || contacts.status === 'loading'}

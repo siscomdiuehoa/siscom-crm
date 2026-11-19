@@ -5,8 +5,37 @@ import assert from 'node:assert/strict';
 import {
   moneyVN, parseAmountInput, AMOUNT_UNKNOWN, dateVN, isValidYmd, todayVN, isCloseOverdue, buildListQuery, parseOpportunitiesRoute, opportunityActions,
   canCreate, canSeeOpportunities, typeRequiresProject, projectLinked, validateCreate, toCreateBody, serverFieldErrors, statusLabel, EMPTY_CREATE, TYPE_HINT,
-  initAction, validateAction, toActionRequest, ACTION_TITLE, ACTION_LABEL, ACTION_CANDIDATES,
+  initAction, validateAction, toActionRequest, ACTION_TITLE, ACTION_LABEL, ACTION_CANDIDATES, groupAmountText, amountTyping,
 } from '../src/features/opportunities/opportunitiesModel.js';
+
+// ───── Ô nhập số tiền: dấu chấm ngăn nhóm hàng nghìn khi gõ (cách ghi số trong văn bản hành chính / kế toán Việt Nam) ─────
+test('groupAmountText: chèn dấu chấm ngăn nhóm hàng nghìn; chỉ khi nội dung là số nguyên, còn lại giữ nguyên để báo lỗi', () => {
+  const cases = [['', ''], ['1', '1'], ['12', '12'], ['123', '123'], ['1234', '1.234'], ['123000000', '123.000.000'], ['999999999999999', '999.999.999.999.999'],
+    ['1.234.5678', '12.345.678'], ['0', '0'], ['000123', '123'], ['00', '0'], [' 123 000 đ', '123.000'], ['7.200.000.000 VNĐ', '7.200.000.000'], ['1,234', '1.234'], ['.', '']];
+  for (const [input, want] of cases) assert.equal(groupAmountText(input), want, JSON.stringify(input));
+  // Không phải số nguyên => KHÔNG đoán, giữ nguyên chữ người dùng gõ (validate báo "Giá trị chỉ gồm chữ số").
+  for (const bad of ['1 tỷ', '12abc', '-5', '1e6']) assert.equal(groupAmountText(bad), bad, bad);
+  // Định dạng không đổi giá trị gửi lên máy chủ.
+  for (const s of ['123000000', '7200000000', '0', '000123', '999999999999999', '1000000000000000']) assert.deepEqual(parseAmountInput(groupAmountText(s)), parseAmountInput(s), s);
+  assert.equal(groupAmountText(null), ''); assert.equal(groupAmountText(undefined), '');
+});
+
+test('amountTyping: giữ đúng vị trí con trỏ theo chữ số khi chèn dấu chấm; Backspace / Delete trên dấu chấm xoá chữ số bên cạnh', () => {
+  assert.deepEqual(amountTyping('123.000', '1230000', 7), { text: '1.230.000', caret: 9 }); // gõ ở cuối
+  assert.deepEqual(amountTyping('1.234', '1.2534', 4), { text: '12.534', caret: 4 }); // chèn giữa: con trỏ sau chữ số vừa gõ (12.5|34)
+  assert.deepEqual(amountTyping('12.534', '12.34', 3, 'deleteContentBackward'), { text: '1.234', caret: 3 }); // xoá "5" (12.5|34) => con trỏ sau "1.2" (1.2|34)
+  assert.deepEqual(amountTyping('1.234', '1234', 1, 'deleteContentBackward'), { text: '234', caret: 0 }); // Backspace ngay sau dấu chấm => xoá "1"
+  assert.deepEqual(amountTyping('1.234', '1234', 1, 'deleteContentForward'), { text: '134', caret: 1 }); // Delete ngay trước dấu chấm => xoá "2"
+  assert.deepEqual(amountTyping('', '5', null), { text: '5', caret: 1 }); // không biết con trỏ => cuối
+  assert.deepEqual(amountTyping('1 t', '1 tỷ', 4), { text: '1 tỷ', caret: 4 }); // không phải số: không đổi chữ, không dời con trỏ
+  assert.deepEqual(amountTyping('', '0005', 4), { text: '5', caret: 1 }); // bỏ số 0 đứng đầu
+  assert.deepEqual(amountTyping('', '123.000.000 đ', 13), { text: '123.000.000', caret: 11 }); // dán kèm "đ"
+  assert.deepEqual(amountTyping('1.234', '', 0, 'deleteContentBackward'), { text: '', caret: 0 }); // xoá hết => trống ("Chưa rõ"), không phải 0
+  // Gõ từng phím có dấu cách (thử trên trình duyệt thật): dấu cách KHÔNG bị nuốt, chữ giữ nguyên để báo lỗi.
+  let v = ''; for (const ch of '1 tỷ') v = amountTyping(v, v + ch, v.length + 1).text;
+  assert.equal(v, '1 tỷ');
+  assert.deepEqual(amountTyping('1 ', '1 0', 3), { text: '10', caret: 2 }); // dấu cách rồi gõ tiếp chữ số => vẫn là số, định dạng lại
+});
 
 const ME = 'e-me';
 const scopes = (m) => (p) => m[p];
@@ -162,7 +191,7 @@ test('thao tác: mỗi loại có tiêu đề + nhãn nút; chỉ Chuyển ngư�
 test('initAction: đổi hạn hoãn lấy hạn + lý do đang có; Thắng gợi ý giá trị chốt từ giá trị dự kiến (trống thì để trống, không thành 0)', () => {
   assert.deepEqual([initAction('holdEdit', O).holdUntil, initAction('holdEdit', O).holdReason], ['2026-12-01', 'Chờ ngân sách']);
   assert.equal(initAction('hold', O).holdUntil, '');
-  assert.equal(initAction('win', O).wonAmount, '7200000000');
+  assert.equal(initAction('win', O).wonAmount, '7.200.000.000'); // gợi ý giá trị chốt hiển thị có dấu chấm ngăn nhóm
   assert.equal(initAction('win', { ...O, expectedAmountVnd: null }).wonAmount, '');
 });
 

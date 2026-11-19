@@ -106,7 +106,7 @@ test('Sửa: biểu mẫu điền sẵn; đổi tiêu đề + xoá giá trị =>
   try {
     assert.deepEqual(actionButtons(m.container).slice(0, 1), ['Sửa']);
     await press(m.container, /^Sửa$/); const d = modal(m.container); assert.ok(d, 'hộp thoại Sửa mở');
-    assert.equal(inputByLabel(d, /Tiêu đề/).value, 'Cơ hội số 1'); assert.equal(inputByLabel(d, /Giá trị dự kiến/).value, '7200000000'); assert.equal(inputByLabel(d, /^Xác suất/).value, '10');
+    assert.equal(inputByLabel(d, /Tiêu đề/).value, 'Cơ hội số 1'); assert.equal(inputByLabel(d, /Giá trị dự kiến/).value, '7.200.000.000'); assert.equal(inputByLabel(d, /^Xác suất/).value, '10');
     assert.equal(inputByLabel(d, /Lý do sửa xác suất/), null); // chỉ hiện khi đổi xác suất
     await fill(d, /Tiêu đề/, 'Bán 150 FCU'); await fill(d, /Giá trị dự kiến/, ''); await press(d, /Lưu thay đổi/);
     const w = f.writes(); assert.equal(w.length, 1);
