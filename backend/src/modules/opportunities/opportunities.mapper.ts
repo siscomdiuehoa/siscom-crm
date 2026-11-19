@@ -16,7 +16,7 @@ export const OPP_LIST_SELECT = {
 export const OPP_DETAIL_SELECT = {
   ...OPP_LIST_SELECT,
   needSummary: true, offerScope: true, probabilityOverridden: true, holdReason: true, contactId: true,
-  wonDocType: true, wonDocNo: true, wonDocDate: true, wonDocUrl: true, lostNote: true,
+  wonDocType: true, wonDocNo: true, wonDocDate: true, wonDocUrl: true, wonDocFileName: true, lostNote: true,
   lostReason: LOOKUP,
 } as const;
 
@@ -31,7 +31,7 @@ export interface OppListRow {
 }
 export interface OppDetailRow extends OppListRow {
   needSummary: string | null; offerScope: string | null; probabilityOverridden: boolean; holdReason: string | null; contactId: string | null;
-  wonDocType: string | null; wonDocNo: string | null; wonDocDate: Date | null; wonDocUrl: string | null; lostNote: string | null;
+  wonDocType: string | null; wonDocNo: string | null; wonDocDate: Date | null; wonDocUrl: string | null; wonDocFileName: string | null; lostNote: string | null;
   lostReason: Lookup | null;
 }
 
@@ -83,7 +83,7 @@ export function toOpportunityDetail(r: OppDetailRow, extra: { customer: Customer
     expectedCloseDate: ymd(r.expectedCloseDate),
     holdUntil: hold ? ymd(r.holdUntil) : null, holdReason: hold ? r.holdReason : null,
     wonAmountVnd: won ? money(r.wonAmountVnd) : null, wonDocType: won ? r.wonDocType : null, wonDocNo: won ? r.wonDocNo : null,
-    wonDocDate: won ? ymd(r.wonDocDate) : null, wonDocUrl: won ? r.wonDocUrl : null,
+    wonDocDate: won ? ymd(r.wonDocDate) : null, wonDocUrl: won ? r.wonDocUrl : null, wonDocFileName: won ? r.wonDocFileName : null,
     lostReason: lost && r.lostReason ? lookup(r.lostReason) : null, lostNote: lost ? r.lostNote : null,
     closedAt: iso(r.closedAt),
     version: r.version, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString(),

@@ -19,7 +19,7 @@
 --   siscom_app (pool nghiep vu) = V2 TRU quyen xac thuc, CONG B3 (V4), CONG Sales (V5):
 --     SELECT   : moi bang public TRU auth_session, employee_credential, remember_device, privileged_change_request, password_reset_token.
 --     INSERT+UPDATE: customer, contact, customer_assignment, activity (B3 A3), activity_access + activity_transfer_request (B3 A3, khi bang ton tai),
---                    opportunity (Sales S3, khi bang ton tai).
+--                    opportunity (Sales S3, khi bang ton tai), opportunity_document (Sales S9b, khi bang ton tai - chi them / xoa mem, trigger chan sua).
 --     INSERT: audit_log, opportunity_change (Sales S3, khi bang ton tai; KHONG UPDATE - lich su chi them, trigger cung chan). Sequence: USAGE + SELECT. KHONG ham dac quyen nao. KHONG DELETE/TRUNCATE bang nao (xoa mem / thu hoi = UPDATE).
 --   Quyen mac dinh: siscom_app nhu V2 (bang moi SELECT; sequence USAGE/SELECT); siscom_auth KHONG co quyen mac dinh.
 -- Rollback P3c (ve P3b): (1) trien khai lai backend BAN TRUOC P3c (ma P3c o production bat buoc AUTH_DATABASE_URL - chi bo bien thi khong
@@ -142,6 +142,10 @@ SELECT CASE WHEN to_regclass('public.opportunity') IS NULL THEN 'SELECT ''opport
             ELSE 'GRANT INSERT, UPDATE ON public.opportunity TO siscom_app' END \gexec
 SELECT CASE WHEN to_regclass('public.opportunity_change') IS NULL THEN 'SELECT ''opportunity_change: chua co bang (bo qua)'''
             ELSE 'GRANT INSERT ON public.opportunity_change TO siscom_app' END \gexec
+-- 2d. Sales S9b: tai lieu co hoi (docs/SALES_DESIGN.md §6.14). Bang cua 20261120000000_sales_opportunity_document co the CHUA ton tai (DB truoc S9b
+--     hoac da rollback S9b) => cap co dieu kien. INSERT (them) + UPDATE (xoa mem; trg_opportunity_document_guard chan moi UPDATE khac). KHONG DELETE.
+SELECT CASE WHEN to_regclass('public.opportunity_document') IS NULL THEN 'SELECT ''opportunity_document: chua co bang (bo qua)'''
+            ELSE 'GRANT INSERT, UPDATE ON public.opportunity_document TO siscom_app' END \gexec
 GRANT INSERT ON public.audit_log TO siscom_app;
 -- 3. Sequence: sinh ma (nextval) va doc; khong setval
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO siscom_app;
@@ -175,13 +179,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE ALL ON
 COMMIT;
 
 -- Tom tat (khong bi mat). Ky vong app (V5): INSERT=5 (customer, contact, customer_assignment, audit_log, activity) + 2 khi co bang B3 + 2 khi co bang
--- Sales (opportunity, opportunity_change) = 9; UPDATE=4 (customer, contact, customer_assignment, activity) + 2 khi co bang B3 + 1 khi co opportunity = 7; DELETE=0, cot_credential=0,
+-- Sales (opportunity, opportunity_change) = 9, + 1 khi co opportunity_document (S9b) = 10; UPDATE=4 (customer, contact, customer_assignment, activity) + 2 khi co bang B3 + 1 khi co opportunity = 7, + 1 khi co opportunity_document = 8; DELETE=0, cot_credential=0,
 -- ham_api=0, sequence_UPDATE=0, auth_session_SELECT=f. auth: INSERT=2 (auth_session, audit_log), UPDATE=2, cot_credential=7, ham_api=1, customer_SELECT=f.
 -- B1.4: khi co remember_device => auth INSERT=3, UPDATE=3 (them remember_device); app khong quyen nao tren remember_device.
 -- has_any_column_privilege: tinh ca quyen theo cot (I-4). (Chu thich cu tu V2 "gom employee_credential => 5" khong con dung tu P3c; V4: app UPDATE 4 bang, 6 khi co bang B3.)
-SELECT 'bang_app_INSERT (phai 5; co bang B3: 7; co them bang Sales: 9)' AS muc, count(*)::text AS gia_tri FROM pg_tables t WHERE t.schemaname = 'public'
+SELECT 'bang_app_INSERT (phai 5; co bang B3: 7; co them bang Sales: 9; co them opportunity_document: 10)' AS muc, count(*)::text AS gia_tri FROM pg_tables t WHERE t.schemaname = 'public'
   AND has_any_column_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'INSERT')
-UNION ALL SELECT 'bang_app_UPDATE (phai 4; co bang B3: 6; co them opportunity: 7)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'
+UNION ALL SELECT 'bang_app_UPDATE (phai 4; co bang B3: 6; co them opportunity: 7; co them opportunity_document: 8)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'
   AND has_any_column_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'UPDATE')
 UNION ALL SELECT 'bang_app_DELETE (phai 0)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'
   AND has_table_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'DELETE')
@@ -207,5 +211,6 @@ UNION ALL SELECT 'sequence_app_UPDATE (phai 0)', count(*)::text FROM pg_sequence
 UNION ALL SELECT 'bootstrap_close_app_EXECUTE (phai f)', has_function_privilege('siscom_app', 'public.fn_auth_bootstrap_close(text)', 'EXECUTE')::text
 UNION ALL SELECT 'activity_app_INSERT_UPDATE_khong_DELETE (phai t)', (has_table_privilege('siscom_app', 'public.activity', 'INSERT') AND has_table_privilege('siscom_app', 'public.activity', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.activity', 'DELETE'))::text
 UNION ALL SELECT 'opportunity_app_INSERT_UPDATE_khong_DELETE (phai t; chua co bang: t)', (to_regclass('public.opportunity') IS NULL OR (has_table_privilege('siscom_app', 'public.opportunity', 'INSERT') AND has_table_privilege('siscom_app', 'public.opportunity', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.opportunity', 'DELETE')))::text
-UNION ALL SELECT 'opportunity_change_app_CHI_INSERT (phai t; chua co bang: t)', (to_regclass('public.opportunity_change') IS NULL OR (has_table_privilege('siscom_app', 'public.opportunity_change', 'INSERT') AND NOT has_any_column_privilege('siscom_app', 'public.opportunity_change', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.opportunity_change', 'DELETE')))::text;
+UNION ALL SELECT 'opportunity_change_app_CHI_INSERT (phai t; chua co bang: t)', (to_regclass('public.opportunity_change') IS NULL OR (has_table_privilege('siscom_app', 'public.opportunity_change', 'INSERT') AND NOT has_any_column_privilege('siscom_app', 'public.opportunity_change', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.opportunity_change', 'DELETE')))::text
+UNION ALL SELECT 'opportunity_document_app_INSERT_UPDATE_khong_DELETE (phai t; chua co bang: t)', (CASE WHEN to_regclass('public.opportunity_document') IS NULL THEN true ELSE has_table_privilege('siscom_app', 'public.opportunity_document', 'INSERT') AND has_table_privilege('siscom_app', 'public.opportunity_document', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.opportunity_document', 'DELETE') END)::text;
 -- Tiep theo: B1.3_S1_VERIFY.sql.txt bang siscom_app va B1.3_S1_VERIFY_AUTH.sql.txt bang siscom_auth (ky vong PASS|75 / PASS|33, khong FAIL; V5 them B1s + E5s - Sales S3).

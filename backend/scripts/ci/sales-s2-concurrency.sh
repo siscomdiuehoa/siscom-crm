@@ -28,11 +28,21 @@ GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO $owner;
 SQL
 ( cd "$backend" && DATABASE_URL="$url" MIGRATE_DATABASE_URL= npx prisma migrate deploy >/dev/null )
 echo "DB tam dong thoi: $name (da migrate)"
+# Sales S9b: bang opportunity_document tro toi opportunity => theo dung thu tu lui (docs/SALES_DESIGN.md §9), go S9b TRUOC khi dien tap rollback S2.
+# Bang rong (DB vua migrate) => rollback S9b chay sach; migrate deploy sau do ap lai S9b cung S2.
+s9_rollback() {
+  psql -X -q -v ON_ERROR_STOP=1 -d "$name" -f "$docs/SALES_S9_DOCUMENT_ROLLBACK.sql.txt" >/dev/null || { echo "FAIL rollback Sales S9b truoc khi dien tap rollback S2"; exit 1; }
+}
+# Truoc do: rollback S2 PHAI tu choi ro rang khi S9b chua go (khong mat gi, khong loi phu thuoc kho hieu).
+out="$(psql -X -q -v ON_ERROR_STOP=1 -d "$name" -f "$docs/SALES_S2_ROLLBACK.sql.txt" 2>&1)" && { echo "FAIL S0 rollback S2 phai TU CHOI khi con bang opportunity_document"; exit 1; }
+echo "$out" | grep -q 'TU CHOI: con bang opportunity_document' && echo "PASS S0 rollback S2 tu choi khi chua go Sales S9b (dung thu tu lui)" || { echo "$out" | tail -5; echo "FAIL S0 khong thay thong bao TU CHOI"; exit 1; }
+s9_rollback
 
 node "$here/sales-s2-concurrency.mjs" "$url" "$(command -v psql)" "$docs/SALES_S2_ROLLBACK.sql.txt"
 
 # P1: ap mot phan (gia lap migration that bai giua chung: da tao bang, chua them cot activity.opportunity_id; dong _prisma_migrations chua xong)
 ( cd "$backend" && DATABASE_URL="$url" MIGRATE_DATABASE_URL= npx prisma migrate deploy >/dev/null )
+s9_rollback
 psql -X -q -v ON_ERROR_STOP=1 -d "$name" -c "ALTER TABLE activity DROP COLUMN opportunity_id CASCADE; UPDATE _prisma_migrations SET finished_at = NULL WHERE migration_name = '20261117000000_sales_opportunity'"
 psql -X -q -v ON_ERROR_STOP=1 -d "$name" -f "$docs/SALES_S2_ROLLBACK.sql.txt" >/dev/null && echo "PASS P1 rollback khi migration ap MOT PHAN (thieu cot activity.opportunity_id, dong _prisma_migrations chua xong) chay sach" \
   || { echo "FAIL P1 rollback khi migration ap mot phan"; exit 1; }

@@ -163,6 +163,10 @@ export class WinOpportunityDto {
   @IsString() @MaxLength(1000) @IsUrl({ protocols: ['https'], require_protocol: true }, { message: 'Đường dẫn chứng từ phải là địa chỉ https hợp lệ' })
   wonDocUrl!: string;
 
+  // S9b (C10): tên tệp của chứng từ — tuỳ chọn (cơ hội Thắng trước S9b không có).
+  @SkipIfBlank() @Trim() @IsString() @MaxLength(255, { message: 'Tên tệp tối đa 255 ký tự' })
+  wonDocFileName?: string | null;
+
   @IsUUID(undefined, { message: 'handoverToId phải là uuid của nhân viên' })
   handoverToId!: string;
 

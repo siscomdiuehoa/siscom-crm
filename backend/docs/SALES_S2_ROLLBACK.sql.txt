@@ -71,6 +71,11 @@ BEGIN
       RAISE EXCEPTION 'TU CHOI: con % dong activity co opportunity_id (ke ca da xoa mem) - xuat CSV va dat NULL bang tay truoc, khong tu xoa.', n;
     END IF;
   END IF;
+  -- Sales S9b: bang opportunity_document tro toi opportunity => phai go S9b TRUOC (thu tu lui, docs/SALES_DESIGN.md §9). Kiem SAU cac dieu kien theo
+  --   du lieu o tren (thong bao "con N dong ..." duoc uu tien); tu choi ro rang thay vi de DROP TABLE loi phu thuoc.
+  IF to_regclass('public.opportunity_document') IS NOT NULL THEN
+    RAISE EXCEPTION 'TU CHOI: con bang opportunity_document (Sales S9b) - chay SALES_S9_DOCUMENT_ROLLBACK.sql.txt truoc.';
+  END IF;
 END $$;
 
 -- (c) Go (IF EXISTS: trang thai sua tay nua chung khong dung giua duong - hau kiem (d) moi ket luan "sach")

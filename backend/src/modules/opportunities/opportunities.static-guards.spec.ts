@@ -19,11 +19,11 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     const body = c.slice(start, next === -1 ? undefined : next);
     return [...body.matchAll(/@(Get|Post|Patch|Put|Delete)\(([^)]*)\)/g)].map((m) => m[1] + '(' + m[2] + ')');
   };
-  it('đúng tập route S6 + S7 + S8a + S8b + S9a', () => {
+  it('đúng tập route S6 + S7 + S8a + S8b + S9a + S9b', () => {
     expect(c).toMatch(/@Controller\('customers\/:customerId\/opportunities'\)/);
     expect(c).toMatch(/@Controller\('opportunities'\)/);
     expect(routes('CustomerOpportunitiesController')).toEqual(['Get()']);
-    expect(routes('OpportunitiesController')).toEqual(['Get()', 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Post(':id/hold')", "Post(':id/resume')", "Post(':id/win')", "Post(':id/lose')", "Post(':id/reopen')", "Get(':id/activities')", "Post(':id/activities')", "Delete(':id')"]);
+    expect(routes('OpportunitiesController')).toEqual(['Get()', 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Post(':id/hold')", "Post(':id/resume')", "Post(':id/win')", "Post(':id/lose')", "Post(':id/reopen')", "Get(':id/activities')", "Post(':id/activities')", "Get(':id/documents')", "Post(':id/documents')", "Delete(':id/documents/:docId')", "Delete(':id')"]);
     expect(c).not.toMatch(/@Put\(/);
   });
   it('mọi controller đều sau ActorGuard', () => {
@@ -136,6 +136,26 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect(oa).toContain("this.writes.loadForWrite(tx, actor, scopeOf, id, 'opportunity.update')");
     expect(oa.indexOf("this.writes.loadForWrite(tx, actor, scopeOf, id, 'opportunity.update')")).toBeLessThan(oa.indexOf('this.gate.createForOpportunity('));
     expect(oa).not.toMatch(/\$queryRaw|\$executeRaw|\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(\{/);
+  });
+  it('S9b — tài liệu cơ hội: xem theo đường truy cập (kind lọc TRONG where); thêm / xoá qua loadForWrite đúng mã; nhật ký không mang tên tệp / đường dẫn / lý do', () => {
+    const d = text('opportunities.documents.service.ts');
+    expect(d).toContain("const where: Prisma.OpportunityDocumentWhereInput = { opportunityId: id, deletedAt: null, ...(full ? {} : { kind: 'TECHNICAL' }) };");
+    const ls = d.slice(d.indexOf('async list('), d.indexOf('async add('));
+    expect(ls.indexOf('anyReadWhere(actor, scopeOf, ')).toBeGreaterThan(-1);
+    expect(ls.indexOf('anyReadWhere(actor, scopeOf, ')).toBeLessThan(ls.indexOf('tx.opportunityDocument.findMany('));
+    expect(ls.indexOf('const full = readsFull(actor, scopeOf, opp);')).toBeLessThan(ls.indexOf('tx.opportunityDocument.findMany('));
+    for (const fn of ['async add(', 'async remove(']) {
+      const body = d.slice(d.indexOf(fn));
+      const load = body.indexOf("this.writes.loadForWrite(tx, actor, scopeOf, id, 'opportunity.update')");
+      expect(load).toBeGreaterThan(-1);
+      expect(load).toBeLessThan(body.search(/tx\.opportunityDocument\.(create|updateMany|count|findFirst)\(/));
+    }
+    expect(d).not.toMatch(/\$queryRaw|\$executeRaw|opportunityDocument\.(update|delete|deleteMany)\(/); // không sửa, không xoá cứng
+    expect(d).toMatch(/where: \{ id: docId, opportunityId: id, deletedAt: null \}/); // tài liệu phải thuộc đúng cơ hội trên đường dẫn
+    expect((d.match(/await this\.audit\.record\(tx, \{/g) ?? []).length).toBe(2);
+    const changes = [...d.matchAll(/changes: (\{[^}]*\})/g)].map((m) => m[1]);
+    expect(changes.length).toBe(2);
+    for (const ch of changes) expect(ch).not.toMatch(/dto\.fileName|dto\.url|dto\.reason|: reason\b/);
   });
   it('S8b — service VÒNG ĐỜI: năm thao tác đều qua inTx + loadForWrite của đường ghi, kiểm đúng mã, ghi theo version, có nhật ký và không mang số liệu', () => {
     expect(l).not.toMatch(/\$queryRaw|\$executeRaw|this\.prisma\b|\$transaction/); // không tự mở transaction, không SQL thô

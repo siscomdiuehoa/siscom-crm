@@ -128,7 +128,7 @@ export class OpportunityLifecycleService {
       const row = await this.writes.loadForWrite(tx, actor, scopeOf, id, 'opportunity.close');
       if (row.status !== 'OPEN' && row.status !== 'ON_HOLD') throw opportunityErrors.state('Cơ hội đã đóng.');
       if (row.version !== dto.version) throw opportunityErrors.versionConflict(row.version);
-      await this.apply(tx, ctx, row, { status: 'WON', wonAmountVnd: BigInt(dto.wonAmountVnd), wonDocType: dto.wonDocType, wonDocNo: docNo, wonDocDate: docDate, wonDocUrl: dto.wonDocUrl, closedAt: new Date() },
+      await this.apply(tx, ctx, row, { status: 'WON', wonAmountVnd: BigInt(dto.wonAmountVnd), wonDocType: dto.wonDocType, wonDocNo: docNo, wonDocDate: docDate, wonDocUrl: dto.wonDocUrl, wonDocFileName: trimmed(dto.wonDocFileName), closedAt: new Date() },
         [{ field: 'STATUS', oldValue: row.status, newValue: 'WON' }], 'opportunity.win', 'Chốt Thắng cơ hội', { status: [row.status, 'WON'], handoverToId: [null, dto.handoverToId] });
       const c = this.taskCtx(tx, ctx, row);
       await this.tasks.cancelOpen(c, 'HOLD_REMINDER', 'Cơ hội đã chốt');

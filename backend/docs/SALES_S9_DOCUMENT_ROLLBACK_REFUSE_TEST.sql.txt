@@ -1,0 +1,61 @@
+-- SISCOM CRM - Sales S9b: BAI TAI HIEN (RED mong doi) - SALES_S9_DOCUMENT_ROLLBACK PHAI TU CHOI khi con tai lieu co hoi (ke ca da xoa mem),
+--   kem kiem cau truc: CHECK (https, ten tep, xoa mem du ly do, won_doc_file_name), enum kind, trigger chi them / xoa mem, cam DELETE.
+-- CHI CHAY TREN DB TAM CUA CI (siscom_crm_test_*), bang chu so huu bang. Mo transaction ngoai, chen du lieu thu roi goi rollback (\ir):
+--   rollback RAISE "TU CHOI: con 2 dong opportunity_document ..." => psql thoat khac 0, transaction ngoai bi huy: KHONG con du lieu thu va KHONG co
+--   gi bi rollback. CI kiem thong bao TU CHOI va 9 dong "CAU TRUC ok" (mau SALES_S8_AUTO_KIND_ROLLBACK_REFUSE_TEST).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_test_[0-9]{8}_[0-9]{6}$' THEN RAISE EXCEPTION 'TU CHOI CHAY BAI THU: % khong phai DB tam CI.', current_database(); END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261120000000_sales_opportunity_document') THEN
+    RAISE EXCEPTION 'Chua ap 20261120000000_sales_opportunity_document.';
+  END IF;
+END $$;
+BEGIN;
+INSERT INTO lookup_item (id, type, code, label_vi) VALUES
+ ('59b00000-0000-4000-8000-000000000011', 'customer_tier',     'ZZ_S9_RF_TIER',   'S9 RF hang thu'),
+ ('59b00000-0000-4000-8000-000000000012', 'customer_status',   'ZZ_S9_RF_STATUS', 'S9 RF trang thai thu'),
+ ('59b00000-0000-4000-8000-000000000013', 'opportunity_type',  'ZZ_S9_RF_TYPE',   'S9 RF loai thu'),
+ ('59b00000-0000-4000-8000-000000000014', 'opportunity_stage', 'ZZ_S9_RF_STAGE',  'S9 RF giai doan thu');
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES ('59b00000-0000-4000-8000-000000000021', 'S9 RF NV', 's9.rf@example.invalid', 'ACTIVE', true);
+INSERT INTO customer (id, name, phone, tier_id, status_id, is_demo) VALUES ('59b00000-0000-4000-8000-000000000031', 'S9 RF Khach', '0905100009', '59b00000-0000-4000-8000-000000000011', '59b00000-0000-4000-8000-000000000012', true);
+INSERT INTO opportunity (id, customer_id, title, type_id, stage_id, owner_id, is_demo)
+ VALUES ('59b00000-0000-4000-8000-000000000041', '59b00000-0000-4000-8000-000000000031', 'S9 RF co hoi', '59b00000-0000-4000-8000-000000000013', '59b00000-0000-4000-8000-000000000014', '59b00000-0000-4000-8000-000000000021', true);
+-- Hai tai lieu hop le
+INSERT INTO opportunity_document (id, opportunity_id, kind, file_name, url, created_by) VALUES
+ ('59b00000-0000-4000-8000-000000000051', '59b00000-0000-4000-8000-000000000041', 'TECHNICAL',  'ban-ve-mat-bang.pdf', 'https://drive.example.com/s9-rf-1', '59b00000-0000-4000-8000-000000000021'),
+ ('59b00000-0000-4000-8000-000000000052', '59b00000-0000-4000-8000-000000000041', 'COMMERCIAL', 'bao-gia-lan-1.xlsx',  'https://drive.example.com/s9-rf-2', '59b00000-0000-4000-8000-000000000021');
+
+-- Kiem cau truc: moi cau lenh sai phai bi DB chan dung ma loi; ket qua in "CAU TRUC ok|..." hoac "CAU TRUC KHONG DAT|...".
+CREATE FUNCTION pg_temp.must_fail(p_label text, p_state text, p_sql text) RETURNS text LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE p_sql;
+  RETURN 'CAU TRUC KHONG DAT|' || p_label || ' (khong bi chan)';
+EXCEPTION WHEN OTHERS THEN
+  RETURN CASE WHEN SQLSTATE = p_state THEN 'CAU TRUC ok|' ELSE 'CAU TRUC KHONG DAT|' END || p_label || ' [' || SQLSTATE || ']';
+END $$;
+SELECT pg_temp.must_fail('duong dan khong phai https bi CHECK chan', '23514', $q$
+  INSERT INTO opportunity_document (opportunity_id, kind, file_name, url, created_by) VALUES ('59b00000-0000-4000-8000-000000000041', 'TECHNICAL', 'a.pdf', 'http://drive.example.com/x', '59b00000-0000-4000-8000-000000000021') $q$);
+SELECT pg_temp.must_fail('ten tep chi khoang trang bi CHECK chan', '23514', $q$
+  INSERT INTO opportunity_document (opportunity_id, kind, file_name, url, created_by) VALUES ('59b00000-0000-4000-8000-000000000041', 'TECHNICAL', '   ', 'https://drive.example.com/x', '59b00000-0000-4000-8000-000000000021') $q$);
+SELECT pg_temp.must_fail('loai tai lieu la bi enum chan', '22P02', $q$
+  INSERT INTO opportunity_document (opportunity_id, kind, file_name, url, created_by) VALUES ('59b00000-0000-4000-8000-000000000041', 'KHAC', 'a.pdf', 'https://drive.example.com/x', '59b00000-0000-4000-8000-000000000021') $q$);
+SELECT pg_temp.must_fail('sua ten tep / duong dan bi trigger chan (chi them hoac xoa mem)', '23001', $q$
+  UPDATE opportunity_document SET file_name = 'doi-ten.pdf' WHERE id = '59b00000-0000-4000-8000-000000000051' $q$);
+SELECT pg_temp.must_fail('xoa mem thieu ly do bi CHECK chan', '23514', $q$
+  UPDATE opportunity_document SET deleted_at = now(), deleted_by = '59b00000-0000-4000-8000-000000000021' WHERE id = '59b00000-0000-4000-8000-000000000051' $q$);
+SELECT pg_temp.must_fail('DELETE tai lieu bi chan', '42501', $q$
+  DELETE FROM opportunity_document WHERE id = '59b00000-0000-4000-8000-000000000051' $q$);
+SELECT pg_temp.must_fail('won_doc_file_name chi khoang trang bi CHECK chan', '23514', $q$
+  UPDATE opportunity SET won_doc_file_name = '   ' WHERE id = '59b00000-0000-4000-8000-000000000041' $q$);
+-- Xoa mem dung cach duoc phep; dong da xoa mem khong sua / khoi phuc duoc
+UPDATE opportunity_document SET deleted_at = now(), deleted_by = '59b00000-0000-4000-8000-000000000021', delete_reason = 'Tai nham tep'
+ WHERE id = '59b00000-0000-4000-8000-000000000052';
+SELECT pg_temp.must_fail('dong da xoa mem khong khoi phuc / sua duoc', '23001', $q$
+  UPDATE opportunity_document SET deleted_at = NULL, deleted_by = NULL, delete_reason = NULL WHERE id = '59b00000-0000-4000-8000-000000000052' $q$);
+SELECT 'CAU TRUC ok|xoa mem dung cach duoc phep (' || count(*) || ' dong tai lieu, ' || count(deleted_at) || ' da xoa mem)' FROM opportunity_document WHERE opportunity_id = '59b00000-0000-4000-8000-000000000041';
+
+-- Rollback PHAI tu choi: con 2 dong tai lieu (1 da xoa mem)
+\ir SALES_S9_DOCUMENT_ROLLBACK.sql.txt
+SELECT 'KHONG DAT: rollback KHONG tu choi khi con tai lieu co hoi' AS loi;

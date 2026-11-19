@@ -146,8 +146,8 @@ case "$cmd" in
       # Sales S3: v5 cap ghi opportunity + CHI INSERT opportunity_change; v4 (rollback) thu lai. Bang chua ton tai (truoc S2 / da rollback S2) => bo qua.
       if [ "$(psql -X -q -w -v ON_ERROR_STOP=1 -tA -d "$TEST_DATABASE_URL" -c "SELECT to_regclass('public.opportunity') IS NOT NULL")" = t ]; then
         wantopp=f; [ "$2" = v5 ] && wantopp=t
-        gotopp="$(psql -X -q -w -v ON_ERROR_STOP=1 -tA -d "$TEST_DATABASE_URL" -c "SELECT has_table_privilege(current_user, 'public.opportunity', 'INSERT') AND has_table_privilege(current_user, 'public.opportunity', 'UPDATE') AND NOT has_table_privilege(current_user, 'public.opportunity', 'DELETE') AND has_table_privilege(current_user, 'public.opportunity_change', 'INSERT') AND NOT has_any_column_privilege(current_user, 'public.opportunity_change', 'UPDATE')")"
-        echo "quyen ghi opportunity + chi INSERT opportunity_change cua siscom_app sau $2: $gotopp (mong doi $wantopp)"
+        gotopp="$(psql -X -q -w -v ON_ERROR_STOP=1 -tA -d "$TEST_DATABASE_URL" -c "SELECT has_table_privilege(current_user, 'public.opportunity', 'INSERT') AND has_table_privilege(current_user, 'public.opportunity', 'UPDATE') AND NOT has_table_privilege(current_user, 'public.opportunity', 'DELETE') AND has_table_privilege(current_user, 'public.opportunity_change', 'INSERT') AND NOT has_any_column_privilege(current_user, 'public.opportunity_change', 'UPDATE') AND (CASE WHEN to_regclass('public.opportunity_document') IS NULL THEN true ELSE has_table_privilege(current_user, 'public.opportunity_document', 'INSERT') AND has_table_privilege(current_user, 'public.opportunity_document', 'UPDATE') AND NOT has_table_privilege(current_user, 'public.opportunity_document', 'DELETE') END)")"
+        echo "quyen ghi opportunity + chi INSERT opportunity_change + ghi opportunity_document (S9b, khi co bang) cua siscom_app sau $2: $gotopp (mong doi $wantopp)"
         [ "$gotopp" = "$wantopp" ] || { echo "KHONG DAT: quyen Sales cua app khong khop $2."; exit 1; }
       fi
     fi
