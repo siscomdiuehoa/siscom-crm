@@ -28,7 +28,7 @@ Cách kiểm: đăng nhập SSH bằng khoá, chỉ chạy lệnh đọc; không
 
 ## 2. Điều kiện tiên quyết (phải đủ trước khi xin duyệt bước đầu tiên)
 
-1. #243 → #250 đã merge vào `main` theo đúng thứ tự (tính đến 19/11/2026: #243, #244 đã merge; còn #245 → #250), mỗi PR có kết luận review và mã duyệt của Owner; CI trên `main` đạt 6/6. Ghi lại SHA của `main` sẽ triển khai.
+1. #243 → #250 đã merge vào `main` theo đúng thứ tự (tính đến trưa 19/11/2026: #243, #244, #245 đã merge; còn #246 → #250, trong đó #249 và #250 đang chờ review vòng 2), mỗi PR có kết luận review và mã duyệt của Owner; CI trên `main` đạt 6/6. Ghi lại SHA của `main` sẽ triển khai.
 2. Một bộ sao lưu staging **mới** được khôi phục thử thành công (`restore-test.sh`: chữ ký manifest hợp lệ, số dòng từng bảng khớp). Việc này cần Owner đưa khoá riêng age lên VPS tạm thời rồi xoá ngay (quy trình G6).
 3. Chứng chỉ HTTPS còn hạn ít nhất 48 giờ tại thời điểm triển khai.
 4. Bản build frontend được tạo trên máy Windows bằng PowerShell từ đúng SHA ở mục 1 (VPS 3 GB không build giao diện; không build bằng Git Bash vì làm hỏng `/api/v1`).

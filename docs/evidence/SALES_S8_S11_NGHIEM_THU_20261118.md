@@ -3,7 +3,8 @@
 - **Ngày:** 18/11/2026 · **Người lập:** Claude (dev) theo giao việc của Owner.
 - **Phạm vi:** PR #243–#250 (S8a, S8b, S9a, S9b, S10a, S10b, S10c, S11). Đỉnh chuỗi: `feat/sales-s11-ui-kanban` @ `68399e5` (rà soát chạy tại `4734d4c`; sau đó gộp bản sửa L-01); `main` @ `5be556b`.
 - **Giới hạn đã giữ:** không merge, không deploy, không force-push, không chuyển Draft thành Ready, không làm S12, không truy cập / sửa DB thật. Mọi kiểm thử DB chạy trên cụm PostgreSQL 18 tạm ở máy dev (127.0.0.1:55471, database `siscom_crm_test_*`).
-- **Cập nhật 19/11/2026:** #243 đã merge (`7d46809`) và #244 đã merge (`eb20d5e`) ngày 18/11, mỗi PR có `[KET-LUAN]` và phê duyệt riêng của Owner; CI trên `main` đạt 6/6 sau từng lần. `main` hiện ở `eb20d5e`. #245 đã đổi base sang `main`. Bảng mục 2, mục 6 và mục 8 đã cập nhật theo; các số liệu kiểm thử giữ nguyên như lúc rà soát.
+- **Cập nhật 19/11/2026 (trưa):** reviewer trả kết quả cho #245–#250 (mục 6a). #245 đạt vòng 2 và **đã merge** (`4b02de9`, CI `main` 6/6 — run 44453870220). #246 đạt vòng 2, #247 và #248 đạt vòng 1. #249 và #250 bị yêu cầu sửa mỗi PR 1 MAJOR — **đã sửa, có test tái hiện, CI 6/6, đã gửi `[REVIEW-R2]`**. `main` hiện ở `4b02de9`; #246 đã đổi base sang `main`.
+- **Cập nhật 19/11/2026 (sáng):** #243 đã merge (`7d46809`) và #244 đã merge (`eb20d5e`) ngày 18/11, mỗi PR có `[KET-LUAN]` và phê duyệt riêng của Owner; CI trên `main` đạt 6/6 sau từng lần. `main` hiện ở `eb20d5e`. #245 đã đổi base sang `main`. Bảng mục 2, mục 6 và mục 8 đã cập nhật theo; các số liệu kiểm thử giữ nguyên như lúc rà soát.
 - **Cập nhật cuối ngày 18/11:** Owner chọn sửa L-01 trong #245. Đã sửa, gộp lên 5 nhánh phía trên bằng merge thường, CI 6/6 cả 6 PR, đã báo reviewer. Các mục liên quan bên dưới đã được cập nhật.
 - **Trạng thái file này:** đưa vào repo qua PR tài liệu riêng theo quyết định của Owner (18/11/2026). Số liệu, HEAD và kết quả CI giữ nguyên như lúc lập; không chứa mật khẩu, khoá hay dữ liệu khách hàng thật.
 
@@ -21,12 +22,12 @@
 |---|---|---|---|---|---|
 | #243 | S8a: chuyển người phụ trách, xoá mềm, khôi phục | `a15cacc` | 6/6 (run 44048290937) | **PASS R1** (1 MINOR) | **Đã merge 18/11/2026** — `7d46809`, CI `main` 6/6 (run 44279249446) |
 | #244 | S8b: Tạm hoãn / Tiếp tục / Thắng / Thua / Mở lại + việc tự tạo | `ca8831d` | 6/6 (44057650006) | **PASS R2** | **Đã merge 18/11/2026** — `eb20d5e`, CI `main` 6/6 (run 44280632001). Trước khi merge đã kiểm trên nền `main`: cây trộn trùng cây HEAD |
-| #245 | S9a: hoạt động theo cơ hội, đường đọc theo việc của Kỹ thuật | `2b0f723` | 6/6 (44272823911) | R1 = 2 MAJOR đã sửa; **chờ R2** trên HEAD mới (thêm bản sửa L-01) | Chờ `[REVIEW-R2-RESULT]` |
-| #246 | S9b: tài liệu cơ hội | `30da84c` | 6/6 (44273183796) | PASS R1 phần S9b; **chờ kiểm lại** sau bản sửa #245 | Chờ kết quả kiểm lại |
-| #247 | S10a: API lựa chọn cho giao diện (chỉ đọc) | `5af596e` | 6/6 (44273182917) | **Chưa có** | Chờ review R1 |
-| #248 | S10b: danh sách, bộ lọc, tạo, chi tiết, thao tác | `18563ee` | 6/6 (44273186268) | **Chưa có** | Chờ review R1 |
-| #249 | S10c: sửa, 3 tab, đã xoá + khôi phục | `c5dd747` | 6/6 (44273183825) | **Chưa có** | Chờ review R1 |
-| #250 | S11: kanban, tab Cơ hội ở khách, điện thoại | `68399e5` | 6/6 (44273183263) | **Chưa có** | Chờ review R1 |
+| #245 | S9a: hoạt động theo cơ hội, đường đọc theo việc của Kỹ thuật | `2b0f723` | 6/6 (44272823911) | **PASS R2** (19/11) — 2 MAJOR của R1 và L-01 đều CLOSED | **Đã merge 19/11/2026** — `4b02de9`, CI `main` 6/6 (run 44453870220) |
+| #246 | S9b: tài liệu cơ hội | `30da84c` | 6/6 (44273183796) | **PASS R2** (19/11) | Đã đổi base sang `main`; cây trộn trùng cây HEAD; chờ Owner duyệt merge |
+| #247 | S10a: API lựa chọn cho giao diện (chỉ đọc) | `5af596e` | 6/6 (44273182917) | **PASS R1** (19/11), 1 MINOR | Chờ #246 vào `main` |
+| #248 | S10b: danh sách, bộ lọc, tạo, chi tiết, thao tác | `18563ee` | 6/6 (44273186268) | **PASS R1** (19/11), 1 MINOR | Chờ các PR nền vào `main` |
+| #249 | S10c: sửa, 3 tab, đã xoá + khôi phục | `3bfa073` | 6/6 (44454555478) | R1 = 1 MAJOR (PR249-R1-01) **đã sửa**; chờ R2 | Chờ `[REVIEW-R2-RESULT]` |
+| #250 | S11: kanban, tab Cơ hội ở khách, điện thoại | `bcaca16` | 6/6 (44454926587) | R1 = 1 MAJOR (PR250-R1-01) **đã sửa**; chờ R2 | Chờ `[REVIEW-R2-RESULT]` |
 
 - Cả 8 PR đang là Draft, `MERGEABLE`, không xung đột.
 - **Chuỗi nhánh liền mạch:** mỗi nhánh xuất phát đúng từ đỉnh nhánh trước (merge-base = đỉnh nhánh nền, lệch 0 commit). Lúc rà soát: `main..đỉnh` = 19 commit = 1 + 4 + 2 + 4 + 1 + 4 + 2 + 1; không thiếu, không lặp. Sau bản sửa L-01: thêm 1 commit ở #245 và 5 merge commit (mỗi nhánh trên một cái); kiểm lại vẫn liền mạch, mọi nhánh chứa đủ nhánh nền. `main` chưa đổi từ khi mở chuỗi.
@@ -130,6 +131,8 @@ Kỹ thuật (chỉ có đường đọc theo việc) gọi `GET /opportunities?
 | T-05 | Nhỏ | Hộp "Ghi nhận hoạt động" trong cơ hội chưa cho giao việc cho người khác / chọn liên hệ; ô chọn cơ hội ở biểu mẫu Hoạt động của khách (§8.4) chưa làm. | #249, #250 |
 | T-06 | Nhỏ | Trang chi tiết Công việc (`TaskView`, đã có từ trước) đặt hộp thoại trong thẻ kính mờ — có thể lệch hộp thoại; chưa kiểm, chưa sửa. | #248 |
 | T-07 | Nhỏ | Tìm kiếm chưa bỏ dấu tiếng Việt. | #241 |
+| T-09 | Nhỏ | Danh sách ứng viên nhận chuyển giao / bàn giao cắt ở 500 người, chưa báo khi bị cắt. | Review R1 #247 |
+| T-10 | Nhỏ | Hộp thao tác (chuyển giai đoạn…) sau 409 giữ form cũ; cần buộc xác nhận lại khi cờ "xác suất nhập tay" đổi sau khi tải lại. Máy chủ vẫn kiểm version. | Review R1 #248 |
 | T-08 | Lưu ý | Khách do Quản trị CRM tạo mà **chưa có người phụ trách** thì không tạo được cơ hội (409 `OPPORTUNITY_CUSTOMER_NO_OWNER`). Đúng thiết kế; cần dặn người dùng. | Rà soát này |
 
 ## 6. PR còn chờ review
@@ -137,7 +140,25 @@ Kỹ thuật (chỉ có đường đọc theo việc) gọi `GET /opportunities?
 - **#245** — chờ `[REVIEW-R2-RESULT]` (đã gửi R2 tại `8bc4933`).
 - **#246** — chờ reviewer kiểm lại sau bản sửa #245 (đã gửi R2 tại `4c239c8`).
 - **#247, #248, #249, #250** — đã gửi `[REVIEW-REQUEST]`, chưa có vòng review nào.
+- **Tình trạng 19/11 (thay cho ba dòng trên):** chỉ còn **#249** (`3bfa073`) và **#250** (`bcaca16`) chờ `[REVIEW-R2-RESULT]`; chi tiết ở mục 6a.
 - #243, #244 đã PASS và **đã merge ngày 18/11/2026** (xem mục 2).
+
+## 6a. Kết quả review ngày 19/11/2026 và bản sửa
+
+| PR | Kết quả | Phát hiện | Xử lý |
+|---|---|---|---|
+| #245 | PASS R2 trên `2b0f723` | PR245-R1-01, PR245-R1-02, L-01: CLOSED | Đã merge `4b02de9` |
+| #246 | PASS R2 trên `30da84c` | Không có MAJOR mới | Chờ Owner duyệt merge |
+| #247 | PASS R1 trên `5af596e` | MINOR: danh sách ứng viên cắt ở 500 người mà không báo | Theo dõi (T-09) |
+| #248 | PASS R1 trên `18563ee` | MINOR: hộp thao tác sau 409 giữ form cũ; cần xác nhận lại khi cờ xác suất nhập tay đổi | Theo dõi (T-10) |
+| #249 | CHANGES_REQUESTED trên `c5dd747` | **PR249-R1-01 (MAJOR):** lưu lại sau 409 gửi cả trường người dùng chưa sửa ⇒ ghi đè thay đổi của người khác. MINOR: hộp ghi nhận hoạt động chỉ tự nhận Công việc | Đã sửa ở `3bfa073`, chờ R2 |
+| #250 | CHANGES_REQUESTED trên `68399e5` | **PR250-R1-01 (MAJOR):** tổng cột hợp lệ vượt 15 chữ số hiện "Chưa rõ" | Đã sửa ở `bcaca16`, chờ R2 |
+
+**PR249-R1-01 — cách sửa:** biểu mẫu Sửa giữ bản gốc lúc mở. Khi cơ hội được tải lại sau 409, ô người dùng **chưa sửa** nhận giá trị bản mới; ô **cả hai cùng sửa** thành giá trị khác nhau thì nút Lưu bị khoá cho tới khi người dùng chọn "Giữ nội dung của tôi" hoặc "Dùng bản mới" cho từng ô. Test tái hiện đúng ca của reviewer (A sửa nhu cầu, B đổi tiền 100 → 200): trước sửa, lần lưu lại gửi kèm tiền 100; sau sửa chỉ gửi nhu cầu, tiền của B còn 200. Thêm 5 ca hàm thuần và 3 ca qua hộp Sửa (cùng sửa một trường, null / 0, xác suất + lý do). Frontend 729/729 trên nhánh #249.
+
+**PR250-R1-01 — cách sửa:** bộ định dạng **tổng** nhận mọi số nguyên không âm (tính bằng BigInt, không qua Number); giới hạn 15 chữ số chỉ còn áp cho giá trị của **một** cơ hội. Test tái hiện đúng ca của reviewer (hai thẻ 999.999.999.999.999 đ ⇒ "1.999.999,9 tỷ") và các biên 15 / 16 / 17 chữ số, số 0, cột toàn null, cột lẫn tiền và null, nhãn cột qua component. Frontend 745/745 trên nhánh #250.
+
+Ý nghĩa với đợt rà soát 18/11: hai lỗi này **không** bị bộ kiểm của đợt rà soát bắt được — ca 409 khi đó chỉ kiểm "version mới được dùng", chưa kiểm nội dung thân yêu cầu khi người khác đã đổi trường khác; ca tổng lớn chỉ kiểm hàm cộng, chưa kiểm nhãn hiển thị. Cả hai nay đã có test chốt.
 
 ## 7. Rủi ro còn tồn tại
 
@@ -154,7 +175,7 @@ Kỹ thuật (chỉ có đường đọc theo việc) gọi `GET /opportunities?
 Nguyên tắc: từng PR một, đúng thứ tự chuỗi, Merge Commit khoá theo HEAD, mỗi PR cần mã duyệt riêng của Owner.
 
 1. L-01 đã sửa trong #245; không còn việc tiền đề nào về mã trước khi merge.
-2. **Khối backend:** ~~#243~~ → ~~#244~~ (đã merge 18/11) → #245 → #246 → #247.
+2. **Khối backend:** ~~#243~~ → ~~#244~~ (đã merge 18/11) → ~~#245~~ (đã merge 19/11) → #246 → #247.
 3. **Khối frontend:** #248 → #249 → #250.
 4. Sau **mỗi** lần merge:
    - chờ CI trên `main` đạt 6/6;
