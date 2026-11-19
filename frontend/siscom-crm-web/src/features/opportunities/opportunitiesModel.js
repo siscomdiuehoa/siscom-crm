@@ -35,6 +35,45 @@ export function parseAmountInput(text) {
   if (n.length > 15) return { error: 'Giá trị tối đa 15 chữ số.' };
   return { value: n };
 }
+// Ô nhập số tiền hiển thị theo cách ghi số của văn bản hành chính / kế toán Việt Nam: dấu chấm ngăn nhóm hàng nghìn (1.234.567).
+// Chỉ định dạng khi nội dung là số nguyên (chữ số + dấu ngăn nhóm . , khoảng trắng, có thể kèm "đ"/"VNĐ" ở cuối); có chữ / ký tự lạ thì GIỮ NGUYÊN
+// để validate báo lỗi — không đoán ("1 tỷ" không tự thành 1). Giá trị gửi máy chủ vẫn là chuỗi chữ số qua parseAmountInput (không đổi).
+const AMOUNT_SEP = /[.,\s ]/g;
+const amountDigits = (raw) => raw.trim().replace(/\s*(đ|vnđ|vnd)$/i, '').replace(AMOUNT_SEP, '');
+export function groupAmountText(text) {
+  const raw = text == null ? '' : String(text);
+  const d = amountDigits(raw);
+  if (!d) return /^[.,\s ]*$/.test(raw) ? '' : raw;
+  if (!/^\d+$/.test(d)) return raw;
+  return d.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+// Xử lý một lần gõ trong ô số tiền: trả { text, caret } — chữ đã định dạng và vị trí con trỏ giữ đúng sau cùng số chữ số như trước khi chèn dấu chấm.
+// Backspace / Delete chỉ xoá trúng dấu chấm (chữ số không đổi) => xoá luôn chữ số bên cạnh, để phím xoá luôn có tác dụng.
+export function amountTyping(prev, raw, caret, inputType) {
+  let text = raw == null ? '' : String(raw);
+  let pos = typeof caret === 'number' && caret >= 0 && caret <= text.length ? caret : text.length;
+  const before = prev == null ? '' : String(prev);
+  if (text.length === before.length - 1 && text.replace(AMOUNT_SEP, '') === before.replace(AMOUNT_SEP, '')) {
+    if (inputType === 'deleteContentBackward') {
+      let i = pos - 1; while (i >= 0 && !/\d/.test(text[i])) i--;
+      if (i >= 0) { text = text.slice(0, i) + text.slice(i + 1); pos = i; }
+    } else if (inputType === 'deleteContentForward') {
+      let i = pos; while (i < text.length && !/\d/.test(text[i])) i++;
+      if (i < text.length) text = text.slice(0, i) + text.slice(i + 1);
+    }
+  }
+  // Vừa gõ dấu cách: giữ nguyên chữ (người dùng có thể đang gõ "1 tỷ"); nếu gõ tiếp chữ số thì lần sau sẽ định dạng lại.
+  if (/\s$/.test(text.slice(0, pos))) return { text, caret: pos };
+  const out = groupAmountText(text);
+  if (out === text) return { text: out, caret: pos };
+  if (!/^[\d.]*$/.test(out)) return { text: out, caret: Math.min(pos, out.length) };
+  // Số chữ số bên trái con trỏ (trừ các số 0 đứng đầu đã bỏ) => đặt con trỏ ngay sau chừng ấy chữ số trong chữ mới.
+  const all = text.replace(/\D/g, ''); const dropped = all.length - out.replace(/\D/g, '').length;
+  let left = Math.max(0, text.slice(0, pos).replace(/\D/g, '').length - dropped);
+  if (left === 0) return { text: out, caret: 0 };
+  let i = 0; for (; i < out.length && left > 0; i++) if (/\d/.test(out[i])) left--;
+  return { text: out, caret: i };
+}
 
 // ───── Ngày (cột kiểu ngày, không giờ): 'YYYY-MM-DD' ─────
 const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -185,7 +224,7 @@ const EMPTY_ACTION = { stageId: '', probability: 'KEEP', holdUntil: '', holdReas
 export function initAction(kind, o) {
   const f = { ...EMPTY_ACTION };
   if (kind === 'holdEdit' && o) { f.holdUntil = o.holdUntil || ''; f.holdReason = o.holdReason || ''; }
-  if (kind === 'win' && o && o.expectedAmountVnd) f.wonAmount = String(o.expectedAmountVnd);
+  if (kind === 'win' && o && o.expectedAmountVnd) f.wonAmount = groupAmountText(String(o.expectedAmountVnd));
   return f;
 }
 const HTTPS = /^https:\/\/[^\s]+$/i;
@@ -247,7 +286,7 @@ export function toActionRequest(kind, f, o) {
 export function initEdit(o) {
   return {
     title: o.title || '', typeId: o.type ? o.type.id : '', isProjectLinked: !!o.isProjectLinked, projectName: o.projectName || '', offerScope: o.offerScope || '', needSummary: o.needSummary || '',
-    expectedAmount: o.expectedAmountVnd === null || o.expectedAmountVnd === undefined ? '' : String(o.expectedAmountVnd), expectedCloseDate: o.expectedCloseDate || '',
+    expectedAmount: o.expectedAmountVnd === null || o.expectedAmountVnd === undefined ? '' : groupAmountText(String(o.expectedAmountVnd)), expectedCloseDate: o.expectedCloseDate || '',
     contactId: o.contact ? o.contact.id : '', probability: String(o.probability), probabilityReason: '',
   };
 }

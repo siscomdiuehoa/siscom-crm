@@ -293,7 +293,9 @@ test('tạo cơ hội: loại Cung cấp không bắt gắn dự án (O5) và g�
     assert.equal(projectBox(d).checked, false); assert.equal(projectBox(d).disabled, false); assert.equal(inputByLabel(d, /Tên dự án/), null);
     await fill(d, /Giá trị dự kiến/, '1 tỷ'); await press(d, /^Tạo cơ hội$/);
     assert.equal(f.writes().length, 0); assert.match(text(d), /Giá trị chỉ gồm chữ số/);
-    await fill(d, /Giá trị dự kiến/, '7.200.000.000'); await press(d, /^Tạo cơ hội$/);
+    await fill(d, /Giá trị dự kiến/, '7200000000');
+    assert.equal(inputByLabel(d, /Giá trị dự kiến/).value, '7.200.000.000'); // gõ liền chữ số => tự chèn dấu chấm ngăn nhóm hàng nghìn
+    await press(d, /^Tạo cơ hội$/);
     assert.deepEqual(f.writes()[0].body, { customerId: CID, title: 'Bán 120 FCU', typeId: 't-supply', isProjectLinked: false, expectedAmountVnd: '7200000000' });
   } finally { await m.unmount(); }
 });
@@ -387,11 +389,12 @@ test('chuyển người phụ trách và Thắng: người nhận lấy từ đ�
   try {
     await press(m.container, /^Thắng$/); let d = modal(m.container);
     assert.equal(f.count('/opportunities/o1/handover-candidates'), 1); assert.equal(f.count('/opportunities/o1/owner-candidates'), 0);
-    assert.equal(inputByLabel(d, /Giá trị chốt/).value, '7200000000'); // gợi ý từ giá trị dự kiến, sửa được
+    assert.equal(inputByLabel(d, /Giá trị chốt/).value, '7.200.000.000'); // gợi ý từ giá trị dự kiến, có dấu chấm ngăn nhóm, sửa được
     await press(d, /^Thắng$/);
     assert.equal(f.writes().length, 0);
     for (const msg of [/Vui lòng nhập số chứng từ/, /Chọn ngày chứng từ/, /Vui lòng nhập đường dẫn chứng từ/, /Chọn người nhận bàn giao/]) assert.match(text(d), msg);
-    await fill(d, /Giá trị chốt/, '7.000.000.000'); await fill(d, /Số chứng từ/, 'HD-2026-118'); await fill(d, /Ngày chứng từ/, '2026-11-10');
+    await fill(d, /Giá trị chốt/, '7000000000'); assert.equal(inputByLabel(d, /Giá trị chốt/).value, '7.000.000.000');
+    await fill(d, /Số chứng từ/, 'HD-2026-118'); await fill(d, /Ngày chứng từ/, '2026-11-10');
     await fill(d, /Đường dẫn chứng từ/, 'http://drive.example.com/x'); await pickField(d, /Người nhận/, /Phạm Kỹ Thuật \(NV-0007\) · KT/);
     await press(d, /^Thắng$/);
     assert.equal(f.writes().length, 0); assert.match(text(d), /https hợp lệ/);

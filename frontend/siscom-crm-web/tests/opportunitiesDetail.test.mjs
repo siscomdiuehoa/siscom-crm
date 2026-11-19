@@ -67,6 +67,14 @@ test('initEdit: điền sẵn từ chi tiết; giá trị trống là ô rỗng 
   assert.equal(initEdit(opp({ expectedAmountVnd: '7200000000', contact: { id: 'k1', fullName: 'An' } })).contactId, 'k1');
 });
 
+test('initEdit: giá trị dự kiến hiển thị có dấu chấm ngăn nhóm hàng nghìn; mở rồi lưu ngay không gửi thay đổi nào', () => {
+  const o = opp({ expectedAmountVnd: '7200000000' });
+  assert.equal(initEdit(o).expectedAmount, '7.200.000.000');
+  assert.equal(initEdit(opp({ expectedAmountVnd: '999999999999999' })).expectedAmount, '999.999.999.999.999');
+  assert.deepEqual(toPatchBody(o, initEdit(o), META), {});
+  assert.deepEqual(toPatchBody(o, { ...initEdit(o), expectedAmount: '8.500.000.000' }, META), { expectedAmountVnd: '8500000000' });
+});
+
 test('toPatchBody: không đổi gì => {}; chỉ gửi trường thực sự đổi; không bao giờ gửi version / giai đoạn / trạng thái / người phụ trách / khách hàng', () => {
   const o = opp({ expectedAmountVnd: '7200000000', expectedCloseDate: '2026-12-20' });
   assert.deepEqual(toPatchBody(o, initEdit(o), META), {});

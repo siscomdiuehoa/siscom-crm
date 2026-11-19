@@ -4,6 +4,7 @@ import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import { opportunityActions, ACTION_LABEL, ACTION_ICON, ACTION_TITLE, ACTION_DONE, ACTION_CANDIDATES, WON_DOC_TYPES, initAction, moneyVN, unplacedErrors } from './opportunitiesModel.js';
 import { EditOpportunityDialog } from './OpportunityEdit.jsx';
+import { AmountInput } from './AmountInput.jsx';
 
 // Sales S10b: nút thao tác trên một cơ hội + hộp thoại (§8.3 "Các hộp thoại khác"). Nút chỉ là tiện ích giao diện theo quyền máy chủ cấp
 // (me.permissions, fail-closed); máy chủ luôn kiểm lại quyền, phiên bản và mọi quy tắc. Sửa trường (PATCH, S10c) dùng hộp thoại riêng ở OpportunityEdit.jsx.
@@ -69,7 +70,7 @@ export function ActionDialog({ kind, o, ui, onClose, onDone, onStale, preset = n
   else if (kind === 'hold' || kind === 'holdEdit') body = <>{text('holdUntil', 'Ngày liên hệ lại', { required: true, type: 'date' })}{text('holdReason', 'Lý do tạm hoãn', { required: true, multiline: true })}</>;
   else if (kind === 'resume') body = text('reason', 'Lý do (tuỳ chọn)', { multiline: true });
   else if (kind === 'win') body = <>
-    {text('wonAmount', 'Giá trị chốt (VNĐ, chưa VAT)', { required: true, suffix: 'đ', hint: o.expectedAmountVnd ? 'Giá trị dự kiến: ' + moneyVN(o.expectedAmountVnd) : undefined })}
+    <AmountInput label="Giá trị chốt (VNĐ, chưa VAT)" required suffix="đ" hint={o.expectedAmountVnd ? 'Giá trị dự kiến: ' + moneyVN(o.expectedAmountVnd) : undefined} value={f.wonAmount} onChange={set('wonAmount')} error={errs.wonAmount} disabled={busy} />
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
       {choose('wonDocType', 'Loại chứng từ', WON_DOC_TYPES)}
       {text('wonDocNo', 'Số chứng từ', { required: true })}
