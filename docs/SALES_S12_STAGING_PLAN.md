@@ -259,7 +259,28 @@ Bước 2 của mục 4 (sao lưu + khôi phục thử) **đã xong** — mục 
 | 1 | 07:16 UTC: 3 khách / 3 liên hệ / 0 hoạt động / 5 nhân viên / 12 migration, 0 migration lỗi; chưa có bảng `opportunity`, 0 mã `opportunity.*`. 1 trong 3 khách chưa có người phụ trách (R-8). Mốc nội dung A lấy lúc 07:21 UTC (mục 9.2) |
 | 3 | `deploy.sh … --migrate --dry-run`: rc = 0, in đủ chuỗi bước, bản mới sẽ nằm cạnh `src-20261113083453`. Dry-run **không** tự đếm migration chờ; so riêng (chỉ đọc): đúng 4 migration Sales chưa áp, không có migration lạ trong database. `check-tls.sh`: đạt, hạn 25/11/2026 11:02 UTC |
 
-Sau cổng A staging **không đổi**: bản đang chạy, số migration, số bộ sao lưu, dịch vụ đều như trước. **Cổng B chưa được duyệt** (Owner, 19/11/2026: "Chưa duyệt cổng B" — chờ xử lý review của PR #252).
+Sau cổng A staging **không đổi**: bản đang chạy, số migration, số bộ sao lưu, dịch vụ đều như trước. Cổng B khi đó chưa được duyệt; kết quả cổng B ở mục 10.2.
+
+### 10.2 Kết quả cổng B (19/11/2026; Owner ghi `OWNER_APPROVED_MIGRATION` cho `siscom_crm_staging`, SHA `9bc30b1`)
+
+Owner xác nhận khi duyệt: chấp nhận bộ M chưa khôi phục thử và không bảo đảm cửa sổ mất dữ liệu chỉ vài giây; nếu phải dùng bộ R thì mất cập nhật sau 13:39:52 ngày 19/11/2026 giờ Việt Nam (06:39:52 UTC); cho phép chép bộ M đã mã hoá về máy Owner và xác thực.
+
+| Việc | Kết quả | Bằng chứng |
+|---|---|---|
+| 1. Tiền kiểm (07:38 UTC) | `main` = `9bc30b1`, CI 6/6 (run 44470687640); `check-tls.sh` đạt, chứng chỉ còn 6 ngày; hai gói ở thư mục tạm đúng SHA-256; 0 phiên đăng nhập còn hiệu lực; 0 kết nối ứng dụng đang mở tới database; 0 unit lỗi | Lệnh chỉ đọc |
+| 2. Mốc B0 (07:37 UTC) | Dấu vân tay nội dung **21 / 21 bảng trùng mốc A**; bộ đếm ghi 21 / 21 bảng trùng mốc A ⇒ không có lệnh ghi nào từ 07:21 tới sát migration | `dau-van-tay-moc-B0.txt`, `bo-dem-ghi-moc-B0.txt` |
+| 3. `deploy.sh --src … --frontend … --migrate` | 07:38:43 → 07:39:46 UTC, `DEPLOY_RC=0`. `npm ci` + build + kiểm argon2 / Prisma đạt → **bộ M = `siscom_crm_staging_20261119_073931`** (chụp 07:39:31; manifest đã ký, tự kiểm đạt) → `prisma migrate deploy` áp đúng 4 migration Sales lúc 07:39:39 → `APP_GRANTS_V5` → VERIFY app `PASS|75`, VERIFY auth `PASS|33` → đổi `current` sang `src-20261119073843` → sức khoẻ đạt (`database up, migrated:true`) | `buoc-4-deploy-log.txt` (đã che chuỗi kết nối; bỏ dòng `npm warn`) |
+| 4. So nội dung sau migration | **20 / 21 bảng trùng từng dòng** với mốc B0 trên các cột trước Sales. Bảng còn lại là `_prisma_migrations`: 12 → 16 dòng, 12 dòng cũ có mã băm trùng mốc B0 (`c47ea98c…`), 4 dòng mới là 4 migration Sales, 0 migration lỗi / dở. Có thêm 3 bảng `opportunity`, `opportunity_change`, `opportunity_document` (0 dòng). Vẫn 0 mã quyền `opportunity.*`. Đếm nhanh 3 / 3 / 0 / 5 | `dau-van-tay-sau-buoc-4.txt` |
+| 5. Bộ M ra ngoài VPS | 4 tệp chép về máy Owner; `ssh-keygen -Y verify` bằng `allowed_signers` Owner giữ: `Good "siscom-crm-backup" signature`; SHA-256 tệp `.dump.age` = `file_sha256` trong manifest đã ký (`a2513057…f943fc09b`); 4 tệp trùng SHA-256 với VPS; số dòng từng bảng trong manifest M trùng manifest R | Claude chạy trên máy Owner |
+| Sau triển khai | `https://42.96.15.235/` 200, phục vụ gói giao diện mới (`index-DKeOgGTW.js`); `/api/v1/health` 200; `/api/v1/opportunities` khi chưa đăng nhập 401 (đường dẫn mới đã có, vẫn đòi đăng nhập); 0 unit lỗi; nhật ký backend sau 07:39 không có lỗi ngoài hai yêu cầu 401 do chính phép kiểm này tạo; không có phiên đăng nhập nào được dùng trong lúc chạy | Lệnh chỉ đọc |
+
+**Khoảng không được sao lưu che:** bộ M chụp 07:39:31, migration áp 07:39:39 — 8 giây. Trong khoảng đó không có phiên đăng nhập nào hoạt động và dấu vân tay 20 bảng cũ sau migration trùng mốc B0, nên không có thao tác ghi nào rơi vào khoảng này.
+
+**Chưa làm / chưa kiểm ở cổng B:** bộ M **chưa được khôi phục thử** (đúng như Owner đã chấp nhận); chưa đăng nhập thử bằng tài khoản nào trên bản mới (thuộc bước 7); mục "Cơ hội kinh doanh" chưa hiện với ai vì chưa cấp mã quyền (bước 6) và chưa seed danh mục (bước 5, cổng C). Lệnh theo dõi nhật ký của Claude bị treo sau khi deploy đã xong (lỗi của lệnh theo dõi, không phải của deploy) nên kết quả được đọc trễ khoảng 9 phút; tiến trình theo dõi đã được dừng.
+
+**Đường lùi hiện có:** `deploy.sh --rollback` về `src-20261113083453` (ghi trong `/opt/siscom-crm/previous`), giữ schema. Điểm khôi phục: bộ M (chính), bộ R (dự phòng) — mục 9.1.
+
+**Cổng C (seed danh mục) chưa được duyệt.**
 
 **Chưa có trong kế hoạch này, Owner cần biết:**
 
