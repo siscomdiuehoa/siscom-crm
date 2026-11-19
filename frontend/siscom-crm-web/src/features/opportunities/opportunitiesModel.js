@@ -312,13 +312,16 @@ export function sumAmounts(items) {
   return { sum: known ? sum.toString() : null, known, unknown };
 }
 // Số tiền rút gọn cho tiêu đề cột: tỷ / triệu với một chữ số thập phân (cắt, không làm tròn lên); nhỏ hơn 1 triệu thì ghi đủ. null => "Chưa rõ".
+// PR250-R1-01: đây là bộ định dạng của TỔNG nhiều cơ hội nên KHÔNG dùng DIGITS (giới hạn 15 chữ số của MỘT cơ hội) — tổng hợp lệ có thể dài hơn.
+// Nhận mọi chuỗi số nguyên không âm (không có số 0 đứng đầu); tính bằng BigInt, không bao giờ qua Number.
+const TOTAL_DIGITS = /^(0|[1-9]\d*)$/;
 export function moneyShortVN(v) {
-  if (v === null || v === undefined || v === '' || !DIGITS.test(String(v))) return AMOUNT_UNKNOWN;
+  if (v === null || v === undefined || v === '' || !TOTAL_DIGITS.test(String(v))) return AMOUNT_UNKNOWN;
   const n = BigInt(String(v));
   const short = (unit, name) => { const whole = n / unit; const dec = (n % unit) / (unit / 10n); return whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec ? ',' + dec : '') + ' ' + name; };
   if (n >= 1000000000n) return short(1000000000n, 'tỷ');
   if (n >= 1000000n) return short(1000000n, 'triệu');
-  return moneyVN(String(v));
+  return moneyVN(String(v)); // < 1 triệu: luôn trong giới hạn của moneyVN
 }
 // Dòng tổng của cột: "9,8 tỷ", "1,2 tỷ + 2 chưa rõ", "2 chưa rõ"; cột trống => ''.
 export function columnTotalLabel(items) {

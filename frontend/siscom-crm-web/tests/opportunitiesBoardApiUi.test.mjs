@@ -34,6 +34,31 @@ test('moneyShortVN + columnTotalLabel: tỷ / triệu một chữ số thập ph
   assert.equal(columnTotalLabel([]), '');
 });
 
+// PR250-R1-01: tổng của NHIỀU cơ hội có thể dài hơn 15 chữ số (giới hạn 15 chữ số chỉ áp cho giá trị của MỘT cơ hội).
+test('PR250-R1-01 (ca của reviewer): hai thẻ 999.999.999.999.999 đ => tổng 16 chữ số vẫn hiện bằng tiền, KHÔNG thành "Chưa rõ"', () => {
+  const two = [F('999999999999999'), F('999999999999999')];
+  assert.deepEqual(sumAmounts(two), { sum: '1999999999999998', known: 2, unknown: 0 });
+  assert.equal(columnTotalLabel(two), '1.999.999,9 tỷ');
+  assert.equal(moneyShortVN('1999999999999998'), '1.999.999,9 tỷ');
+});
+
+test('PR250-R1-01 — biên 15 / 16 / 17 chữ số, số 0, cột toàn null, cột lẫn tiền và null; không dùng Number', () => {
+  assert.equal(moneyShortVN('999999999999999'), '999.999,9 tỷ'); // 15 chữ số
+  assert.equal(moneyShortVN('1000000000000000'), '1.000.000 tỷ'); // 16 chữ số
+  assert.equal(moneyShortVN('99999999999999999'), '99.999.999,9 tỷ'); // 17 chữ số
+  assert.equal(moneyShortVN('9007199254740993'), '9.007.199,2 tỷ'); // > Number.MAX_SAFE_INTEGER: không lệch do số thực
+  assert.equal(moneyShortVN('123456789012345678901234567890'), '123.456.789.012.345.678.901,2 tỷ'); // tổng rất lớn vẫn đúng từng chữ số
+  assert.equal(moneyShortVN('0'), '0 đ'); assert.equal(columnTotalLabel([F('0')]), '0 đ'); // số 0 thật
+  assert.equal(columnTotalLabel([F(null), F(null)]), '2 chưa rõ'); // toàn null: không có tiền, không ghi 0
+  assert.equal(columnTotalLabel([F('999999999999999'), F(null), F('999999999999999'), F('2')]), '2.000.000 tỷ + 1 chưa rõ');
+  const hundred = Array.from({ length: 100 }, () => F('999999999999999'));
+  assert.equal(sumAmounts(hundred).sum, '99999999999999900'); assert.equal(columnTotalLabel(hundred), '99.999.999,9 tỷ'); // 100 thẻ tối đa của một lần tải
+  // Vẫn từ chối thứ không phải số nguyên không âm (không đoán): số âm, số thực, chữ, số có 0 đứng đầu.
+  for (const bad of ['-5', '1.5', '12abc', '007', ' ', 'NaN']) assert.equal(moneyShortVN(bad), 'Chưa rõ', bad);
+  // Giới hạn 15 chữ số của MỘT cơ hội giữ nguyên: thẻ có giá trị 16 chữ số (không hợp lệ theo API) được coi là chưa rõ, không cộng vào tổng.
+  assert.deepEqual(sumAmounts([F('1000000000000000'), F('5')]), { sum: '5', known: 1, unknown: 1 });
+});
+
 test('buildListQuery: pageSize mặc định 20; kanban xin 100; giá trị ngoài 1..100 hoặc không nguyên => về 20', () => {
   assert.equal(buildListQuery({}).pageSize, 20); assert.equal(buildListQuery({ pageSize: BOARD_PAGE_SIZE }).pageSize, 100);
   for (const bad of [0, 101, 2.5, '50', null]) assert.equal(buildListQuery({ pageSize: bad }).pageSize, 20, String(bad));
@@ -174,6 +199,19 @@ test('kanban: mặc định là Bảng; bấm Kanban => mỗi giai đoạn MỘT
     const c5 = text(cards(cols[2])[0]); assert.match(c5, /7\.200\.000\.000 đ · 45%/); assert.match(c5, /Quá hạn chốt 05\/01\/2020/);
     assert.equal(findAll(m.container, (e) => e.attributes['aria-label'] === 'Lọc theo trạng thái').length, 0, 'kanban không có lọc trạng thái');
     assert.match(text(m.container), /Kanban chỉ gồm cơ hội đang mở/);
+  } finally { await m.unmount(); }
+});
+
+test('PR250-R1-01 — nhãn cột trên giao diện: cột có tổng vượt 15 chữ số hiện đúng số tiền; cột lẫn tiền lớn và thẻ chưa rõ tách riêng', async () => {
+  const max = '999999999999999';
+  const data = { s1: [item(1, { expectedAmountVnd: max }), item(2, { expectedAmountVnd: max })], s2: [item(3, { stage: stageOf('s2'), expectedAmountVnd: max }), item(4, { stage: stageOf('s2'), expectedAmountVnd: max }), item(5, { stage: stageOf('s2') })], s3: [], s4: [] };
+  const m = await listPage(server({ board: boardOf(data) }), SALES);
+  try {
+    await toKanban(m); const cols = columns(m.container);
+    assert.deepEqual(headOf(cols[0]), ['Tiếp cận· 2', '1.999.999,9 tỷ']);
+    assert.deepEqual(headOf(cols[1]), ['Khảo sát· 3', '1.999.999,9 tỷ + 1 chưa rõ']);
+    assert.doesNotMatch(headOf(cols[0])[1], /Chưa rõ/);
+    assert.match(text(cards(cols[0])[0]), /999\.999\.999\.999\.999 đ/); // thẻ vẫn hiện đủ số
   } finally { await m.unmount(); }
 });
 
