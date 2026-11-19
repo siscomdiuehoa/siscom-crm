@@ -338,6 +338,19 @@ Owner báo: "anh đã đăng nhập cả 4 vai trò và cả đăng nhập trên
 
 **Chưa nghiệm thu (theo `SALES_DESIGN.md` §10):** tiêu chí 14 trên iPhone (tạo, chuyển giai đoạn, chốt **từ iPhone**); Thắng + việc "Bàn giao thực hiện" (5); Tạm hoãn / Tiếp tục (6, 12a); chuyển người phụ trách (8); luồng của `sale@` trên cơ hội mình phụ trách (12); Kỹ thuật thấy cơ hội qua việc được giao, không thấy tiền (10); khôi phục cơ hội đã xoá (9c); hai người sửa cùng lúc (13); kanban kéo thả; ô tiền có dấu chấm và hộp báo lý do mới (10.4) trên staging.
 
+### 10.6 Đối chiếu sau khi Owner báo "anh đã làm xong" (19/11/2026, 16:50 giờ Việt Nam)
+
+Đối chiếu **chỉ đọc** (`auth_session`, `audit_log`, `opportunity`, `opportunity_change`, nhật ký backend từ lúc triển khai 16:37):
+
+| Thời điểm | Ai / thiết bị | Việc | Tiêu chí |
+|---|---|---|---|
+| 16:47 | `admin@` / **iPhone** (Chrome cho iOS; phiên máy tính của `admin@` đã đăng xuất từ trước) | Tạo CH-0002 cho KH-00003, giá trị 31.000.000 đ, người phụ trách `sale@` | 14 — **tạo trên iPhone: có** |
+| 16:49 | `sale@` / máy tính | Sửa CH-0002: xác suất 10 → 20 kèm lý do; có dòng lịch sử | 4 (sửa xác suất có lý do) |
+
+Từ 16:37 tới lúc đối chiếu: đúng 2 lệnh ghi (POST tạo, PATCH sửa), không có lỗi 4xx / 5xx nào ngoài 401.
+
+**Chưa có bằng chứng trên máy chủ** cho: chuyển giai đoạn và chốt **trên iPhone** (14); Thắng + việc "Bàn giao thực hiện" (5); Tạm hoãn / Tiếp tục (6, 12a); chuyển người phụ trách (8); khôi phục CH-0001 (9c); giao việc cho Kỹ thuật và Kỹ thuật xem cơ hội (10); hai người sửa cùng lúc (13 — không có phản hồi 409 nào); kéo thả kanban. Nghiệm thu S12 **chưa thể ghi là đạt**.
+
 **Chưa có trong kế hoạch này, Owner cần biết:**
 
 - Nghiệm thu giao diện ở bước 8 là lần đầu có người ngoài tác giả thử giao diện Sales (không có QA độc lập trước đó), và là lần đầu chạy trên iPhone thật.
