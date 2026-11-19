@@ -3,6 +3,7 @@
 - **Ngày lập:** 18/11/2026 · **Trạng thái:** KẾ HOẠCH, **chưa thực hiện bước nào**. Mỗi bước ghi ở mục 4 cần Owner phê duyệt riêng bằng văn bản.
 - **Phạm vi:** cập nhật staging hiện có (`https://42.96.15.235`, DB `siscom_crm_staging`) từ bản trước Sales lên bản `main` sau khi #243–#250 đã merge. **Không** bao gồm production.
 - **Tài liệu nền:** `docs/SALES_DESIGN.md` §9 (dòng S12), §10 (tiêu chí nghiệm thu); `docs/VPS_RUNBOOK.md` §4 (cập nhật), §5 (cách lùi), G6 (sao lưu / khôi phục thử); `docs/evidence/SALES_S8_S11_NGHIEM_THU_20261118.md`.
+- **19/11/2026 (cuối ngày): S12 ĐẠT NGHIỆM THU THEO QUYẾT ĐỊNH CỦA OWNER, có miễn kiểm một số tiêu chí — mục 10.7.**
 - **Cập nhật 19/11/2026:** Owner đã quyết cả bốn điểm mở (mục 8); máy chủ staging đã được khởi động lại theo quyết định đó (mục 1, dòng "Máy chủ").
 - **Trạng thái mã (kiểm 19/11/2026, 06:00 UTC):** **cả 8 PR #243–#250 đã merge**; `main` = `0e709b9`, CI 6/6 (run 44466202529). Chi tiết và liên kết: `docs/evidence/SALES_S8_S11_NGHIEM_THU_20261118.md` mục 0 và 0.5. (Dòng kiểm trước, 04:47 UTC: `main` = `d5035da`, #249 và #250 chưa merge.)
 - **Sửa theo review R1 của #251 (19/11/2026):** mục 2 (điều kiện tiên quyết), mục 5 (phương án lùi — PR251-R1-02), Phụ lục A (PR251-R1-03, PR251-R1-04).
@@ -350,6 +351,20 @@ Owner báo: "anh đã đăng nhập cả 4 vai trò và cả đăng nhập trên
 Từ 16:37 tới lúc đối chiếu: đúng 2 lệnh ghi (POST tạo, PATCH sửa), không có lỗi 4xx / 5xx nào ngoài 401.
 
 **Chưa có bằng chứng trên máy chủ** cho: chuyển giai đoạn và chốt **trên iPhone** (14); Thắng + việc "Bàn giao thực hiện" (5); Tạm hoãn / Tiếp tục (6, 12a); chuyển người phụ trách (8); khôi phục CH-0001 (9c); giao việc cho Kỹ thuật và Kỹ thuật xem cơ hội (10); hai người sửa cùng lúc (13 — không có phản hồi 409 nào); kéo thả kanban. Nghiệm thu S12 **chưa thể ghi là đạt**.
+
+### 10.7 Quyết định nghiệm thu của Owner (19/11/2026, khoảng 16:55 giờ Việt Nam)
+
+Owner ghi, nguyên văn: **"cho qua đi, đạt nghiệm thu đi em, sau anh dùng đến đau sai còn chỉnh sauwr tiếp, a muốn đưa dự án vào hoạt động sớm"**.
+
+**Kết luận S12: ĐẠT NGHIỆM THU THEO QUYẾT ĐỊNH CỦA OWNER**, chấp nhận các tiêu chí chưa kiểm dưới đây như rủi ro đã biết; lỗi phát hiện khi dùng thật sẽ sửa sau theo quy trình PR thường. Đây là quyết định của Owner, **không** phải kết quả kiểm: các tiêu chí dưới đây **chưa có bằng chứng** trên staging và không được ghi là đã đạt ở bất kỳ tài liệu nào.
+
+| Đã có bằng chứng trên staging (mục 10.2–10.6) | Owner miễn kiểm — chưa có bằng chứng trên staging |
+|---|---|
+| Sao lưu + khôi phục thử, migration không đổi dữ liệu cũ (16) · Đăng nhập 4 vai trò, đăng nhập iPhone · Tạo (cả trên iPhone), sửa, sửa xác suất có lý do (4), chuyển giai đoạn có lịch sử (2, một phần), chặn rời Tiếp cận thiếu nhu cầu (3), Thua, mở lại, xoá · Ma trận quyền ở tầng DB sau cấp quyền (bước 6) | Chuyển giai đoạn / chốt trên iPhone (14) · Thắng + việc "Bàn giao thực hiện" (5) · Tạm hoãn / Tiếp tục (6, 12a) · Chuyển người phụ trách (8) · Khôi phục cơ hội (9c) · Kỹ thuật xem qua việc được giao, không thấy tiền (10) · Hai người sửa cùng lúc (13) · Kéo thả kanban · Ô tiền có dấu chấm và hộp báo lý do trên staging · `sysadmin@` (mật khẩu chưa đặt lại) |
+
+Các tiêu chí miễn kiểm vẫn có bằng chứng ở mức **môi trường thử cục bộ / CI** (test tự động, kịch bản API 143 phép kiểm, thử trình duyệt với backend thật — báo cáo nghiệm thu S8–S11 và các PR #249–#254), không phải trên staging.
+
+Việc **đưa vào sử dụng thật (production)** không thuộc S12 và không được cấp phép bởi quyết định này: cần kế hoạch và phê duyệt riêng (runbook G7).
 
 **Chưa có trong kế hoạch này, Owner cần biết:**
 
