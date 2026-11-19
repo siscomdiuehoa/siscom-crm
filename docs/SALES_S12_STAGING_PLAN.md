@@ -280,7 +280,34 @@ Owner xác nhận khi duyệt: chấp nhận bộ M chưa khôi phục thử và
 
 **Đường lùi hiện có:** `deploy.sh --rollback` về `src-20261113083453` (ghi trong `/opt/siscom-crm/previous`), giữ schema. Điểm khôi phục: bộ M (chính), bộ R (dự phòng) — mục 9.1.
 
-**Cổng C (seed danh mục) chưa được duyệt.**
+Cổng C khi đó chưa được duyệt; kết quả ở mục 10.3.
+
+### 10.3 Kết quả cổng C và bước 6 (19/11/2026)
+
+**Cổng C — seed danh mục** (Owner: "Anh duyệt cổng C: seed danh mục Sales trên siscom_crm_staging bằng bản đang chạy 9bc30b1"). Bản đang chạy: `src-20261119073843`. Bằng chứng: `docs/evidence/s12-20261119/buoc-5-seed-danh-muc.txt`.
+
+| Kiểm | Kết quả |
+|---|---|
+| `run-cli.sh seed-lookups` lần 1 (07:54:55 UTC) | rc = 0: "tổng 73, chèn mới 16, đã có 57" |
+| Danh mục Sales | 4 giai đoạn (Tiếp cận, Khảo sát, Báo giá, Đàm phán), 3 loại cơ hội, 9 lý do thua — **tất cả đang hoạt động**; không có mã trùng |
+| Chạy lại lần 2 | rc = 0: "chèn mới 0, đã có 73"; mã băm từng nhóm danh mục **trùng lần 1** ⇒ không thêm, không sửa, không xoá |
+| 57 mục danh mục cũ | Mã băm trên toàn bộ cột (gồm `updated_at`) **không đổi** trước seed, sau lần 1, sau lần 2 |
+
+**Bước 6 — cấp 10 mã quyền `opportunity.*`** (phê duyệt R-3 của Owner ngày 19/11; Claude báo Owner ngay trước khi chạy). Bằng chứng: `buoc-6-cap-quyen.txt`.
+
+| Kiểm | Kết quả |
+|---|---|
+| Hai người | Yêu cầu + thực thi: NV-0001 (`sysadmin@`, vai trò `admin`); duyệt: NV-0002 (`admin@`, vai trò `crm_admin`); cả hai ACTIVE, khác nhau |
+| Script | `SALES_S5_OPPORTUNITY_PERMISSIONS.sql.txt`, rc = 0, một transaction: "đã cấp 17 dòng, bỏ qua 0"; bảng tự kiểm của script đúng cả 7 dòng (10 mã; crm_admin 9, sales 6, technician 1, accountant 1, **admin 0**; tổng 17) |
+| Ma trận sau cấp | `crm_admin`: 9 mã phạm vi ALL · `sales`: read / create / update / move_stage / close / assign phạm vi OWN · `technician`: read_assigned OWN · `accountant`: read ALL · `admin`: không có mã nào |
+| Dấu vết | 17 yêu cầu `ROLE_PERMISSION_CHANGE`, tất cả `EXECUTED`; ở mọi yêu cầu người yêu cầu ≠ người duyệt; 51 dòng nhật ký mới (17 tạo + 17 duyệt + 17 thực thi) |
+| Số liệu | `permission` 27 → 37, `role_permission` 49 → 66, `audit_log` 30 → 81 |
+
+**Sai khác so với cách ghi trong script:** script ghi "chạy bằng psql với `siscom_migrator`". Claude chạy qua tài khoản quản trị PostgreSQL cục bộ rồi `SET ROLE siscom_migrator` trong cùng phiên (script in `chay_bang = siscom_migrator` và phép kiểm quyền của script đạt) để không phải đọc mật khẩu trong tệp cấu hình. Khác biệt: `session_user` là `postgres`; các hàm đặc quyền không dùng `session_user`.
+
+**Bước 7 — kiểm nhanh: mới làm được phần không cần đăng nhập.** Trang chủ 200; `/health/database`: `up`, `migrated:true`, `leastPrivilege:true`; `/opportunities`, `/opportunities/meta`, `/opportunities/board` khi chưa đăng nhập đều 401; nhật ký backend từ lúc triển khai không có cảnh báo / lỗi nào ngoài các 401 đó; 0 unit lỗi; 5 tài khoản thử đều ACTIVE, không bị khoá, không bị buộc đổi mật khẩu. **Chưa làm: đăng nhập bằng 4 vai trò và kiểm mục "Cơ hội kinh doanh" theo quyền** — Claude không có mật khẩu các tài khoản thử trên staging (Owner đặt khi bootstrap, không qua chat) nên phần này do Owner làm, cũng là bước mở đầu của nghiệm thu (bước 8). Vì vậy tiêu chí "4 vai trò đăng nhập được" của bước 7 **chưa có kết quả**.
+
+**Dữ liệu thử sẵn có cho nghiệm thu:** KH-00003 và KH-00004 do NV-0003 (`sale@`) phụ trách; KH-00002 chưa có người phụ trách ⇒ không tạo được cơ hội trên khách này cho tới khi gán người phụ trách (R-8).
 
 **Chưa có trong kế hoạch này, Owner cần biết:**
 
