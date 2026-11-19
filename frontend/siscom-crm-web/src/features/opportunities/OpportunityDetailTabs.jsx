@@ -48,6 +48,7 @@ function ActivityDialog({ ui, o, types, onClose }) {
             return <button key={t} type="button" role="radio" aria-checked={on} className="sg-chip" disabled={busy} onClick={() => set('type')(t)} style={on ? { background: 'var(--primary-soft)', borderColor: 'transparent', color: 'var(--primary-text)' } : undefined}><Icon name={TYPE_META[t].icon} size={14} />{TYPE_META[t].label}</button>;
           })}
         </div>
+        {f.type === 'TASK' ? <p role="note" style={{ margin: 0, font: 'var(--type-caption)', color: 'var(--text-3)' }}>Công việc tạo ở đây được giao cho chính bạn. Nếu bạn phụ trách cơ hội nhưng không phụ trách khách hàng này, máy chủ sẽ từ chối tự nhận công việc; hãy nhờ người phụ trách khách hàng hoặc Quản trị CRM giao việc ở tab Hoạt động của khách hàng.</p> : null}
         {hasTitle(f.type) ? <Input label="Tiêu đề" maxLength={200} value={f.title} onChange={set('title')} error={errs.title} disabled={busy} /> : null}
         <Input label="Nội dung" required multiline rows={4} maxLength={4000} value={f.content} onChange={set('content')} error={errs.content} disabled={busy} />
         {hasOutcome(f.type) ? <Input label="Kết quả" multiline rows={2} maxLength={2000} value={f.outcome} onChange={set('outcome')} error={errs.outcome} disabled={busy} /> : null}

@@ -294,3 +294,37 @@ export function validateDocument(f) {
 }
 export const toDocumentBody = (f) => ({ kind: f.kind, fileName: t(f.fileName), url: t(f.url) });
 export function validateReason(reason, msg) { const e = {}; need(e, 'reason', reason, msg, 500); return e; }
+
+// ───── S10c R2 (PR249-R1-01): lưu lại sau xung đột phiên bản (409) ─────
+// Vấn đề: sau 409, chi tiết được tải lại (version mới) nhưng biểu mẫu vẫn giữ MỌI giá trị cũ; so biểu mẫu cũ với bản mới sẽ coi cả những ô
+// người dùng CHƯA chạm là "đã đổi" và ghi đè thay đổi của người kia. Cách xử lý: so biểu mẫu với bản GỐC lúc mở (base) để biết ô nào người dùng
+// thực sự sửa; ô chưa sửa nhận giá trị của bản mới; ô CẢ HAI cùng sửa (khác nhau) => xung đột, giao diện chặn lưu tới khi người dùng chọn rõ.
+export const EDIT_FIELDS = ['title', 'typeId', 'isProjectLinked', 'projectName', 'offerScope', 'needSummary', 'expectedAmount', 'expectedCloseDate', 'contactId', 'probability'];
+export const EDIT_FIELD_LABEL = {
+  title: 'Tiêu đề', typeId: 'Loại cơ hội', isProjectLinked: 'Gắn với dự án/công trình', projectName: 'Tên dự án/công trình', offerScope: 'Phạm vi SISCOM đang chào',
+  needSummary: 'Nhu cầu của khách', expectedAmount: 'Giá trị dự kiến', expectedCloseDate: 'Dự kiến chốt', contactId: 'Người liên hệ', probability: 'Xác suất',
+};
+// Chuẩn hoá để SO SÁNH (không để gửi): số tiền theo giá trị (bỏ dấu ngăn nhóm; trống và 0 là hai giá trị KHÁC nhau), xác suất theo số, chữ thì cắt khoảng trắng.
+const editKey = (k, v) => {
+  if (k === 'isProjectLinked') return v === true ? '1' : '0';
+  if (k === 'expectedAmount') { const a = parseAmountInput(v); return a.error ? 'x:' + t(v) : a.value === null ? '' : 'n:' + a.value; }
+  if (k === 'probability') { const p = probabilityOf(v); return p === null ? 'x:' + t(v) : 'n:' + p; }
+  return t(v);
+};
+// Các ô người dùng đã sửa so với bản gốc lúc mở biểu mẫu.
+export const editTouched = (base, form) => { const b = initEdit(base); return EDIT_FIELDS.filter((k) => editKey(k, form[k]) !== editKey(k, b[k])); };
+// base: bản lúc mở (hoặc lần đồng bộ trước); latest: bản vừa tải lại; form: biểu mẫu đang nhập.
+// Trả { form, conflicts[{ k, mine, theirs }] }: form đã nhận giá trị mới ở các ô CHƯA sửa; conflicts = ô cả hai cùng sửa thành giá trị khác nhau.
+export function rebaseEdit(base, latest, form) {
+  const b = initEdit(base); const l = initEdit(latest); const next = { ...form }; const conflicts = [];
+  for (const k of EDIT_FIELDS) {
+    const mine = editKey(k, form[k]); const was = editKey(k, b[k]); const theirs = editKey(k, l[k]);
+    if (mine === was) next[k] = l[k];
+    else if (theirs !== was && theirs !== mine) conflicts.push({ k, mine: form[k], theirs: l[k] });
+  }
+  // Lý do sửa xác suất chỉ có nghĩa khi xác suất của mình còn khác bản mới (máy chủ từ chối lý do thừa).
+  if (editKey('probability', next.probability) === editKey('probability', l.probability)) next.probabilityReason = '';
+  return { form: next, conflicts };
+}
+// Chữ hiển thị một giá trị của ô số tiền trong khối xung đột: trống => "Chưa rõ" (không phải 0).
+export const amountInputText = (v) => { const a = parseAmountInput(v); return a.error ? t(v) : moneyVN(a.value); };

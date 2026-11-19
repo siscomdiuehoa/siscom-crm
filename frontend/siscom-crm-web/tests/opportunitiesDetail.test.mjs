@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   opportunityActions, holdsUpdate, canRestore, initEdit, validateEdit, toPatchBody, probabilityChanged, describeChange, CHANGE_LABEL,
-  DOC_KINDS, EMPTY_DOC, validateDocument, toDocumentBody, safeHttps, validateReason, buildListQuery,
+  DOC_KINDS, EMPTY_DOC, validateDocument, toDocumentBody, safeHttps, validateReason, buildListQuery, rebaseEdit, editTouched,
 } from '../src/features/opportunities/opportunitiesModel.js';
 import { createOpportunitiesController } from '../src/features/opportunities/opportunitiesUi.js';
 import { describeRepoError } from '../src/features/customers/customerApiUi.js';
@@ -304,4 +304,66 @@ test('tab Hoạt động không đọc lại thừa: hook chuông gọi touchAct
   assert.equal((await ctl.createActivity('o1', draft)).ok, true); assert.equal(tick(), t0 + 1);
   assert.equal((await ctl.act('hold', o, { holdUntil: '2026-12-01', holdReason: 'Chờ ngân sách' })).ok, true); assert.equal(tick(), t0 + 2); // tạm hoãn tự tạo công việc nhắc => tab phải đọc lại
   ctl.touchActivities(); assert.equal(tick(), t0 + 3); // sau các thao tác trên, lời báo bình thường vẫn hoạt động
+});
+
+// ───── PR249-R1-01: lưu lại sau xung đột (409) không được ghi đè trường người dùng CHƯA sửa ─────
+test('PR249-R1-01 (ca của reviewer): A chỉ sửa nhu cầu, B đổi tiền 100 -> 200; sau khi tải bản mới, thân PATCH của A KHÔNG chứa tiền', () => {
+  const base = opp({ expectedAmountVnd: '100', needSummary: 'old' });
+  const latest = opp({ expectedAmountVnd: '200', needSummary: 'old', version: 4 });
+  const form = { ...initEdit(base), needSummary: 'my edit' };
+  assert.deepEqual(editTouched(base, form), ['needSummary']);
+  const r = rebaseEdit(base, latest, form);
+  assert.deepEqual(r.conflicts, []);
+  assert.equal(r.form.expectedAmount, '200'); assert.equal(r.form.needSummary, 'my edit');
+  assert.deepEqual(toPatchBody(latest, r.form, META), { needSummary: 'my edit' });
+});
+
+test('PR249-R1-01: hai người cùng sửa MỘT trường => báo xung đột (không tự ghi đè); cùng sửa thành cùng giá trị => không xung đột, không gửi lại', () => {
+  const base = opp({ expectedAmountVnd: '100', title: 'Cũ' });
+  const latest = opp({ expectedAmountVnd: '200', title: 'Cũ', version: 4 });
+  const r = rebaseEdit(base, latest, { ...initEdit(base), expectedAmount: '300', title: 'Của tôi' });
+  assert.deepEqual(r.conflicts, [{ k: 'expectedAmount', mine: '300', theirs: '200' }]);
+  assert.equal(r.form.expectedAmount, '300'); assert.equal(r.form.title, 'Của tôi'); // giữ nội dung đang nhập, chờ người dùng quyết
+  const same = rebaseEdit(base, latest, { ...initEdit(base), expectedAmount: '200' });
+  assert.deepEqual(same.conflicts, []); assert.deepEqual(toPatchBody(latest, same.form, META), {});
+  assert.equal(rebaseEdit(base, latest, { ...initEdit(base), expectedAmount: '200.000' }).conflicts.length, 1); // 200.000 khác 200 => xung đột thật
+  assert.deepEqual(rebaseEdit(base, latest, { ...initEdit(base), expectedAmount: ' 200 đ' }).conflicts, []); // cùng số, khác cách gõ => không xung đột
+});
+
+test('PR249-R1-01 — null / 0 sau đồng bộ: trường chưa sửa nhận đúng bản mới (null vẫn là ô trống, 0 vẫn là "0"); người dùng xoá tiền trong khi người khác đặt tiền => xung đột', () => {
+  const n0 = opp({ expectedAmountVnd: null });
+  const a = rebaseEdit(n0, opp({ expectedAmountVnd: '0', version: 4 }), { ...initEdit(n0), title: 'Mới' });
+  assert.equal(a.form.expectedAmount, '0'); assert.deepEqual(a.conflicts, []);
+  assert.deepEqual(toPatchBody(opp({ expectedAmountVnd: '0', version: 4 }), a.form, META), { title: 'Mới' });
+  const h = opp({ expectedAmountVnd: '100' });
+  const b = rebaseEdit(h, opp({ expectedAmountVnd: null, version: 4 }), { ...initEdit(h), title: 'Mới' });
+  assert.equal(b.form.expectedAmount, ''); assert.deepEqual(toPatchBody(opp({ expectedAmountVnd: null, version: 4 }), b.form, META), { title: 'Mới' });
+  const c = rebaseEdit(h, opp({ expectedAmountVnd: '200', version: 4 }), { ...initEdit(h), expectedAmount: '' });
+  assert.deepEqual(c.conflicts, [{ k: 'expectedAmount', mine: '', theirs: '200' }]);
+  const d = rebaseEdit(n0, opp({ expectedAmountVnd: '0', version: 4 }), { ...initEdit(n0), expectedAmount: '0' });
+  assert.deepEqual(d.conflicts, []); // cả hai cùng đặt 0
+  const e = rebaseEdit(n0, opp({ expectedAmountVnd: '0', version: 4 }), { ...initEdit(n0), expectedAmount: '5' });
+  assert.deepEqual(e.conflicts, [{ k: 'expectedAmount', mine: '5', theirs: '0' }]); // 0 thật của người khác vẫn là một giá trị, không coi như trống
+});
+
+test('PR249-R1-01 — xác suất + lý do: người khác đã đổi xác suất về đúng số mình nhập => bỏ lý do (không gửi lý do thừa); đổi sang số khác => xung đột, giữ lý do', () => {
+  const base = opp({ probability: 10 });
+  const mine = { ...initEdit(base), probability: '60', probabilityReason: 'Khách duyệt' };
+  const same = rebaseEdit(base, opp({ probability: 60, probabilityOverridden: true, version: 4 }), mine);
+  assert.deepEqual(same.conflicts, []); assert.equal(same.form.probabilityReason, '');
+  assert.deepEqual(toPatchBody(opp({ probability: 60, version: 4 }), same.form, META), {});
+  const diff = rebaseEdit(base, opp({ probability: 40, version: 4 }), mine);
+  assert.deepEqual(diff.conflicts, [{ k: 'probability', mine: '60', theirs: '40' }]); assert.equal(diff.form.probabilityReason, 'Khách duyệt');
+  const untouched = rebaseEdit(base, opp({ probability: 40, version: 4 }), { ...initEdit(base), title: 'Mới' });
+  assert.equal(untouched.form.probability, '40'); assert.deepEqual(toPatchBody(opp({ probability: 40, version: 4 }), untouched.form, META), { title: 'Mới' });
+});
+
+test('PR249-R1-01 — các trường khác: loại, gắn dự án, ngày, người liên hệ đồng bộ khi chưa sửa; xung đột khi cùng sửa', () => {
+  const base = opp({ expectedCloseDate: '2026-12-20', contact: { id: 'k1', fullName: 'An' } });
+  const latest = opp({ expectedCloseDate: '2027-01-15', contact: { id: 'k2', fullName: 'Bình' }, type: { id: 't-install', code: 'INSTALLATION', label: 'Thi công' }, isProjectLinked: true, projectName: 'KS', offerScope: 'Lắp', version: 4 });
+  const r = rebaseEdit(base, latest, { ...initEdit(base), title: 'Mới' });
+  assert.deepEqual([r.form.expectedCloseDate, r.form.contactId, r.form.typeId, r.form.isProjectLinked, r.form.projectName, r.form.offerScope], ['2027-01-15', 'k2', 't-install', true, 'KS', 'Lắp']);
+  assert.deepEqual(r.conflicts, []); assert.deepEqual(toPatchBody(latest, r.form, META), { title: 'Mới' });
+  const c = rebaseEdit(base, latest, { ...initEdit(base), expectedCloseDate: '2026-12-31', contactId: '' });
+  assert.deepEqual(c.conflicts.map((x) => x.k), ['expectedCloseDate', 'contactId']);
 });
