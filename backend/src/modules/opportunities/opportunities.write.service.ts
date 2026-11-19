@@ -105,6 +105,18 @@ export class OpportunityWritesService {
     return (await tx.contact.findFirst({ where: { id: contactId, customerId, deletedAt: null }, select: { id: true } })) !== null;
   }
 
+  // S10a — CÙNG phép kiểm với loadForWrite (không thấy => 404; thấy nhưng thiếu mã / ngoài điều kiện => 403) nhưng KHÔNG khoá dòng nào: chỉ cho
+  // đường ĐỌC "ai có thể nhận" (GET …-candidates) chạy trong snapshot chỉ đọc. Kết quả chỉ là gợi ý hiển thị — thao tác ghi thật luôn kiểm lại
+  // bằng loadForWrite (có khoá). KHÔNG dùng hàm này trước một lệnh ghi.
+  async peekForWrite(tx: Tx, actor: Actor, scopeOf: ScopeOf, id: string, code: OppWriteCode): Promise<WRow> {
+    if (scopeOf('opportunity.read') === null && !hasAssignedReadCode(scopeOf) && scopeOf(code) === null) throw opportunityErrors.forbidden();
+    const row = (await tx.opportunity.findFirst({ where: { id }, select: W_SELECT })) as WRow | null;
+    if (!row) throw opportunityErrors.notFound();
+    const ref = refOf(row);
+    assertWrite(actor, scopeOf, code, ref, await resolvePath(tx, actor, scopeOf, id, ref));
+    return row;
+  }
+
   // Khoá (khách FOR SHARE -> cơ hội FOR UPDATE), đọc lại, kiểm đúng mã ghi. customer_id của cơ hội là bất biến (trigger S2) nên đọc trước khi khoá là an toàn.
   async loadForWrite(tx: Tx, actor: Actor, scopeOf: ScopeOf, id: string, code: OppWriteCode): Promise<WRow> {
     // Không có mã opportunity.* nào liên quan => 403 như các đường đọc (không phải 404).

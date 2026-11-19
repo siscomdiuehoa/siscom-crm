@@ -6,7 +6,7 @@ import { AUDIT_REDACTED_TEXT } from '../../common/audit/db-audit.port';
 import { AutoTaskCtx, OPPORTUNITY_AUTO_TASKS, OpportunityAutoTasks } from '../activities/activities.opportunity-tasks';
 import type { ScopeOf } from './opportunities.access';
 import { opportunityErrors } from './opportunities.errors';
-import { FieldError, ruleViolations } from './opportunities.rules';
+import { FieldError, lostReasonNeedsNote, ruleViolations } from './opportunities.rules';
 import { OpportunitiesService } from './opportunities.service';
 import { OpportunityWritesService, WRow } from './opportunities.write.service';
 import type { HoldOpportunityDto, LoseOpportunityDto, ReopenOpportunityDto, ResumeOpportunityDto, WinOpportunityDto } from './dto/write-opportunity.dto';
@@ -149,7 +149,7 @@ export class OpportunityLifecycleService {
       if (row.version !== dto.version) throw opportunityErrors.versionConflict(row.version);
       const why = await tx.lookupItem.findFirst({ where: { id: dto.lostReasonId, type: 'opportunity_lost_reason', isActive: true }, select: { id: true, code: true } });
       if (!why) throw opportunityErrors.validation([{ field: 'lostReasonId', message: 'Lý do thua không hợp lệ hoặc đã ngừng dùng.' }]);
-      if (why.code === 'OTHER' && !note) throw opportunityErrors.validation([{ field: 'lostNote', message: 'Lý do "Khác" phải kèm ghi chú.' }]);
+      if (lostReasonNeedsNote(why.code) && !note) throw opportunityErrors.validation([{ field: 'lostNote', message: 'Lý do "Khác" phải kèm ghi chú.' }]);
       await this.apply(tx, ctx, row, { status: 'LOST', lostReasonId: why.id, lostNote: note, closedAt: new Date() },
         [{ field: 'STATUS', oldValue: row.status, newValue: 'LOST' }], 'opportunity.lose', 'Chốt Thua cơ hội', { status: [row.status, 'LOST'] });
       await this.tasks.cancelOpen(this.taskCtx(tx, ctx, row), 'HOLD_REMINDER', 'Cơ hội đã chốt');

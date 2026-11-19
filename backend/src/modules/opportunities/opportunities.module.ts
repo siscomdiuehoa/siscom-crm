@@ -6,6 +6,7 @@ import { ActivitiesModule } from '../activities/activities.module';
 import { CustomerOpportunitiesController, OpportunitiesController } from './opportunities.controller';
 import { DbOppEmployeeAccess, OPP_EMPLOYEE_ACCESS } from './opportunities.employee-access';
 import { OpportunityActivitiesService } from './opportunities.activities.service';
+import { OpportunityChoicesService } from './opportunities.choices.service';
 import { OpportunityDocumentsService } from './opportunities.documents.service';
 import { OpportunityLifecycleService } from './opportunities.lifecycle.service';
 import { OpportunitiesService } from './opportunities.service';
@@ -18,6 +19,6 @@ import { OpportunityWritesService } from './opportunities.write.service';
 @Module({
   imports: [AuthModule, AuditModule, PrismaModule, ActivitiesModule],
   controllers: [CustomerOpportunitiesController, OpportunitiesController],
-  providers: [OpportunitiesService, OpportunityWritesService, OpportunityLifecycleService, OpportunityActivitiesService, OpportunityDocumentsService, { provide: OPP_EMPLOYEE_ACCESS, useClass: DbOppEmployeeAccess }],
+  providers: [OpportunitiesService, OpportunityWritesService, OpportunityLifecycleService, OpportunityActivitiesService, OpportunityDocumentsService, OpportunityChoicesService, { provide: OPP_EMPLOYEE_ACCESS, useClass: DbOppEmployeeAccess }],
 })
 export class OpportunitiesModule {}

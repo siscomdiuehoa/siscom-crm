@@ -4,6 +4,7 @@ import type { Actor, Permission, Scope } from '../../common/auth/actor';
 import { AUDIT_PORT, AuditPort } from '../../common/audit/audit.port';
 import { AUDIT_REDACTED_TEXT } from '../../common/audit/db-audit.port';
 import type { OwnerInfo } from '../../common/auth/scope';
+import type { EmployeeAccess } from '../../common/auth/scope-merge';
 // Vị từ THUẦN của Sales (không Nest, không Prisma client): một nguồn duy nhất cho "người gọi đạt đường đọc đầy đủ với cơ hội".
 import { fullReadWhere, readsFull } from '../opportunities/opportunities.access';
 import { grantAccess, hasTechAuthority, readsCustomer, revokeAccess, withdrawPendingTransfers, WriteCtx } from './activities.access';
@@ -55,6 +56,15 @@ export function reminderReadWhere(actor: Actor, scopeOf: ScopeOf): Prisma.Activi
 // ───── Cổng ghi việc tự sinh ─────
 export const OPPORTUNITY_AUTO_TASKS = Symbol('OPPORTUNITY_AUTO_TASKS');
 export type HandoverResult = 'INTERNAL' | 'EXTERNAL' | 'INVALID';
+// Điều kiện NGƯỜI NHẬN việc "Bàn giao thực hiện" (§6.5) — MỘT nguồn cho createHandover (ghi) và handoverCandidates (danh sách gợi ý, S10a):
+// nhân viên ACTIVE; đọc được khách => 'INTERNAL'; không đọc được khách nhưng có thẩm quyền kỹ thuật => 'EXTERNAL' (cấp activity_access); còn lại => null.
+export function handoverKind(acc: EmployeeAccess | undefined, customerOwner: OwnerInfo): 'INTERNAL' | 'EXTERNAL' | null {
+  if (!acc || !acc.active) return null;
+  if (readsCustomer(acc, customerOwner)) return 'INTERNAL';
+  return hasTechAuthority(acc) ? 'EXTERNAL' : null;
+}
+export interface HandoverCandidate { id: string; code: string; fullName: string; departmentCode: string | null }
+export const HANDOVER_CANDIDATES_MAX = 500;
 
 @Injectable()
 export class OpportunityAutoTasks {
@@ -145,12 +155,24 @@ export class OpportunityAutoTasks {
   // nội bộ; không đọc được khách => phải có thẩm quyền kỹ thuật (activity.update_own) và được cấp activity_access theo B3 §5.4 trong cùng transaction
   // (hạn, nhật ký, thu hồi y như B3; granted_by = người chốt). Không đạt => 'INVALID', KHÔNG tạo gì (nơi gọi từ chối cả thao tác Thắng).
   async createHandover(c: AutoTaskCtx, recipientId: string, dueAt: Date, customerOwner: OwnerInfo): Promise<HandoverResult> {
-    const acc = (await this.access.load(c.tx, [recipientId])).get(recipientId);
-    if (!acc || !acc.active) return 'INVALID';
-    const reads = readsCustomer(acc, customerOwner);
-    if (!reads && !hasTechAuthority(acc)) return 'INVALID';
+    const kind = handoverKind((await this.access.load(c.tx, [recipientId])).get(recipientId), customerOwner);
+    if (kind === null) return 'INVALID';
+    const reads = kind === 'INTERNAL';
     const row = await this.createTask(c, 'WIN_HANDOVER', recipientId, dueAt, 'Bàn giao thực hiện ' + c.opportunity.code, 'Cơ hội ' + c.opportunity.code + ' đã Thắng. Tiếp nhận bàn giao để thực hiện.');
     if (!reads) await grantAccess(this.w(c, row), recipientId);
     return reads ? 'INTERNAL' : 'EXTERNAL';
+  }
+
+  // S10a — danh sách người CÓ THỂ nhận việc bàn giao của một khách: đúng điều kiện handoverKind ở trên (chỉ đọc; nơi gọi — service Sales — đã kiểm
+  // mã opportunity.close trên cơ hội). Chỉ trả id, mã, họ tên, mã phòng; không nói người đó thuộc nhánh nội bộ hay ngoài phạm vi.
+  async handoverCandidates(db: Pick<Tx, 'employee'>, customerOwner: OwnerInfo): Promise<HandoverCandidate[]> {
+    const rows = await db.employee.findMany({
+      where: { status: 'ACTIVE', deletedAt: null },
+      select: { id: true, code: true, fullName: true, department: { select: { code: true } } },
+      orderBy: [{ fullName: 'asc' }, { code: 'asc' }],
+    });
+    const acc = await this.access.load(db, rows.map((r) => r.id));
+    return rows.filter((r) => handoverKind(acc.get(r.id), customerOwner) !== null).slice(0, HANDOVER_CANDIDATES_MAX)
+      .map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
   }
 }

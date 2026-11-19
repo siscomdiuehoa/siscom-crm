@@ -24,6 +24,9 @@ export const isConstructionType = (typeCode: string): boolean => CONSTRUCTION_TY
 // Xác suất mặc định của giai đoạn; undefined = giai đoạn mà mã nguồn không biết (thêm tay ở DB) => service phải từ chối.
 export const defaultProbability = (stageCode: string): number | undefined => OPPORTUNITY_STAGE_DEFAULT_PROBABILITY[stageCode];
 
+// Lý do thua bắt buộc kèm ghi chú (§4.3 "Khác (kèm ghi chú)"). Một nguồn cho /lose và cho danh mục trả về giao diện (S10a).
+export const lostReasonNeedsNote = (reasonCode: string): boolean => reasonCode === 'OTHER';
+
 export function ruleViolations(s: RuleState): FieldError[] {
   const e: FieldError[] = [];
   // R-S1: từ Báo giá trở đi VÀ đang mở => bắt buộc có giá trị dự kiến (không áp khi ON_HOLD / WON / LOST).
