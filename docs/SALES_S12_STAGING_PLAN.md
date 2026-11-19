@@ -324,6 +324,20 @@ Cổng C khi đó chưa được duyệt; kết quả ở mục 10.3.
 
 Lúc triển khai Owner đang dùng staging (có phiên đăng nhập hoạt động); dịch vụ khởi động lại khoảng vài giây. Chưa thử giao diện mới trên staging bằng tài khoản thật — Owner thử khi nghiệm thu.
 
+### 10.5 Bước 7–8 — ghi nhận đến 19/11/2026, 16:50 (giờ Việt Nam)
+
+Owner báo: "anh đã đăng nhập cả 4 vai trò và cả đăng nhập trên iPhone". Claude đối chiếu **chỉ đọc** trên `siscom_crm_staging` (`auth_session`, `audit_log`, `employee_credential`); không đọc mật khẩu, không ghi.
+
+| Mục | Bằng chứng trên máy chủ | Đánh giá |
+|---|---|---|
+| Đăng nhập 4 vai trò (máy tính) | Phiên mới hôm nay của `admin@` (Quản trị CRM), `sale@` (Kinh doanh), `kythuat@` (Kỹ thuật), `ketoan@` (Kế toán) — Chrome 157 trên Windows; `auth.login_ok` 6 lần | **Đạt** phần đăng nhập. Những gì từng vai trò **nhìn thấy** (mục "Cơ hội kinh doanh", nút theo quyền) chưa có bằng chứng trên máy chủ — cần Owner xác nhận |
+| `sysadmin@` | Không có phiên hôm nay (mật khẩu chưa đặt lại) | Chưa kiểm |
+| Đăng nhập iPhone | `admin@` 16:41, iOS 27.3, **Chrome cho iOS** (CriOS 157; dùng nhân WebKit như Safari) | **Đạt** phần đăng nhập trên iPhone. Chưa có thao tác nào từ iPhone; chưa thử Safari |
+| Nghiệp vụ đã làm (đều bằng `admin@`, máy tính) | Tạo (15:33), Thua (15:33), Mở lại (15:34), Sửa (15:54), Chuyển giai đoạn (15:54, 16:09), Xoá (16:23) trên CH-0001; lịch sử ghi đủ STAGE / PROBABILITY / STATUS | Có bằng chứng cho một phần tiêu chí 2, 5 (Thua), 12a (mở lại) và chặn ở tiêu chí 3 (rời Tiếp cận thiếu nhu cầu ⇒ 400, xem 10.4) |
+| Dữ liệu hiện tại | CH-0001 đã xoá mềm; không còn cơ hội đang mở | — |
+
+**Chưa nghiệm thu (theo `SALES_DESIGN.md` §10):** tiêu chí 14 trên iPhone (tạo, chuyển giai đoạn, chốt **từ iPhone**); Thắng + việc "Bàn giao thực hiện" (5); Tạm hoãn / Tiếp tục (6, 12a); chuyển người phụ trách (8); luồng của `sale@` trên cơ hội mình phụ trách (12); Kỹ thuật thấy cơ hội qua việc được giao, không thấy tiền (10); khôi phục cơ hội đã xoá (9c); hai người sửa cùng lúc (13); kanban kéo thả; ô tiền có dấu chấm và hộp báo lý do mới (10.4) trên staging.
+
 **Chưa có trong kế hoạch này, Owner cần biết:**
 
 - Nghiệm thu giao diện ở bước 8 là lần đầu có người ngoài tác giả thử giao diện Sales (không có QA độc lập trước đó), và là lần đầu chạy trên iPhone thật.
