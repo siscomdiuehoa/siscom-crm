@@ -3,7 +3,9 @@
 - **Ngày lập:** 18/11/2026 · **Trạng thái:** KẾ HOẠCH, **chưa thực hiện bước nào**. Mỗi bước ghi ở mục 4 cần Owner phê duyệt riêng bằng văn bản.
 - **Phạm vi:** cập nhật staging hiện có (`https://42.96.15.235`, DB `siscom_crm_staging`) từ bản trước Sales lên bản `main` sau khi #243–#250 đã merge. **Không** bao gồm production.
 - **Tài liệu nền:** `docs/SALES_DESIGN.md` §9 (dòng S12), §10 (tiêu chí nghiệm thu); `docs/VPS_RUNBOOK.md` §4 (cập nhật), §5 (cách lùi), G6 (sao lưu / khôi phục thử); `docs/evidence/SALES_S8_S11_NGHIEM_THU_20261118.md`.
-- **Cập nhật 19/11/2026:** Owner đã quyết cả bốn điểm mở (mục 8); máy chủ staging đã được khởi động lại theo quyết định đó (mục 1, dòng "Máy chủ"). #243 và #244 đã merge vào `main` (`eb20d5e`).
+- **Cập nhật 19/11/2026:** Owner đã quyết cả bốn điểm mở (mục 8); máy chủ staging đã được khởi động lại theo quyết định đó (mục 1, dòng "Máy chủ").
+- **Trạng thái mã (kiểm 19/11/2026, 04:47 UTC):** #243–#248 đã merge; `main` = `d5035da`, CI 6/6 (run 44458491732). #249 (`3bfa073`) và #250 (`bcaca16`) đã PASS review vòng 2, **chưa merge** — chờ Owner duyệt từng PR. Chi tiết và liên kết: `docs/evidence/SALES_S8_S11_NGHIEM_THU_20261118.md` mục 0.
+- **Sửa theo review R1 của #251 (19/11/2026):** mục 2 (điều kiện tiên quyết), mục 5 (phương án lùi — PR251-R1-02), Phụ lục A (PR251-R1-03, PR251-R1-04).
 - Tài liệu này không chứa mật khẩu, khoá hay giá trị biến môi trường.
 
 ## 1. Hiện trạng staging (kiểm **chỉ đọc** ngày 18/11/2026, 09:33 UTC)
@@ -28,11 +30,13 @@ Cách kiểm: đăng nhập SSH bằng khoá, chỉ chạy lệnh đọc; không
 
 ## 2. Điều kiện tiên quyết (phải đủ trước khi xin duyệt bước đầu tiên)
 
-1. #243 → #250 đã merge vào `main` theo đúng thứ tự (tính đến trưa 19/11/2026: #243, #244, #245 đã merge; còn #246 → #250, trong đó #249 và #250 đang chờ review vòng 2), mỗi PR có kết luận review và mã duyệt của Owner; CI trên `main` đạt 6/6. Ghi lại SHA của `main` sẽ triển khai.
+1. #243 → #250 đã merge vào `main` theo đúng thứ tự, mỗi PR có kết luận review và mã duyệt của Owner; CI trên `main` đạt 6/6. Ghi lại SHA của `main` sẽ triển khai. **Tình trạng 19/11/2026, 04:47 UTC: CHƯA ĐỦ** — #243–#248 đã merge (`main` = `d5035da`); còn #249 và #250 (đều đã PASS R2, chờ Owner duyệt merge).
 2. Một bộ sao lưu staging **mới** được khôi phục thử thành công (`restore-test.sh`: chữ ký manifest hợp lệ, số dòng từng bảng khớp). Việc này cần Owner đưa khoá riêng age lên VPS tạm thời rồi xoá ngay (quy trình G6).
 3. Chứng chỉ HTTPS còn hạn ít nhất 48 giờ tại thời điểm triển khai.
 4. Bản build frontend được tạo trên máy Windows bằng PowerShell từ đúng SHA ở mục 1 (VPS 3 GB không build giao diện; không build bằng Git Bash vì làm hỏng `/api/v1`).
-5. Owner chỉ định hai người thực hiện bước cấp quyền (mục 4, bước 5): một tài khoản nhóm yêu cầu (vai trò `admin`) và một tài khoản duyệt (`crm_admin`), khác nhau, đang hoạt động.
+5. Owner chỉ định hai người thực hiện bước cấp quyền (mục 4, **bước 6**): một tài khoản nhóm yêu cầu (vai trò `admin`) và một tài khoản duyệt (`crm_admin`), khác nhau, đang hoạt động. **Tình trạng: ĐÃ ĐỦ** (mục 8).
+
+Tình trạng các điều kiện còn lại (19/11/2026): điều kiện 2 **chưa đủ** (chờ Owner làm Phụ lục A); điều kiện 3 và 4 chỉ kiểm được ngay trước ngày triển khai.
 
 ## 3. Thứ tự kỹ thuật bắt buộc
 
@@ -46,7 +50,7 @@ Lý do: `APP_GRANTS_V5` đã được mở rộng tại chỗ cho bảng tài li
 |---|---|---|---|---|---|
 | 0 | Chốt SHA `main`, build frontend, đưa mã + `dist` lên VPS | `git archive`, `npm run build` (PowerShell), `scp` | SHA ghi vào biên bản; `dist` đúng cờ `VITE_CRM_AUTH_ENABLED`, `VITE_CRM_API_ENABLED`, `VITE_CRM_API_BASE=/api/v1` | Xoá thư mục tạm | Có (bắt đầu S12) |
 | 1 | Ghi mốc dữ liệu | Truy vấn đếm (chỉ đọc) | Ghi số khách, liên hệ, hoạt động, nhân viên, số migration | — | Không (chỉ đọc) |
-| 2 | Sao lưu + khôi phục thử | `backup-db.sh`; `restore-test.sh --identity <khoá riêng age>`; xoá khoá ngay | "Chữ ký manifest hợp lệ" + "PASS: n bảng khớp số dòng"; có tệp `restore-ok`; một bản sao nằm ngoài VPS | — | Có (Owner cầm khoá) |
+| 2 | Sao lưu + khôi phục thử (đúng trình tự Phụ lục A) | `backup-db.sh`; `restore-test.sh --db siscom_crm_staging --dump <đúng tệp vừa sao lưu> --identity <khoá riêng age>`; xoá khoá ngay | "Chữ ký manifest hợp lệ" + "PASS: n bảng khớp số dòng"; có tệp `restore-ok`; một bản sao nằm ngoài VPS | — | Có (Owner cầm khoá) |
 | 3 | Chạy thử khô | `deploy.sh --src <dir> --frontend <dist> --migrate --dry-run` | Báo có migration đang chờ (4 migration Sales); không lỗi tiền kiểm | — | Không (không đổi gì) |
 | 4 | Triển khai + migration + grants | `deploy.sh --src <dir> --frontend <dist> --migrate` | `migrate status` sạch, **16 migration**; VERIFY (app + auth) đạt; `/health` và `/health/database` đạt; **số khách / liên hệ / hoạt động / nhân viên bằng mốc bước 1** | Mã: `deploy.sh --rollback`. Schema: giữ nguyên (cộng thêm); gỡ cấu trúc chỉ theo mục 5 | **Có** — `OWNER_APPROVED_MIGRATION` ghi rõ `siscom_crm_staging` + phê duyệt deploy |
 | 5 | Seed danh mục Sales | `run-cli.sh seed-lookups` | 4 giai đoạn, 3 loại, 9 lý do thua; chạy lại không tạo trùng | Ẩn mục (không xoá) | Có |
@@ -62,9 +66,39 @@ Thời gian gián đoạn dự kiến ở bước 4: vài giây (lần cập nh�
 |---|---|---|
 | Bản mới không khoẻ sau bước 4 | `deploy.sh --rollback` về `src-20261113083453`. Schema Sales **giữ nguyên**; mã cũ không dùng tới bảng / cột mới | Không mất |
 | Migration hỏng giữa chừng | Dừng; không sửa tay DB. Khôi phục bản sao lưu của bước 2 vào DB **mới** rồi mới quyết định trỏ dịch vụ (cần Owner quyết riêng — runbook §5) | Không ghi đè DB đang chạy |
-| Cần gỡ hẳn cấu trúc Sales | Chạy rollback SQL theo thứ tự S9 → S8 → S5 → S2. Mỗi script **tự từ chối** nếu còn dữ liệu Sales (cơ hội, việc tự sinh, tài liệu). Đã diễn tập trên PostgreSQL tạm với dữ liệu cũ: 20/20 bảng cũ giữ nguyên từng dòng | Chỉ khi chưa có dữ liệu Sales hoặc Owner chấp nhận xoá |
-| Cần thu hồi quyền | Script gỡ quyền S5 (từng dòng, có nhật ký) | Không mất |
+| Cần ẩn tính năng Sales với người dùng mà không lùi mã | Thu hồi 10 mã quyền `opportunity.*` bằng `SALES_S5_OPPORTUNITY_PERMISSIONS_REMOVE.sql.txt` (chạy bằng `siscom_migrator`, qua yêu cầu đặc quyền **hai người** khác nhau, có nhật ký từng dòng). Đây là thay đổi phân quyền ⇒ cần Owner duyệt riêng như bước 6 | Không mất; bảng và dữ liệu Sales giữ nguyên |
 | Chứng chỉ lỗi | `systemctl stop caddy`; backend vẫn chỉ nghe nội bộ | Không đổi |
+| Cần gỡ hẳn cấu trúc Sales | **Không có đường thực hiện trên `siscom_crm_staging` trong kế hoạch này** — xem 5.1 | — |
+
+**Đường lùi vận hành mặc định của S12 là: lùi mã (`deploy.sh --rollback`) và giữ nguyên schema.** Schema Sales chỉ cộng thêm (bảng / cột mới); bản mã trước Sales không đọc tới chúng. Nếu cần, thu hồi thêm mã quyền như dòng trên. Kế hoạch này không dựa vào việc gỡ cấu trúc để lùi.
+
+### 5.1 Gỡ hẳn cấu trúc Sales — chỉ là diễn tập trên bản sao thử
+
+**Nơi được phép chạy.** Bốn script gỡ cấu trúc (`SALES_S9_DOCUMENT_ROLLBACK`, `SALES_S8_AUTO_KIND_ROLLBACK`, `SALES_S5_PERM_CLASS_ROLLBACK`, `SALES_S2_ROLLBACK`, đều ở `backend/docs/*.sql.txt`) tự kiểm tên database và **chỉ chạy** trên bản sao thử có tên dạng `siscom_crm_restore_<8 số>_<6 số>` hoặc `siscom_crm_test_<8 số>_<6 số>` (trừ hai bản baseline đã khoá). Chúng **từ chối** `siscom_crm_staging`, `siscom_crm_dev` và production. Vì vậy:
+
+- Trên staging, kế hoạch này **không** có bước gỡ cấu trúc. Nếu sau này thật sự cần gỡ trên staging thì phải có một quy trình riêng, được soạn, review và Owner phê duyệt riêng; tài liệu này không cấp phép và không mô tả việc đó.
+- Không sửa, không bỏ, không vòng qua các điều kiện kiểm (guard) trong script — kể cả khi Owner đồng ý mất dữ liệu. Sự đồng ý của Owner **không** phải là điều kiện đủ để chạy: script không tự xoá dữ liệu và vẫn kiểm tên database.
+
+**Thứ tự đầy đủ khi diễn tập trên một bản sao hợp lệ** (ví dụ database do `restore-test.sh` tạo ra từ một bản sao lưu chụp sau S12):
+
+| Thứ tự | Việc | Script | Dừng khi |
+|---|---|---|---|
+| 1 | Gỡ bảng tài liệu cơ hội (S9b) | `SALES_S9_DOCUMENT_ROLLBACK.sql.txt` | Còn dòng `opportunity_document` (kể cả đã xoá mềm), hoặc còn cơ hội có tệp chứng từ thắng |
+| 2 | Gỡ cột việc tự sinh (S8b) | `SALES_S8_AUTO_KIND_ROLLBACK.sql.txt` | Còn hoạt động là việc tự sinh của cơ hội |
+| 3 | **Thu hồi 10 mã quyền `opportunity.*`** (17 dòng) qua **hai người** | `SALES_S5_OPPORTUNITY_PERMISSIONS_REMOVE.sql.txt` với `-v s5_sysadmin=<uuid> -v s5_approver=<uuid>` | Người yêu cầu trùng người duyệt; thiếu / sai uuid; 10 mã này đang được cấp **ngoài** ma trận S5 (phải xử lý tay trước); không chạy bằng chủ sở hữu |
+| 4 | Trả phân loại quyền về bản trước Sales (S5) | `SALES_S5_PERM_CLASS_ROLLBACK.sql.txt` | **Còn bất kỳ mã `opportunity.*` nào** trong bảng quyền — tức chưa làm xong bước 3 |
+| 5 | Gỡ bảng cơ hội (S2) | `SALES_S2_ROLLBACK.sql.txt` | Còn dòng cơ hội (kể cả đã xoá mềm), còn lịch sử thay đổi, còn hoạt động gắn cơ hội, hoặc còn bảng tài liệu (chưa làm bước 1) |
+
+Bước 3 là **tiền đề bắt buộc** của bước 4 một khi mã quyền đã được cấp (sau S12 bước 6): bỏ qua thì chuỗi dừng ở bước 4 dù database chưa có cơ hội nào. Nếu bản sao được chụp **trước** bước 6 (chưa cấp quyền) thì bước 3 không có gì để gỡ.
+
+**Điều kiện dừng, gom theo nhóm:**
+
+- **Tên database:** không khớp mẫu bản sao thử, hoặc là baseline đã khoá ⇒ script từ chối. Dừng; không đổi tên database đang chạy để "cho khớp".
+- **Dữ liệu:** còn bất kỳ dữ liệu Sales nào nêu ở cột "Dừng khi" ⇒ script từ chối và **không tự xoá**. Trên bản sao thử: xuất CSV rồi xử lý theo hướng dẫn in ra trong script. Trên dữ liệu cần giữ: dừng hẳn — đây chính là lý do đường lùi mặc định là giữ schema (R-9).
+- **Quyền:** còn mã `opportunity.*`, hoặc mã được cấp ngoài ma trận S5 ⇒ dừng ở bước 3 / 4; xử lý phân quyền trước, qua hai người.
+- **Trạng thái migration:** migration tương ứng chưa áp ⇒ script báo không có gì để lùi.
+
+**Đã diễn tập đến đâu:** chuỗi S9 → S8 → S5 → S2 đã chạy trên PostgreSQL tạm với dữ liệu cũ (20/20 bảng cũ giữ nguyên từng dòng) nhưng trên database **chưa cấp** mã quyền, nên **chưa** gồm bước 3. CI có bài kiểm rằng script S5 từ chối khi còn mã `opportunity.*`. Chuỗi 5 bước đầy đủ trên bản sao có cấp quyền **chưa được diễn tập**; nếu Owner muốn có bằng chứng này trước S12 thì cần giao việc riêng (chạy trên PostgreSQL tạm, không đụng staging).
 
 ## 6. Rủi ro và việc cần Owner quyết
 
@@ -78,7 +112,7 @@ Thời gian gián đoạn dự kiến ở bước 4: vài giây (lần cập nh�
 | R-6 | Bản sao lưu ngoài VPS đang chép tay | Chép bản của bước 2 ra ngoài trước bước 4 |
 | R-7 | `APP_GRANTS_V5` mở rộng tại chỗ; lần đầu chạy trên DB có dữ liệu thật | VERIFY là cổng bắt buộc của bước 4; thất bại ⇒ lùi mã, giữ schema |
 | R-8 | Khách hàng không có người phụ trách thì không tạo được cơ hội (đúng thiết kế) | Dặn người dùng thử; kiểm 3 khách hiện có trên staging đã có người phụ trách chưa |
-| R-9 | Sau khi có dữ liệu Sales trên staging, rollback SQL sẽ từ chối | Coi bước 4 là điểm không gỡ cấu trúc; đường lùi thực tế là lùi mã + giữ schema |
+| R-9 | Rollback SQL gỡ cấu trúc không chạy được trên `siscom_crm_staging` (kiểm tên database), và trên bản sao thử cũng từ chối khi còn dữ liệu Sales hoặc còn mã quyền `opportunity.*` | Coi bước 4 là điểm không gỡ cấu trúc; đường lùi thực tế là lùi mã + giữ schema (mục 5). Gỡ cấu trúc chỉ là diễn tập trên bản sao thử (mục 5.1) |
 
 ## 7. Phê duyệt cần có (tóm tắt)
 
@@ -113,17 +147,26 @@ Không bước nào trong tài liệu này áp dụng cho production.
 - Không gửi khoá qua chat, email, hay dán vào bất kỳ công cụ nào khác. Không đưa khoá vào dòng lệnh (sẽ nằm trong lịch sử shell).
 - Bước đưa khoá lên và xoá khoá do **Owner tự làm**. Claude chỉ kiểm kết quả ở chế độ chỉ đọc sau khi Owner báo đã xoá khoá.
 
-**An toàn:** việc khôi phục tạo một database **mới** tên `siscom_crm_restore_<thời điểm>`; không ghi vào `siscom_crm_staging`, không dừng dịch vụ. Bản giải mã chỉ nằm trong thư mục tạm quyền 700 và tự xoá khi lệnh kết thúc. Đĩa còn trống khoảng 32 GB (kiểm 19/11).
+**An toàn:** việc khôi phục tạo một database **mới** tên `siscom_crm_restore_<thời điểm>`; không ghi vào `siscom_crm_staging`, không dừng dịch vụ. Bản giải mã chỉ nằm trong thư mục tạm quyền 700 và tự xoá khi lệnh kết thúc bình thường. Đĩa còn trống khoảng 32 GB (kiểm 19/11).
+
+**Trạng thái của hướng dẫn này:** các lệnh dưới đây được soạn từ mã `backup-db.sh` / `restore-test.sh` / `lib.sh` trên `main`; **chưa chạy thử trên VPS** (Claude không được cầm khoá riêng). Lệnh nào báo lỗi cú pháp thì dừng và báo lại, không tự sửa.
 
 ### Các bước
 
-Đăng nhập VPS bằng PuTTY (tài khoản root, cổng 26266, khoá của Owner), rồi làm lần lượt:
+Đăng nhập VPS bằng PuTTY (tài khoản root, cổng 26266, khoá của Owner), rồi làm lần lượt. Toàn bộ các bước 1–7 nên làm trong **một** lần ngồi máy.
 
-1. **Tạo bản sao lưu mới** (để kiểm đúng bản gần nhất):
+1. **Tạo bản sao lưu mới và ghi cố định tên bộ sẽ kiểm** (PR251-R1-03). Tên bộ được lưu vào một tệp ghi chú (không phải bí mật) để mọi bước sau dùng **đúng bộ này**, kể cả khi timer đêm hay một lần sao lưu khác chen vào, hoặc khi phải đăng nhập lại:
    ```bash
    systemctl start siscom-crm-backup.service; systemctl show siscom-crm-backup.service -p Result
    ```
-   Đạt khi in `Result=success`. Xem tên bản mới nhất: `ls -t /var/backups/siscom-crm/*.dump.age | head -1`.
+   Đạt khi in `Result=success`. Lấy tên tệp từ chính dòng "Da sao luu" của lần chạy vừa xong rồi ghi lại:
+   ```bash
+   journalctl -u siscom-crm-backup.service -n 30 --no-pager | grep 'Da sao luu:' | tail -n1
+   ```
+   ```bash
+   echo '/var/backups/siscom-crm/siscom_crm_staging_<YYYYMMDD>_<HHMMSS>.dump.age' > /root/restore-set.txt; cat /root/restore-set.txt; ls -l "$(cat /root/restore-set.txt)"
+   ```
+   (Thay phần `<…>` bằng đúng tên vừa in ở lệnh trước.) Đạt khi `ls` thấy đúng tệp đó. Từ đây **không** dùng "bản mới nhất" nữa — chỉ dùng tên trong `/root/restore-set.txt`.
 
 2. **Đối chiếu khoá ký** với bản Owner giữ ngoài VPS:
    ```bash
@@ -131,33 +174,77 @@ Không bước nào trong tài liệu này áp dụng cho production.
    ```
    Dòng in ra phải **trùng** dòng Owner đã cất. Khác ⇒ dừng, báo lại, không làm tiếp.
 
-3. **Đưa khoá riêng lên tạm.** Cách khuyến nghị (không để lại trong lịch sử shell): gõ lệnh dưới, dán nội dung file khoá, nhấn Enter rồi `Ctrl-D`:
+3. **Cài hẹn giờ tự xoá khoá TRƯỚC, rồi mới đưa khoá lên** (PR251-R1-04). Khoá đặt trong thư mục tạm trên RAM (`/run`, mất khi khởi động lại máy), không đặt trên đĩa:
    ```bash
-   umask 077; cat > /root/siscom-backup.key
+   install -d -m 700 /run/siscom-restore
    ```
-   Hoặc chép file bằng WinSCP / `pscp` vào đúng đường dẫn `/root/siscom-backup.key` rồi chạy `chmod 600 /root/siscom-backup.key`.
-
-4. **Chạy khôi phục thử:**
    ```bash
-   cd /opt/siscom-crm/current/backend/scripts/linux && bash restore-test.sh --identity /root/siscom-backup.key
+   systemd-run --on-active=30min --unit=siscom-key-cleanup /usr/bin/shred -u /run/siscom-restore/backup.key
    ```
-   Đạt khi có dòng `PASS: <n> bang khop so dong.` và dòng `Da ghi …restore-ok.txt`. Lệnh cũng in sẵn một dòng `DROP DATABASE "siscom_crm_restore_…"` để dọn ở bước 6.
+   (Khác `docs/VPS_RUNBOOK.md` G6 ở một điểm: runbook đặt khoá tại `/root/siscom-backup.key`; ở đây dùng `/run/siscom-restore/backup.key` và thêm hẹn giờ. Nguyên tắc "lên tạm, dùng xong xoá" không đổi. Runbook chưa được sửa trong PR này.)
 
-5. **Xoá khoá ngay** (kể cả khi bước 4 không đạt):
+   Lệnh thứ hai hẹn: sau 30 phút, hệ thống tự xoá tệp khoá **dù phiên SSH còn hay mất, dù người làm có quay lại hay không**. Kiểm đã hẹn: `systemctl list-timers 'siscom-key-cleanup*' --no-pager` phải có một dòng. Chưa thấy dòng này thì **không** đưa khoá lên.
+
+   Sau đó đưa khoá lên. Cách khuyến nghị (không để lại trong lịch sử shell): gõ lệnh dưới, dán nội dung file khoá, nhấn Enter rồi `Ctrl-D`:
    ```bash
-   shred -u /root/siscom-backup.key; ls /root/siscom-backup.key
+   umask 077; cat > /run/siscom-restore/backup.key
    ```
-   Đạt khi `ls` báo không có tệp.
+   Hoặc chép file bằng WinSCP / `pscp` vào đúng đường dẫn `/run/siscom-restore/backup.key` rồi chạy `chmod 600 /run/siscom-restore/backup.key`.
 
-6. **Dọn database thử** bằng đúng lệnh mà bước 4 đã in (tên phải bắt đầu bằng `siscom_crm_restore_`):
+4. **Chạy khôi phục thử trên đúng bộ đã ghi ở bước 1:**
+   ```bash
+   cd /opt/siscom-crm/current/backend/scripts/linux && bash restore-test.sh --db siscom_crm_staging --dump "$(cat /root/restore-set.txt)" --identity /run/siscom-restore/backup.key
+   ```
+   Đạt khi có dòng `PASS: <n> bang khop so dong.` và dòng `Da ghi <đúng tên tệp ở bước 1>.restore-ok.txt`. Lệnh cũng in sẵn một dòng `DROP DATABASE "siscom_crm_restore_…"` — chép lại tên database này để dùng ở bước 6.
+
+5. **Xoá khoá ngay** — làm bước này **kể cả khi bước 4 không đạt, bị ngắt, hoặc chưa kịp chạy**:
+   ```bash
+   shred -u /run/siscom-restore/backup.key; systemctl stop siscom-key-cleanup.timer 2>/dev/null; ls -la /run/siscom-restore/; systemctl list-timers 'siscom-key-cleanup*' --no-pager
+   ```
+   Đạt khi thư mục không còn tệp khoá và không còn hẹn giờ nào đang chờ. (Nếu hẹn giờ đã tự chạy trước đó thì `shred` báo không thấy tệp — vẫn là đạt.)
+
+6. **Dọn database thử — chỉ khi bước 4 ĐẠT**, bằng đúng lệnh mà bước 4 đã in (tên phải bắt đầu bằng `siscom_crm_restore_`):
    ```bash
    sudo -u postgres psql -c 'DROP DATABASE "siscom_crm_restore_<thời điểm>"'
    ```
-   Nếu bước 4 **không đạt** thì giữ lại database thử để điều tra, chưa dọn.
+   Nếu bước 4 **không đạt** thì **giữ lại** đúng database thử đó để điều tra, chưa dọn, và ghi lại tên của nó.
 
-7. **Chép bộ sao lưu vừa kiểm ra ngoài VPS** (tệp `.dump.age`, `.manifest`, `.manifest.sig`, `.sha256`) vào nơi Owner vẫn lưu.
+7. **Chép đúng bộ đã kiểm ra ngoài VPS, rồi xác thực lại bản đã chép** (PR251-R1-03). Bộ gồm **5 tệp** cùng gốc tên với tệp ở bước 1 — in danh sách để chép cho đủ:
+   ```bash
+   B="$(cat /root/restore-set.txt)"; ls -l "$B" "${B%.dump.age}.manifest" "${B%.dump.age}.manifest.sig" "$B.sha256" "$B.restore-ok.txt"
+   ```
+   Chép cả 5 tệp (bản sao lưu `.dump.age`, `.manifest`, `.manifest.sig`, `.dump.age.sha256`, và dấu `.dump.age.restore-ok.txt`) vào nơi Owner vẫn lưu. Thiếu tệp nào trong danh sách ⇒ dừng, báo lại.
 
-8. **Báo Claude** "đã khôi phục thử, đã xoá khoá". Claude kiểm chỉ đọc: có tệp `restore-ok` của đúng bản sao lưu, không còn `/root/siscom-backup.key`, không còn database `siscom_crm_restore_*`, dịch vụ vẫn chạy; rồi ghi kết quả vào tài liệu này.
+   Trên máy của Owner, trong thư mục vừa chép, xác thực bằng **bản `allowed_signers` Owner giữ ngoài VPS** (không dùng bản tải từ VPS về). Chạy trong `cmd` (không phải PowerShell, vì cần dấu `<`):
+   ```
+   ssh-keygen -Y verify -f <đường dẫn allowed_signers của Owner> -I siscom-crm-backup -n siscom-crm-backup -s <gốc tên>.manifest.sig < <gốc tên>.manifest
+   ```
+   Đạt khi in `Good "siscom-crm-backup" signature…`. Rồi so mã băm của tệp sao lưu với dòng `file_sha256=` trong manifest vừa được xác thực (PowerShell):
+   ```powershell
+   (Get-FileHash '<gốc tên>.dump.age' -Algorithm SHA256).Hash.ToLower(); Select-String -Path '<gốc tên>.manifest' -Pattern '^file_sha256='
+   ```
+   Hai chuỗi phải trùng nhau. Khác, hoặc chữ ký không hợp lệ ⇒ bản đã chép **không** dùng được; chép lại rồi kiểm lại.
+
+8. **Báo Claude** kết quả: "đạt, đã xoá khoá" **hoặc** "không đạt, đã xoá khoá, đang giữ database thử `<tên>`". Claude kiểm ở chế độ chỉ đọc rồi ghi kết quả vào tài liệu này:
+   - tệp `restore-ok` thuộc **đúng** bộ ghi trong `/root/restore-set.txt` (chỉ có khi đạt);
+   - không còn tệp khoá ở `/run/siscom-restore/` hay `/root/`, và không còn hẹn giờ `siscom-key-cleanup` đang chờ;
+   - **khi đạt:** không còn database `siscom_crm_restore_*` nào do lần kiểm này tạo ra; **khi không đạt:** còn **đúng một** database thử mà Owner đã báo tên — đây là trạng thái hợp lệ để điều tra, không tính là lỗi dọn dẹp;
+   - dịch vụ vẫn chạy.
+
+### Khi bị ngắt giữa chừng (mất kết nối SSH, hoặc phải dừng ở bước 3–5)
+
+Việc dọn khoá do **Owner làm, bằng phiên đăng nhập của Owner** — Claude không dọn thay và không chạm vào tệp khoá.
+
+1. Đăng nhập lại càng sớm càng tốt, rồi kiểm ngay:
+   ```bash
+   ls -la /run/siscom-restore/ 2>/dev/null; systemctl list-timers 'siscom-key-cleanup*' --no-pager; ls /root/siscom-backup.key 2>/dev/null
+   ```
+2. Còn tệp khoá ⇒ chạy ngay lệnh ở bước 5, không chờ hẹn giờ.
+3. Không còn tệp khoá và không còn hẹn giờ ⇒ hẹn giờ đã tự xoá. Muốn làm tiếp thì bắt đầu lại từ **bước 3** (bộ sao lưu ở bước 1 vẫn dùng được, tên nằm trong `/root/restore-set.txt`).
+4. Nếu không đăng nhập lại được trong 30 phút: hẹn giờ vẫn tự xoá tệp khoá; khi vào lại được vẫn làm mục 1 để xác nhận.
+5. Nếu `restore-test.sh` bị ngắt khi đang chạy: có thể còn sót một database `siscom_crm_restore_*` dở dang và thư mục tạm chứa bản giải mã (lệnh chỉ tự dọn thư mục tạm khi kết thúc bình thường hoặc bị ngắt theo cách shell còn chạy được phần dọn). Báo Claude để kiểm chỉ đọc (`/tmp/tmp.*` thuộc `postgres`, danh sách database) trước khi quyết định dọn.
+
+**Giới hạn cần biết về việc "đã xoá":** `ls` không thấy tệp chỉ chứng minh tệp không còn trong thư mục; nó **không** chứng minh mọi bản sao của nội dung khoá đã biến mất ở tầng lưu trữ. Đặt khoá trên `/run` (RAM) tránh ghi xuống ổ đĩa, nhưng máy có swap nên hệ điều hành vẫn có thể đẩy trang nhớ ra đĩa; nhà cung cấp VPS cũng có thể chụp ảnh máy. Vì vậy chỉ ghi nhận ở mức "đã xoá tệp và huỷ hẹn giờ", không ghi "khoá chắc chắn không còn dấu vết". Nếu khoá từng nằm trên VPS lâu hơn dự kiến (ví dụ hẹn giờ không chạy, hoặc quên xoá), phương án an toàn là **đổi cặp khoá age** và mã hoá các bản sao lưu về sau bằng khoá mới — việc này cần Owner quyết riêng.
 
 ### Khi không đạt
 
@@ -168,4 +255,4 @@ Không bước nào trong tài liệu này áp dụng cho production.
 | `SHA-256 ban ro khac manifest da ky` | Tệp sao lưu hỏng | Dừng; tạo bản mới (bước 1) rồi thử lại |
 | `KHONG DAT: so dong khac manifest` | Khôi phục ra thiếu / thừa dòng | Giữ database thử, báo để điều tra; **không** chạy S12 |
 
-Chỉ khi bước 4 đạt và bước 5 xong thì điều kiện tiên quyết số 2 (mục 2) mới được coi là đủ.
+Chỉ khi bước 4 đạt trên đúng bộ ở bước 1, bước 5 xong, và bản chép ở bước 7 qua được xác thực thì điều kiện tiên quyết số 2 (mục 2) mới được coi là đủ.

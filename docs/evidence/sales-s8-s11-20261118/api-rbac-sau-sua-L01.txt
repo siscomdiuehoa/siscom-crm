@@ -1,0 +1,152 @@
+QUYỀN admin: read=ALL, create=ALL, update=ALL, move_stage=ALL, close=ALL, assign=ALL, reopen=ALL, delete=ALL, restore=ALL
+QUYỀN sale: read=OWN, create=OWN, update=OWN, move_stage=OWN, close=OWN, assign=OWN
+QUYỀN tech: read_assigned=OWN
+QUYỀN acct: read=ALL
+PASS | Chuẩn bị | tạo 2 khách (Sale, Quản trị)
+PASS | Xác thực | chưa đăng nhập: GET /opportunities bị từ chối | HTTP 401
+PASS | Xác thực | ghi thiếu X-CSRF-Token bị từ chối | HTTP 403 CSRF_FAILED (mong đợi 403)
+PASS | Tạo cơ hội | Sale tạo trên khách của mình | HTTP 201 (mong đợi 201)
+PASS | Tiền null | tạo không gửi giá trị => API trả null (không phải 0 / "0") | null
+PASS | Tiền null | danh sách trả null cho cơ hội chưa có giá trị | null
+PASS | Tiền null | số 0 thật được giữ là "0" (phân biệt với null) | "0"
+PASS | Tạo cơ hội | giá trị là số (không phải chuỗi) bị từ chối | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Tạo cơ hội | loại có thi công mà thiếu tên dự án / phạm vi bị từ chối | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Tạo cơ hội | Sale tạo trên khách KHÔNG thuộc phạm vi bị từ chối | HTTP 404 CUSTOMER_NOT_FOUND (mong đợi 403/404)
+PASS | Tạo cơ hội | Kế toán không tạo được | HTTP 403 FORBIDDEN (mong đợi 403/404)
+PASS | Tạo cơ hội | Kỹ thuật không tạo được | HTTP 403 FORBIDDEN (mong đợi 403/404)
+PASS | Chuẩn bị | Quản trị tạo cơ hội trên khách của mình | HTTP 201 (mong đợi 201)
+PASS | Cô lập | Sale đọc chi tiết cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | danh sách của Sale không chứa cơ hội ngoài phạm vi | 11 dòng
+PASS | Cô lập | tìm kiếm của Sale không ra cơ hội ngoài phạm vi | total=0
+PASS | Cô lập | Sale sửa cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale chuyển giai đoạn cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale tạm hoãn cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale thua cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale chuyển người cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale xoá cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale thêm tài liệu cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale ghi hoạt động cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale GET /changes của cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale GET /documents của cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale GET /activities của cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale GET /owner-candidates của cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale GET /handover-candidates của cơ hội ngoài phạm vi => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | Sale GET cơ hội theo khách ngoài phạm vi => 404 | HTTP 404 CUSTOMER_NOT_FOUND (mong đợi 404)
+PASS | Cô lập | cơ hội ngoài phạm vi KHÔNG bị đổi sau các lần thử
+PASS | Kế toán | đọc chi tiết | HTTP 200 (mong đợi 200)
+PASS | Kế toán | không sửa được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kế toán | không chuyển giai đoạn được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kế toán | không tạm hoãn được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kế toán | không thắng được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kế toán | không thua được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kế toán | không chuyển người được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kế toán | không mở lại được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kế toán | không xoá được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kế toán | không thêm tài liệu được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kế toán | không khôi phục được => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Kế toán | deleted=only không trả dòng nào | HTTP 200 total=0
+PASS | Sửa | Sale sửa giá trị + ngày + nhu cầu | HTTP 200 (mong đợi 200)
+PASS | Sửa | version tăng 1 sau khi sửa
+PASS | Sửa | version cũ => 409 | HTTP 409 OPPORTUNITY_VERSION_CONFLICT (mong đợi 409)
+PASS | Sửa | đổi xác suất không kèm lý do => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Tiền null | PATCH giá trị = null (đang ở Tiếp cận) => lưu null, không thành 0 | HTTP 200 null
+PASS | Giai đoạn | sang Báo giá khi chưa có giá trị => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Giai đoạn | Tiếp cận -> Khảo sát | HTTP 201 (mong đợi 200/201)
+PASS | Giai đoạn | xác suất về mặc định của giai đoạn mới (25%) | 25
+PASS | Giai đoạn | Khảo sát -> Báo giá khi đã có giá trị | HTTP 201 (mong đợi 200/201)
+PASS | Giai đoạn | đang ở Báo giá: xoá giá trị => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Giai đoạn | lùi Báo giá -> Khảo sát | HTTP 201 (mong đợi 200/201)
+PASS | Tạm hoãn | thiếu lý do => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Tạm hoãn | Sale tạm hoãn | HTTP 200 (mong đợi 200)
+PASS | Tạm hoãn | trạng thái ON_HOLD, giữ nguyên giai đoạn
+PASS | Tạm hoãn | tự tạo đúng 1 công việc nhắc đang mở cho người phụ trách
+PASS | Tạm hoãn | đang tạm hoãn: chuyển giai đoạn => 409/403 | HTTP 409 OPPORTUNITY_STATE (mong đợi 409/403/400)
+PASS | Tạm hoãn | đổi hạn hoãn | HTTP 200 (mong đợi 200)
+PASS | Tạm hoãn | đổi hạn KHÔNG tạo thêm việc nhắc (vẫn 1 việc mở)
+PASS | Tạm hoãn | tiếp tục | HTTP 200 (mong đợi 200)
+PASS | Tạm hoãn | về Đang mở đúng giai đoạn cũ; không còn hold* trong phản hồi
+PASS | Tạm hoãn | việc nhắc đang mở được đóng khi tiếp tục
+PASS | Tài liệu | Sale thêm tài liệu Kỹ thuật | HTTP 201 (mong đợi 201)
+PASS | Tài liệu | Sale thêm tài liệu Thương mại | HTTP 201 (mong đợi 201)
+PASS | Tài liệu | đường dẫn http:// bị từ chối | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Tài liệu | đường dẫn javascript: bị từ chối | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Tài liệu | xoá không có lý do => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Kỹ thuật | chưa có việc: đọc cơ hội => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Kỹ thuật | chưa có việc: đọc tài liệu => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Thắng | thiếu chứng từ => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Thắng | link chứng từ không phải https => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Thắng | Sale chốt Thắng, bàn giao cho Kỹ thuật | HTTP 200 (mong đợi 200)
+PASS | Thắng | trạng thái WON, xác suất hiển thị 100, có giá trị chốt
+PASS | Thắng | tự tạo việc "Bàn giao thực hiện" cho người nhận
+PASS | Rò rỉ | tiêu đề / nội dung việc bàn giao không chứa giá trị chốt | Bàn giao thực hiện CH-0012
+PASS | Thắng | đã Thắng: sửa trường => 409 | HTTP 409 OPPORTUNITY_STATE (mong đợi 409)
+PASS | Thắng | đã Thắng: thua => 409 | HTTP 409 OPPORTUNITY_STATE (mong đợi 409)
+PASS | Kỹ thuật | có việc đang mở: đọc được cơ hội | HTTP 200 (mong đợi 200)
+PASS | Rò rỉ | chi tiết bản kỹ thuật KHÔNG có giá trị / xác suất / trạng thái / phụ trách / chứng từ / liên hệ | khoá: id,code,title,access,type,stage,customer,isProjectLinked,projectName,expectedCloseDate,version,createdAt,updatedAt,needSummary,offerScope
+PASS | Rò rỉ | toàn bộ JSON chi tiết bản kỹ thuật không chứa số tiền dự kiến / chốt
+PASS | Rò rỉ | danh sách của Kỹ thuật: dòng bản kỹ thuật, không lộ trường tiền
+PASS | Cô lập | danh sách của Kỹ thuật không có cơ hội không được giao việc
+DÒ BẰNG BỘ LỌC (Kỹ thuật): status=WON false, status=LOST false, ownerId=sale false, ownerId=admin false
+PASS | Rò rỉ | Kỹ thuật lọc theo trạng thái không dò được trạng thái (không trả dòng theo việc khi lọc status) | HTTP 200 0 dòng
+PASS | Rò rỉ | Kỹ thuật GET /changes => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Rò rỉ | Kỹ thuật GET /meta => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Rò rỉ | Kỹ thuật chỉ nhận tài liệu TECHNICAL (không có Thương mại) | TECHNICAL
+PASS | Rò rỉ | Kỹ thuật chỉ thấy việc của CHÍNH MÌNH trong cơ hội | 1 việc
+PASS | Kỹ thuật | không sửa được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kỹ thuật | không mở lại được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kỹ thuật | không chuyển người được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kỹ thuật | không xoá được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kỹ thuật | không thêm tài liệu được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kỹ thuật | không xoá tài liệu được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kỹ thuật | GET /owner-candidates => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kỹ thuật | GET /handover-candidates => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Kỹ thuật | GET hồ sơ khách của cơ hội => 404/403 | HTTP 404 CUSTOMER_NOT_FOUND (mong đợi 404/403)
+PASS | Kỹ thuật | hoàn thành việc bàn giao của mình | HTTP 200 (mong đợi 200/201)
+PASS | Rò rỉ | việc xong => Kỹ thuật MẤT quyền đọc cơ hội (404) | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Rò rỉ | việc xong => Kỹ thuật mất quyền đọc tài liệu (404) | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Mở lại | Sale không mở lại được => 403 | HTTP 403 FORBIDDEN (mong đợi 403)
+PASS | Mở lại | Quản trị mở lại thiếu lý do => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Mở lại | Quản trị mở lại cơ hội đã Thắng | HTTP 200 (mong đợi 200)
+PASS | Mở lại | về Đang mở đúng giai đoạn trước khi đóng; không còn won* trong phản hồi
+PASS | Thua | lý do "Khác" không kèm ghi chú => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Thua | Sale chốt Thua | HTTP 200 (mong đợi 200)
+PASS | Thua | trạng thái LOST, xác suất hiển thị 0, có lý do
+PASS | Mở lại | Quản trị mở lại cơ hội đã Thua | HTTP 200 (mong đợi 200)
+PASS | Mở lại | sau mở lại: xác suất trở về giá trị trước khi đóng, không còn lost* | xác suất 25
+PASS | Lịch sử | có dòng cho giai đoạn, trạng thái, hạn hoãn, giá trị, xác suất, ngày chốt | 18 dòng: STATUS,HOLD,STAGE,PROBABILITY,AMOUNT,CLOSE_DATE
+PASS | Lịch sử | lần xoá giá trị ghi null (không ghi "0")
+PASS | Lịch sử | Kế toán đọc được lịch sử | HTTP 200 (mong đợi 200)
+PASS | Chuyển người | Sale lấy danh sách người có thể nhận | HTTP 200 (mong đợi 200)
+PASS | Chuyển người | danh sách không có Kỹ thuật / Kế toán (không đủ điều kiện nhận)
+PASS | Chuyển người | thiếu lý do => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Chuyển người | chuyển cho Kỹ thuật (không đủ điều kiện) => 400/403/409 | HTTP 400 OPPORTUNITY_ASSIGNEE_INELIGIBLE (mong đợi 400/403/409)
+PASS | Chuyển người | Sale (assign=OWN) chỉ chuyển được trong cùng phòng: danh sách không có người phòng khác
+PASS | Chuyển người | Sale chuyển cho người phòng khác => bị từ chối | HTTP 400 OPPORTUNITY_ASSIGNEE_INELIGIBLE (mong đợi 400/403/409)
+ỨNG VIÊN (Quản trị gọi): NV-0002
+PASS | Chuyển người | Quản trị chuyển cho NV-0002 | HTTP 201 (mong đợi 200/201)
+PASS | Chuyển người | người phụ trách mới đúng; khách hàng KHÔNG đổi người phụ trách
+PASS | Chuyển người | người phụ trách của KHÁCH giữ nguyên | owner={"id":"4ba526e8-4359-4164-bb58-8f0c583b17a9","code":"NV-0003","fullName":"Nhân v
+PASS | Chuyển người | lịch sử có dòng OWNER kèm lý do
+PASS | Xoá | Sale không xoá được => 403 | HTTP 403 FORBIDDEN (mong đợi 403/404)
+PASS | Xoá | Quản trị xoá thiếu lý do => 400 | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Khôi phục | khôi phục cơ hội CHƯA xoá => 409 | HTTP 409 OPPORTUNITY_STATE (mong đợi 409)
+PASS | Xoá | Quản trị xoá mềm | HTTP 200 (mong đợi 200)
+PASS | Xoá | đã xoá: chi tiết => 404 (kể cả Quản trị) | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Xoá | đã xoá: không còn trong danh sách thường
+PASS | Khôi phục | Quản trị thấy trong deleted=only
+PASS | Khôi phục | Sale: deleted=only không trả dòng nào | total=0
+PASS | Khôi phục | Sale khôi phục => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Khôi phục | Kỹ thuật khôi phục => 404 | HTTP 404 OPPORTUNITY_NOT_FOUND (mong đợi 404)
+PASS | Khôi phục | version sai => 409 | HTTP 409 OPPORTUNITY_VERSION_CONFLICT (mong đợi 409)
+PASS | Khôi phục | Quản trị khôi phục | HTTP 201 (mong đợi 200/201)
+PASS | Khôi phục | giữ nguyên trạng thái / giai đoạn / người phụ trách / giá trị như lúc xoá
+PASS | Khôi phục | tài liệu còn nguyên sau xoá / khôi phục (2 tài liệu)
+PASS | Danh sách | lọc trạng thái + giai đoạn (truy vấn của cột kanban) chỉ trả đúng nhóm | 4 dòng
+PASS | Danh sách | pageSize 101 bị từ chối | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Danh sách | từ khoá 1 ký tự bị từ chối | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Danh sách | tham số lạ bị từ chối | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+PASS | Theo khách | tab Cơ hội của khách: Sale thấy cơ hội trên khách của mình | 2 dòng
+PASS | Theo khách | deleted=only ở đường theo khách bị từ chối | HTTP 400 VALIDATION_FAILED (mong đợi 400)
+
+TỔNG: 143 kiểm, 143 PASS, 0 FAIL
+Chuẩn bị 2/2 · Xác thực 2/2 · Tạo cơ hội 6/6 · Tiền null 4/4 · Cô lập 19/19 · Kế toán 12/12 · Sửa 4/4 · Giai đoạn 6/6 · Tạm hoãn 10/10 · Tài liệu 5/5 · Kỹ thuật 13/13 · Thắng 7/7 · Rò rỉ 11/11 · Mở lại 6/6 · Thua 3/3 · Lịch sử 3/3 · Chuyển người 10/10 · Xoá 5/5 · Khôi phục 9/9 · Danh sách 4/4 · Theo khách 2/2
