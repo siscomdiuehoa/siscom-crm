@@ -31,6 +31,24 @@
 | D6 | Bản sao lưu ngoài VPS đặt ở đâu? | Google Drive của Owner (PR #235 — kéo tự động, đang Draft) hoặc chép tay hằng tuần như hôm nay |
 | D7 | Ngày mở cho người dùng và cách báo lỗi khi dùng | Một nhóm Zalo / một luồng chat cố định; Claude sửa qua PR như #253, #254 |
 
+### 2.1 Câu trả lời của Owner (phiếu go-live, lưu 19/11/2026 17:08 giờ Việt Nam)
+
+| Mã | Owner chọn | Hệ quả |
+|---|---|---|
+| D1 | **Cách A** — mở sớm, tối đa 5 tài khoản | P1 (quản lý tài khoản) **không** chặn ngày mở; làm sau khi Owner cần thêm người |
+| D2 | **(a)** máy chủ hiện tại, chuyển sang `siscom_crm_prod` | Staging ngừng phục vụ từ bước 2, database staging giữ nguyên |
+| D3 | **Tên miền** `crm.siscom.io.vn` | Chờ Owner thêm bản ghi A ở AZDIGI (chưa thêm lúc trả lời) |
+| D4 | **Chưa điền** | Cần 5 người: họ tên, email, phòng, vai trò |
+| D5 | **Nhập khách hàng có sẵn** | Hệ thống **chưa có** chức năng nhập (chỉ có xuất CSV) — kiểm mã 19/11. Cần một công cụ nhập (PR riêng) hoặc nhập tay; cần Owner cho biết dữ liệu ở đâu, bao nhiêu khách, những cột nào |
+| D6 | **Google Drive tự động** | Dùng PR #235 (Draft, +1065 dòng): cần review và Owner duyệt |
+| D7 | **Chưa điền** ngày mở và kênh báo lỗi | — |
+| P3 | Cho làm | Xem ghi chú dưới |
+| P4 | Đã đặt mật khẩu cho `VPS.ppk`; chưa chuyển khoá sao lưu khỏi Dropbox; chưa đánh dấu cam kết không dùng lại mật khẩu từ chat | — |
+
+Ghi chú của Owner, nguyên văn: "em làm cái tối ưu thêm thì làm, đừng bảo mật quá".
+
+**P3 — đề xuất KHÔNG làm** (sau khi kiểm chỉ đọc 19/11): cloud-init của BKNS đặt lại mật khẩu root từ đĩa seed `cidata` mỗi lần khởi động, đúng mật khẩu Owner thấy trong bảng điều khiển BKNS. SSH đã chặn đăng nhập bằng mật khẩu, nên mật khẩu đó chỉ dùng được ở **console web của BKNS** — đây lại là đường cứu hộ khi mất khoá SSH. Tắt cloud-init còn có thể ảnh hưởng cấu hình mạng (`/etc/netplan/50-cloud-init.yaml` do cloud-init sinh). Rủi ro của việc giữ nguyên thấp hơn rủi ro của việc sửa; phù hợp ghi chú "đừng bảo mật quá".
+
 ## 3. Việc kỹ thuật phải xong trước (mỗi việc một PR hoặc một bước có duyệt)
 
 | Mã | Việc | Vì sao | Ước lượng |
