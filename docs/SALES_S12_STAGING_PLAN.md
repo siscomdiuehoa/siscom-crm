@@ -105,7 +105,7 @@ Bước 3 là **tiền đề bắt buộc** của bước 4 một khi mã quyề
 
 | Mã | Rủi ro / thiếu | Đề xuất |
 |---|---|---|
-| R-1 (**đã đóng 19/11**) | Chưa có bằng chứng khôi phục thử cho các bộ sao lưu hiện có | Đã khôi phục thử đạt và xác thực bản sao ngoài VPS (mục 9). Nếu dữ liệu staging đổi so với mốc ở mục 9 trước ngày triển khai thì làm lại Phụ lục A |
+| R-1 (**đã đóng 19/11**) | Chưa có bằng chứng khôi phục thử cho các bộ sao lưu hiện có | Bộ R đã khôi phục thử đạt và có bản sao ngoài VPS đã xác thực (mục 9). Điểm khôi phục chính của bước 4 là bộ M chụp ngay trước migration; vai trò, giới hạn từng bộ và cách xác nhận dữ liệu ở mục 9.1–9.2 |
 | R-2 (**đã quyết**) | Staging chỉ có 5 tài khoản thử, **một** tài khoản Kinh doanh. Không thử được: chuyển người phụ trách trong cùng phòng, hai Kinh doanh không thấy cơ hội của nhau, hai người sửa cùng lúc. Công cụ thêm tài khoản (`account-admin`) hiện không chạy được trên VPS | Owner quyết: chấp nhận bằng chứng từ test tự động + kịch bản API cho các ca này, hoặc mở PR riêng để thêm được tài khoản trên VPS trước khi nghiệm thu |
 | R-3 (**đã quyết**) | Cấp quyền `opportunity.*` là thay đổi phân quyền trên DB staging | Chỉ chạy bước 6 khi có phê duyệt riêng; hai người thực hiện do Owner chỉ định |
 | R-4 (**đã xong**) | Máy chủ đang chờ khởi động lại | Owner quyết khởi động lại **trước** S12 (tách khỏi triển khai, kiểm dịch vụ tự lên, khoá máy chủ SSH giữ nguyên) hay để sau nghiệm thu |
@@ -162,7 +162,50 @@ Không bước nào trong tài liệu này áp dụng cho production.
 4. Khoá riêng age có mặt trên VPS (tmpfs `/run`) hai lần, tổng cộng vài phút (lần 1 khoảng 06:45–06:46, lần 2 khoảng 06:48–06:50 UTC). Giới hạn về "đã xoá" nêu ở Phụ lục A vẫn áp dụng.
 5. Khoá ký trên VPS và bản Owner giữ được so bằng mã băm do Claude tính, không phải Owner tự so bằng mắt.
 
-**Hiệu lực:** kết quả này chứng minh bộ `…20261119_063952` khôi phục được. Nó là điểm khôi phục hợp lệ cho S12 chừng nào dữ liệu staging còn đúng mốc trên (bước 1 của mục 4 sẽ đếm lại). `deploy.sh --migrate` vẫn tự tạo một bản sao lưu mới ngay trước migration; bản đó **không** được khôi phục thử.
+**Hiệu lực:** kết quả này chứng minh đúng một điều — bộ `…20261119_063952` khôi phục được và chứa dữ liệu staging **tại 06:39:52 UTC ngày 19/11/2026**. Nó **không** chứng minh bộ này chứa những gì thay đổi sau thời điểm đó. Bản trước của mục này (và R-1, điều kiện dừng ở mục 10) từng suy ra "số đếm không đổi nên dữ liệu vẫn khớp bản sao lưu" — suy luận đó **sai và đã bị gỡ** (PR252-R1-01): sửa số điện thoại, người phụ trách, mật khẩu, vai trò, hoặc xoá một dòng rồi thêm một dòng đều giữ nguyên mọi số đếm.
+
+### 9.1 Hai bộ sao lưu của S12 và giới hạn phục hồi của từng bộ
+
+| | **Bộ R** — đã khôi phục thử | **Bộ M** — sao lưu ngay trước migration |
+|---|---|---|
+| Tên / thời điểm | `siscom_crm_staging_20261119_063952`, chụp 06:39:52 UTC 19/11/2026 | Do `deploy.sh --migrate` tự tạo ở bước 4, ngay trước `prisma migrate deploy`; tên theo giờ chạy. **Chưa tồn tại** |
+| Chứa gì | Dữ liệu tới 06:39:52 UTC | Dữ liệu tới thời điểm chụp, vài giây trước migration — tức **mọi cập nhật sau mốc R cũng nằm trong M** |
+| Đã chứng minh | Chữ ký manifest hợp lệ; giải mã được bằng khoá của Owner; `pg_restore` ra đủ 21 bảng, khớp số dòng với manifest; bản sao ngoài VPS trùng từng byte và qua xác thực chữ ký | Sẽ có: script tự kiểm chữ ký manifest và SHA-256 của tệp ngay khi tạo (deploy dừng nếu sao lưu không đạt); sau bước 4 chép ra ngoài VPS và xác thực chữ ký + SHA-256 bằng `allowed_signers` Owner giữ (không cần khoá riêng) |
+| **Chưa** chứng minh | Không chứng minh được nội dung của các thay đổi sau 06:39:52 | **Chưa được khôi phục thử.** Giải mã và `pg_restore` của chính bộ này chưa từng chạy. Căn cứ gián tiếp: cùng script, cùng khoá công khai, cùng định dạng với bộ R vừa khôi phục đạt |
+| Dùng khi nào | Chỉ khi bộ M không khôi phục được | **Điểm khôi phục chính** nếu bước 4 hỏng và phải khôi phục dữ liệu |
+| Mất gì nếu phải dùng | **Mọi cập nhật trên staging từ 06:39:52 UTC tới lúc chụp M.** Mức này được ước lượng ở 9.2 — hiện tại: không nhận diện được cập nhật nào | Các thao tác ghi xảy ra trong vài giây giữa lúc chụp M và lúc migration (script không chặn ghi; bản cũ vẫn chạy trong khoảng đó) |
+| Cần khoá riêng age của Owner | Chỉ khi khôi phục thật | Chỉ khi khôi phục thật, hoặc khi Owner muốn khôi phục thử bộ M |
+
+Khôi phục thật — từ bộ nào cũng vậy — là một việc riêng, cần Owner quyết và cầm khoá (mục 5, dòng "Migration hỏng giữa chừng"); S12 không tự khôi phục.
+
+**Có cần Owner đưa khoá lên lần nữa trước bước 4 không? — Không.** Lý do: (a) điểm khôi phục chính của bước 4 là bộ M, chứa đủ mọi thay đổi tới sát migration, nên không cần một bộ "đã khôi phục thử" mới hơn để tránh mất cập nhật; (b) khả năng khôi phục của quy trình (script + khoá + định dạng) vừa được chứng minh bằng bộ R; (c) theo 9.2, không có cập nhật nào nhận diện được giữa R và hiện tại, nên ngay cả khi phải lùi về R thì mức mất dự kiến là không. Khoá chỉ cần khi **thật sự** phải khôi phục. Tuỳ chọn, không chặn S12: sau nghiệm thu, Owner có thể khôi phục thử bộ M (hoặc bộ sao lưu đêm kế tiếp) theo Phụ lục A để có một điểm đã kiểm sau S12.
+
+**Điều cần Owner xác nhận khi duyệt cổng B** (mức mất cập nhật chấp nhận được): nếu bộ M không khôi phục được và phải dùng bộ R, staging mất mọi cập nhật sau 06:39:52 UTC ngày 19/11/2026. Staging chỉ có dữ liệu thử (3 khách thử, 5 tài khoản thử).
+
+### 9.2 Cách xác nhận dữ liệu — căn cứ thay cho "số đếm bằng nhau"
+
+Kiểm **chỉ đọc** trên `siscom_crm_staging` lúc 07:21–07:22 UTC ngày 19/11/2026 (mốc A). Kết quả chỉ gồm tên bảng, số dòng, thời điểm và mã băm gộp — không có giá trị dữ liệu. Tệp: `docs/evidence/s12-20261119/`.
+
+**(a) Thay đổi nhận diện được sau mốc R** — `thay-doi-sau-moc-R-va-bo-dem-ghi.txt`:
+
+- 18 / 21 bảng có cột thời gian. Ở cả 18 bảng: **0 dòng** có bất kỳ cột thời gian nào sau 06:39:52 UTC.
+- Dấu thời gian mới nhất trong toàn bộ database là **13/11/2026 08:35:53 UTC** (`audit_log`, `employee_credential`). Mọi cột thời gian của `auth_session` — gồm cả lần dùng phiên gần nhất và hạn hết phiên — đều không muộn hơn 12/11/2026 22:33:46 UTC. Tức không có dấu vết đăng nhập hay dùng ứng dụng staging nào từ 13/11 tới mốc A.
+- 3 bảng không có cột thời gian (`permission`, `role`, `role_permission`): bộ đếm ghi của PostgreSQL (chưa từng reset) cho thấy **0 lần sửa, 0 lần xoá**, và số lần thêm bằng đúng số dòng hiện có (27 / 5 / 49) — chưa từng bị sửa từ khi tạo.
+- Số dòng của cả 21 bảng tại mốc A bằng số dòng ghi trong manifest đã ký của bộ R. (Chỉ là kiểm phụ; tự nó không chứng minh gì — xem trên.)
+
+**Giới hạn của (a):** một lệnh sửa trực tiếp bằng SQL không đụng tới cột thời gian nào, trên một bảng có cột thời gian, sẽ không bị cách này phát hiện. Ứng dụng luôn cập nhật `updated_at` / ghi `audit_log` khi ghi, và cần phiên đăng nhập (`last_used_at`); đường còn lại là người có quyền quản trị database sửa tay — chỉ Owner và Claude có quyền đó, và Claude không chạy lệnh ghi nào vào database này. Đây là lập luận, không phải bằng chứng tuyệt đối.
+
+**(b) Dấu vân tay nội dung** — `dau-van-tay.sql.txt` (bộ truy vấn, danh sách cột cố định theo schema trước Sales) và `dau-van-tay-moc-A.txt` (kết quả mốc A): với mỗi bảng, md5 gộp của md5 từng dòng trên toàn bộ cột. Dùng để so **nội dung**, không phải số đếm:
+
+| So sánh | Khi nào chạy | Chứng minh gì | Xử lý khi khác |
+|---|---|---|---|
+| Mốc A ↔ mốc B0 | Ngay trước bước 4 | Nội dung cả 21 bảng không đổi từ 07:21 UTC tới sát migration | **Dừng**, báo Owner bảng nào khác; không chạy bước 4 cho tới khi Owner quyết (thay đổi đó sẽ nằm trong bộ M nhưng không nằm trong bộ R) |
+| Mốc B0 ↔ sau bước 4 | Ngay sau migration | Migration không làm đổi dữ liệu cũ: 20 bảng phải trùng từng dòng trên các cột cũ; riêng `_prisma_migrations` phải thêm đúng 4 dòng | Dừng, không chạy bước 5; đánh giá lùi mã / khôi phục cùng Owner |
+| Bộ đếm ghi mốc A ↔ mốc B0 | Ngay trước bước 4 | Không có lệnh ghi nào vào 21 bảng trong khoảng đó (bắt cả trường hợp sửa rồi sửa lại) | Như dòng đầu |
+
+**Giới hạn của (b):** không có dấu vân tay của chính bộ R (database khôi phục thử đã được dọn trước khi cần tới), nên (b) nối từ mốc A trở đi; khoảng 06:39:52 → 07:21 dựa vào (a). Muốn có dấu vân tay trực tiếp của bộ R thì phải khôi phục lại bộ R (cần khoá) — không làm, vì bộ M mới là điểm khôi phục chính. Mã băm của các bảng chứa thông tin xác thực (`employee_credential`, `auth_session`…) là md5 gộp của cả bảng, không suy ngược ra giá trị từng dòng.
+
+**Số đếm** vẫn được dùng, nhưng chỉ như phép kiểm nhanh sau migration; không còn là căn cứ cho kết luận "dữ liệu không đổi".
 
 ## 10. Kế hoạch thực hiện S12 — TRÌNH OWNER DUYỆT (chưa thực hiện bước nào)
 
@@ -177,7 +220,7 @@ Mục này không thay các mục 3–5; nó chốt **ai làm, làm khi nào, c�
 | Cổng duyệt | Câu Owner ghi | Mở ra các bước (mục 4) | Thay đổi gì trên staging |
 |---|---|---|---|
 | **A** | "Duyệt bắt đầu S12 tại SHA `<sha>`" | 0 (build frontend trên Windows, chép mã + `dist` lên thư mục tạm của VPS), 1 (đếm mốc dữ liệu), 3 (chạy thử khô) | Chỉ thêm tệp vào thư mục tạm; không đổi database, không đổi bản đang chạy |
-| **B** | "`OWNER_APPROVED_MIGRATION` cho `siscom_crm_staging` + duyệt deploy SHA `<sha>`" | 4 (`deploy.sh --migrate`: sao lưu → 4 migration Sales → grants V5 → VERIFY → đổi bản chạy) | **Đổi schema và bản chạy.** Điểm không gỡ cấu trúc (R-9) |
+| **B** | "`OWNER_APPROVED_MIGRATION` cho `siscom_crm_staging` + duyệt deploy SHA `<sha>`", kèm xác nhận mức mất cập nhật ở mục 9.1 và đồng ý cho chép bộ M ra máy Owner | 4 (`deploy.sh --migrate`: sao lưu → 4 migration Sales → grants V5 → VERIFY → đổi bản chạy) | **Đổi schema và bản chạy.** Điểm không gỡ cấu trúc (R-9) |
 | **C** | "Duyệt seed danh mục Sales" | 5 (`seed-lookups`) | Thêm 4 giai đoạn, 3 loại, 9 lý do thua |
 | (đã có) | Quyết định R-3 ngày 19/11/2026 | 6 (cấp 10 mã quyền `opportunity.*` qua `sysadmin@` yêu cầu, `admin@` duyệt) | Đổi phân quyền. Claude báo Owner ngay trước khi chạy; Owner có thể dừng |
 | — | Owner tham gia | 7 (kiểm nhanh), 8 (nghiệm thu §10, gồm iPhone thật) | Tạo dữ liệu thử Sales trên staging |
@@ -188,15 +231,35 @@ Bước 2 của mục 4 (sao lưu + khôi phục thử) **đã xong** — mục 
 
 **Dừng ngay và báo Owner, không tự xử lý, khi:**
 
-- Bước 1: số khách / liên hệ / nhân viên / migration khác mốc ở mục 9 (3 / 3 / 5 / 12) ⇒ làm lại Phụ lục A trước khi đi tiếp.
+- Bước 1 và ngay trước bước 4: dấu vân tay nội dung hoặc bộ đếm ghi khác mốc A (mục 9.2 b) ⇒ dừng, báo Owner bảng nào đổi. Không tự kết luận "không đổi" từ số đếm. Không tự yêu cầu Owner đưa khoá lên lại; việc có cần khôi phục thử thêm hay không do Owner quyết sau khi xem thay đổi.
 - Bước 3: chạy thử khô báo lỗi tiền kiểm, hoặc số migration đang chờ khác 4.
 - Trước bước 4: `check-tls.sh` cho thấy chứng chỉ còn dưới 48 giờ; hoặc CI trên SHA triển khai không phải 6/6.
-- Bước 4: sao lưu tự động thất bại (script tự dừng trước khi đổi gì); migration lỗi giữa chừng (không sửa tay — mục 5, dòng 2); VERIFY không đạt hoặc `/health` không đạt ⇒ `deploy.sh --rollback`, giữ schema; số dòng dữ liệu cũ khác mốc bước 1.
+- Bước 4: sao lưu tự động thất bại (script tự dừng trước khi đổi gì); migration lỗi giữa chừng (không sửa tay — mục 5, dòng 2); VERIFY không đạt hoặc `/health` không đạt ⇒ `deploy.sh --rollback`, giữ schema; dấu vân tay nội dung của 20 bảng cũ sau migration khác mốc B0, hoặc `_prisma_migrations` không thêm đúng 4 dòng (mục 9.2 b).
+- Sau bước 4: bộ M chép ra ngoài VPS không qua được xác thực chữ ký / SHA-256 ⇒ báo Owner ngay; không chạy bước 5 cho tới khi Owner quyết (khi đó điểm khôi phục đã kiểm chỉ còn bộ R).
 - Bước 5: đếm danh mục khác 4 / 3 / 9.
 - Bước 6: script báo khác 17 dòng, hoặc vai trò `admin` nhận được mã quyền.
 - Bước 7: có lỗi 5xx trong nhật ký, hoặc một vai trò thấy mục "Cơ hội kinh doanh" sai với ma trận quyền.
 
-**Đường lùi:** như mục 5 — lùi mã về `src-20261113083453`, giữ schema; cần ẩn tính năng thì thu hồi mã quyền (cần Owner duyệt riêng). Điểm khôi phục dữ liệu: bộ `…20261119_063952` (đã khôi phục thử, có bản sao ngoài VPS đã xác thực) và bản sao lưu tự động của bước 4.
+**Đường lùi:** như mục 5 — lùi mã về `src-20261113083453`, giữ schema; cần ẩn tính năng thì thu hồi mã quyền (cần Owner duyệt riêng). Điểm khôi phục dữ liệu: **bộ M** (sao lưu ngay trước migration — điểm chính, chưa khôi phục thử) rồi mới tới **bộ R** (`…20261119_063952`, đã khôi phục thử, mất cập nhật sau 06:39:52 UTC) — vai trò và giới hạn từng bộ ở mục 9.1.
+
+**Trình tự của cổng B** (thay cho việc chỉ chạy một lệnh):
+
+1. Kiểm lại: CI của SHA triển khai 6/6; `check-tls.sh` còn ≥ 48 giờ; không ai đang dùng staging (Owner báo; Claude đối chiếu `auth_session.last_used_at`).
+2. Lấy mốc B0: chạy lại bộ truy vấn dấu vân tay và bộ đếm ghi; so với mốc A. Khác ⇒ dừng.
+3. `deploy.sh --src … --frontend … --migrate` (bước 4 của mục 4). Ghi tên bộ M từ dòng `Da sao luu:`.
+4. Chạy lại dấu vân tay trên 20 bảng cũ + đếm `_prisma_migrations`; so với mốc B0.
+5. Chép 4 tệp của bộ M ra máy Owner (Claude tải bằng khoá SSH của Claude — cần Owner đồng ý trong câu duyệt cổng B), xác thực chữ ký + SHA-256.
+6. Báo Owner kết quả cả 5 việc, rồi mới xin cổng C.
+
+### 10.1 Kết quả cổng A (19/11/2026, Owner ghi "Duyệt cổng A"; SHA `9bc30b1`)
+
+| Bước | Kết quả |
+|---|---|
+| 0 | Mã: `git archive 9bc30b1 backend` (16 migration, không có tệp `.env` / khoá / dump). Giao diện: build bằng PowerShell từ cây mã trùng `9bc30b1`, cờ `VITE_CRM_AUTH_ENABLED` / `VITE_CRM_API_ENABLED` bật, `VITE_CRM_API_BASE=/api/v1`; dùng lại `node_modules` đã cài, không `npm ci` lại. Hai gói đã ở `/root/s12-src-9bc30b1` và `/root/s12-web-dist-9bc30b1`; SHA-256 trên VPS khớp bản trên máy dev (`2b978216…`, `ee462a2b…`) |
+| 1 | 07:16 UTC: 3 khách / 3 liên hệ / 0 hoạt động / 5 nhân viên / 12 migration, 0 migration lỗi; chưa có bảng `opportunity`, 0 mã `opportunity.*`. 1 trong 3 khách chưa có người phụ trách (R-8). Mốc nội dung A lấy lúc 07:21 UTC (mục 9.2) |
+| 3 | `deploy.sh … --migrate --dry-run`: rc = 0, in đủ chuỗi bước, bản mới sẽ nằm cạnh `src-20261113083453`. Dry-run **không** tự đếm migration chờ; so riêng (chỉ đọc): đúng 4 migration Sales chưa áp, không có migration lạ trong database. `check-tls.sh`: đạt, hạn 25/11/2026 11:02 UTC |
+
+Sau cổng A staging **không đổi**: bản đang chạy, số migration, số bộ sao lưu, dịch vụ đều như trước. **Cổng B chưa được duyệt** (Owner, 19/11/2026: "Chưa duyệt cổng B" — chờ xử lý review của PR #252).
 
 **Chưa có trong kế hoạch này, Owner cần biết:**
 
@@ -274,13 +337,17 @@ Bước 2 của mục 4 (sao lưu + khôi phục thử) **đã xong** — mục 
 
    Sau đó đưa khoá lên. Cách khuyến nghị (không để lại trong lịch sử shell): gõ lệnh dưới, dán nội dung file khoá, nhấn Enter rồi `Ctrl-D`:
    ```bash
-   umask 077; stty -echo; cat > /run/siscom-restore/backup.key; stty echo
+   ( old=$(stty -g); trap 'stty "$old"' EXIT INT TERM HUP; umask 077; stty -echo; cat > /run/siscom-restore/backup.key )
    ```
-   (`stty -echo` tắt hiển thị để nội dung khoá không hiện trên màn hình khi dán — màn hình **không hiện gì** là đúng. Dán **đúng một lần**; dán lặp làm hỏng tệp khoá, xem mục 9.) Kiểm trước khi chạy bước 4 — lệnh chỉ in số đếm, không in khoá:
+   Lệnh tắt hiển thị để nội dung khoá không hiện trên màn hình khi dán — màn hình **không hiện gì** là đúng. Dán **đúng một lần**; dán lặp làm hỏng tệp khoá (mục 9). Lệnh ghi nhớ trạng thái màn hình lúc đầu và **tự trả lại** khi kết thúc, kể cả khi bấm `Ctrl-C` giữa chừng (PR252-R1-02). Nếu vì lý do nào đó gõ lệnh mà không thấy chữ hiện ra: gõ `stty sane` rồi Enter (gõ "mù"), màn hình trở lại bình thường.
+
+   Kiểm nhanh trước khi chạy bước 4 — chỉ in số đếm, không in khoá:
    ```bash
-   grep -c 'AGE-SECRET-KEY' /run/siscom-restore/backup.key; wc -c /run/siscom-restore/backup.key
+   grep -c 'AGE-SECRET-KEY' /run/siscom-restore/backup.key; wc -c < /run/siscom-restore/backup.key
    ```
-   Đạt khi dòng đầu in `1` và số byte bằng kích thước tệp khoá gốc (khoảng 189 byte với một khoá age). Khác ⇒ chạy lại lệnh `cat` ở trên (ghi đè) rồi dán lại.
+   Dòng đầu phải là `1`; dòng hai phải **bằng đúng số byte của tệp khoá gốc** trên máy Owner (xem bằng `(Get-Item '<tệp khoá>').Length` trong PowerShell — không so với một con số ước lượng). Khác ⇒ chạy lại lệnh `cat` ở trên (ghi đè) rồi dán lại; bấm `Ctrl-C` giữa chừng để lại tệp rỗng, cũng chạy lại. Hai phép này chỉ là **kiểm nhanh**: `grep -c` đếm số dòng có chuỗi, không kiểm cú pháp khoá. Phép kiểm thật là việc `age` giải mã được ở bước 4.
+
+   **Đã diễn tập bằng dữ liệu giả** (19/11/2026, trên staging, thư mục tạm riêng trên `/run`, không có khoá; log: `docs/evidence/s12-20261119/dien-tap-dan-an-tty.txt`): dán một lần + `Ctrl-D` ⇒ đủ byte, màn hình trở lại bình thường; `Ctrl-C` giữa chừng ⇒ tệp rỗng, màn hình trở lại bình thường; dán nhầm nội dung không phải khoá ⇒ phép kiểm in `0`; chạy lại ⇒ ghi đè đúng. Nội dung dán không xuất hiện trong nhật ký phiên. Lệnh **cũ** (`…; stty -echo; cat > …; stty echo`) khi bị `Ctrl-C` để màn hình ở trạng thái ẩn cho tới khi gõ `stty sane` — đó là lý do đổi lệnh.
    Hoặc chép file bằng WinSCP / `pscp` vào đúng đường dẫn `/run/siscom-restore/backup.key` rồi chạy `chmod 600 /run/siscom-restore/backup.key`.
 
 4. **Chạy khôi phục thử trên đúng bộ đã ghi ở bước 1:**
