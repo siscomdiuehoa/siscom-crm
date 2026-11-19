@@ -1,0 +1,128 @@
+(node:12080) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  console.warn
+    S5-6 bỏ qua: DB thử chưa tách pool auth (không có TEST_AUTH_DATABASE_URL).
+
+      1366 |   });
+      1367 |   it('S5-6. cổng dựng trên pool NGHIỆP VỤ (siscom_app, đã tách role) không đọc được credential => fail-closed false; chưa tách role thì bỏ qua có lý do', async () => {
+    > 1368 |     if (!authPrisma.separate) { console.warn('S5-6 bỏ qua: DB thử chưa tách pool auth (không có TEST_AUTH_DATABASE_URL).'); return; }
+           |                                         ^
+      1369 |     const viaApp = new AuthPoolAssigneeEligibility(prisma as unknown as AuthPrismaService);
+      1370 |     expect((await viaApp.canSignIn([empId])).get(empId)).toBe(false);
+      1371 |     expect((await port.canSignIn([empId])).get(empId)).toBe(true); // cùng thời điểm, pool auth vẫn trả true
+
+      at Object.<anonymous> (auth.int-spec.ts:1368:41)
+
+PASS test/auth.int-spec.ts (64.059 s)
+  bootstrap (chế độ khởi tạo M1) và ràng buộc
+    √ đã đóng khởi tạo; 5 tài khoản có mã NV-xxxx, không chạy lại được (51 ms)
+    √ không có hash/mật khẩu trong audit_log; mật khẩu lưu argon2id (33 ms)
+  đăng nhập
+    √ email đúng => 200 + cookie HttpOnly SameSite=Lax + csrfToken + me (vai trò, quyền); body không chứa token phiên (384 ms)
+    √ BUG-1: còn cookie phiên CHẾT (rác hoặc đã đăng xuất) => đăng nhập đúng 200 cấp phiên mới; sai mật khẩu 401 LOGIN_INVALID (không 403) (636 ms)
+    √ BUG-1: phiên CÒN SỐNG giữ nguyên bảo vệ — đăng nhập kèm cookie phiên sống mà thiếu X-CSRF-Token => 403 CSRF_FAILED (340 ms)
+    √ RELOGIN: đăng nhập lại (cùng người) khi phiên cũ còn sống => phiên cũ 401, phiên mới 200, có nhật ký thu hồi (332 ms)
+    √ RELOGIN: người KHÁC đăng nhập trên cùng trình duyệt (máy dùng chung) => phiên của người trước bị thu hồi; nhật ký: người thực hiện = người mới, đối tượng = người trước (351 ms)
+    √ RELOGIN: đăng nhập SAI mật khẩu khi có phiên sống => 401 và phiên cũ VẪN dùng được (361 ms)
+    √ mã nhân viên NV-xxxx đúng => 200; email khác hoa/thường vẫn đúng (397 ms)
+    √ sai mật khẩu / không tồn tại / sai định dạng / thiếu trường => cùng 401 LOGIN_INVALID (400 cho body sai) không lộ chi tiết (775 ms)
+    √ khoá sau N lần sai: mật khẩu đúng cũng 401 cho tới hết hạn khoá; đăng nhập đúng reset bộ đếm (798 ms)
+    √ R2-228: ĐANG khoá mà thử tiếp (sai quá ngưỡng + đúng mật khẩu) => vẫn 401, lock_level / locked_until / failed_count KHÔNG đổi, không khoá thêm; hết hạn => 200 (2039 ms)
+  phiên, /auth/me, logout
+    √ me: cookie hợp lệ => 200; không cookie / cookie rác => 401; header giả danh không có tác dụng (185 ms)
+    √ logout: cần Origin + X-CSRF-Token; thành công => cookie xoá, phiên thu hồi, me sau đó 401; token cũ không dùng lại được (205 ms)
+    √ phiên hết hạn (idle) => 401; thu hồi toàn bộ phiên khi token_version tăng (đổi mật khẩu/khoá) — trigger M1.2 (397 ms)
+  RBAC V2 qua Customer API thật (SessionActorProvider)
+    √ không cookie => 401 mọi route; ghi không có CSRF => 403 trước khi chạm nghiệp vụ (10 ms)
+    √ ADMIN (crm_admin): tạo được khách, đọc ALL; TECHNICIAN/ACCOUNTANT: 403 khi tạo; ACCOUNTANT đọc ALL; TECHNICIAN chỉ phòng mình (178 ms)
+    √ SALE (B3): tạo khách với create=OWN => 201, chủ sở hữu = chính mình, có phân công OWNER, tự xem được; sửa khách của mình OK; sửa khách người khác 404; xoá/khôi phục 403 (153 ms)
+    √ audit: đăng nhập/đăng xuất được ghi với actor; không có mật khẩu/token trong nhật ký (7 ms)
+  Đổi mật khẩu của chính mình (B1.3.3, PR 8 — D16/D17/D18 A/D19)
+    √ thành công: hash Argon2id mới, token_version+1, mọi phiên cũ 401 (cả thiết bị khác), phiên mới dùng được, nhật ký; mật khẩu cũ không đăng nhập được (1230 ms)
+    √ mật khẩu hiện tại sai => 400 PASSWORD_CURRENT_INVALID; hash/token_version không đổi; nhật ký auth.password_change_failed; phiên vẫn dùng được (không khoá) (341 ms)
+    √ chính sách yếu / xác nhận lệch / trùng mật khẩu hiện tại / trường lạ => 400, không đổi hash, không so mật khẩu (không nhật ký thất bại) (494 ms)
+    √ không cookie => 401; cookie nhưng thiếu X-CSRF-Token / thiếu Origin => 403 CSRF_FAILED trước khi so mật khẩu (không nhật ký, không đổi) (172 ms)
+    √ D18 A: 6 lần sai liên tiếp (hạn mức 5/15 phút theo cặp nguồn + nhân viên) => lần thứ 6 là 429 PASSWORD_CHANGE_THROTTLED; tài khoản KHÔNG bị khoá đăng nhập (1225 ms)
+    √ nhật ký auth.* của nhân viên không chứa mật khẩu nào (gốc, mới, sai) (33 ms)
+  Nghiệm thu Bước 3 — xoá mềm/khôi phục qua phiên thật (regression công cụ KIEM-TRA-XOA-MEM)
+    √ admin: DELETE => HTTP 409 và body error.code = DELETE_LINKS_UNVERIFIED; khách vẫn còn (deletedAt null) (326 ms)
+    √ admin: restore khách đang hoạt động => HTTP 409 và body error.code = CUSTOMER_NOT_DELETED (185 ms)
+    √ admin: DELETE có cookie + Origin nhưng THIẾU X-CSRF-Token => 403 CSRF_FAILED (không phải 409); token của phiên khác cũng 403 (331 ms)
+    √ kế toán / kỹ thuật / kinh doanh: DELETE và restore => 403 FORBIDDEN (kiểm quyền trước phạm vi, không lộ 404), không đổi dữ liệu (534 ms)
+  D.0 — mốc thời gian xác thực lưu theo UTC (DB mặc định +07)
+    √ đăng nhập: issued_at, last_login_at ≈ now() của DB; hạn idle 30 phút và hạn tuyệt đối 2 giờ tính từ now() của DB (194 ms)
+    √ hết hạn phiên theo thời điểm thật: idle_expires_at = now() + 5 phút => 200; = now() - 1 phút => 401 (205 ms)
+    √ khoá đăng nhập: locked_until = now() của DB + 15 phút; còn hạn => 401 kể cả đúng mật khẩu; quá hạn theo now() của DB => 200 (882 ms)
+    √ đổi mật khẩu: password_changed_at ≈ now() của DB; revoked_at do trigger M1.2 ghi bằng now() của DB đọc qua Prisma ≈ đồng hồ ứng dụng (1563 ms)
+    √ nhật ký: occurred_at của auth.login_ok mới nhất ≈ now() của DB (240 ms)
+  B1.4 P1 — TRUST_PROXY: hạn mức theo nguồn và tiền tố IP phiên theo X-Forwarded-For
+    √ đăng nhập có X-Forwarded-For => tiền tố IP phiên là của khách thật (hop gần proxy nhất), phần tự khai bị bỏ (550 ms)
+    √ header không phải IP / IPv6 có zone id dài => vẫn đăng nhập được (không 500); tiền tố IP hợp lệ, ≤ 64 ký tự (504 ms)
+    √ hạn mức theo nguồn: loopback => hai khách sau cùng proxy KHÔNG chặn nhau; false => header bị bỏ, chung một bucket (1561 ms)
+  B1.4 P2 — PASSWORD_CHANGE_REQUIRED
+    √ cờ tắt (mặc định bootstrap): GET /customers 200 — hành vi đã nghiệm thu không đổi (383 ms)
+    √ cờ bật: đăng nhập vẫn 200 (me.mustChangePassword=true); GET/POST/PATCH/DELETE/HEAD route khác => 403 PASSWORD_CHANGE_REQUIRED, không ghi gì (226 ms)
+    √ cờ bật: /auth/me 200, /auth/logout 200; không cookie => 401 như cũ (194 ms)
+    √ cờ bật: đổi mật khẩu 200 => cờ tắt (DB), phiên mới gọi được API, cookie cũ 401; sai mật khẩu hiện tại vẫn 400 (không vượt qua) (887 ms)
+    √ cờ bật lại giữa chừng (admin đặt lại): phiên đang dùng bị chặn ngay ở request kế tiếp (không cache ngoài request) (191 ms)
+  B1.4 Remember Me 90 ngày (Issue #177)
+    √ không tích (thiếu remember / remember=false): KHÔNG có cookie siscom_rmb, KHÔNG thêm hàng; phiên thường như cũ (331 ms)
+    √ tích: cookie siscom_rmb HttpOnly; SameSite=Lax; Path=/api/v1/auth; Max-Age = 90 ngày; DB chỉ lưu SHA-256; mốc = lần nhập mật khẩu + 90 ngày (177 ms)
+    √ restore hợp lệ: phiên THƯỜNG mới + CSRF mới + token xoay vòng (cùng family, CÙNG mốc tuyệt đối); /auth/me chạy bằng phiên mới (217 ms)
+    √ restore bắt buộc Origin allowlist + X-Remember-Restore: 1 (403 CSRF_FAILED), token KHÔNG bị tiêu (203 ms)
+    √ không cookie / token giả đúng định dạng / sai định dạng => 401 REMEMBER_INVALID (không lộ chi tiết); token giả => xoá cookie (9 ms)
+    √ token hết hạn (quá mốc 90 ngày) => 401 REMEMBER_INVALID + xoá cookie, không tạo phiên (12 ms)
+    √ dùng lại token cũ TRONG 10 giây => 401 REMEMBER_RACE (giữ cookie, không thu hồi); SAU 10 giây => replay: thu hồi CẢ family (kể cả token con), audit (10736 ms)
+    √ QA I-1: restore khi còn 1 giờ tới mốc 90 ngày => phiên thường mới hết hạn đúng mốc (cookie phiên Max-Age <= 3600), không +12h (19 ms)
+    √ QA lần 2 Minor-2: family vừa bị thu hồi song song (còn token chưa xoay) => trigger DB chặn token con, restore 401 + xoá cookie (không 500, không phiên) (135 ms)
+    √ QA lần 3 Important-1: kẻ trộm restore trước rồi tự thu hồi thiết bị (revoke-all) để né phát hiện => nạn nhân dùng lại token cũ sau 10 giây vẫn là REPLAY, phiên kẻ trộm bị thu hồi (10933 ms)
+    √ truy cập đồng thời: 6 restore song song cùng token => đúng MỘT 200, còn lại 401 REMEMBER_RACE; đúng một token con, không thu hồi family (259 ms)
+    √ logout thu hồi chuỗi ghi nhớ của thiết bị này (LOGOUT) và xoá cookie; restore sau đó 401 (256 ms)
+    √ đăng nhập lại KHÔNG tích trên thiết bị còn cookie cũ => thu hồi chuỗi cũ (LOGIN_NO_REMEMBER) + xoá cookie (399 ms)
+    √ Rà soát 2026-11-01 Minor 1: kẻ trộm restore trước; nạn nhân đăng nhập KHÔNG tích trên thiết bị còn cookie => phiên kẻ trộm 401 (REMEMBER_DEVICE_REVOKED), phiên mới của nạn nhân 200 (602 ms)
+    √ GỘP RELOGIN + câu 3: đăng nhập lại trên trình duyệt có phiên khôi phục + cookie ghi nhớ => phiên đó RELOGIN, phiên khôi phục khác REMEMBER_DEVICE_REVOKED (498 ms)
+    √ nhân viên không còn ACTIVE (khoá/nghỉ việc) => restore 401, thu hồi family (INVALID_STATE), không cấp phiên (272 ms)
+    √ tối đa 5 thiết bị: thiết bị thứ 6 thay thiết bị ít dùng gần nhất (DEVICE_LIMIT) (1272 ms)
+    √ đổi mật khẩu => trigger DB (token_version) thu hồi MỌI thiết bị (TOKEN_VERSION), response xoá cookie; token cũ restore 401 (965 ms)
+    √ pool nghiệp vụ (prisma = siscom_app) không đọc được remember_device khi đã tách pool auth (1 ms)
+  B1.4 câu 3 — thu hồi thiết bị kéo theo phiên đã khôi phục
+    √ phiên khôi phục ghi remember_family_id; phiên đăng nhập mật khẩu để NULL (208 ms)
+    √ DELETE một thiết bị => phiên khôi phục từ thiết bị đó 401; phiên từ thiết bị khác và phiên mật khẩu vẫn 200 (472 ms)
+    √ revoke-all => mọi phiên khôi phục 401; phiên đăng nhập bằng mật khẩu vẫn 200 (703 ms)
+    √ QA #193: nạn nhân ĐĂNG XUẤT (kèm cookie ghi nhớ) => phiên kẻ trộm đã khôi phục từ thiết bị đó cũng 401 (247 ms)
+    √ DELETE thiết bị của NGƯỜI KHÁC => 404 và phiên khôi phục của người đó vẫn 200 (415 ms)
+  B3 A5 — Hoạt động qua API thật (phiên + vai trò + audit thật)
+    √ đăng nhập: vai trò bootstrap mang đúng quyền activity.* của ma trận §5 (333 ms)
+    √ SALE tạo CALL trên khách của mình => 201; audit_log THẬT có activity.create, nội dung bị che; ghi không CSRF => 403 (37 ms)
+    √ TECHNICIAN (phòng KT) với khách phòng KD => 404 cả đọc lẫn ghi; ACCOUNTANT đọc 200 nhưng tạo 403 (36 ms)
+    √ giao việc đọc VAI TRÒ THẬT của người nhận: crm_admin giao cho kỹ thuật (không đọc được khách KD) => 400 NO_ACCESS; giao cho sale (chủ khách) => 201 + audit activity.assign (44 ms)
+    √ SALE giao cho người khác phòng => 400 ACTIVITY_ASSIGNEE_INVALID (phạm vi giao OWN) (16 ms)
+    √ ứng viên phụ trách (crm_admin): chỉ người đọc được khách — có sale, crm_admin, kế toán; KHÔNG có kỹ thuật (phòng khác) và sysadmin (không quyền BIZ) (26 ms)
+  B3 A6 — Công việc + quyền theo việc qua API thật
+    √ SALE giao TASK cho KỸ THUẬT phòng khác: không external => 400; external=true => 201 + activity_access THẬT + audit access_grant (47 ms)
+    √ KỸ THUẬT (chỉ quyền theo việc): danh sách/chi tiết/thẻ khách 200; timeline/lịch sử 404; sửa nội dung 403; không CSRF 403 (238 ms)
+    √ KỸ THUẬT hoàn thành (kèm kết quả) => DONE; quyền theo việc thu hồi COMPLETED trong audit_log THẬT (che kết quả); sau đó 404 (41 ms)
+    √ SALE xem lịch sử THẬT (không lộ nội dung); KẾ TOÁN đọc chi tiết 200 nhưng không mở lại; SALE mở lại => cờ assigneeLostAccess (59 ms)
+    √ xoá mềm: SALE 403; CRM_ADMIN 200, lý do che trong audit_log THẬT (32 ms)
+  FV-5 — account-admin (thêm / đặt lại mật khẩu / khoá) qua hàm đặc quyền thật
+    √ FV5-1. preflight: đúng DB thử, chủ sở hữu, bootstrap đã đóng (1 ms)
+    √ FV5-2. add: tạo nhân viên + vai trò sales; đăng nhập bằng mật khẩu tạm => mustChangePassword, API bị chặn; đổi mật khẩu => dùng được (866 ms)
+    √ FV5-3. audit đủ bước (2 yêu cầu, 2 lần duyệt, thi hành) và KHÔNG chứa mật khẩu (4 ms)
+    √ FV5-4. reset-password: mật khẩu cũ hết hiệu lực, mật khẩu mới đăng nhập được và lại bị buộc đổi (489 ms)
+    √ FV5-5 (F225-C). disable: phiên bị thu hồi; reset-password KHÔNG mở khoá (ACCOUNT_DISABLED, không đổi gì); chỉ unlock có xác nhận mới mở (1623 ms)
+    √ FV5-6. người duyệt KHÔNG có quyền duyệt (sale) => DB từ chối, KHÔNG tạo nhân viên dở dang (một transaction) (170 ms)
+    √ FV5-7 (M1). cờ buộc đổi mật khẩu chỉ bật đúng tài khoản + đúng lần reset: sai nhân viên / token_version cũ / hash khác => 0 dòng, lỗi, không đổi gì (405 ms)
+    √ FV5-8. CLI không cấp crm_admin (tạm cấm, Owner 08/11/2026) (8 ms)
+  Sales S5 — mã quyền opportunity.* và cổng AssigneeEligibility trên DB thật
+    √ S5-1. bootstrap cấp đúng 17 dòng của 10 mã: crm_admin 9, sales 6, technician 1, accountant 1; admin (quản trị hệ thống) 0; không có opportunity.export (3 ms)
+    √ S5-2. DB xếp opportunity.* vào nhóm BIZ (migration 20261118000000) => SoD áp cho vai trò admin; các nhóm cũ không đổi (1 ms)
+    √ S5-3. vai trò thật của 5 tài khoản bootstrap: đúng tập mã opportunity.* theo §5.2; Quản trị hệ thống không có mã nào (6 ms)
+    √ S5-4. cổng trên pool auth thật: tài khoản dùng được => true; id không tồn tại => false; id không phải uuid => false cho cả lô (fail-closed) (7 ms)
+    √ S5-5. nhân viên ACTIVE nhưng tài khoản bị khoá => false; mở khoá => true lại; employee.status không đổi (TC 9a(vii)) (171 ms)
+    √ S5-6. cổng dựng trên pool NGHIỆP VỤ (siscom_app, đã tách role) không đọc được credential => fail-closed false; chưa tách role thì bỏ qua có lý do (79 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       91 passed, 91 total
+Snapshots:   0 total
+Time:        64.285 s
+Ran all test suites matching /test\\auth.int-spec.ts/i.

@@ -187,7 +187,9 @@ bash backup-db.sh --init-signing-key
 # 3) sao lưu tay lần đầu + bật timer 02:00 giờ VN (19:00 UTC):
 systemctl start siscom-crm-backup.service && journalctl -u siscom-crm-backup -n 20 --no-pager
 systemctl enable --now siscom-crm-backup.timer && systemctl list-timers siscom-crm-backup.timer
-# 4) khôi phục thử (Owner chép khoá riêng age lên TẠM, dùng xong xoá):
+# 4) khôi phục thử (Owner chép khoá riêng age lên TẠM, dùng xong xoá).
+#    Với lần khôi phục thử TRƯỚC Sales S12: làm theo docs/SALES_S12_STAGING_PLAN.md, Phụ lục A (ghi cố định tên bộ, khoá đặt ở
+#    /run/siscom-restore/, có hẹn giờ tự xoá) — trong một lần khôi phục chỉ dùng MỘT quy trình, không trộn với hai lệnh dưới đây.
 bash restore-test.sh --identity /root/siscom-backup.key
 shred -u /root/siscom-backup.key
 # Kiểm một bản đã chép RA NGOÀI VPS (trên máy có ssh-keygen), dùng allowed_signers Owner giữ:

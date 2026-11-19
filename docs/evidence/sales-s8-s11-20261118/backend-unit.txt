@@ -1,0 +1,79 @@
+PASS src/modules/customers/customers.http.spec.ts (8.699 s)
+PASS src/modules/auth/auth.remember.spec.ts
+PASS src/modules/auth/auth.change-password.spec.ts
+[Nest] 2972  - 18/11/2026, 15:45:44    WARN [Auth] Không tra cứu được phiên mới sau đổi mật khẩu: DB tạm thời lỗi
+PASS src/modules/customers/customers.service.spec.ts
+PASS src/modules/customers/customers.contacts.service.spec.ts
+PASS src/common/auth/password-change-required.guard.spec.ts
+PASS src/modules/auth/account-admin.spec.ts
+PASS src/common/auth/csrf-origin.guard.spec.ts
+PASS src/health/health.service.spec.ts
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Role database (pool nghiệp vụ) không phải đặc quyền tối thiểu: tài khoản "siscom_migrator" là chủ sở hữu database (có thể tắt trigger, sửa nhật ký) — mô hình cũ B1.1, chưa tách role S1; tài khoản "siscom_migrator" là siscom_migrator hoặc thành viên của siscom_migrator (DATABASE_URL đang trỏ tài khoản migrate?)
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Không đọc được thông tin role database: boom
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Role database (pool nghiệp vụ) không phải đặc quyền tối thiểu: tài khoản "siscom_app" (pool nghiệp vụ) còn quyền xác thực (auth_session / password_hash / fn_auth_api_change_own_password) dù đã tách pool auth — chạy B1.3_S1_APP_GRANTS_V4.sql.txt (B3 A3; V3 là bản rollback)
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Role pool xác thực không đúng: tài khoản "siscom_auth" (pool auth) KHÔNG có quyền xác thực — AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc B1.3_S1_APP_GRANTS_V4.sql.txt chưa áp; tài khoản "siscom_auth" (pool auth) ghi được bảng nghiệp vụ (customer) — AUTH_DATABASE_URL và DATABASE_URL đổi chỗ?
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Không đọc được thông tin role pool xác thực: boom
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Kiểm tra pool xác thực (AUTH_DATABASE_URL) thất bại: ECONNREFUSED
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Role pool xác thực không đúng: tài khoản "siscom_auth" (pool auth) KHÔNG có quyền xác thực — AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc B1.3_S1_APP_GRANTS_V4.sql.txt chưa áp
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Role pool xác thực không đúng: tài khoản "siscom_auth" (pool auth) KHÔNG có quyền xác thực — AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc B1.3_S1_APP_GRANTS_V4.sql.txt chưa áp
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Role pool xác thực không đúng: tài khoản "siscom_auth" (pool auth) KHÔNG có quyền xác thực — AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc B1.3_S1_APP_GRANTS_V4.sql.txt chưa áp
+[Nest] 2972  - 18/11/2026, 15:45:47    WARN [HealthService] Không đọc được thông tin role pool xác thực: timeout
+PASS src/modules/opportunities/opportunities.access.spec.ts
+PASS src/modules/customers/dto/customer-dto.spec.ts
+PASS src/common/audit/db-audit.port.spec.ts
+PASS src/modules/opportunities/opportunities.static-guards.spec.ts
+PASS src/modules/customers/customers.search.spec.ts
+PASS src/prisma/db-role-check.spec.ts
+PASS src/modules/auth/auth.controller.spec.ts
+PASS src/common/middleware/client-address.spec.ts
+PASS src/modules/lookups/sales.catalog.spec.ts
+PASS src/common/http/compressed-body-dos.spec.ts
+PASS src/modules/customers/export/customers-export.order.spec.ts
+PASS src/modules/lookups/lookups.catalog.spec.ts
+PASS src/modules/customers/customers.owner-candidates.service.spec.ts
+PASS src/common/auth/session/session-actor.provider.spec.ts
+[Nest] 2972  - 18/11/2026, 15:45:56    WARN [Session] Không gia hạn được phiên: db down
+[Nest] 2972  - 18/11/2026, 15:45:56   ERROR [CustomersExport] {"event":"export_gap_log_degraded","code":"write:EISDIR","instanceId":"36f1d78a-b710-45ed-bb5b-0ff5fedcc2bb"}
+PASS src/modules/customers/export/export-gap-monitor.start.spec.ts
+PASS src/modules/customers/dto/null-not-optional.spec.ts
+PASS src/modules/activities/activities.access.spec.ts
+PASS src/modules/auth/auth.relogin.spec.ts
+PASS src/common/auth/assignee-eligibility.spec.ts
+[Nest] 2972  - 18/11/2026, 15:45:58    WARN [AssigneeEligibility] Không kiểm được trạng thái tài khoản (fail-closed): Error
+PASS src/modules/auth/auth.login-lock.spec.ts
+PASS src/modules/lookups/lookups.service.spec.ts
+PASS src/modules/lookups/lookups.province.spec.ts
+PASS src/modules/auth/activity-permissions.spec.ts
+PASS src/modules/customers/customers.ownership.spec.ts
+PASS src/common/filters/all-exceptions.filter.spec.ts
+PASS src/common/errors/prisma-error.mapper.spec.ts
+PASS src/modules/customers/validators/vn-rules.spec.ts
+PASS src/prisma/prisma.service.spec.ts
+PASS src/modules/opportunities/opportunities.rules.spec.ts
+PASS src/modules/customers/static-guards.spec.ts
+PASS src/common/auth/session/session-token.spec.ts
+PASS src/config/migrate-url.spec.ts
+PASS src/modules/customers/export/export-gap-monitor.spec.ts
+PASS src/prisma/pg-config.spec.ts
+PASS src/modules/auth/opportunity-permissions.spec.ts
+PASS src/config/auth-db-url.spec.ts
+PASS src/modules/customers/export/export-guards.spec.ts
+PASS src/common/auth/login/login-identifier.spec.ts
+PASS src/modules/customers/export/csv-safe.spec.ts
+PASS src/common/auth/login/password-policy.spec.ts
+PASS src/common/auth/session/remember-token.spec.ts
+PASS src/common/auth/uuid.spec.ts
+PASS src/common/auth/scope-merge.spec.ts
+PASS src/modules/activities/activities.static-guards.spec.ts
+PASS src/modules/auth/login-limiter.spec.ts
+PASS src/config/env.validation.spec.ts
+PASS src/modules/customers/customers.owner-candidates.spec.ts
+PASS src/common/auth/scope.spec.ts
+PASS src/modules/activities/activities.time.spec.ts
+
+Test Suites: 58 passed, 58 total
+Tests:       785 passed, 785 total
+Snapshots:   0 total
+Time:        31.777 s, estimated 616 s
+Ran all test suites.
+unit exit=0

@@ -1,0 +1,66 @@
+== MOI TRUONG: Ubuntu 24.04.5 LTS · systemd 255 (255.4-1ubuntu8.18) · 2026-11-19T05:58:55Z
+== TIEN KIEM: thu muc /run/siscom-restore chua co; unit siscom-key-cleanup: 0 dong; tep /root/siscom-backup.key khong
+
+== A. Lan dau, dung nhu huong dan (hen 30 phut, don tay o buoc 5)
+A1 install -d: rc=0 quyen=700 root fs=tmpfs
+A2 systemd-run: rc=0
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+A3 list-timers: 1 dong · timer=active service=inactive tep=khong
+A4 tao tep gia: quyen=600 · timer=active service=inactive tep=con
+A5 buoc 5 (shred rc=0; stop timer rc=0): 0 dong · timer=inactive service=inactive tep=khong
+
+== B. Chay lai NGAY sau khi don tay (lan lam lai)
+B1 systemd-run lan 2: rc=0
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+B2 1 dong · timer=active service=inactive tep=khong
+
+== C. Goi systemd-run khi hen gio CU van dang cho (chua don)
+C1 systemd-run trung ten: rc=1 (khac 0 = tu choi)
+Failed to start transient timer unit: Unit siscom-key-cleanup.timer was already loaded or has a fragment file.
+C2 1 dong · timer=active service=inactive tep=khong
+
+== D. Hen gio TU CHAY khi con tep (mo phong mat SSH): hen 8 giay
+D1 systemd-run: rc=0
+D2 truoc: timer=active service=inactive tep=con
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+D3 sau 14 giay: timer=active service=inactive tep=khong · 0 dong · ket qua service: success
+D4 chay lai sau khi hen gio tu xoa: rc=0
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+
+== E. Hen gio TU CHAY khi tep DA duoc xoa tay nhung QUEN huy hen gio: hen 8 giay
+E1 systemd-run: rc=0
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+E2 da xoa tay, khong stop timer: timer=active service=inactive tep=khong
+E3 sau 14 giay: timer=active service=failed tep=khong · Result=exit-code · failed toan may: 1 (truoc dien tap: 0)
+Failed to start transient timer unit: Unit siscom-key-cleanup.service was already loaded or has a fragment file.
+E4 chay lai khi unit cu o trang thai failed: rc=1 (khac 0 = bi ket)
+E5 0 dong · timer=inactive service=failed tep=khong
+E6 reset-failed: rc=1
+E7 chay lai sau reset-failed: rc=0
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+
+== F. Phuong an cai tien: --collect + lenh khong loi khi tep da mat; hen 8 giay, xoa tay truoc, quen huy
+F1 systemd-run --collect: rc=0
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+F2 sau 14 giay: timer=active service=inactive tep=khong · failed toan may: 0
+F3 chay lai: rc=0
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+F4 stop timer khi con tep (khong duoc xoa nham / khong chay service): timer=inactive service=inactive tep=con
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+F5 --collect, hen gio tu xoa tep con ton tai: timer=active service=inactive tep=khong · failed: 0
+F6 chay lai sau khi tu xoa: rc=0
+Running timer as unit: siscom-key-cleanup.timer
+Will run service as unit: siscom-key-cleanup.service
+
+== DON DEP
+rmdir /run/siscom-restore: rc=0
+con lai: thu muc khong · unit 0 dong · failed toan may: 0 (truoc: 0) · dich vu backend: active
