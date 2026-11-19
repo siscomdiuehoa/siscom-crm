@@ -4,13 +4,16 @@ import { Actor, ACTOR_PROVIDER, ActorProvider, RequestCtx } from '../../common/a
 import { ASSIGNEE_ELIGIBILITY, AssigneeEligibility } from '../../common/auth/assignee-eligibility';
 import { inScope } from '../../common/auth/scope';
 import { PrismaService } from '../../prisma/prisma.service';
+import { dbNow } from '../activities/activities.access';
 import {
-  accessPath, deletedListWhere, fullReadWhere, hasAssignedReadCode, ownerLostAccess, readsFull, ScopeOf, seesOwnerLostFlag,
+  deletedListWhere, hasAssignedReadCode, ownerLostAccess, readsFull, ScopeOf, seesOwnerLostFlag,
 } from './opportunities.access';
+import { anyReadWhere, listReadWhere, resolvePath } from './opportunities.task-path';
 import { OPP_EMPLOYEE_ACCESS, OppEmployeeAccessReader } from './opportunities.employee-access';
 import { opportunityErrors } from './opportunities.errors';
 import {
   ContactCard, CustomerCard, OPP_DETAIL_SELECT, OPP_LIST_SELECT, OppDetailRow, OppListRow, oppRef, toOpportunityDetail, toOpportunityListItem,
+  toOpportunityTechDetail, toOpportunityTechListItem,
 } from './opportunities.mapper';
 import type { QueryOpportunitiesDto } from './dto/query-opportunities.dto';
 
@@ -27,11 +30,14 @@ function parseYmd(v: string): Date | null {
   return y < MIN_YEAR || y > MAX_YEAR ? null : d;
 }
 // Tham số đã kiểm hợp lệ của một lần đọc danh sách (dựng TRƯỚC khi mở transaction).
-interface ListPlan { page: number; pageSize: number; deletedOnly: boolean; filters: Prisma.OpportunityWhereInput[]; orderBy: Prisma.OpportunityOrderByWithRelationInput[] }
+// fullOnly: yêu cầu có bộ lọc trên trường mà bản kỹ thuật KHÔNG được thấy (status, ownerId) => chỉ xét dòng đạt đường đầy đủ (L-01).
+interface ListPlan { page: number; pageSize: number; deletedOnly: boolean; fullOnly: boolean; filters: Prisma.OpportunityWhereInput[]; orderBy: Prisma.OpportunityOrderByWithRelationInput[] }
 
-// Sales S6 (docs/SALES_DESIGN.md §5.1, §5.4, §7) — ĐỌC cơ hội: danh sách, chi tiết, theo khách. Chỉ ĐƯỜNG ĐỌC ĐẦY ĐỦ (opportunity.read).
+// Sales S6 (docs/SALES_DESIGN.md §5.1, §5.4, §7) — ĐỌC cơ hội: danh sách, chi tiết, theo khách. S9a thêm ĐƯỜNG ĐỌC THEO VIỆC (§5.5(d)).
 // Quy tắc: không có mã đọc nào => 403; ngoài phạm vi xem => 404 (không lộ tồn tại); mọi bộ lọc áp SAU vị từ phạm vi.
-// MỘT vị từ cho mọi đường đọc: fullReadWhere (danh sách, đếm, tìm kiếm, theo khách) và readsFull (chi tiết) — cùng nguồn opportunities.access.
+// MỘT vị từ cho mọi đường đọc: anyReadWhere = đường đầy đủ (fullReadWhere) HOẶC đường theo việc (taskPathWhere) — dùng cho danh sách, đếm, tìm
+// kiếm, theo khách và chi tiết. ĐƯỜNG TRUY CẬP của người gọi với TỪNG cơ hội quyết định trường được trả: đạt đường đầy đủ (readsFull) => mọi
+// trường; chỉ đạt đường theo việc => bản kỹ thuật (mapper toOpportunityTech*: không giá trị, xác suất, hold / won / lost, lịch sử).
 //
 // ĐỌC NHẤT QUÁN (PR241-R1-01, PR241-R1-02): MỖI request đọc toàn bộ dữ liệu nghiệp vụ của nó (cơ hội, căn cứ quyền, thẻ khách, người liên hệ,
 // count + rows, quyền hiệu lực của người phụ trách) trong MỘT transaction REPEATABLE READ — một snapshot duy nhất của PostgreSQL. Vì vậy phản
@@ -41,8 +47,7 @@ interface ListPlan { page: number; pageSize: number; deletedOnly: boolean; filte
 // auth (không thể chung snapshot) — chỉ ảnh hưởng cờ ownerLostAccess, không ảnh hưởng quyền đọc hay dữ liệu trả về.
 // Kiểm bằng hai kết nối có đồng bộ rõ ràng: test/opportunities.consistency.int-spec.ts.
 //
-// CHƯA có (có chủ đích): đường đọc theo việc của Kỹ thuật (§5.5(d), S9) — người chỉ có opportunity.read_assigned nhận danh sách rỗng và
-// 404 ở chi tiết; tổng giá trị theo cột kanban (S11). Lịch sử thay đổi /changes: thêm ở S7 (bên dưới).
+// CHƯA có (có chủ đích): tổng giá trị theo cột kanban (S11 — chỉ tính trên đường đầy đủ). Lịch sử /changes: chỉ đường đầy đủ (bên dưới).
 @Injectable()
 export class OpportunitiesService {
   constructor(
@@ -104,18 +109,25 @@ export class OpportunitiesService {
       : q.sortBy === 'code' ? [{ code: order }]
         : q.sortBy === 'createdAt' ? [{ createdAt: order }, { code: order }]
           : [{ updatedAt: order }, { code: order }];
-    return { page, pageSize, deletedOnly: q.deleted === 'only', filters, orderBy };
+    return { page, pageSize, deletedOnly: q.deleted === 'only', fullOnly: q.status !== undefined || q.ownerId !== undefined, filters, orderBy };
   }
 
   // Đọc danh sách TRONG snapshot đã mở: count và rows dùng CÙNG where, cùng snapshot.
   private async listIn(tx: Tx, actor: Actor, scopeOf: ScopeOf, p: ListPlan) {
-    // Vị từ phạm vi LUÔN đứng đầu; bộ lọc của người dùng chỉ thu hẹp thêm.
-    const where: Prisma.OpportunityWhereInput = { AND: [p.deletedOnly ? deletedListWhere(actor, scopeOf) : fullReadWhere(actor, scopeOf), ...p.filters] };
+    // Vị từ phạm vi LUÔN đứng đầu; bộ lọc của người dùng chỉ thu hẹp thêm. Danh sách đã xoá: chỉ đường riêng của khôi phục (không có đường theo việc).
+    const now = await dbNow(tx);
+    // L-01: bản kỹ thuật (đường theo việc) không có trạng thái / người phụ trách (§5.4). Nếu vẫn áp bộ lọc status / ownerId lên dòng theo việc thì việc
+    // dòng đó có / không trong kết quả sẽ tiết lộ đúng hai trường này. Có một trong hai bộ lọc => vị từ phạm vi CHỈ còn đường đầy đủ; dòng theo việc
+    // không tham gia cả đếm lẫn phân trang (không phải lọc sau khi đọc). Bộ lọc trên trường được thấy (giai đoạn, loại, khách, ngày, từ khoá) không đổi.
+    const scope = p.deletedOnly ? deletedListWhere(actor, scopeOf) : listReadWhere(actor, scopeOf, now, p.fullOnly);
+    const where: Prisma.OpportunityWhereInput = { AND: [scope, ...p.filters] };
     const total = await tx.opportunity.count({ where });
     const rows = (total === 0 ? [] : await tx.opportunity.findMany({ where, orderBy: p.orderBy, skip: (p.page - 1) * p.pageSize, take: p.pageSize, select: OPP_LIST_SELECT })) as OppListRow[];
     // Cơ hội đã xoá: không tính cờ người phụ trách (mọi đường đọc qua cơ hội đang tắt).
-    const flag = p.deletedOnly ? () => undefined : await this.ownerFlags(tx, scopeOf, rows);
-    return { items: rows.map((r) => toOpportunityListItem(r, flag(r))), page: p.page, pageSize: p.pageSize, total, totalPages: Math.ceil(total / p.pageSize) };
+    // Từng dòng: đạt đường đầy đủ => bản đầy đủ; không đạt (chỉ lọt nhờ đường theo việc) => bản kỹ thuật. Dòng đã xoá chỉ có ở đường khôi phục => đầy đủ.
+    const isFull = (r: OppListRow): boolean => p.deletedOnly || readsFull(actor, scopeOf, oppRef(r));
+    const flag = p.deletedOnly ? () => undefined : await this.ownerFlags(tx, scopeOf, rows.filter(isFull));
+    return { items: rows.map((r) => (isFull(r) ? toOpportunityListItem(r, flag(r)) : toOpportunityTechListItem(r))), page: p.page, pageSize: p.pageSize, total, totalPages: Math.ceil(total / p.pageSize) };
   }
 
   // ───── GET /opportunities ─────
@@ -144,7 +156,7 @@ export class OpportunitiesService {
       const readsCustomer = inScope(actor, scopeOf('customer.read'), { ownerId: c.ownerId, ownerDepartmentId: c.owner ? c.owner.departmentId : null });
       if (!readsCustomer) {
         // Không đọc được khách: chỉ được ở lại nếu thấy ÍT NHẤT MỘT cơ hội của khách này (kiểm KHÔNG kèm bộ lọc của người dùng).
-        const visible = result.total > 0 || (await tx.opportunity.findFirst({ where: { AND: [fullReadWhere(actor, scopeOf), { customerId }] }, select: { id: true } })) !== null;
+        const visible = result.total > 0 || (await tx.opportunity.findFirst({ where: { AND: [anyReadWhere(actor, scopeOf, await dbNow(tx)), { customerId }] }, select: { id: true } })) !== null;
         if (!visible) throw opportunityErrors.customerNotFound();
       }
       return result;
@@ -164,9 +176,11 @@ export class OpportunitiesService {
   async detailIn(tx: Tx, actor: Actor, scopeOf: ScopeOf, id: string) {
     {
       // Nạp QUA vị từ phạm vi (cùng điều kiện với danh sách) rồi kiểm lại bằng hàm thuần — hai lớp cùng nguồn, không lớp nào bỏ qua.
-      const row = (await tx.opportunity.findFirst({ where: { AND: [{ id }, fullReadWhere(actor, scopeOf)] }, select: OPP_DETAIL_SELECT })) as OppDetailRow | null;
-      const path = row ? accessPath(readsFull(actor, scopeOf, oppRef(row)), false /* đường theo việc: S9 */) : null;
-      if (!row || path !== 'FULL') throw opportunityErrors.notFound();
+      const row = (await tx.opportunity.findFirst({ where: { AND: [{ id }, anyReadWhere(actor, scopeOf, await dbNow(tx))] }, select: OPP_DETAIL_SELECT })) as OppDetailRow | null;
+      const path = row ? await resolvePath(tx, actor, scopeOf, id, oppRef(row)) : null;
+      if (!row || path === null) throw opportunityErrors.notFound();
+      // Chỉ đạt đường theo việc => bản kỹ thuật; không đọc thẻ khách, người liên hệ, cờ người phụ trách.
+      if (path === 'TASK') return toOpportunityTechDetail(row);
 
       // Thẻ khách và người liên hệ đọc trong CÙNG snapshot với căn cứ quyền ở trên (PR241-R1-01).
       const c = await tx.customer.findFirst({
@@ -194,8 +208,10 @@ export class OpportunitiesService {
     const scopeOf = this.scopeOf(actor);
     this.needAnyRead(scopeOf);
     return this.snapshot(async (tx) => {
-      const row = await tx.opportunity.findFirst({ where: { AND: [{ id }, fullReadWhere(actor, scopeOf)] }, select: { id: true } });
+      const row = await tx.opportunity.findFirst({ where: { AND: [{ id }, anyReadWhere(actor, scopeOf, await dbNow(tx))] }, select: { id: true, ownerId: true, deletedAt: true, customer: { select: { ownerId: true, deletedAt: true } } } });
       if (!row) throw opportunityErrors.notFound();
+      // Thấy được cơ hội nhưng chỉ qua đường theo việc => 403 (không bao giờ nhận lịch sử giá trị / xác suất).
+      if (!readsFull(actor, scopeOf, row)) throw opportunityErrors.forbidden('Lịch sử thay đổi chỉ dành cho người xem đầy đủ cơ hội.');
       const rows = await tx.opportunityChange.findMany({
         where: { opportunityId: id }, orderBy: [{ changedAt: 'desc' }, { id: 'desc' }], take: CHANGES_MAX,
         select: { id: true, field: true, oldValue: true, newValue: true, reason: true, changedAt: true, changedBy: { select: { id: true, code: true, fullName: true } } },

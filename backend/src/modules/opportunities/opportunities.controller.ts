@@ -2,11 +2,14 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, P
 import type { RequestCtx } from '../../common/auth/actor';
 import { CurrentCtx } from '../../common/auth/actor.decorator';
 import { ActorGuard } from '../../common/auth/actor.guard';
+import { CreateActivityDto } from '../activities/dto/create-activity.dto';
 import { QueryOpportunitiesDto } from './dto/query-opportunities.dto';
+import { QueryOpportunityActivitiesDto } from './dto/query-opportunity-activities.dto';
 import {
   AssignOpportunityDto, CreateOpportunityDto, DeleteOpportunityDto, HoldOpportunityDto, LoseOpportunityDto, MoveStageDto, ReopenOpportunityDto, RestoreOpportunityDto,
   ResumeOpportunityDto, UpdateOpportunityDto, WinOpportunityDto,
 } from './dto/write-opportunity.dto';
+import { OpportunityActivitiesService } from './opportunities.activities.service';
 import { OpportunityLifecycleService } from './opportunities.lifecycle.service';
 import { OpportunitiesService } from './opportunities.service';
 import { OpportunityWritesService } from './opportunities.write.service';
@@ -27,7 +30,8 @@ export class CustomerOpportunitiesController {
 @Controller('opportunities')
 @UseGuards(ActorGuard)
 export class OpportunitiesController {
-  constructor(private readonly service: OpportunitiesService, private readonly writes: OpportunityWritesService, private readonly lifecycle: OpportunityLifecycleService) {}
+  constructor(private readonly service: OpportunitiesService, private readonly writes: OpportunityWritesService, private readonly lifecycle: OpportunityLifecycleService,
+    private readonly oppActivities: OpportunityActivitiesService) {}
 
   @Get()
   async list(@CurrentCtx() ctx: RequestCtx, @Query() q: QueryOpportunitiesDto) {
@@ -98,6 +102,17 @@ export class OpportunitiesController {
   @HttpCode(200)
   async reopen(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: ReopenOpportunityDto) {
     return { data: await this.lifecycle.reopen(ctx, id, dto) };
+  }
+
+  // S9a — hoạt động theo cơ hội (§5.5(a)(b)). Chi tiết / sửa / hoàn thành từng hoạt động vẫn qua API Hoạt động của B3.
+  @Get(':id/activities')
+  async activities(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Query() q: QueryOpportunityActivitiesDto) {
+    return { data: await this.oppActivities.list(ctx, id, q) };
+  }
+
+  @Post(':id/activities')
+  async createActivity(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: CreateActivityDto) {
+    return { data: await this.oppActivities.create(ctx, id, dto) };
   }
 
   // Xoá mềm: lý do + version ở body (như DELETE /activities/:id).

@@ -38,6 +38,9 @@ export class UpdateActivityDto {
   @IsOptional() @ValidateIf((_o: unknown, v: unknown) => v !== null) @IsUUID()
   contactId?: string | null;
 
+  // Sales S9a (§5.5(c)): gắn / đổi / bỏ (null) cơ hội. Kiểm với TỪNG cơ hội liên quan (cũ và mới): thấy được + opportunity.update.
+  @IsOptional() @ValidateIf((_o: unknown, v: unknown) => v !== null) @IsUUID()
+  opportunityId?: string | null;
   // Khác người hiện tại => cần activity.assign (audit activity.assign riêng). external=true => giao ra NGOÀI phạm vi (§5.4).
   @IsOptional() @IsUUID()
   performedById?: string;

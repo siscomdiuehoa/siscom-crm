@@ -19,11 +19,11 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     const body = c.slice(start, next === -1 ? undefined : next);
     return [...body.matchAll(/@(Get|Post|Patch|Put|Delete)\(([^)]*)\)/g)].map((m) => m[1] + '(' + m[2] + ')');
   };
-  it('đúng tập route S6 + S7 + S8a + S8b', () => {
+  it('đúng tập route S6 + S7 + S8a + S8b + S9a', () => {
     expect(c).toMatch(/@Controller\('customers\/:customerId\/opportunities'\)/);
     expect(c).toMatch(/@Controller\('opportunities'\)/);
     expect(routes('CustomerOpportunitiesController')).toEqual(['Get()']);
-    expect(routes('OpportunitiesController')).toEqual(['Get()', 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Post(':id/hold')", "Post(':id/resume')", "Post(':id/win')", "Post(':id/lose')", "Post(':id/reopen')", "Delete(':id')"]);
+    expect(routes('OpportunitiesController')).toEqual(['Get()', 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Post(':id/hold')", "Post(':id/resume')", "Post(':id/win')", "Post(':id/lose')", "Post(':id/reopen')", "Get(':id/activities')", "Post(':id/activities')", "Delete(':id')"]);
     expect(c).not.toMatch(/@Put\(/);
   });
   it('mọi controller đều sau ActorGuard', () => {
@@ -34,18 +34,27 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect(s).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(/);
     expect(s).not.toMatch(/\$queryRaw|\$executeRaw/);
   });
-  it('mọi truy vấn opportunity trong service đọc đều đi qua vị từ phạm vi (fullReadWhere / deletedListWhere)', () => {
+  it('mọi truy vấn opportunity trong service đọc đều đi qua vị từ phạm vi (anyReadWhere = đầy đủ HOẶC theo việc / deletedListWhere)', () => {
     // Mỗi lần gọi *.opportunity.* phải dùng `where` dựng từ vị từ của opportunities.access.
     const calls = [...s.matchAll(/\.opportunity\.(findFirst|findMany|count|findUnique|findUniqueOrThrow|findFirstOrThrow)\(([^;]*);/g)];
     expect(calls.length).toBe(5);
-    for (const m of calls) expect(m[2]).toMatch(/fullReadWhere\(actor, scopeOf\)|\bwhere\b[,} ]/);
+    for (const m of calls) expect(m[2]).toMatch(/anyReadWhere\(actor, scopeOf, |\bwhere\b[,} ]/);
+    // S9a: service đọc KHÔNG gọi thẳng fullReadWhere / taskPathWhere — chỉ qua anyReadWhere (một vị từ cho mọi đường đọc).
+    expect(s).not.toMatch(/fullReadWhere\(|taskPathWhere\(/);
     expect(s).not.toMatch(/opportunity\.(findUnique|findUniqueOrThrow|findFirstOrThrow)\(/);
     // `where` của danh sách được dựng với vị từ phạm vi ở phần tử ĐẦU.
-    expect(s).toMatch(/const where: Prisma\.OpportunityWhereInput = \{ AND: \[p\.deletedOnly \? deletedListWhere\(actor, scopeOf\) : fullReadWhere\(actor, scopeOf\), \.\.\.p\.filters\] \};/);
+    // L-01: vị từ phạm vi của danh sách chọn qua listReadWhere (có bộ lọc status / ownerId => chỉ đường đầy đủ), LUÔN đứng trước bộ lọc của người dùng.
+    expect(s).toMatch(/const scope = p\.deletedOnly \? deletedListWhere\(actor, scopeOf\) : listReadWhere\(actor, scopeOf, now, p\.fullOnly\);\s*\n\s*const where: Prisma\.OpportunityWhereInput = \{ AND: \[scope, \.\.\.p\.filters\] \};/);
+    expect(s).toMatch(/fullOnly: q\.status !== undefined \|\| q\.ownerId !== undefined,/);
+    const tp = readFileSync(join(__dirname, 'opportunities.task-path.ts'), 'utf8');
+    expect(tp).toMatch(/export function listReadWhere\([^)]*fullOnly: boolean\): Prisma\.OpportunityWhereInput \{\s*\n\s*return fullOnly \? fullReadWhere\(actor, scopeOf\) : anyReadWhere\(actor, scopeOf, now\);/);
     // Lịch sử thay đổi chỉ đọc SAU khi cơ hội qua vị từ phạm vi, trong cùng snapshot.
     const ch = s.slice(s.indexOf('async changes('));
-    expect(ch.indexOf('fullReadWhere(actor, scopeOf)')).toBeGreaterThan(-1);
-    expect(ch.indexOf('fullReadWhere(actor, scopeOf)')).toBeLessThan(ch.indexOf('tx.opportunityChange.findMany('));
+    expect(ch.indexOf('anyReadWhere(actor, scopeOf, ')).toBeGreaterThan(-1);
+    expect(ch.indexOf('anyReadWhere(actor, scopeOf, ')).toBeLessThan(ch.indexOf('tx.opportunityChange.findMany('));
+    // S9a: lịch sử CHỈ cho đường đầy đủ — kiểm readsFull TRƯỚC khi đọc opportunity_change.
+    expect(ch.indexOf('if (!readsFull(actor, scopeOf, row)) throw opportunityErrors.forbidden(')).toBeGreaterThan(-1);
+    expect(ch.indexOf('if (!readsFull(actor, scopeOf, row)) throw opportunityErrors.forbidden(')).toBeLessThan(ch.indexOf('tx.opportunityChange.findMany('));
   });
   it('PR241-R1-01/02: mọi truy vấn nghiệp vụ của đường đọc chạy trên tx của MỘT transaction REPEATABLE READ; không truy vấn nào đi thẳng qua this.prisma', () => {
     expect(s).not.toMatch(/this\.prisma\.(opportunity|opportunityChange|customer|contact|employee|lookupItem)\b/);
@@ -100,6 +109,33 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect((w.match(/ruleViolations\(/g) ?? []).length).toBe(3);
     // Nhật ký chung không mang số liệu nghiệp vụ.
     for (const k of ['title', 'needSummary', 'projectName', 'offerScope', 'expectedAmountVnd', 'expectedCloseDate', 'probability']) expect(w).toContain('changes.' + k + ' = AUDIT_REDACTED_TEXT');
+  });
+  it('S9a — bản kỹ thuật (đường theo việc) không bao giờ mang giá trị / xác suất / hold / won / lost; đường theo việc không cho quyền ghi', () => {
+    const m = text('opportunities.mapper.ts');
+    const tech = m.slice(m.indexOf('export function toOpportunityTechListItem('));
+    expect(tech.length).toBeGreaterThan(100);
+    expect(tech).not.toMatch(/[aA]mount|[pP]robability|[hH]old|[wW]on|[lL]ost|closedAt|ownerLostAccess|[cC]ontact|[pP]hone|[aA]ddress|\.\.\.r\b/);
+    expect(tech).toContain("access: 'TASK' as const");
+    expect(tech).not.toMatch(/\bstatus\b|\bowner\b|emp\(/); // review R1 #245: bám danh sách trường §5.4 — không trạng thái, không người phụ trách
+    // Chi tiết: chỉ đạt đường theo việc => trả bản kỹ thuật TRƯỚC khi đọc thẻ khách / liên hệ.
+    const d = s.slice(s.indexOf('async detailIn('), s.indexOf('async changes('));
+    expect(d.indexOf("if (path === 'TASK') return toOpportunityTechDetail(row);")).toBeGreaterThan(-1);
+    expect(d.indexOf("if (path === 'TASK') return toOpportunityTechDetail(row);")).toBeLessThan(d.indexOf('tx.customer.findFirst('));
+    // Vị từ đường theo việc: đủ mọi điều kiện của §5.5(d) và dùng ĐÚNG vị từ đọc của B3.
+    const tp = text('opportunities.task-path.ts');
+    expect(tp).toContain("activities: { some: { type: 'TASK', status: 'OPEN', deletedAt: null, performedById: actor.employeeId, OR: readable } }");
+    expect(tp).toContain('scopeReadWhere(actor, scopeOf)');
+    expect(tp).toContain('taskAccessWhere(actor, scopeOf, now)');
+    expect(tp).toMatch(/if \(!hasAssignedReadCode\(scopeOf\)\) return NONE;/);
+    // Đường ghi: đường theo việc chỉ đổi 404 thành 403 — quyền ghi vẫn do allowsWrite quyết định (opportunities.access).
+    expect(w).toContain('assertWrite(actor, scopeOf, code, ref, await resolvePath(tx, actor, scopeOf, id, ref));');
+    // Hoạt động theo cơ hội: lọc theo đường truy cập nằm TRONG where, trước count; tạo phải qua loadForWrite với đúng mã opportunity.update.
+    const oa = text('opportunities.activities.service.ts');
+    expect(oa.indexOf('and.push({ performedById: actor.employeeId, OR: readable });')).toBeGreaterThan(-1);
+    expect(oa.indexOf('and.push({ performedById: actor.employeeId, OR: readable });')).toBeLessThan(oa.indexOf('tx.activity.count({ where })'));
+    expect(oa).toContain("this.writes.loadForWrite(tx, actor, scopeOf, id, 'opportunity.update')");
+    expect(oa.indexOf("this.writes.loadForWrite(tx, actor, scopeOf, id, 'opportunity.update')")).toBeLessThan(oa.indexOf('this.gate.createForOpportunity('));
+    expect(oa).not.toMatch(/\$queryRaw|\$executeRaw|\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(\{/);
   });
   it('S8b — service VÒNG ĐỜI: năm thao tác đều qua inTx + loadForWrite của đường ghi, kiểm đúng mã, ghi theo version, có nhật ký và không mang số liệu', () => {
     expect(l).not.toMatch(/\$queryRaw|\$executeRaw|this\.prisma\b|\$transaction/); // không tự mở transaction, không SQL thô

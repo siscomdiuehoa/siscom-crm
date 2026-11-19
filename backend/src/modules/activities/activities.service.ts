@@ -11,6 +11,7 @@ import { grantAccess, hasTechAuthority, ownerInfo, planAssignment, readsCustomer
 import { EMPLOYEE_ACCESS, EmployeeAccessReader } from './activities.employee-access';
 import { activityErrors } from './activities.errors';
 import { ACTIVITY_SELECT, ActivityRow, toActivity } from './activities.mapper';
+import { assertOpportunityLink } from './activities.opportunity-link';
 import { vnDateFilter } from './activities.time';
 import { CreateActivityDto, TECH_TYPES } from './dto/create-activity.dto';
 import type { QueryTimelineDto } from './dto/query-activities.dto';
@@ -91,11 +92,38 @@ export class ActivitiesService {
 
   async create(ctx: RequestCtx, customerId: string, dto: CreateActivityDto) {
     const { actor } = ctx;
-    const createScope = this.scope(actor, 'activity.create');
-    const techScope = this.scope(actor, 'activity.create_tech');
-    if (!createScope && !techScope) throw activityErrors.forbidden();
-    const custRead = this.need(actor, 'customer.read');
+    if (!this.scope(actor, 'activity.create') && !this.scope(actor, 'activity.create_tech')) throw activityErrors.forbidden();
+    this.need(actor, 'customer.read');
+    const p = this.parseCreate(ctx, dto);
+    try {
+      return await this.prisma.$transaction(async (tx: Tx) => {
+        await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
+        await tx.$executeRaw`SET LOCAL statement_timeout = '15s'`;
+        // Khoá dòng khách TRƯỚC (cùng thứ tự với module khách hàng) rồi mới kiểm lại trạng thái.
+        const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM customer WHERE id = ${customerId}::uuid FOR UPDATE`;
+        if (!locked.length) throw activityErrors.customerNotFound();
+        return this.createIn(tx, ctx, customerId, dto, p, null);
+      }, { maxWait: 5000, timeout: 20000 });
+    } catch (e) {
+      if (e instanceof DomainException) throw e;
+      const m = mapPrismaError(e);
+      if (m) throw m.code === 'CUSTOMER_BUSY' ? activityErrors.busy() : m;
+      throw e;
+    }
+  }
 
+  // Sales S9a §5.5(b) — gọi qua OpportunityActivityGate, TRONG transaction của service Sales (đã khoá khách + cơ hội, đã kiểm opportunity.update).
+  // Lỗi DB do transaction của nơi gọi ánh xạ.
+  async createForOpportunity(tx: Tx, ctx: RequestCtx, opportunity: { id: string; customerId: string; contactId: string | null }, dto: CreateActivityDto) {
+    const { actor } = ctx;
+    if (!this.scope(actor, 'activity.create') && !this.scope(actor, 'activity.create_tech')) throw activityErrors.forbidden();
+    if (dto.opportunityId !== undefined && dto.opportunityId.toLowerCase() !== opportunity.id) throw activityErrors.validation(['opportunityId lấy từ đường dẫn, không gửi cơ hội khác trong nội dung.']);
+    return this.createIn(tx, ctx, opportunity.customerId, dto, this.parseCreate(ctx, dto), { id: opportunity.id, contactId: opportunity.contactId });
+  }
+
+  // Kiểm tham số (không đụng DB).
+  private parseCreate(ctx: RequestCtx, dto: CreateActivityDto) {
+    const { actor } = ctx;
     const isTask = dto.type === 'TASK';
     const now = new Date();
     const errs: string[] = [];
@@ -120,38 +148,54 @@ export class ActivitiesService {
     const performedById = (dto.performedById ?? actor.employeeId).toLowerCase();
     const assigningOther = performedById !== actor.employeeId.toLowerCase();
     const contactId = dto.contactId ? dto.contactId.toLowerCase() : null;
+    return { isTask, due, remind, occurredAt, title, outcome, performedById, assigningOther, contactId };
+  }
 
-    try {
-      return await this.prisma.$transaction(async (tx: Tx) => {
-        await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
-        await tx.$executeRaw`SET LOCAL statement_timeout = '15s'`;
-        // Khoá dòng khách TRƯỚC (cùng thứ tự với module khách hàng) rồi mới kiểm lại trạng thái.
-        const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM customer WHERE id = ${customerId}::uuid FOR UPDATE`;
-        if (!locked.length) throw activityErrors.customerNotFound();
+  // Ghi hoạt động TRONG transaction đã mở (dòng khách đã khoá). viaOpportunity = null: đường theo KHÁCH của B3 (mọi mã tính theo phạm vi chủ khách).
+  // viaOpportunity = id cơ hội: đường Sales §5.5(b) — mã activity.* chỉ cần đang hiệu lực; không đòi đọc được khách.
+  private async createIn(tx: Tx, ctx: RequestCtx, customerId: string, dto: CreateActivityDto, p: ReturnType<ActivitiesService['parseCreate']>, viaOpportunity: { id: string; contactId: string | null } | null) {
+    const { actor } = ctx;
+    const { isTask, due, remind, occurredAt, title, outcome, performedById, assigningOther, contactId } = p;
+    const anyScope = viaOpportunity !== null;
+    const createScope = this.scope(actor, 'activity.create');
+    const techScope = this.scope(actor, 'activity.create_tech');
+    {
+      {
         const cust = await tx.customer.findFirst({ where: { id: customerId }, select: CUSTOMER_PICK });
         if (!cust) throw activityErrors.customerNotFound();
         const owner = ownerInfo(cust);
-        if (!inScope(actor, custRead, owner)) throw activityErrors.customerNotFound();
+        if (!anyScope && !inScope(actor, this.scope(actor, 'customer.read'), owner)) throw activityErrors.customerNotFound();
         if (cust.deletedAt) throw activityErrors.customerDeleted();
         // activity.create: 6 loại; activity.create_tech: chỉ SITE_SURVEY/NOTE/TASK. Cả hai theo phạm vi CHỦ KHÁCH (không cần customer.update).
-        const full = inScope(actor, createScope, owner);
-        const tech = inScope(actor, techScope, owner);
+        const full = anyScope ? createScope !== null : inScope(actor, createScope, owner);
+        const tech = anyScope ? techScope !== null : inScope(actor, techScope, owner);
         if (!full) {
           if (!tech) throw activityErrors.forbidden();
           if (!TECH_TYPES.includes(dto.type)) throw activityErrors.typeNotAllowed();
         }
+        // PR245-R1-02 (CHỈ đường Sales): người gọi không có contact.read trong phạm vi chủ khách chỉ gắn được người liên hệ CỦA CHÍNH CƠ HỘI
+        // (liên hệ mà họ vốn thấy ở chi tiết cơ hội, [C5]). Kiểm TRƯỚC khi tra DB: liên hệ khác của khách và liên hệ không tồn tại trả cùng một lỗi.
+        const readsContacts = !anyScope || inScope(actor, this.scope(actor, 'contact.read'), owner);
+        if (contactId && !readsContacts && contactId !== viaOpportunity?.contactId) throw activityErrors.contactMismatch();
         if (contactId) {
           const ct = await tx.contact.findFirst({ where: { id: contactId, customerId, deletedAt: null }, select: { id: true } });
           if (!ct) throw activityErrors.contactMismatch();
         }
+        // Sales S9a §5.5(c): gắn cơ hội qua đường theo khách => kiểm thấy được + opportunity.update + cùng khách. Đường Sales: cơ hội đã được nơi gọi kiểm và khoá.
+        const opportunityId = viaOpportunity ? viaOpportunity.id : dto.opportunityId ? dto.opportunityId.toLowerCase() : null;
+        if (!anyScope && opportunityId) await assertOpportunityLink(tx, actor, (q) => this.scope(actor, q), opportunityId, customerId);
         // A6 (§5.4): external=true cho phép giao TASK cho người KHÔNG đọc được khách bằng quyền theo việc; không gửi => đúng quy tắc A5.
-        const kind = assigningOther
-          ? planAssignment(actor, (p) => this.scope(actor, p), owner, (await this.access.load(tx, [performedById])).get(performedById), { external: dto.external === true, openTask: isTask })
+        // PR245-R1-01: ở đường Sales, MỌI TASK đều qua kiểm người nhận — kể cả khi người làm để mặc định hoặc là chính người gọi (người phụ trách
+        // cơ hội có thể KHÔNG đọc được khách: không kiểm thì tạo ra việc mà chính họ không đọc / hoàn thành được qua API Công việc).
+        // Đường theo khách của B3 giữ nguyên: tự nhận không qua planAssignment (người gọi đã phải đọc được khách).
+        const selfTaskViaOpportunity = anyScope && isTask && !assigningOther;
+        const kind = assigningOther || selfTaskViaOpportunity
+          ? planAssignment(actor, (p) => this.scope(actor, p), owner, (await this.access.load(tx, [performedById])).get(performedById), { external: dto.external === true, openTask: isTask, anyScope, self: selfTaskViaOpportunity })
           : null;
 
         const row = await tx.activity.create({
           data: {
-            customerId, contactId, type: dto.type, title, content: dto.content, outcome,
+            customerId, contactId, opportunityId, type: dto.type, title, content: dto.content, outcome,
             occurredAt, dueAt: due, remindAt: remind, status: isTask ? 'OPEN' : 'DONE', performedById,
             createdById: actor.employeeId, updatedById: actor.employeeId,
           },
@@ -164,7 +208,7 @@ export class ActivitiesService {
           summary: 'Tạo hoạt động ' + row.code + ' (' + row.type + ') cho khách hàng ' + cust.code,
           changes: {
             type: [null, row.type], status: [null, row.status], occurredAt: [null, iso(row.occurredAt)], dueAt: [null, iso(row.dueAt)], remindAt: [null, iso(row.remindAt)],
-            contactId: [null, row.contactId], performedById: [null, row.performedById], customerId: [null, customerId],
+            contactId: [null, row.contactId], performedById: [null, row.performedById], customerId: [null, customerId], ...(opportunityId ? { opportunityId: [null, opportunityId] } : {}),
             content: AUDIT_REDACTED_TEXT, ...(title ? { title: AUDIT_REDACTED_TEXT } : {}), ...(outcome ? { outcome: AUDIT_REDACTED_TEXT } : {}),
           },
           actorEmployeeId: actor.employeeId, requestId: ctx.requestId,
@@ -180,13 +224,10 @@ export class ActivitiesService {
         if (kind === 'EXTERNAL') {
           await grantAccess({ tx, audit: this.audit, actorId: actor.employeeId, requestId: ctx.requestId, activity: { id: row.id, code: row.code, type: row.type } }, performedById);
         }
-        return toActivity(row);
-      }, { maxWait: 5000, timeout: 20000 });
-    } catch (e) {
-      if (e instanceof DomainException) throw e;
-      const m = mapPrismaError(e);
-      if (m) throw m.code === 'CUSTOMER_BUSY' ? activityErrors.busy() : m;
-      throw e;
+        // PR245-R1-02: phản hồi POST theo CÙNG chính sách với GET /opportunities/:id/activities — không có contact.read trong phạm vi => không trả liên hệ.
+        const created = toActivity(row);
+        return readsContacts ? created : { ...created, contact: null };
+      }
     }
   }
 

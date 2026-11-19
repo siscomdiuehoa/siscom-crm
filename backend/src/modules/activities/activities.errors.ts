@@ -26,5 +26,8 @@ export const activityErrors = {
   transferNotPending: () => new DomainException(409, 'ACTIVITY_TRANSFER_NOT_PENDING', 'Đề xuất chuyển việc không còn chờ duyệt.'),
   transferNotFound: () => new DomainException(404, 'ACTIVITY_TRANSFER_NOT_FOUND', 'Không tìm thấy đề xuất chuyển việc.'),
   transferTargetInvalid: () => new DomainException(400, 'ACTIVITY_ASSIGNEE_INVALID', 'Người nhận đề xuất không hợp lệ: phải đang làm việc, cùng phòng với bạn và có thẩm quyền kỹ thuật.', { field: 'toEmployeeId' }),
+  // Sales S9a (§5.5(c)): gắn hoạt động vào cơ hội.
+  opportunityMismatch: () => new DomainException(400, 'ACTIVITY_OPPORTUNITY_MISMATCH', 'Cơ hội không thuộc khách hàng này.', { field: 'opportunityId' }),
+  autoTaskLinkFixed: () => new DomainException(409, 'ACTIVITY_AUTO_TASK', 'Công việc tự sinh của cơ hội không đổi được cơ hội gắn kèm.'),
   constraint: () => new DomainException(409, 'CONSTRAINT_CONFLICT', 'Dữ liệu vi phạm ràng buộc của hệ thống.'),
 };

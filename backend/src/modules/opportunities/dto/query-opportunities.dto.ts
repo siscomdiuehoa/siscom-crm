@@ -9,6 +9,8 @@ export const OPPORTUNITY_SORTS = ['updatedAt', 'createdAt', 'expectedCloseDate',
 export type OpportunitySort = (typeof OPPORTUNITY_SORTS)[number];
 
 // GET /opportunities và GET /customers/:customerId/opportunities (docs/SALES_DESIGN.md §7). Mọi bộ lọc áp SAU vị từ phạm vi đọc.
+// L-01: status và ownerId là trường bản kỹ thuật KHÔNG được thấy => khi có một trong hai bộ lọc này, danh sách chỉ xét dòng đạt đường đầy đủ
+// (dòng chỉ đạt đường theo việc bị loại trước khi đếm), để bộ lọc không tiết lộ trạng thái / người phụ trách.
 export class QueryOpportunitiesDto {
   @IsOptional() @IsIn(OPPORTUNITY_STATUSES)
   status?: OpportunityStatusCode;
