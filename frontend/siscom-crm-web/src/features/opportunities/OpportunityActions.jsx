@@ -2,7 +2,7 @@ import React from 'react';
 import { Button, Input, Modal, Select } from '../../ds/index.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
-import { opportunityActions, ACTION_LABEL, ACTION_ICON, ACTION_TITLE, ACTION_DONE, ACTION_CANDIDATES, WON_DOC_TYPES, initAction, moneyVN } from './opportunitiesModel.js';
+import { opportunityActions, ACTION_LABEL, ACTION_ICON, ACTION_TITLE, ACTION_DONE, ACTION_CANDIDATES, WON_DOC_TYPES, initAction, moneyVN, unplacedErrors } from './opportunitiesModel.js';
 import { EditOpportunityDialog } from './OpportunityEdit.jsx';
 
 // Sales S10b: nút thao tác trên một cơ hội + hộp thoại (§8.3 "Các hộp thoại khác"). Nút chỉ là tiện ích giao diện theo quyền máy chủ cấp
@@ -87,13 +87,21 @@ export function ActionDialog({ kind, o, ui, onClose, onDone, onStale, preset = n
   else if (kind === 'assign') body = <>{peopleField('ownerId', 'Người phụ trách mới')}{text('reason', 'Lý do chuyển', { required: true, multiline: true })}</>;
   else if (kind === 'reopen' || kind === 'delete') body = text('reason', kind === 'delete' ? 'Lý do xoá' : 'Lý do mở lại', { required: true, multiline: true });
 
+  // Máy chủ từ chối (400) vì ô không có trong hộp / lỗi không gắn ô => hiện đúng câu lý do thay cho câu chung "Sửa các trường được đánh dấu".
+  const shownError = (e) => {
+    if (e.kind === 'conflict') return { ...e, hint: 'Dữ liệu đã được tải lại. Kiểm tra rồi thao tác lại nếu vẫn cần.' };
+    if (e.kind !== 'bad_request') return e;
+    const u = unplacedErrors(kind, errs, e.extra);
+    if (!u.messages.length) return e;
+    return { ...e, hint: u.editable ? 'Cần bổ sung trước khi thao tác lại — các mục này sửa bằng nút Sửa trên cơ hội:' : 'Lý do máy chủ từ chối:', extra: u.messages };
+  };
   const danger = kind === 'delete' || kind === 'lose';
   return (
     <Modal open onClose={busy ? undefined : onClose} size={kind === 'win' ? 'lg' : 'md'} icon={ACTION_ICON[kind]} tone={danger ? 'error' : kind === 'win' ? 'success' : 'blue'} title={ACTION_TITLE[kind]} description={o.code + ' · ' + o.title}
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Huỷ</Button><Button variant={danger ? 'danger' : 'primary'} loading={busy} onClick={submit}>{ACTION_LABEL[kind]}</Button></>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {INTRO[kind] ? <p style={{ margin: 0, font: 'var(--type-sm)', color: 'var(--text-2)' }}>{INTRO[kind]}</p> : null}
-        {error ? <ApiErrorBox error={error.kind === 'conflict' ? { ...error, hint: 'Dữ liệu đã được tải lại. Kiểm tra rồi thao tác lại nếu vẫn cần.' } : error} /> : null}
+        {error ? <ApiErrorBox error={shownError(error)} /> : null}
         {body}
       </div>
     </Modal>

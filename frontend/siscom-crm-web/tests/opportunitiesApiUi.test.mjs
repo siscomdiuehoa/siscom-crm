@@ -340,6 +340,25 @@ test('chuyển giai đoạn: gửi POST /stage với version đã tải, đọc 
   } finally { await m.unmount(); }
 });
 
+// Lỗi nghiệm thu staging 19/11/2026: rời Tiếp cận khi chưa ghi nhu cầu => máy chủ 400 gắn lỗi vào needSummary (ô KHÔNG có trong hộp Chuyển giai đoạn).
+// Trước sửa: hộp chỉ hiện câu chung "Sửa các trường được đánh dấu" mà không trường nào được đánh dấu. Sau sửa: hiện đúng câu lý do của máy chủ.
+test('chuyển giai đoạn bị máy chủ từ chối vì ô không có trong hộp (nhu cầu của khách) => hiện đúng lý do, chỉ cách sửa; không báo thành công', async () => {
+  const MSG = 'Phải ghi nhu cầu của khách trước khi rời giai đoạn Tiếp cận.';
+  const f = server({ write: () => fail(400, 'VALIDATION_FAILED', 'Dữ liệu gửi lên không hợp lệ.', [{ field: 'needSummary', message: MSG }, { message: 'Ghi chú khác của máy chủ' }]) });
+  const m = await viewPage(f, SALES);
+  try {
+    await press(m.container, /^Chuyển giai đoạn$/); const d = modal(m.container);
+    await pickField(d, /Giai đoạn mới/, /Báo giá/); await press(d, /^Chuyển giai đoạn$/);
+    assert.equal(f.writes().length, 1);
+    const box = alerts(d).join(' | ');
+    assert.ok(box.includes(MSG), 'hiện lý do của máy chủ: ' + box);
+    assert.match(box, /Ghi chú khác của máy chủ/); // lỗi không gắn trường cũng hiện
+    assert.match(box, /nút Sửa/); // chỉ cách sửa: ô này nằm ở hộp Sửa cơ hội
+    assert.doesNotMatch(box, /Sửa các trường được đánh dấu/); // không còn câu chung gây hiểu nhầm
+    assert.ok(modal(m.container), 'hộp vẫn mở'); assert.equal(m.toasts.length, 0);
+  } finally { await m.unmount(); }
+});
+
 test('Thua: lý do lấy từ danh mục; lý do "Khác" bắt buộc ghi chú. Tạm hoãn: bắt buộc ngày + lý do. Xoá (Quản trị CRM): bắt buộc lý do, xong về danh sách', async () => {
   const f = server();
   const m = await viewPage(f, ADMIN);

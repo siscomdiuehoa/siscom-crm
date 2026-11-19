@@ -153,6 +153,26 @@ export function serverFieldErrors(details) {
   }
   return { fieldErrors: out, extra };
 }
+// Ô có trong từng hộp thao tác (§8.3). Máy chủ có thể từ chối vì một ô KHÔNG có trong hộp (ví dụ rời Tiếp cận khi chưa ghi nhu cầu của khách:
+// lỗi gắn vào needSummary) — nếu chỉ đánh dấu theo ô thì người dùng không thấy lý do (lỗi nghiệm thu staging 19/11/2026).
+export const ACTION_FIELDS = {
+  stage: ['stageId', 'probability'], hold: ['holdUntil', 'holdReason'], holdEdit: ['holdUntil', 'holdReason'], resume: ['reason'],
+  win: ['wonAmount', 'wonDocType', 'wonDocNo', 'wonDocDate', 'wonDocUrl', 'wonDocFileName', 'handoverToId', 'handoverDueDate'],
+  lose: ['lostReasonId', 'lostNote'], assign: ['ownerId', 'reason'], reopen: ['reason'], delete: ['reason'],
+};
+// Lỗi phải hiện thành câu trong hộp: lỗi theo trường cho ô không có trong hộp + lỗi không gắn trường (extra). Không lặp câu.
+// editable = có ít nhất một ô thuộc biểu mẫu Sửa cơ hội (người dùng sửa bằng nút Sửa rồi thao tác lại).
+export function unplacedErrors(kind, fieldErrors, extra) {
+  const own = ACTION_FIELDS[kind] || []; const messages = []; let editable = false;
+  const add = (m) => { const s = String(m == null ? '' : m).trim(); if (s && !messages.includes(s)) messages.push(s); };
+  for (const [k, m] of Object.entries(fieldErrors && typeof fieldErrors === 'object' ? fieldErrors : {})) {
+    if (own.includes(k)) continue;
+    if (EDIT_FIELDS.includes(k)) editable = true;
+    add(m);
+  }
+  for (const m of Array.isArray(extra) ? extra : []) add(m);
+  return { messages, editable };
+}
 
 // ───── Hộp thoại thao tác (§8.3 "Các hộp thoại khác") ─────
 // kind: stage | hold | holdEdit | resume | win | lose | assign | reopen | delete. Mọi thao tác gửi version đã tải (khoá lạc quan).
