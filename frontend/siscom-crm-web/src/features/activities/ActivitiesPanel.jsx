@@ -15,7 +15,7 @@ const TYPE_OPTIONS = [{ value: '', label: 'Tất cả loại' }].concat(ALL_TYPE
 const STATUS_OPTIONS = [{ value: '', label: 'Mọi trạng thái' }].concat(Object.keys(STATUS_META).map((k) => ({ value: k, label: STATUS_META[k].label })));
 const clamp = { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' };
 
-function ActivityItem({ a, now, ui }) {
+export function ActivityItem({ a, now, ui }) {
   const v = activityVisual(a, now); const t = TONE[v.tone] || TONE.neutral; const m = TYPE_META[a.type] || { label: a.type };
   const overdue = isOverdue(a, now);
   const when = a.type === 'TASK' ? 'Hạn ' + U.dtVN(a.dueAt) : U.dtVN(a.occurredAt);

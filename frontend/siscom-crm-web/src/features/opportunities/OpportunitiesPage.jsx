@@ -4,11 +4,13 @@ import * as U from '../../data/util.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import {
-  STATUS_META, STATUS_FILTERS, statusLabel, moneyVN, dateVN, isCloseOverdue, canCreate, EMPTY_CREATE, TYPE_HINT, typeRequiresProject, projectLinked, WON_DOC_TYPES,
+  STATUS_META, STATUS_FILTERS, statusLabel, moneyVN, dateVN, isCloseOverdue, canCreate, canRestore, EMPTY_CREATE, TYPE_HINT, typeRequiresProject, projectLinked, WON_DOC_TYPES,
 } from './opportunitiesModel.js';
 import { OpportunityActions, scopeOfUi } from './OpportunityActions.jsx';
+import { OpportunityTabs } from './OpportunityDetailTabs.jsx';
 
-// Sales S10b: danh sách Cơ hội (#/pipeline), biểu mẫu Tạo cơ hội (§8.3) và chi tiết (#/pipeline/view/:id, §8.2). Dữ liệu CHỈ từ API Sales;
+// Sales S10b + S10c: danh sách Cơ hội (#/pipeline, kèm danh sách đã xoá + Khôi phục), biểu mẫu Tạo cơ hội (§8.3) và chi tiết (#/pipeline/view/:id, §8.2,
+// ba tab ở OpportunityDetailTabs.jsx). Dữ liệu CHỈ từ API Sales;
 // phạm vi và trường được trả do máy chủ quyết định (đường đầy đủ / bản kỹ thuật). Giá trị trống hiển thị "Chưa rõ" — không bao giờ là 0.
 const SORTS = [
   { value: 'updatedAt:desc', label: 'Mới cập nhật' }, { value: 'createdAt:desc', label: 'Mới tạo' },
@@ -130,6 +132,29 @@ function CreateDialog({ ui, onClose }) {
   );
 }
 
+// S10c: khôi phục cơ hội đã xoá mềm (chỉ người có opportunity.restore phạm vi ALL — máy chủ kiểm lại; khách còn bị xoá => máy chủ từ chối).
+function RestoreDialog({ ui, o, onClose }) {
+  const opps = ui.customerApi.opportunities;
+  const s = useCustomerApiState(opps);
+  const [error, setError] = React.useState(null);
+  const busy = !!s.busy;
+  const submit = async () => {
+    const r = await opps.restore(o);
+    if (r.duplicate) return;
+    if (r.ok) { ui.toast({ tone: 'success', title: 'Đã khôi phục cơ hội', message: o.code + ' · ' + o.title }); onClose(); return; }
+    setError(r.error);
+  };
+  return (
+    <Modal open onClose={busy ? undefined : onClose} size="md" icon="rotate-ccw" title="Khôi phục cơ hội" description={o.code + ' · ' + o.title}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{error ? 'Đóng' : 'Huỷ'}</Button><Button loading={busy} onClick={submit}>Khôi phục</Button></>}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <p style={{ margin: 0, font: 'var(--type-sm)', color: 'var(--text-2)' }}>Cơ hội trở lại đúng trạng thái, giai đoạn, người phụ trách và giá trị như lúc bị xoá. Nếu khách hàng của cơ hội đang bị xoá thì phải khôi phục khách hàng trước.</p>
+        {error ? <ApiErrorBox error={error.kind === 'conflict' && error.staleVersion !== false ? { ...error, hint: 'Danh sách đã được tải lại. Kiểm tra rồi thao tác lại nếu vẫn cần.' } : error} /> : null}
+      </div>
+    </Modal>
+  );
+}
+
 // ───── Danh sách (#/pipeline) ─────
 export default function OpportunitiesPage({ ui }) {
   const opps = ui.customerApi.opportunities;
@@ -139,8 +164,12 @@ export default function OpportunitiesPage({ ui }) {
   const [f, setF] = React.useState({ status: '', stageId: '', typeId: '', q: '', sort: SORTS[0].value });
   const [kw, setKw] = React.useState('');
   const [creating, setCreating] = React.useState(false);
+  const mayRestore = canRestore(scopeOf);
+  const [deletedMode, setDeletedMode] = React.useState(false); // S10c: danh sách cơ hội ĐÃ XOÁ (deleted=only)
+  const [restoring, setRestoring] = React.useState(null);
+  const trash = mayRestore && deletedMode;
   React.useEffect(() => { if (full) opps.loadMeta(); }, [opps, full]);
-  React.useEffect(() => { const [sortBy, sortOrder] = f.sort.split(':'); opps.load({ status: f.status, stageId: f.stageId, typeId: f.typeId, q: f.q, sortBy, sortOrder }); }, [opps, f]);
+  React.useEffect(() => { const [sortBy, sortOrder] = f.sort.split(':'); opps.load({ status: f.status, stageId: f.stageId, typeId: f.typeId, q: f.q, sortBy, sortOrder, ...(trash ? { deleted: 'only' } : {}) }); }, [opps, f, trash]);
   React.useEffect(() => { const next = kw.trim().length >= 2 ? kw.trim() : ''; const id = setTimeout(() => setF((x) => (x.q === next ? x : { ...x, q: next })), 300); return () => clearTimeout(id); }, [kw]);
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
   const l = s.list; const meta = s.meta.data; const mobile = !!ui.mobile;
@@ -156,14 +185,16 @@ export default function OpportunitiesPage({ ui }) {
           {full && meta ? <div role="group" aria-label="Lọc theo giai đoạn" style={{ flex: '1 1 140px', maxWidth: 220 }}><Select size="sm" value={f.stageId} onChange={set('stageId')} options={lookupOptions(meta.stages, 'Mọi giai đoạn')} /></div> : null}
           {full && meta ? <div role="group" aria-label="Lọc theo loại" style={{ flex: '1 1 160px', maxWidth: 240 }}><Select size="sm" value={f.typeId} onChange={set('typeId')} options={lookupOptions(meta.types, 'Mọi loại')} /></div> : null}
           <div role="group" aria-label="Sắp xếp" style={{ flex: '1 1 160px', maxWidth: 220 }}><Select size="sm" value={f.sort} onChange={set('sort')} options={SORTS} /></div>
-          {canCreate(scopeOf) ? <Button icon="plus" onClick={() => setCreating(true)}>Tạo cơ hội</Button> : null}
+          {mayRestore ? <Button variant="secondary" icon="trash-2" aria-pressed={trash} onClick={() => setDeletedMode((x) => !x)}>{trash ? 'Về danh sách' : 'Đã xoá'}</Button> : null}
+          {canCreate(scopeOf) && !trash ? <Button icon="plus" onClick={() => setCreating(true)}>Tạo cơ hội</Button> : null}
         </div>
+        {trash ? <div role="status" style={{ font: 'var(--type-sm)', color: 'var(--warning-text)' }}>Đang xem các cơ hội đã xoá. Bấm "Khôi phục" để đưa cơ hội trở lại danh sách.</div> : null}
         {kw.trim().length === 1 ? <div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>Gõ ít nhất 2 ký tự để tìm.</div> : null}
         {full && s.meta.status === 'error' ? <ApiErrorBox error={s.meta.error} onRetry={() => opps.loadMeta(true)} /> : null}
         {l.status === 'loading' || l.status === 'idle' ? <div role="status" style={{ color: 'var(--text-2)', padding: '12px 0' }}>Đang tải cơ hội…</div> : null}
         {l.status === 'error' ? <ApiErrorBox error={l.error} onRetry={() => opps.reload()} /> : null}
         {l.status === 'ready' && l.refreshError ? <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', font: 'var(--type-sm)', color: 'var(--warning-text, var(--text-2))' }}><span>Không tải lại được danh sách — dữ liệu đang hiển thị có thể đã cũ.</span><Button size="sm" variant="secondary" onClick={() => opps.reload()}>Thử lại</Button></div> : null}
-        {l.status === 'ready' && !l.items.length ? <EmptyState compact kind={filtered ? 'search' : 'empty'} icon={filtered ? undefined : 'target'} title={filtered ? 'Không có cơ hội khớp bộ lọc' : 'Chưa có cơ hội nào'} description={filtered ? 'Thử bỏ bớt điều kiện lọc hoặc đổi từ khoá.' : 'Chưa có cơ hội nào trong phạm vi của bạn.'} action={!filtered && canCreate(scopeOf) ? <Button icon="plus" onClick={() => setCreating(true)}>Tạo cơ hội</Button> : undefined} /> : null}
+        {l.status === 'ready' && !l.items.length ? <EmptyState compact kind={filtered ? 'search' : 'empty'} icon={filtered ? undefined : 'target'} title={filtered ? 'Không có cơ hội khớp bộ lọc' : trash ? 'Không có cơ hội đã xoá' : 'Chưa có cơ hội nào'} description={filtered ? 'Thử bỏ bớt điều kiện lọc hoặc đổi từ khoá.' : trash ? undefined : 'Chưa có cơ hội nào trong phạm vi của bạn.'} action={!filtered && !trash && canCreate(scopeOf) ? <Button icon="plus" onClick={() => setCreating(true)}>Tạo cơ hội</Button> : undefined} /> : null}
         {l.status === 'ready' && l.items.length ? (
           <>
             <div style={{ font: 'var(--type-sm)', color: 'var(--text-3)' }}>{l.items.length + ' / ' + l.total + ' cơ hội'}{techOnly ? ' · bạn xem qua công việc được giao nên không hiển thị giá trị, xác suất' : ''}</div>
@@ -172,20 +203,21 @@ export default function OpportunitiesPage({ ui }) {
                 {l.items.map((o) => (
                   <li key={o.id} className="sg-card sg-solid" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><span style={{ font: 'var(--type-mono)', color: 'var(--text-3)' }}>{o.code}</span><StatusBadge o={o} /><Badge size="sm">{o.stage ? o.stage.label : '—'}</Badge></div>
-                    <a href={hrefOf(o)} onClick={(e) => { e.preventDefault(); openOpp(ui, o); }} style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{o.title}</a>
+                    {trash ? <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{o.title}</span> : <a href={hrefOf(o)} onClick={(e) => { e.preventDefault(); openOpp(ui, o); }} style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{o.title}</a>}
                     <div style={{ font: 'var(--type-sm)', color: 'var(--text-2)', overflowWrap: 'anywhere' }}>{o.customer ? o.customer.name : '—'}{o.owner ? ' · ' + o.owner.fullName : ''}</div>
                     {isFull(o) ? <div style={{ font: 'var(--type-sm)', display: 'flex', gap: 10, flexWrap: 'wrap' }}><span>{moneyVN(o.expectedAmountVnd)}</span><span>{o.probability + '%'}</span>{o.expectedCloseDate ? <span style={{ color: isCloseOverdue(o) ? 'var(--error-text)' : 'var(--text-2)' }}>{(isCloseOverdue(o) ? 'Quá hạn chốt ' : 'Chốt ') + dateVN(o.expectedCloseDate)}</span> : null}</div> : null}
+                    {trash ? <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><span style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>{'Xoá lúc ' + U.dtVN(o.deletedAt)}</span><Button size="sm" variant="secondary" icon="rotate-ccw" onClick={() => setRestoring(o)}>Khôi phục</Button></div> : null}
                   </li>
                 ))}
               </ul>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr style={{ textAlign: 'left', color: 'var(--text-3)', font: 'var(--type-caption)' }}>{['Mã', 'Cơ hội', 'Khách hàng', 'Giai đoạn', 'Giá trị dự kiến', 'Xác suất', 'Dự kiến chốt', 'Phụ trách', 'Trạng thái'].map((h) => <th key={h} scope="col" style={{ ...cell, fontWeight: 600, textAlign: h === 'Giá trị dự kiến' || h === 'Xác suất' ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
+                  <thead><tr style={{ textAlign: 'left', color: 'var(--text-3)', font: 'var(--type-caption)' }}>{['Mã', 'Cơ hội', 'Khách hàng', 'Giai đoạn', 'Giá trị dự kiến', 'Xác suất', 'Dự kiến chốt', 'Phụ trách', 'Trạng thái'].concat(trash ? ['Đã xoá'] : []).map((h) => <th key={h} scope="col" style={{ ...cell, fontWeight: 600, textAlign: h === 'Giá trị dự kiến' || h === 'Xác suất' ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
                   <tbody>{l.items.map((o) => (
                     <tr key={o.id}>
                       <td style={{ ...cell, whiteSpace: 'nowrap', font: 'var(--type-mono)', color: 'var(--text-3)' }}>{o.code}</td>
-                      <td style={{ ...cell, maxWidth: 320 }}><a href={hrefOf(o)} onClick={(e) => { e.preventDefault(); openOpp(ui, o); }} style={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{o.title}</a>{o.projectName ? <div style={{ color: 'var(--text-3)', font: 'var(--type-caption)', overflowWrap: 'anywhere' }}>{o.projectName}</div> : null}{o.ownerLostAccess ? <div style={{ color: 'var(--warning-text)', font: 'var(--type-caption)' }}>Người phụ trách không còn quyền với cơ hội này</div> : null}</td>
+                      <td style={{ ...cell, maxWidth: 320 }}>{trash ? <span style={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{o.title}</span> : <a href={hrefOf(o)} onClick={(e) => { e.preventDefault(); openOpp(ui, o); }} style={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{o.title}</a>}{o.projectName ? <div style={{ color: 'var(--text-3)', font: 'var(--type-caption)', overflowWrap: 'anywhere' }}>{o.projectName}</div> : null}{o.ownerLostAccess ? <div style={{ color: 'var(--warning-text)', font: 'var(--type-caption)' }}>Người phụ trách không còn quyền với cơ hội này</div> : null}</td>
                       <td style={{ ...cell, maxWidth: 220, overflowWrap: 'anywhere' }}>{o.customer ? o.customer.name : dash}</td>
                       <td style={cell}>{o.stage ? o.stage.label : dash}</td>
                       <td style={{ ...cell, textAlign: 'right' }}><Amount o={o} /></td>
@@ -193,6 +225,7 @@ export default function OpportunitiesPage({ ui }) {
                       <td style={cell}><CloseDate o={o} /></td>
                       <td style={cell}><Owner o={o} /></td>
                       <td style={cell}><StatusBadge o={o} />{o.status === 'ON_HOLD' && o.holdUntil ? <div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>{'Liên hệ lại ' + dateVN(o.holdUntil)}</div> : null}</td>
+                      {trash ? <td style={cell}><div style={{ font: 'var(--type-caption)', color: 'var(--text-3)', whiteSpace: 'nowrap', marginBottom: 4 }}>{U.dtVN(o.deletedAt)}</div><Button size="sm" variant="secondary" icon="rotate-ccw" onClick={() => setRestoring(o)}>Khôi phục</Button></td> : null}
                     </tr>
                   ))}</tbody>
                 </table>
@@ -204,6 +237,7 @@ export default function OpportunitiesPage({ ui }) {
         ) : null}
       </section>
       {creating ? <CreateDialog ui={ui} onClose={() => setCreating(false)} /> : null}
+      {restoring ? <RestoreDialog ui={ui} o={restoring} onClose={() => setRestoring(null)} /> : null}
     </div>
   );
 }
@@ -259,6 +293,7 @@ export function OpportunityView({ ui, id }) {
         {row('clock', 'Cập nhật', U.dtVN(o.updatedAt))}
         {!fullView ? <p style={{ margin: '8px 0 4px', font: 'var(--type-caption)', color: 'var(--text-3)' }}>Bạn xem cơ hội này qua công việc được giao: chỉ có thông tin kỹ thuật, không có giá trị, xác suất và chứng từ.</p> : null}
       </section>
+      <OpportunityTabs ui={ui} o={o} meta={meta} />
     </div>
   );
 }

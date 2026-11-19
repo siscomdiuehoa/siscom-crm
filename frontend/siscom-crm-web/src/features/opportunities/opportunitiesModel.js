@@ -81,7 +81,8 @@ export function opportunityActions(o, ctx = {}) {
   if (!o || o.access !== 'FULL' || o.deletedAt) return [];
   const out = [];
   const open = o.status === 'OPEN'; const hold = o.status === 'ON_HOLD'; const closed = o.status === 'WON' || o.status === 'LOST';
-  if (holds(ctx, 'opportunity.update', o)) out.push('edit');
+  // Sửa trường: máy chủ từ chối khi cơ hội đã đóng (Thắng / Thua) => không hiện nút.
+  if (!closed && holds(ctx, 'opportunity.update', o)) out.push('edit');
   if (open && holds(ctx, 'opportunity.move_stage', o)) out.push('stage');
   if (holds(ctx, 'opportunity.close', o)) {
     if (open) out.push('hold');
@@ -93,6 +94,10 @@ export function opportunityActions(o, ctx = {}) {
   if (scopeOfSafe(ctx.scopeOf, 'opportunity.delete') === 'ALL') out.push('delete');
   return out;
 }
+// Thêm hoạt động / tài liệu cho cơ hội: người đạt opportunity.update trên cơ hội (kể cả khi đã đóng); bản kỹ thuật và cơ hội đã xoá thì không.
+export const holdsUpdate = (o, ctx = {}) => !!o && o.access === 'FULL' && !o.deletedAt && holds(ctx, 'opportunity.update', o);
+// Danh sách "Đã xoá" + nút Khôi phục: opportunity.restore phạm vi ALL và có opportunity.read (§5.4).
+export const canRestore = (scopeOf) => scopeOfSafe(scopeOf, 'opportunity.restore') === 'ALL' && scopeOfSafe(scopeOf, 'opportunity.read') !== null;
 export const ACTION_LABEL = { edit: 'Sửa', stage: 'Chuyển giai đoạn', hold: 'Tạm hoãn', holdEdit: 'Đổi hạn hoãn', resume: 'Tiếp tục', win: 'Thắng', lose: 'Thua', assign: 'Chuyển người phụ trách', reopen: 'Mở lại', delete: 'Xoá' };
 export const ACTION_ICON = { edit: 'pencil', stage: 'arrow-right', hold: 'pause', holdEdit: 'calendar-clock', resume: 'play', win: 'trophy', lose: 'circle-x', assign: 'user-round-cog', reopen: 'rotate-ccw', delete: 'trash-2' };
 // Nút "Tạo cơ hội": có opportunity.create (máy chủ kiểm theo KHÁCH được chọn).
@@ -214,3 +219,112 @@ export function toActionRequest(kind, f, o) {
     default: return null;
   }
 }
+
+// ───── S10c: Sửa cơ hội (PATCH /opportunities/:id, §6.3) ─────
+// Biểu mẫu điền sẵn từ chi tiết đã tải. Giá trị trống giữ là '' (không phải 0).
+export function initEdit(o) {
+  return {
+    title: o.title || '', typeId: o.type ? o.type.id : '', isProjectLinked: !!o.isProjectLinked, projectName: o.projectName || '', offerScope: o.offerScope || '', needSummary: o.needSummary || '',
+    expectedAmount: o.expectedAmountVnd === null || o.expectedAmountVnd === undefined ? '' : String(o.expectedAmountVnd), expectedCloseDate: o.expectedCloseDate || '',
+    contactId: o.contact ? o.contact.id : '', probability: String(o.probability), probabilityReason: '',
+  };
+}
+const probabilityOf = (v) => { const s = t(v); return /^\d{1,3}$/.test(s) && Number(s) <= 100 ? Number(s) : null; };
+export const probabilityChanged = (form, o) => { const p = probabilityOf(form.probability); return p !== null && p !== o.probability; };
+export function validateEdit(form, meta, o) {
+  const e = validateCreate({ ...form, customerId: 'x' }, meta); // cùng giới hạn với biểu mẫu tạo; khách hàng không đổi được
+  const p = probabilityOf(form.probability);
+  if (p === null) e.probability = 'Xác suất là số nguyên từ 0 đến 100';
+  else if (p !== o.probability) need(e, 'probabilityReason', form.probabilityReason, 'Sửa xác suất phải ghi lý do', 500);
+  return e;
+}
+// Thân PATCH: CHỈ trường thực sự đổi (không gồm version — controller thêm). Xoá chữ / xoá giá trị => null (máy chủ hiểu là xoá, không phải 0).
+// Bỏ gắn dự án => chỉ gửi isProjectLinked=false (máy chủ tự xoá tên dự án + phạm vi chào). Lý do xác suất chỉ gửi khi xác suất đổi.
+export function toPatchBody(o, form, meta) {
+  const b = {};
+  if (t(form.title) !== t(o.title)) b.title = t(form.title);
+  if (t(form.typeId) && (!o.type || form.typeId !== o.type.id)) b.typeId = form.typeId;
+  const linked = projectLinked(form, meta);
+  if (linked !== !!o.isProjectLinked) b.isProjectLinked = linked;
+  if (linked) for (const k of ['projectName', 'offerScope']) if (t(form[k]) !== t(o[k])) b[k] = t(form[k]) || null;
+  if (t(form.needSummary) !== t(o.needSummary)) b.needSummary = t(form.needSummary) || null;
+  const amount = parseAmountInput(form.expectedAmount);
+  const was = o.expectedAmountVnd === null || o.expectedAmountVnd === undefined ? null : String(o.expectedAmountVnd);
+  if (!amount.error && amount.value !== was) b.expectedAmountVnd = amount.value;
+  if (t(form.expectedCloseDate) !== t(o.expectedCloseDate)) b.expectedCloseDate = isValidYmd(form.expectedCloseDate) ? form.expectedCloseDate : null;
+  const contactWas = o.contact ? o.contact.id : '';
+  if (t(form.contactId) !== contactWas) b.contactId = t(form.contactId) || null;
+  if (probabilityChanged(form, o)) { b.probability = probabilityOf(form.probability); b.probabilityReason = t(form.probabilityReason); }
+  return b;
+}
+
+// ───── S10c: Lịch sử thay đổi (GET /opportunities/:id/changes) ─────
+export const CHANGE_LABEL = { STAGE: 'Giai đoạn', STATUS: 'Trạng thái', HOLD: 'Ngày liên hệ lại', AMOUNT: 'Giá trị dự kiến', PROBABILITY: 'Xác suất', CLOSE_DATE: 'Dự kiến chốt', OWNER: 'Người phụ trách' };
+// Một dòng lịch sử => { label, text }. Giá trị trống của số tiền là "Chưa rõ" (không phải 0). Mã giai đoạn đổi sang tên theo danh mục (nếu có).
+// Người phụ trách lưu bằng id: chỉ hiện tên khi trùng người phụ trách hiện tại (API lịch sử không trả tên người cũ).
+export function describeChange(c, ctx = {}) {
+  const stages = (ctx.meta && ctx.meta.stages) || []; const o = ctx.o || {};
+  const label = CHANGE_LABEL[c.field] || String(c.field || '—');
+  if (c.field === 'OWNER') return { label, text: o.owner && o.owner.id === c.newValue ? 'Chuyển cho ' + o.owner.fullName : 'Đã chuyển người phụ trách' };
+  const fmt = (v) => {
+    if (v === null || v === undefined || v === '') return c.field === 'AMOUNT' ? AMOUNT_UNKNOWN : '—';
+    if (c.field === 'AMOUNT') return moneyVN(v);
+    if (c.field === 'PROBABILITY') return v + '%';
+    if (c.field === 'CLOSE_DATE' || c.field === 'HOLD') return dateVN(v);
+    if (c.field === 'STAGE') return (stages.find((x) => x.code === v) || {}).label || String(v);
+    if (c.field === 'STATUS') return statusLabel(v);
+    return String(v);
+  };
+  return { label, text: fmt(c.oldValue) + ' → ' + fmt(c.newValue) };
+}
+
+// ───── S10c: Tài liệu cơ hội (§6.14) — chỉ đường dẫn https + tên tệp ─────
+export const DOC_KINDS = [{ value: 'TECHNICAL', label: 'Kỹ thuật' }, { value: 'COMMERCIAL', label: 'Thương mại' }];
+export const docKindLabel = (k) => (DOC_KINDS.find((x) => x.value === k) || {}).label || k;
+export const EMPTY_DOC = { kind: 'TECHNICAL', fileName: '', url: '' };
+// Chỉ đường dẫn https mới thành liên kết bấm được (không bao giờ javascript:, http:, data:).
+export const safeHttps = (u) => (typeof u === 'string' && HTTPS.test(u) ? u : null);
+export function validateDocument(f) {
+  const e = {};
+  if (!DOC_KINDS.some((x) => x.value === f.kind)) e.kind = 'Chọn nhóm tài liệu';
+  need(e, 'fileName', f.fileName, 'Vui lòng nhập tên tệp', 255);
+  const url = t(f.url);
+  if (!url) e.url = 'Vui lòng nhập đường dẫn'; else if (!HTTPS.test(url) || url.length > 1000) e.url = 'Đường dẫn phải là địa chỉ https hợp lệ, không có khoảng trắng';
+  return e;
+}
+export const toDocumentBody = (f) => ({ kind: f.kind, fileName: t(f.fileName), url: t(f.url) });
+export function validateReason(reason, msg) { const e = {}; need(e, 'reason', reason, msg, 500); return e; }
+
+// ───── S10c R2 (PR249-R1-01): lưu lại sau xung đột phiên bản (409) ─────
+// Vấn đề: sau 409, chi tiết được tải lại (version mới) nhưng biểu mẫu vẫn giữ MỌI giá trị cũ; so biểu mẫu cũ với bản mới sẽ coi cả những ô
+// người dùng CHƯA chạm là "đã đổi" và ghi đè thay đổi của người kia. Cách xử lý: so biểu mẫu với bản GỐC lúc mở (base) để biết ô nào người dùng
+// thực sự sửa; ô chưa sửa nhận giá trị của bản mới; ô CẢ HAI cùng sửa (khác nhau) => xung đột, giao diện chặn lưu tới khi người dùng chọn rõ.
+export const EDIT_FIELDS = ['title', 'typeId', 'isProjectLinked', 'projectName', 'offerScope', 'needSummary', 'expectedAmount', 'expectedCloseDate', 'contactId', 'probability'];
+export const EDIT_FIELD_LABEL = {
+  title: 'Tiêu đề', typeId: 'Loại cơ hội', isProjectLinked: 'Gắn với dự án/công trình', projectName: 'Tên dự án/công trình', offerScope: 'Phạm vi SISCOM đang chào',
+  needSummary: 'Nhu cầu của khách', expectedAmount: 'Giá trị dự kiến', expectedCloseDate: 'Dự kiến chốt', contactId: 'Người liên hệ', probability: 'Xác suất',
+};
+// Chuẩn hoá để SO SÁNH (không để gửi): số tiền theo giá trị (bỏ dấu ngăn nhóm; trống và 0 là hai giá trị KHÁC nhau), xác suất theo số, chữ thì cắt khoảng trắng.
+const editKey = (k, v) => {
+  if (k === 'isProjectLinked') return v === true ? '1' : '0';
+  if (k === 'expectedAmount') { const a = parseAmountInput(v); return a.error ? 'x:' + t(v) : a.value === null ? '' : 'n:' + a.value; }
+  if (k === 'probability') { const p = probabilityOf(v); return p === null ? 'x:' + t(v) : 'n:' + p; }
+  return t(v);
+};
+// Các ô người dùng đã sửa so với bản gốc lúc mở biểu mẫu.
+export const editTouched = (base, form) => { const b = initEdit(base); return EDIT_FIELDS.filter((k) => editKey(k, form[k]) !== editKey(k, b[k])); };
+// base: bản lúc mở (hoặc lần đồng bộ trước); latest: bản vừa tải lại; form: biểu mẫu đang nhập.
+// Trả { form, conflicts[{ k, mine, theirs }] }: form đã nhận giá trị mới ở các ô CHƯA sửa; conflicts = ô cả hai cùng sửa thành giá trị khác nhau.
+export function rebaseEdit(base, latest, form) {
+  const b = initEdit(base); const l = initEdit(latest); const next = { ...form }; const conflicts = [];
+  for (const k of EDIT_FIELDS) {
+    const mine = editKey(k, form[k]); const was = editKey(k, b[k]); const theirs = editKey(k, l[k]);
+    if (mine === was) next[k] = l[k];
+    else if (theirs !== was && theirs !== mine) conflicts.push({ k, mine: form[k], theirs: l[k] });
+  }
+  // Lý do sửa xác suất chỉ có nghĩa khi xác suất của mình còn khác bản mới (máy chủ từ chối lý do thừa).
+  if (editKey('probability', next.probability) === editKey('probability', l.probability)) next.probabilityReason = '';
+  return { form: next, conflicts };
+}
+// Chữ hiển thị một giá trị của ô số tiền trong khối xung đột: trống => "Chưa rõ" (không phải 0).
+export const amountInputText = (v) => { const a = parseAmountInput(v); return a.error ? t(v) : moneyVN(a.value); };

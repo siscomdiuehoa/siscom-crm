@@ -3,9 +3,10 @@ import { Button, Input, Modal, Select } from '../../ds/index.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import { opportunityActions, ACTION_LABEL, ACTION_ICON, ACTION_TITLE, ACTION_DONE, ACTION_CANDIDATES, WON_DOC_TYPES, initAction, moneyVN } from './opportunitiesModel.js';
+import { EditOpportunityDialog } from './OpportunityEdit.jsx';
 
 // Sales S10b: nút thao tác trên một cơ hội + hộp thoại (§8.3 "Các hộp thoại khác"). Nút chỉ là tiện ích giao diện theo quyền máy chủ cấp
-// (me.permissions, fail-closed); máy chủ luôn kiểm lại quyền, phiên bản và mọi quy tắc. Sửa trường (PATCH) thuộc PR sau.
+// (me.permissions, fail-closed); máy chủ luôn kiểm lại quyền, phiên bản và mọi quy tắc. Sửa trường (PATCH, S10c) dùng hộp thoại riêng ở OpportunityEdit.jsx.
 export const scopeOfUi = (ui) => (p) => (ui && ui.me && ui.me.permissions ? ui.me.permissions[p] || null : null);
 const meIdOf = (ui) => (ui && ui.me ? ui.me.employeeId : null);
 const personLabel = (x) => x.fullName + ' (' + x.code + ')' + (x.departmentCode ? ' · ' + x.departmentCode : '');
@@ -102,14 +103,15 @@ function ActionDialog({ kind, o, ui, onClose, onDone, onStale }) {
 // Dãy nút thao tác theo quyền. onChanged(data, kind): nơi gọi đọc lại chi tiết / chuyển trang. onStale: máy chủ báo 409 => nơi gọi đọc lại.
 export function OpportunityActions({ ui, o, onChanged, onStale }) {
   const [dlg, setDlg] = React.useState(null);
-  const acts = opportunityActions(o, { scopeOf: scopeOfUi(ui), meId: meIdOf(ui) }).filter((k) => k !== 'edit');
+  const acts = opportunityActions(o, { scopeOf: scopeOfUi(ui), meId: meIdOf(ui) });
   if (!acts.length) return null;
   return (
     <>
       <div role="group" aria-label="Thao tác trên cơ hội" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {acts.map((k) => <Button key={k} size="sm" variant={k === 'win' ? 'primary' : k === 'delete' ? 'danger' : 'secondary'} icon={ACTION_ICON[k]} onClick={() => setDlg(k)}>{ACTION_LABEL[k]}</Button>)}
       </div>
-      {dlg ? <ActionDialog key={dlg} kind={dlg} o={o} ui={ui} onClose={() => setDlg(null)} onStale={onStale} onDone={(data, kind) => { setDlg(null); if (onChanged) onChanged(data, kind); }} /> : null}
+      {dlg === 'edit' ? <EditOpportunityDialog o={o} ui={ui} onClose={() => setDlg(null)} onStale={onStale} onDone={(data, kind, unchanged) => { setDlg(null); if (onChanged && !unchanged) onChanged(data, kind); }} />
+        : dlg ? <ActionDialog key={dlg} kind={dlg} o={o} ui={ui} onClose={() => setDlg(null)} onStale={onStale} onDone={(data, kind) => { setDlg(null); if (onChanged) onChanged(data, kind); }} /> : null}
     </>
   );
 }
