@@ -11,7 +11,7 @@
 
 ## 0. Hiện trạng — kiểm ngày 19/11/2026, 04:47 UTC
 
-Nguồn: GitHub (`gh pr view`, `gh run list`, danh sách bình luận của từng PR) tại thời điểm trên. Mọi thay đổi sau thời điểm này không được phản ánh ở đây.
+Nguồn: GitHub (`gh pr view`, `gh run list`, danh sách bình luận của từng PR) tại thời điểm trên. Mọi thay đổi sau thời điểm này không được phản ánh ở các mục 0.1–0.4; **dòng kiểm mới hơn nằm ở mục 0.5** (06:00 UTC: cả 8 PR đã merge, `main` = `0e709b9`).
 
 ### 0.1 `main` và 8 PR
 
@@ -65,6 +65,19 @@ Các tệp log nằm ở `docs/evidence/sales-s8-s11-20261118/` (đã bỏ mã m
 2. Khôi phục thử bản sao lưu staging (Owner thực hiện — `docs/SALES_S12_STAGING_PLAN.md`, Phụ lục A).
 3. S12 (staging): chưa bắt đầu; mỗi bước cần Owner duyệt riêng.
 4. Chưa có: nghiệm thu trên staging, iPhone thật, hai người sửa cùng lúc trên trình duyệt thật, dữ liệu thật.
+
+### 0.5 Kiểm lại — 19/11/2026, 06:00 UTC (thay cho trạng thái của #249, #250 và `main` ở 0.1 và 0.4)
+
+**Cả 8 PR #243–#250 đã merge. `main` = `0e709b9`; CI trên `main` 6/6 — run 44466202529.** Số liệu lịch sử ở các mục khác giữ nguyên.
+
+| PR | HEAD đã merge | Merge commit | CI `main` sau merge | `[KET-LUAN]` | Thử giao diện trên trình duyệt thật (tác giả chạy) |
+|---|---|---|---|---|---|
+| #249 | `3bfa073` | `ed9e0d1` (19/11 05:25 UTC) | 6/6 (44465045282) | [7000595107](https://github.com/siscomdiuehoa/siscom-crm/pull/249#issuecomment-7000595107) | Hai phiên cùng sửa một cơ hội: 25/25 — [7000182390](https://github.com/siscomdiuehoa/siscom-crm/pull/249#issuecomment-7000182390) |
+| #250 | `bcaca16` | `0e709b9` (19/11 05:35 UTC) | 6/6 (44466202529) | [7000752437](https://github.com/siscomdiuehoa/siscom-crm/pull/250#issuecomment-7000752437) | Tổng cột kanban + bản 375 px: 11/11 — [7000641223](https://github.com/siscomdiuehoa/siscom-crm/pull/250#issuecomment-7000641223) |
+
+- **QA giao diện:** không có `[QA-REPORT]` cho #249 và #250. Owner chỉ đạo (19/11/2026) không đưa Gemini vào luồng; nguyên văn chỉ đạo và danh sách phần giao diện đã thử / còn thiếu nằm trong `[KET-LUAN]` của từng PR. Các lượt thử trình duyệt đều do tác giả chạy — **chưa có kiểm thử giao diện độc lập**.
+- Việc 1 ở mục 0.4 đã xong. Còn mở: việc 2 (khôi phục thử), 3 (S12), 4 (nghiệm thu staging, iPhone thật, dữ liệu thật).
+- Mã trên `main` tại `0e709b9` trùng cây mã của HEAD `bcaca16` (đã kiểm trước khi merge), nên các kết quả CI và thử giao diện ghi cho `bcaca16` áp dụng cho `main` hiện tại. Kịch bản API 143 phép kiểm, diễn tập nâng cấp / lùi và lượt thử 4 vai trò **vẫn chưa** được chạy lại trên `main` này.
 
 ---
 

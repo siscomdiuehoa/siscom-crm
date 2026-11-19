@@ -4,8 +4,9 @@
 - **Phạm vi:** cập nhật staging hiện có (`https://42.96.15.235`, DB `siscom_crm_staging`) từ bản trước Sales lên bản `main` sau khi #243–#250 đã merge. **Không** bao gồm production.
 - **Tài liệu nền:** `docs/SALES_DESIGN.md` §9 (dòng S12), §10 (tiêu chí nghiệm thu); `docs/VPS_RUNBOOK.md` §4 (cập nhật), §5 (cách lùi), G6 (sao lưu / khôi phục thử); `docs/evidence/SALES_S8_S11_NGHIEM_THU_20261118.md`.
 - **Cập nhật 19/11/2026:** Owner đã quyết cả bốn điểm mở (mục 8); máy chủ staging đã được khởi động lại theo quyết định đó (mục 1, dòng "Máy chủ").
-- **Trạng thái mã (kiểm 19/11/2026, 04:47 UTC):** #243–#248 đã merge; `main` = `d5035da`, CI 6/6 (run 44458491732). #249 (`3bfa073`) và #250 (`bcaca16`) đã PASS review vòng 2, **chưa merge** — chờ Owner duyệt từng PR. Chi tiết và liên kết: `docs/evidence/SALES_S8_S11_NGHIEM_THU_20261118.md` mục 0.
+- **Trạng thái mã (kiểm 19/11/2026, 06:00 UTC):** **cả 8 PR #243–#250 đã merge**; `main` = `0e709b9`, CI 6/6 (run 44466202529). Chi tiết và liên kết: `docs/evidence/SALES_S8_S11_NGHIEM_THU_20261118.md` mục 0 và 0.5. (Dòng kiểm trước, 04:47 UTC: `main` = `d5035da`, #249 và #250 chưa merge.)
 - **Sửa theo review R1 của #251 (19/11/2026):** mục 2 (điều kiện tiên quyết), mục 5 (phương án lùi — PR251-R1-02), Phụ lục A (PR251-R1-03, PR251-R1-04).
+- **Sau review R2 của #251 (PASS trên `f8df110`, 3 góp ý nhỏ — 19/11/2026):** cập nhật trạng thái mã; thêm dẫn chiếu từ runbook G6; diễn tập lệnh hẹn giờ / dọn tệp bằng tệp giả và **đổi lệnh hẹn giờ ở Phụ lục A bước 3** theo kết quả diễn tập.
 - Tài liệu này không chứa mật khẩu, khoá hay giá trị biến môi trường.
 
 ## 1. Hiện trạng staging (kiểm **chỉ đọc** ngày 18/11/2026, 09:33 UTC)
@@ -30,7 +31,7 @@ Cách kiểm: đăng nhập SSH bằng khoá, chỉ chạy lệnh đọc; không
 
 ## 2. Điều kiện tiên quyết (phải đủ trước khi xin duyệt bước đầu tiên)
 
-1. #243 → #250 đã merge vào `main` theo đúng thứ tự, mỗi PR có kết luận review và mã duyệt của Owner; CI trên `main` đạt 6/6. Ghi lại SHA của `main` sẽ triển khai. **Tình trạng 19/11/2026, 04:47 UTC: CHƯA ĐỦ** — #243–#248 đã merge (`main` = `d5035da`); còn #249 và #250 (đều đã PASS R2, chờ Owner duyệt merge).
+1. #243 → #250 đã merge vào `main` theo đúng thứ tự, mỗi PR có kết luận review và mã duyệt của Owner; CI trên `main` đạt 6/6. Ghi lại SHA của `main` sẽ triển khai. **Tình trạng 19/11/2026, 06:00 UTC: ĐÃ ĐỦ** — cả 8 PR đã merge; `main` = `0e709b9`, CI 6/6 (run 44466202529). SHA triển khai chốt ở bước 0 (nếu `main` có thêm commit trước ngày triển khai thì ghi lại SHA và run CI mới).
 2. Một bộ sao lưu staging **mới** được khôi phục thử thành công (`restore-test.sh`: chữ ký manifest hợp lệ, số dòng từng bảng khớp). Việc này cần Owner đưa khoá riêng age lên VPS tạm thời rồi xoá ngay (quy trình G6).
 3. Chứng chỉ HTTPS còn hạn ít nhất 48 giờ tại thời điểm triển khai.
 4. Bản build frontend được tạo trên máy Windows bằng PowerShell từ đúng SHA ở mục 1 (VPS 3 GB không build giao diện; không build bằng Git Bash vì làm hỏng `/api/v1`).
@@ -149,7 +150,21 @@ Không bước nào trong tài liệu này áp dụng cho production.
 
 **An toàn:** việc khôi phục tạo một database **mới** tên `siscom_crm_restore_<thời điểm>`; không ghi vào `siscom_crm_staging`, không dừng dịch vụ. Bản giải mã chỉ nằm trong thư mục tạm quyền 700 và tự xoá khi lệnh kết thúc bình thường. Đĩa còn trống khoảng 32 GB (kiểm 19/11).
 
-**Trạng thái của hướng dẫn này:** các lệnh dưới đây được soạn từ mã `backup-db.sh` / `restore-test.sh` / `lib.sh` trên `main`; **chưa chạy thử trên VPS** (Claude không được cầm khoá riêng). Lệnh nào báo lỗi cú pháp thì dừng và báo lại, không tự sửa.
+**Trạng thái của hướng dẫn này:** các lệnh dưới đây được soạn từ mã `backup-db.sh` / `restore-test.sh` / `lib.sh` trên `main`. Lệnh nào báo lỗi cú pháp thì dừng và báo lại, không tự sửa.
+
+- **Đã diễn tập (19/11/2026, 05:58 UTC, trên chính máy chủ staging — Ubuntu 24.04.5, systemd 255):** các lệnh tạo thư mục, hẹn giờ, xoá tệp, huỷ hẹn giờ ở bước 3 và bước 5, **bằng một tệp giả không chứa khoá**, gồm cả lần chạy lại. Chỉ tạo tệp giả trên `/run` (RAM) và unit systemd tạm; không đụng database, dịch vụ hay tệp cấu hình; sau diễn tập không còn thư mục, unit hay unit lỗi nào. Log: `docs/evidence/sales-s8-s11-20261118/s12-dien-tap-hen-gio-xoa-khoa-20261119.txt`. Kết quả:
+
+  | Ca | Kết quả |
+  |---|---|
+  | A. Lần đầu: tạo thư mục (quyền 700, tmpfs), hẹn 30 phút, tạo tệp (quyền 600), dọn tay như bước 5 | Đạt: tệp mất, không còn hẹn giờ |
+  | B. Chạy lại ngay sau khi dọn tay | Đạt: hẹn giờ mới tạo được |
+  | C. Gọi lệnh hẹn giờ khi hẹn giờ cũ còn đang chờ | `systemd-run` **từ chối** (`already loaded`) — đúng với điều kiện dừng ở bước 3 |
+  | D. Hẹn giờ tự chạy khi còn tệp (mô phỏng mất SSH) | Đạt: tệp tự mất; chạy lại được |
+  | E. Lệnh hẹn giờ của bản hướng dẫn **trước** (`shred -u` trực tiếp): xoá tệp bằng tay nhưng quên huỷ hẹn giờ | **Lỗi của bản trước:** hẹn giờ chạy, `shred` không thấy tệp ⇒ unit ở trạng thái lỗi, máy có 1 unit lỗi, và lần hẹn giờ kế tiếp **bị từ chối** cho tới khi `reset-failed` |
+  | F. Lệnh hẹn giờ **hiện tại** (`--collect` + chỉ `shred` khi tệp còn): lặp lại ca E, ca D, và huỷ hẹn giờ khi tệp còn | Đạt cả ba: không sinh unit lỗi; chạy lại được ngay; huỷ hẹn giờ không xoá nhầm tệp |
+
+  Ca E là lý do lệnh ở bước 3 được đổi sang dạng của ca F.
+- **Chưa chạy thử:** bước 1 (lấy tên bộ từ nhật ký), bước 4 (`restore-test.sh` với khoá thật — Claude không được cầm khoá riêng), bước 6, và hai lệnh kiểm trên máy Windows của Owner ở bước 7.
 
 ### Các bước
 
@@ -179,11 +194,17 @@ Không bước nào trong tài liệu này áp dụng cho production.
    install -d -m 700 /run/siscom-restore
    ```
    ```bash
-   systemd-run --on-active=30min --unit=siscom-key-cleanup /usr/bin/shred -u /run/siscom-restore/backup.key
+   systemd-run --collect --on-active=30min --unit=siscom-key-cleanup /bin/sh -c '[ ! -e /run/siscom-restore/backup.key ] || /usr/bin/shred -u /run/siscom-restore/backup.key'
    ```
-   (Khác `docs/VPS_RUNBOOK.md` G6 ở một điểm: runbook đặt khoá tại `/root/siscom-backup.key`; ở đây dùng `/run/siscom-restore/backup.key` và thêm hẹn giờ. Nguyên tắc "lên tạm, dùng xong xoá" không đổi. Runbook chưa được sửa trong PR này.)
+   (Khác `docs/VPS_RUNBOOK.md` G6 ở một điểm: runbook đặt khoá tại `/root/siscom-backup.key`; ở đây dùng `/run/siscom-restore/backup.key` và thêm hẹn giờ. Nguyên tắc "lên tạm, dùng xong xoá" không đổi. Runbook G6 đã có dòng dẫn sang phụ lục này; trong một lần khôi phục chỉ dùng **một** quy trình.)
 
-   Lệnh thứ hai hẹn: sau 30 phút, hệ thống tự xoá tệp khoá **dù phiên SSH còn hay mất, dù người làm có quay lại hay không**. Kiểm đã hẹn: `systemctl list-timers 'siscom-key-cleanup*' --no-pager` phải có một dòng. Chưa thấy dòng này thì **không** đưa khoá lên.
+   Lệnh thứ hai hẹn: sau 30 phút, hệ thống tự xoá tệp khoá **dù phiên SSH còn hay mất, dù người làm có quay lại hay không**. Lệnh đạt khi in hai dòng `Running timer as unit: siscom-key-cleanup.timer` và `Will run service as unit: siscom-key-cleanup.service`. Kiểm đã hẹn: `systemctl list-timers 'siscom-key-cleanup*' --no-pager` phải có một dòng.
+
+   **Điều kiện dừng:** nếu `systemd-run` báo lỗi (ví dụ `… was already loaded or has a fragment file` — còn hẹn giờ của lần làm trước) hoặc `list-timers` không có dòng nào thì **không** đưa khoá lên. Dọn hẹn giờ cũ rồi chạy lại lệnh hẹn giờ:
+   ```bash
+   systemctl stop siscom-key-cleanup.timer siscom-key-cleanup.service; systemctl reset-failed siscom-key-cleanup.timer siscom-key-cleanup.service; ls -la /run/siscom-restore/
+   ```
+   (`reset-failed` có thể báo lỗi khi không có gì để dọn — bỏ qua được; quan trọng là sau đó `systemd-run` chạy thành công. Nếu `ls` cho thấy còn tệp khoá của lần trước thì xoá ngay bằng lệnh ở bước 5.)
 
    Sau đó đưa khoá lên. Cách khuyến nghị (không để lại trong lịch sử shell): gõ lệnh dưới, dán nội dung file khoá, nhấn Enter rồi `Ctrl-D`:
    ```bash
@@ -201,7 +222,7 @@ Không bước nào trong tài liệu này áp dụng cho production.
    ```bash
    shred -u /run/siscom-restore/backup.key; systemctl stop siscom-key-cleanup.timer 2>/dev/null; ls -la /run/siscom-restore/; systemctl list-timers 'siscom-key-cleanup*' --no-pager
    ```
-   Đạt khi thư mục không còn tệp khoá và không còn hẹn giờ nào đang chờ. (Nếu hẹn giờ đã tự chạy trước đó thì `shred` báo không thấy tệp — vẫn là đạt.)
+   Đạt khi thư mục không còn tệp khoá và không còn hẹn giờ nào đang chờ. (Nếu hẹn giờ đã tự chạy trước đó thì `shred` báo không thấy tệp — vẫn là đạt.) Luôn chạy **cả dòng lệnh**: phần `systemctl stop …timer` huỷ hẹn giờ để lần làm lại không bị vướng.
 
 6. **Dọn database thử — chỉ khi bước 4 ĐẠT**, bằng đúng lệnh mà bước 4 đã in (tên phải bắt đầu bằng `siscom_crm_restore_`):
    ```bash
