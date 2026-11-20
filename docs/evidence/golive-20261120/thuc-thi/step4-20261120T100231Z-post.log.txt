@@ -1,0 +1,16 @@
+== SAU BUOC 4 ==
+2026-11-20T10:04:01Z
+backend: active
+prod lookup_item=73
+prod employee=0
+prod role=0
+prod customer=0
+prod opportunity=0
+prod activity=0
+theo nhom: ERROR:  syntax error at or near "\"
+LINE 1: SELECT string_agg(category || \x27=\x27 || n, \x27, \x27 ORD...
+                                      ^
+health/database: "database":"up" "migrated":true "leastPrivilege":true "authLeastPrivilege":true 
+dau van tay siscom_crm_staging: owner+acl=[siscom_migrator {siscom_migrator=CTc/siscom_migrator,siscom_app=Tc/siscom_migrator,siscom_auth=c/siscom_migrator}] schema=f725755b359e33366f686c17de6f00f8 rows=759869c0cd70a1f8e83140c273fe9339
+tu ngoai: https://crm.siscom.io.vn/ => 200, /api/v1/health => 200
+GHI CHU: dong 'theo nhom' loi cu phap do lenh go (dau nhay) - truy van phu, chi doc; so tung nhom co trong step4-20261120T100231Z-apply.log (4+4+5+10+34+4+3+9 = 73).

@@ -1,0 +1,249 @@
+== KE HOACH (THAT) ==
+  DB dich      : siscom_crm_prod
+  Ban moi      : src-20261120095200   (nguon: /root/s12-src-2de465c | (thu muc /root/s12-src-2de465c))
+  Frontend     : /root/s12-web-dist-2de465c
+  Migrate      : co   DB moi tinh: co
+  Tu lui       : khong
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
+added 734 packages in 20s
+
+> siscom-crm-backend@0.1.0 build
+> prisma generate && nest build && node -e "require('fs').accessSync('dist/main.js')"
+
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma/schema.prisma.
+
+✔ Generated Prisma Client (7.10.1) to ./src/generated/prisma in 1.05s
+
+[OK] argon2 hash/verify (linux-x64, node 24.22.3)
+[OK] prisma               : 7.10.1
+[OK] DB chua migrate (moi tinh): bo qua sao luu.
+[OK] Ap migration (prisma migrate deploy, siscom_migrator)...
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma/schema.prisma.
+Datasource "db": PostgreSQL database "siscom_crm_prod", schema "public" at "127.0.0.1:5432"
+
+16 migrations found in prisma/migrations
+
+Applying migration `20261011000000_init`
+Applying migration `20261012000000_b1_2_crm_core`
+Applying migration `20261020000000_b1_3_auth_core`
+Applying migration `20261020120000_b1_3_auth_m1_1_guards`
+Applying migration `20261020180000_b1_3_auth_m1_2_priv_api`
+Applying migration `20261021000000_b1_3_auth_m1_3_reset_revocation`
+Applying migration `20261029000000_b1_4_remember_device`
+Applying migration `20261101000000_b1_4_session_remember_family`
+Applying migration `20261104000000_customer_phone_optional`
+Applying migration `20261104000100_contact_reach_optional`
+Applying migration `20261105000000_b3_activity_type_task`
+Applying migration `20261105000100_b3_activity_tasks`
+Applying migration `20261117000000_sales_opportunity`
+Applying migration `20261118000000_sales_perm_class`
+Applying migration `20261119000000_sales_activity_auto_kind`
+Applying migration `20261120000000_sales_opportunity_document`
+
+The following migration(s) have been applied:
+
+migrations/
+  └─ 20261011000000_init/
+    └─ migration.sql
+  └─ 20261012000000_b1_2_crm_core/
+    └─ migration.sql
+  └─ 20261020000000_b1_3_auth_core/
+    └─ migration.sql
+  └─ 20261020120000_b1_3_auth_m1_1_guards/
+    └─ migration.sql
+  └─ 20261020180000_b1_3_auth_m1_2_priv_api/
+    └─ migration.sql
+  └─ 20261021000000_b1_3_auth_m1_3_reset_revocation/
+    └─ migration.sql
+  └─ 20261029000000_b1_4_remember_device/
+    └─ migration.sql
+  └─ 20261101000000_b1_4_session_remember_family/
+    └─ migration.sql
+  └─ 20261104000000_customer_phone_optional/
+    └─ migration.sql
+  └─ 20261104000100_contact_reach_optional/
+    └─ migration.sql
+  └─ 20261105000000_b3_activity_type_task/
+    └─ migration.sql
+  └─ 20261105000100_b3_activity_tasks/
+    └─ migration.sql
+  └─ 20261117000000_sales_opportunity/
+    └─ migration.sql
+  └─ 20261118000000_sales_perm_class/
+    └─ migration.sql
+  └─ 20261119000000_sales_activity_auto_kind/
+    └─ migration.sql
+  └─ 20261120000000_sales_opportunity_document/
+    └─ migration.sql
+
+All migrations have been successfully applied.
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma/schema.prisma.
+--- APP_GRANTS_V5 (siscom_migrator) lan 1 ---
+     db_dich     |    chay_bang    
+-----------------+-----------------
+ siscom_crm_prod | siscom_migrator
+(1 row)
+
+            ?column?             
+---------------------------------
+ target_db khop: siscom_crm_prod
+(1 row)
+
+                                               muc                                                | gia_tri 
+--------------------------------------------------------------------------------------------------+---------
+ bang_app_INSERT (phai 5; co bang B3: 7; co them bang Sales: 9; co them opportunity_document: 10) | 10
+ bang_app_UPDATE (phai 4; co bang B3: 6; co them opportunity: 7; co them opportunity_document: 8) | 8
+ bang_app_DELETE (phai 0)                                                                         | 0
+ cot_credential_app_UPDATE (phai 0)                                                               | 0
+ ham_api_app_EXECUTE (phai 0)                                                                     | 0
+ auth_session_app_SELECT (phai f)                                                                 | false
+ remember_device_app_bat_ky_quyen (phai f)                                                        | false
+ bang_auth_INSERT (phai 2, co remember_device: 3)                                                 | 3
+ bang_auth_UPDATE (phai 2, co remember_device: 3)                                                 | 3
+ cot_credential_auth_UPDATE (phai 7)                                                              | 7
+ ham_api_auth_EXECUTE (phai 1)                                                                    | 1
+ customer_auth_SELECT (phai f)                                                                    | false
+ sequence_app_UPDATE (phai 0)                                                                     | 0
+ bootstrap_close_app_EXECUTE (phai f)                                                             | false
+ activity_app_INSERT_UPDATE_khong_DELETE (phai t)                                                 | true
+ opportunity_app_INSERT_UPDATE_khong_DELETE (phai t; chua co bang: t)                             | true
+ opportunity_change_app_CHI_INSERT (phai t; chua co bang: t)                                      | true
+ opportunity_document_app_INSERT_UPDATE_khong_DELETE (phai t; chua co bang: t)                    | true
+(18 rows)
+
+--- APP_GRANTS_V5 (siscom_migrator) lan 2 ---
+     db_dich     |    chay_bang    
+-----------------+-----------------
+ siscom_crm_prod | siscom_migrator
+(1 row)
+
+            ?column?             
+---------------------------------
+ target_db khop: siscom_crm_prod
+(1 row)
+
+                                               muc                                                | gia_tri 
+--------------------------------------------------------------------------------------------------+---------
+ bang_app_INSERT (phai 5; co bang B3: 7; co them bang Sales: 9; co them opportunity_document: 10) | 10
+ bang_app_UPDATE (phai 4; co bang B3: 6; co them opportunity: 7; co them opportunity_document: 8) | 8
+ bang_app_DELETE (phai 0)                                                                         | 0
+ cot_credential_app_UPDATE (phai 0)                                                               | 0
+ ham_api_app_EXECUTE (phai 0)                                                                     | 0
+ auth_session_app_SELECT (phai f)                                                                 | false
+ remember_device_app_bat_ky_quyen (phai f)                                                        | false
+ bang_auth_INSERT (phai 2, co remember_device: 3)                                                 | 3
+ bang_auth_UPDATE (phai 2, co remember_device: 3)                                                 | 3
+ cot_credential_auth_UPDATE (phai 7)                                                              | 7
+ ham_api_auth_EXECUTE (phai 1)                                                                    | 1
+ customer_auth_SELECT (phai f)                                                                    | false
+ sequence_app_UPDATE (phai 0)                                                                     | 0
+ bootstrap_close_app_EXECUTE (phai f)                                                             | false
+ activity_app_INSERT_UPDATE_khong_DELETE (phai t)                                                 | true
+ opportunity_app_INSERT_UPDATE_khong_DELETE (phai t; chua co bang: t)                             | true
+ opportunity_change_app_CHI_INSERT (phai t; chua co bang: t)                                      | true
+ opportunity_document_app_INSERT_UPDATE_khong_DELETE (phai t; chua co bang: t)                    | true
+(18 rows)
+
+--- B1.3_S1_VERIFY.sql.txt (as=app) ---
+psql:/tmp/tmp.hHyV9ytH6F:174: WARNING:  no privileges were granted for "audit_log"
+psql:/tmp/tmp.hHyV9ytH6F:176: WARNING:  no privileges were granted for "audit_log"
+psql:/tmp/tmp.hHyV9ytH6F:178: WARNING:  no privileges were granted for "public"
+D19 app khong tu nang SUPERUSER/CREATEROLE => ok
+D2 app khong DISABLE TRIGGER (employee_credential) => ok
+D20 app khong tao role moi => ok
+D21 app khong doi chu so huu database => ok
+D3 app khong DROP TRIGGER => ok
+D4 app khong CREATE TABLE trong public => ok
+D5 app khong ALTER TABLE them cot => ok
+D6 app khong CREATE OR REPLACE ham trigger => ok
+D7 app khong UPDATE audit_log => ok
+D8 app khong DELETE audit_log => ok
+D9 app khong TRUNCATE audit_log => ok
+E1 app doc bang nghiep vu va nextval sequence ma khach => ok
+E2 app dung duoc extension (f_vn_fold/unaccent/similarity) => ok
+E5 app UPDATE customer (sua, xoa mem, khoi phuc), customer_assignment.ended_at, activity (B3 A3) va 2 bang B3 khi co (INSERT/UPDATE WHERE false) => ok
+E5s app INSERT/UPDATE opportunity va INSERT opportunity_change khi co bang (WHERE false) - Sales S3 V5 => ok
+E6 app UPDATE contact => ok
+E7 app EXECUTE duoc 5 ham runtime (f_vn_fold, fn_customer_restore_conflicts, fn_next_customer_code, fn_next_contact_code, fn_next_activity_code - B3 A3) => ok
+F1 app khong UPDATE password_hash (S3) => ok
+F10 app khong INSERT password_reset_token => ok
+F11 app khong INSERT app_meta (khong tu dong/mo khoi tao) => ok
+F12 app khong UPDATE employee => ok
+F13 app khong INSERT lookup_item (seed chay bang migrator) => ok
+F14 app khong DELETE customer (chi xoa mem bang UPDATE) => ok
+F15 app khong setval sequence ma khach => ok
+F16 app KHONG EXECUTE fn_auth_api_request_create / role_grant / reset_password (chi nguoi van hanh qua migrator) => ok
+F2 app khong UPDATE token_version (S3) => ok
+F3 app khong UPDATE must_change_password => ok
+F4 app khong UPDATE status credential => ok
+F5 app khong INSERT employee_credential => ok
+F6 app khong INSERT employee_role (S2 cap vai tro) => ok
+F7 app khong DELETE employee_role => ok
+F8 app khong INSERT privileged_change_request (S2) => ok
+F9 app khong UPDATE privileged_change_request (S2 tu duyet) => ok
+G1 app khong SELECT password_hash / token_version (doc hash de dung p_actor) => ok
+G2 app khong SELECT auth_session (doc bam phien) => ok
+G3 app khong INSERT auth_session (tu chen phien - R2) => ok
+G4 app khong UPDATE auth_session => ok
+G5 app khong UPDATE 7 cot dem/khoa (khoa nguoi khac / xoa bo dem do mat khau) => ok
+G6 app khong goi fn_auth_api_change_own_password (dat mat khau nguoi khac - R1) => ok
+PASS|75
+[OK] B1.3_S1_VERIFY.sql.txt: PASS|75
+--- B1.3_S1_VERIFY_AUTH.sql.txt (as=su) ---
+
+
+
+
+
+
+H0 dang chay bang siscom_auth (SET ROLE), khong superuser => ok
+H1 auth SELECT employee, employee_role, role, role_permission, permission, employee_credential, auth_session, audit_log => ok
+H10 auth SELECT/INSERT remember_device + UPDATE cot trang thai (rotated_at, replaced_by, revoked_at, revoke_reason, last_used_at) => ok
+H2 auth INSERT/UPDATE auth_session => ok
+H3 auth UPDATE 7 cot dem/khoa/thoi diem employee_credential => ok
+H4 auth INSERT audit_log => ok
+H5 auth doc password_hash / token_version (xac minh mat khau o ung dung) => ok
+H6 auth EXECUTE fn_auth_api_change_own_password => ok
+H7 auth co SET app.actor_employee_id / app.priv_request_id (ham M1.2 can) => ok
+H8 auth USAGE/SELECT CHI audit_log_id_seq; KHONG USAGE sequence ma khach/nhan vien, KHONG UPDATE sequence nao (M-5) => ok
+H9 auth khong superuser/createrole/createdb/replication/bypassrls/inherit, khong chu so huu DB, khong CREATE public, khong TEMP, khong thanh vien role nao => ok
+K1 auth khong SELECT customer => ok
+K10 auth khong SELECT password_reset_token => ok
+K11 auth khong DDL => ok
+K12 auth khong fn_auth_bootstrap_close => ok
+K13 auth khong setval => ok
+K14 auth KHONG EXECUTE ham SECURITY DEFINER nao khac (12 ham) => ok
+K15 auth khong SELECT bang nghiep vu nao (customer, contact, customer_assignment, activity, lookup_item, app_meta, _prisma_migrations) => ok
+K16 auth khong CREATE TEMP TABLE (M-c) => ok
+K17 auth khong SELECT privileged_change_request => ok
+K18 auth khong nextval sequence ma khach (dot ma) - M-5 => ok
+K19 auth khong SELECT department (khong can cho xac thuc) - M-5 => ok
+K2 auth khong INSERT customer => ok
+K20 auth khong UPDATE dinh danh/han tuyet doi remember_device (token_hash, abs_expires_at, employee_id, token_version) => ok
+K21 auth khong DELETE remember_device (chi thu hoi bang UPDATE) => ok
+K3 auth khong SELECT contact => ok
+K4 auth khong INSERT employee_role (cap vai tro) => ok
+K5 auth khong UPDATE password_hash truc tiep => ok
+K6 auth khong UPDATE token_version / must_change_password / status truc tiep => ok
+K7a auth khong INSERT employee_credential => ok
+K7b auth khong DELETE employee_credential => ok
+K8 auth khong DELETE auth_session (chi thu hoi bang UPDATE) => ok
+K9 auth khong UPDATE/DELETE audit_log => ok
+PASS|33
+[OK] B1.3_S1_VERIFY_AUTH.sql.txt: PASS|33
+[OK] GRANTS + VERIFY DAT tren siscom_crm_prod.
+[OK] Suc khoe OK (database up, migrated:true).
+[OK] TRIEN KHAI THANH CONG: src-20261120095200 (DB siscom_crm_prod).
+[OK] Da xoa ban phat hanh cu: src-20261113083453
+deploy rc=0

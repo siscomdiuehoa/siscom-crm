@@ -1,0 +1,17 @@
+employee tren siscom_crm_prod: 0 (CHU Y: chua du 5 tai khoan - nen lam buoc 5 truoc de ban sao luu dau tien co tai khoan)
+Result=success
+bo se kiem: /var/backups/siscom-crm/siscom_crm_prod_20261120_103421.dump.age - chu ky manifest + SHA-256 hop le
+  254743 /var/backups/siscom-crm/siscom_crm_prod_20261120_103421.dump.age
+  107 /var/backups/siscom-crm/siscom_crm_prod_20261120_103421.dump.age.sha256
+  825 /var/backups/siscom-crm/siscom_crm_prod_20261120_103421.manifest
+  314 /var/backups/siscom-crm/siscom_crm_prod_20261120_103421.manifest.sig
+manifest: db=siscom_crm_prod file_sha256=88b579d79dbf46f032891ef26961723fa7e9a56bd4c0b266480b9bb71c4a5010  so bang: 24
+khoa ky (cong khai) tren VPS: 5e93e09f78bd7422
+rc=0
+[OK] Con 14 bo .age (theo retention) va 0 bo plaintext cua siscom_crm_staging; 0 stem trung.
+[OK] Nho chep ra NGOAI may chu (Owner chon noi luu).
+[OK] Ket noi siscom_crm_prod (PostgreSQL 18), pg_dump 18
+[OK] Da sao luu: /var/backups/siscom-crm/siscom_crm_prod_20261120_103421.dump.age (254743 byte, 484 muc, ma hoa=1); manifest da ky va tu kiem dat.
+[OK] SHA-256 (file luu): 88b579d79dbf46f032891ef26961723fa7e9a56bd4c0b266480b9bb71c4a5010
+[OK] Con 1 bo .age (theo retention) va 0 bo plaintext cua siscom_crm_prod; 0 stem trung.
+[OK] Nho chep ra NGOAI may chu (Owner chon noi luu).

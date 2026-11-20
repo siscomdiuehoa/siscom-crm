@@ -1,0 +1,30 @@
+== SAU BUOC 1 ==
+thoi diem: 2026-11-20T08:59:54Z
+caddy: active; backend: active; postgresql: active
+caddy.env: SISCOM_HOST=crm.siscom.io.vn SISCOM_ACME_CA=https://acme-v02.api.letsencrypt.org/directory (600 root)
+siscom-tls.caddy: (644 root; sha 6442ed1226a18ec1)
+Caddyfile sha: f88e8d8eeaf7f2f6
+health/database: "database":"up" "migrated":true "leastPrivilege":true "authLeastPrivilege":true 
+DB: siscom_crm_staging
+dau van tay staging: b29f5864dd6017f73c017229216bbb4e (24 bang)
+cong nghe ngoai: *:443 *:80 0.0.0.0:26266 [::]:26266 
+Host: crm.siscom.io.vn (domain) | Het han: Feb 18 08:01:08 2027 GMT | Con: 89 ngay | Cap boi: C = US, O = Let's Encrypt, CN = YE2
+[OK] https://crm.siscom.io.vn/ bat tay TLS dat (KHONG dung -k: chung chi duoc tin), HTTP 200.
+[OK] https://crm.siscom.io.vn/api/v1/health = 200.
+[OK] TLS OK.
+https://crm.siscom.io.vn/ => 200  (khong -k)
+https://crm.siscom.io.vn/api/v1/health => 200
+http://crm.siscom.io.vn/ => 308 -> https://crm.siscom.io.vn/
+header: strict-transport-security: max-age=31536000 x-content-type-options: nosniff 
+https://42.96.15.235/ (IP cu) => 000khong ket noi
+CORS preflight /auth/login voi Origin https://crm.siscom.io.vn: [] (trong = origin chua duoc phep, dung ky vong truoc buoc 2)
+rc=0
+
+== Kiem tu NGOAI (may Owner) 2026-11-20T08:58:52Z ==
+https://crm.siscom.io.vn/ (khong -k): 200 ssl_verify=0
+chung chi: subject=CN=crm.siscom.io.vn issuer=C=US, O=Let's Encrypt, CN=YE2 notAfter=Feb 18 08:01:08 2027 GMT 
+https://crm.siscom.io.vn/api/v1/health: {"status":"ok","service":"siscom-crm-backend","version":"dev","uptimeSeconds":84160,"time":"2026-11-20T08:59:58.711Z"} [200]
+http://crm.siscom.io.vn/: 308 -> https://crm.siscom.io.vn/
+trang dang nhap (index.html): <title>SISCOM CRM</title>
+https://42.96.15.235/ (IP cu): 000 voi -k: 000
+cong mo: 80 443 26266 

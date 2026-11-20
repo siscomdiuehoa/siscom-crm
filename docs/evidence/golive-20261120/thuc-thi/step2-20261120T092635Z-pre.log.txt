@@ -1,0 +1,7 @@
+== TRUOC BUOC 2 ==
+thoi diem: 2026-11-20T09:27:40Z
+backend: active; caddy: active; postgresql: active
+DB: siscom_crm_staging
+backend.env DATABASE_URL -> siscom_crm_staging, AUTH_DATABASE_URL -> siscom_crm_staging; migrate.env -> siscom_crm_staging; origin: https://42.96.15.235 (600 root, 600 root)
+dau van tay siscom_crm_staging: owner+acl=[siscom_migrator {siscom_migrator=CTc/siscom_migrator,siscom_app=Tc/siscom_migrator,siscom_auth=c/siscom_migrator}] schema=f725755b359e33366f686c17de6f00f8 rows=759869c0cd70a1f8e83140c273fe9339
+health/database: "database":"up" "migrated":true "leastPrivilege":true "authLeastPrivilege":true 
