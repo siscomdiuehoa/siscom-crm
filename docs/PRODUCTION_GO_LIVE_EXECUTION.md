@@ -129,14 +129,21 @@ Hai kịch bản sửa sau R1 đã chép lên VPS thay bản cũ (`/root/golive-
 
 - **Chạy lại bản R2 trên môi trường thử cách ly** (20/11 14:56 UTC, cùng môi trường mục 2.6): `g5-api-flows-r2-moi-truong-thu-20261120T145608Z.log.txt` — `CH-0006`: Tạm hoãn sinh đúng 1 việc nhắc `TT-000009` (OPEN), Tiếp tục ⇒ chính `TT-000009` thành `CANCELLED`, không còn việc nhắc OPEN; Thắng ⇒ giá trị chốt và chứng từ đúng như đã gửi, cả phản hồi lẫn khi đọc lại; việc bàn giao `TT-000010` cho `NV-0004`; Kỹ thuật mở cơ hội theo việc HTTP 200 (`access=TASK`), không có trường số tiền / chứng từ, hoàn thành ⇒ `DONE`. **3 nghiệp vụ đều đạt**, mã thoát 0. Kèm theo: sửa `bat-thu.ps1` (ngoài repo) vì lệnh bật PostgreSQL tạm có thể treo.
 - **Windows / Git Bash:** `test-golive-scripts-windows-r2-…log.txt` — **91 đạt, 0 không đạt** (gồm 4 ca G5 máy chủ giả, S7-3b và ca SSH lỗi của S7-5; bỏ qua quyền 600 và nhóm REAL).
-- **Linux (nhóm REAL với tên hẹn giờ riêng) và ShellCheck cho bản R2: chưa chạy** — cần máy GitHub dùng một lần, chờ Owner duyệt riêng cho lần chạy này.
-- `step7.sh` trên VPS (`/root/golive-step7/step7.sh`) **vẫn là bản R1** (SHA-256 `3ff0498e…`); khác bản R2 ở nhánh `selftest-cleanup`, `pull` (`pull` chạy trên máy Owner, không chạy trên VPS) và `backup`; chế độ `owner-restore` không đổi. Thay bằng bản R2 (đối chiếu `SHA256SUMS.txt`) trước khi Owner chạy `owner-restore`; việc chép này cần Owner duyệt.
+- **Linux (bằng chứng chính cho bản R2):** Ubuntu 24.04, root, systemd thật — **103 đạt, 0 không đạt**. Gồm:
+  - nhóm S7-REAL chỉ dùng hẹn giờ tên riêng `siscom-key-cleanup-test-<pid>-<giờ>`; cuối nhóm xác nhận hẹn giờ vận hành `siscom-key-cleanup` **không** bị tạo / động tới;
+  - 4 ca G5 với máy chủ giả.
+
+  Máy GitHub dùng một lần (Owner duyệt 20/11/2026), workflow tạm trên nhánh riêng `rehearsal/golive-scripts-r2-20261120`; không merge, đã xoá nhánh. Run https://github.com/siscomdiuehoa/siscom-crm/actions/runs/44771509479 ; nhật ký `test-golive-scripts-linux-r2-run44771509479.log.txt`. SHA-256 các kịch bản run in ra trùng `SHA256SUMS.txt`.
+- **ShellCheck** (`-x -S warning -e SC1091`, như CI) cho `step5-bootstrap-owner.sh`, `step7.sh`, `golive-check.sh`, `test-golive-scripts.sh`, `g5-api-flows.sh`: **không có cảnh báo** (`shellcheck-r2-run44771509479.log.txt`).
+- `step7.sh` trên VPS (`/root/golive-step7/step7.sh`) **đã thay bằng bản R2** ngày 20/11/2026 23:15 giờ Việt Nam, Owner duyệt:
+  - SHA-256 sau khi chép `3d589fd4…` trùng `SHA256SUMS.txt`; quyền 700; `bash -n` đạt;
+  - bản R1 (`3ff0498e…`) giữ ở `step7.sh.bak-r1-20261120`;
+  - chưa chạy chế độ nào của bản mới trên VPS.
 
 ## 6. NOT_VERIFIED
 
 - Bước 5, 6b, khôi phục thử của bước 7, bước 8: chưa chạy. `step5-bootstrap-owner.sh` và chế độ `owner-restore` của `step7.sh` mới thử bằng dữ liệu giả, chưa chạy với mật khẩu / khoá thật.
 - G5: **đã có** bằng chứng qua API trên môi trường thử cách ly cho Thắng + việc bàn giao, Tạm hoãn / Tiếp tục, việc giao cho Kỹ thuật (mục 2.6); **chưa** có lần Owner thử trên giao diện (hoặc lời Owner chấp nhận bằng chứng API thay thế).
-- Bộ thử bản R2: nhóm REAL trên Linux và ShellCheck chưa chạy (mục 5.2).
 - Sửa R2 lần 3 (`step7.sh backup`, `golive-check.sh` G8): chưa thử trên VPS, mới kiểm cú pháp (mục 5.2).
 - Rollback thật trên VPS: chưa thử.
 - Đăng nhập thật trên `https://crm.siscom.io.vn`: chưa kiểm (chưa có tài khoản); mới kiểm preflight CORS trả đúng origin.
