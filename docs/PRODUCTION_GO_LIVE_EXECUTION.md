@@ -70,7 +70,7 @@ Owner duyệt trong phiên chat với Claude, **ngoài repo**. Mốc giờ dư�
 | G4 RBAC | Chưa | Sau bước 5 |
 | G5 Nghiệp vụ thiết yếu | **Đạt phần API · chờ Owner thử giao diện** | Mục 2.6: staging 19/11 (tạo / sửa / chuyển giai đoạn / Thua / Mở lại / Xoá) + môi trường thử cách ly 20/11 qua API (Thắng + việc bàn giao, Tạm hoãn / Tiếp tục, Kỹ thuật thấy việc, không thấy số tiền) + test tự động CI `2de465c`. Còn: Owner thử trên giao diện ở môi trường thử, hoặc Owner ghi rõ chấp nhận bằng chứng API thay cho thử giao diện |
 | G6 Database thật sạch | **Tạm** (chưa kết luận) | 11 bảng nghiệp vụ = 0; `lookup_item` = 73; `audit_log` trống; `employee` = 0. Chỉ kết luận sau bước 6b, bằng `golive-check.sh 5` |
-| G7 Sao lưu | **Chưa đạt** (một phần) | Bộ sơ bộ (`employee` = 0) có chữ ký + bản sao ngoài VPS qua kiểm. Chưa có bộ sau bước 5, chưa khôi phục thử (điều kiện ở mục 2.2) |
+| G7 Sao lưu | **Chưa đạt** (một phần) | Bộ sơ bộ (`employee` = 0) có chữ ký + bản sao ngoài VPS qua kiểm. Chưa có bộ sau bước 5, chưa khôi phục thử (điều kiện ở mục 2.2). Chỉ đạt khi đủ 3 điều kiện ở mục 6 |
 | G8 Rollback | Đạt phần **chuẩn bị** | Bộ sao lưu staging cuối có chữ ký; staging trùng dấu vân tay; bản mã `src-20261119093630` và 4 tệp `.bak` còn; lệnh lùi ghi sẵn (kế hoạch mục 5.2). **Chưa thử rollback thật trên VPS**; quy trình khôi phục chỉ mới diễn tập trên PostgreSQL tạm cách ly (#255) |
 | G9 Giao tài khoản | Chưa | Owner |
 | G10 Kênh báo lỗi | Chưa | Owner |
@@ -124,11 +124,11 @@ Hai kịch bản sửa sau R1 đã chép lên VPS thay bản cũ (`/root/golive-
 | MEDIUM — mục 6 mâu thuẫn mục 2.6 | Mục 6 ghi đúng: G5 đã có bằng chứng API trên môi trường thử cách ly, còn chờ Owner thử giao diện | — |
 | HIGH (R2 lần 2) — `g5-api-flows.sh` Thắng chỉ kiểm `status` | Sau Thắng kiểm `status=WON` **và** `wonAmountVnd`, `wonDocType`, `wonDocNo`, `wonDocDate`, `wonDocUrl` đúng như đã gửi, trong phản hồi **và** khi Kinh doanh đọc lại cơ hội; sai ⇒ không đạt, in tên trường sai | G5-4: máy chủ giả trả `WON` nhưng lưu giá trị chốt `0` ⇒ mã 1, báo "Thang (doc lai) sai: wonAmountVnd=0", không kết luận đạt |
 | HIGH (R2 lần 2) — `step7.sh pull`: lỗi SSH bị coi là "chưa có dấu" | Hỏi VPS bằng lệnh trả lời rõ `CO` / `KHONG`; mã SSH khác 0 hoặc câu trả lời khác ⇒ dừng mã 1 "khong kiem duoc dau khoi phuc thu tren VPS", **không** xoá dấu `.restore-ok.txt` đã có trên máy Owner, không chạy `verify-local` | S7-5: `ssh` giả trả 255 ở bước kiểm dấu, dấu cục bộ có sẵn ⇒ mã 1, đúng thông báo, dấu cục bộ giữ nguyên (so SHA-256 trước / sau) |
-| HIGH (R2 lần 3) — `step7.sh backup`: `systemctl start … \|\| true` | Lỗi khởi chạy `siscom-crm-backup.service` ⇒ dừng mã 1, không dùng `Result` của lần trước. Ghi mốc UTC trước khi chạy; bộ lấy từ journal phải có tên ≥ mốc đó, không thì dừng "khong phai bo vua tao" | **Chưa thử** (cần root + systemd trên VPS); mới kiểm cú pháp. Thử ở lần chạy thật `backup` sau bước 5: kết quả phải in đúng bộ mới |
-| HIGH (R2 lần 3) — `golive-check.sh` G8 chỉ in số tệp `.bak` | Kiểm riêng 4 tệp để lùi (`backend.env`, `migrate.env` `.bak-20261120092749`; `caddy.env`, `siscom-tls.caddy` `.bak-20261120085931`): thiếu / rỗng / không đọc được ⇒ **không đạt**, kết quả cuối không còn "moi muc kiem duoc deu DAT" | **Chưa thử** (cần root trên VPS); mới kiểm cú pháp. Lần chạy `golive-check.sh` chỉ đọc kế tiếp sẽ in 4 dòng này |
+| HIGH (R2 lần 3) — `step7.sh backup`: `systemctl start … \|\| true` | Lỗi khởi chạy `siscom-crm-backup.service` ⇒ dừng mã 1, không dùng `Result` của lần trước. Ghi mốc UTC trước khi chạy; bộ lấy từ journal phải có tên ≥ mốc đó, không thì dừng "khong phai bo vua tao" | **Thử cô lập** S7-6. Cách dựng:<br>• bản sao `step7.sh` chỉ đổi 5 đường dẫn sang thư mục tạm; bộ thử kiểm bằng `diff` rằng mọi dòng khác bản gốc chỉ là đường dẫn;<br>• `systemctl` / `journalctl` / `sudo` / `uname` / `id` đều giả.<br>Kết quả:<br>• khởi chạy lỗi khi `Result` cũ = success ⇒ mã 1, **không** ghi `restore-set.txt`;<br>• khởi chạy được nhưng journal chỉ có bộ cũ ⇒ mã 1 "khong phai bo vua tao", không ghi;<br>• bình thường ⇒ mã 0, ghi đúng bộ mới.<br>Đối chứng: cùng phép thử với `step7.sh` trước vòng 3 ⇒ nhận bộ cũ, ghi `restore-set.txt` (đúng lỗi review nêu).<br>**Chưa chạy thật trên VPS**: chạy thật là tạo sao lưu, cần Owner duyệt riêng sau bước 5 |
+| HIGH (R2 lần 3) — `golive-check.sh` G8 chỉ in số tệp `.bak` | Kiểm riêng 4 tệp để lùi (`backend.env`, `migrate.env` `.bak-20261120092749`; `caddy.env`, `siscom-tls.caddy` `.bak-20261120085931`): thiếu / rỗng / không đọc được ⇒ **không đạt**, kết quả cuối không còn "moi muc kiem duoc deu DAT" | **Thử cô lập** GC-1: chạy riêng đoạn G8 trích từ `golive-check.sh`, `/etc` đổi sang thư mục tạm.<br>• đủ 4 tệp ⇒ mã 0, 4 dòng đạt;<br>• thiếu `migrate.env.bak` ⇒ mã 1, nêu đúng tệp;<br>• tệp Caddy rỗng ⇒ mã 1.<br>Đối chứng: bản trước vòng 3 không có kiểm này.<br>**Kiểm chỉ đọc trên VPS thật** 20/11 16:32 UTC (`gonogo-chi-doc-r2-20261120T163223Z.log.txt`): chạy qua `ssh 'bash -s -- 0'`, không ghi tệp lên VPS. Cả 4 tệp còn; mọi mục kiểm được đều đạt |
 
 - **Chạy lại bản R2 trên môi trường thử cách ly** (20/11 14:56 UTC, cùng môi trường mục 2.6): `g5-api-flows-r2-moi-truong-thu-20261120T145608Z.log.txt` — `CH-0006`: Tạm hoãn sinh đúng 1 việc nhắc `TT-000009` (OPEN), Tiếp tục ⇒ chính `TT-000009` thành `CANCELLED`, không còn việc nhắc OPEN; Thắng ⇒ giá trị chốt và chứng từ đúng như đã gửi, cả phản hồi lẫn khi đọc lại; việc bàn giao `TT-000010` cho `NV-0004`; Kỹ thuật mở cơ hội theo việc HTTP 200 (`access=TASK`), không có trường số tiền / chứng từ, hoàn thành ⇒ `DONE`. **3 nghiệp vụ đều đạt**, mã thoát 0. Kèm theo: sửa `bat-thu.ps1` (ngoài repo) vì lệnh bật PostgreSQL tạm có thể treo.
-- **Windows / Git Bash:** `test-golive-scripts-windows-r2-…log.txt` — **91 đạt, 0 không đạt** (gồm 4 ca G5 máy chủ giả, S7-3b và ca SSH lỗi của S7-5; bỏ qua quyền 600 và nhóm REAL).
+- **Windows / Git Bash:** `test-golive-scripts-windows-r2-…log.txt` — **91 đạt, 0 không đạt** (gồm 4 ca G5 máy chủ giả, S7-3b và ca SSH lỗi của S7-5; bỏ qua quyền 600 và nhóm REAL). Sau khi thêm S7-6 và GC-1 (kiểm hai sửa vòng 3): `test-golive-scripts-windows-r2b-…log.txt` — **107 đạt, 0 không đạt**.
 - **Linux (bằng chứng chính cho bản R2):** Ubuntu 24.04, root, systemd thật — **103 đạt, 0 không đạt**. Gồm:
   - nhóm S7-REAL chỉ dùng hẹn giờ tên riêng `siscom-key-cleanup-test-<pid>-<giờ>`; cuối nhóm xác nhận hẹn giờ vận hành `siscom-key-cleanup` **không** bị tạo / động tới;
   - 4 ca G5 với máy chủ giả.
@@ -144,7 +144,15 @@ Hai kịch bản sửa sau R1 đã chép lên VPS thay bản cũ (`/root/golive-
 
 - Bước 5, 6b, khôi phục thử của bước 7, bước 8: chưa chạy. `step5-bootstrap-owner.sh` và chế độ `owner-restore` của `step7.sh` mới thử bằng dữ liệu giả, chưa chạy với mật khẩu / khoá thật.
 - G5: **đã có** bằng chứng qua API trên môi trường thử cách ly cho Thắng + việc bàn giao, Tạm hoãn / Tiếp tục, việc giao cho Kỹ thuật (mục 2.6); **chưa** có lần Owner thử trên giao diện (hoặc lời Owner chấp nhận bằng chứng API thay thế).
-- Sửa R2 lần 3 (`step7.sh backup`, `golive-check.sh` G8): chưa thử trên VPS, mới kiểm cú pháp (mục 5.2).
+- Sửa R2 lần 3:
+  - `golive-check.sh` G8: **đã kiểm** — thử cô lập + chạy chỉ đọc trên VPS (mục 5.2).
+  - `step7.sh backup`: **đã thử cô lập**; **chưa chạy thật trên VPS**. Lần chạy thật đầu tiên là lần sao lưu lại sau bước 5, cần Owner duyệt riêng.
+- **G7 chưa đạt** và không được coi là đạt cho tới khi đủ cả ba:
+  1. có bộ sao lưu chụp **sau bước 5** (`employee` = 5);
+  2. Owner **khôi phục thử thành công** chính bộ đó (`owner-restore`, có dấu `.restore-ok.txt`);
+  3. **bản sao ngoài VPS** của bộ đó qua kiểm chữ ký + SHA-256 + dấu khôi phục (`pull` / `verify-local`).
+
+  Bộ sơ bộ `siscom_crm_prod_20261120_103421` (`employee` = 0) không dùng để kết luận G7.
 - Rollback thật trên VPS: chưa thử.
 - Đăng nhập thật trên `https://crm.siscom.io.vn`: chưa kiểm (chưa có tài khoản); mới kiểm preflight CORS trả đúng origin.
 - Sao lưu đêm tự động đầu tiên trên `siscom_crm_prod` (02:02 ngày 21/11): chưa tới giờ.

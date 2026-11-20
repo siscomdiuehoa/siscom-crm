@@ -151,6 +151,66 @@ lm="$H/SISCOM-CRM-PR178/backup/prod/$sp.dump.age.restore-ok.txt"; a="$(sha256sum
 pl "" 1; is "ssh loi (255) khi kiem dau: ma thoat" "$rc" 1; has "bao khong kiem duoc dau" "$r" "khong kiem duoc dau khoi phuc thu tren VPS (ssh ma 255)"; hasnt "khong coi la chua khoi phuc" "$r" "chua co dau khoi phuc thu cua bo nay"
 if [ -f "$lm" ] && [ "$(sha256sum "$lm" | cut -d' ' -f1)" = "$a" ]; then ok "dau cuc bo giu nguyen khi ssh loi"; else bad "dau cuc bo bi xoa / sua khi ssh loi"; fi
 
+# ---------------------------------------------------------------- S7-6 che do backup (sua R2 #256 vong 3) - moi truong GIA
+# Ban sao step7.sh chi doi duong dan (BK, SET, ST, LIN, allowed_signers) sang thu muc tam; logic giu nguyen (kiem bang diff).
+# uname / id / install / sudo / systemctl / journalctl deu GIA: khong chay sao luu that, khong cham postgres / systemd.
+echo "S7-6 backup voi systemctl / journalctl GIA: khoi chay loi / journal tra bo cu / binh thuong"
+B6="$T/b6"; mkdir -p "$B6/bk" "$B6/root" "$B6/lin" "$B6/etc" "$B6/p"
+sed -e "s#BK=/var/backups/siscom-crm#BK=$B6/bk#" -e "s#SET=/root/restore-set.txt#SET=$B6/root/restore-set.txt#" \
+    -e "s#ST=/root/golive-step7#ST=$B6/root/st#" -e "s#LIN=/opt/siscom-crm/current/backend/scripts/linux#LIN=$B6/lin#" \
+    -e "s#/etc/siscom-crm/backup-signing.allowed_signers#$B6/etc/allowed#g" "$S7" > "$B6/step7-thu.sh"
+is "ban sao: moi dong khac ban goc deu chi la duong dan sang thu muc tam" "$(diff "$S7" "$B6/step7-thu.sh" | grep '^>' | grep -vc "$B6" || true)" 0
+echo "x" > "$B6/etc/allowed"; echo 'verify_backup_set() { [ -f "$1" ]; }' > "$B6/lin/lib.sh"
+mkset6() { # mkset6 <ten bo> : tao 4 tep gia cua mot bo
+  local s="$B6/bk/$1"; echo "GIA" > "$s.dump.age"; printf 'db=siscom_crm_prod\nfile_sha256=abc\nrows|x|1\n' > "${s}.manifest"
+  echo sig > "${s}.manifest.sig"; echo sha > "$s.dump.age.sha256"; }
+printf '#!/usr/bin/env bash\necho Linux\n' > "$B6/p/uname"
+printf '#!/usr/bin/env bash\nif [ "${1:-}" = -u ]; then echo 0; else exec /usr/bin/id "$@"; fi\n' > "$B6/p/id"
+printf '#!/usr/bin/env bash\nmkdir -p "${@: -1}"\n' > "$B6/p/install"
+printf '#!/usr/bin/env bash\necho 5\n' > "$B6/p/sudo"
+cat > "$B6/p/systemctl" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  start) [ -z "\${FAKE_START_FAIL:-}" ] || exit 1
+         [ -z "\${FAKE_START_NOLOG:-}" ] || exit 0
+         n="siscom_crm_prod_\$(date -u +%Y%m%d_%H%M%S)"; s="$B6/bk/\$n"; echo GIA > "\$s.dump.age"
+         printf 'db=siscom_crm_prod\nfile_sha256=abc\nrows|x|1\n' > "\$s.manifest"; echo sig > "\$s.manifest.sig"; echo sha > "\$s.dump.age.sha256"
+         echo "[OK] Da sao luu: \$s.dump.age" >> "$B6/journal" ;;
+  show) echo success ;;
+  *) exit 0 ;;
+esac
+STUB
+printf '#!/usr/bin/env bash\ncat "%s/journal"\n' "$B6" > "$B6/p/journalctl"
+chmod +x "$B6/p"/*
+old=siscom_crm_prod_20261119_000000; mkset6 "$old"; echo "[OK] Da sao luu: $B6/bk/$old.dump.age" > "$B6/journal"
+b6() { r="$(PATH="$B6/p:$PATH" FAKE_START_FAIL="${1:-}" FAKE_START_NOLOG="${2:-}" bash "$B6/step7-thu.sh" backup 2>&1)"; rc=$?; }
+b6 1 ""; is "khoi chay sao luu loi (Result cu = success): ma thoat" "$rc" 1; has "bao khong khoi chay duoc" "$r" "khong khoi chay duoc siscom-crm-backup.service"
+if [ -e "$B6/root/restore-set.txt" ]; then bad "restore-set.txt bi ghi du khoi chay loi"; else ok "khong ghi restore-set.txt (khong nhan bo cu)"; fi
+b6 "" 1; is "khoi chay duoc nhung journal chi co bo cu: ma thoat" "$rc" 1; has "bao bo cu khong phai bo vua tao" "$r" "khong phai bo vua tao"
+if [ -e "$B6/root/restore-set.txt" ]; then bad "restore-set.txt bi ghi bo cu"; else ok "khong ghi restore-set.txt (bo cu bi tu choi)"; fi
+b6 "" ""; is "binh thuong: ma thoat" "$rc" 0
+nf="$(cat "$B6/root/restore-set.txt" 2>/dev/null || true)"
+if [ -n "$nf" ] && [ "$(basename "$nf")" != "$old.dump.age" ] && [ -f "$nf" ]; then ok "restore-set.txt ghi bo MOI: $(basename "$nf")"; else bad "restore-set.txt sai: $nf"; fi
+
+# ---------------------------------------------------------------- GC-1 golive-check.sh muc G8: 4 tep de lui (sua R2 #256 vong 3)
+# Chi chay doan G8 trich tu golive-check.sh (khong chay phan con lai vi no goi curl / psql / systemctl that), /etc doi sang thu muc tam.
+GC="$here/golive-check.sh"
+if [ -f "$GC" ]; then
+  echo "GC-1 golive-check.sh G8: du 4 tep / thieu 1 tep / tep rong"
+  G8="$T/g8"; mkdir -p "$G8/etc/siscom-crm" "$G8/etc/caddy"
+  { echo 'fail=0; ok() { echo "  [DAT]       $*"; }; bad() { echo "  [KHONG DAT] $*"; fail=1; }'
+    awk '/^# Review R2 #256 vong 3/{p=1} p{print} p&&/^done$/{exit}' "$GC" | sed "s#/etc/#$G8/etc/#g"
+    echo 'exit $fail'; } > "$G8/g8.sh"
+  is "doan G8 trich du 4 duong dan" "$(grep -o "$G8/etc/[a-z/.-]*bak-[0-9]*" "$G8/g8.sh" | wc -l | tr -d ' ')" 4
+  BAKS="siscom-crm/backend.env.bak-20261120092749 siscom-crm/migrate.env.bak-20261120092749 siscom-crm/caddy.env.bak-20261120085931 caddy/siscom-tls.caddy.bak-20261120085931"
+  for b in $BAKS; do echo "NOI DUNG GIA" > "$G8/etc/$b"; done
+  r="$(bash "$G8/g8.sh" 2>&1)"; rc=$?; is "du 4 tep: ma thoat" "$rc" 0; is "du 4 tep: so dong DAT" "$(printf '%s\n' "$r" | grep -c 'tep de lui con')" 4
+  rm -f "$G8/etc/siscom-crm/migrate.env.bak-20261120092749"
+  r="$(bash "$G8/g8.sh" 2>&1)"; rc=$?; is "thieu migrate.env.bak: ma thoat" "$rc" 1; has "bao THIEU dung tep" "$r" "THIEU tep de lui: $G8/etc/siscom-crm/migrate.env.bak-20261120092749"
+  echo "NOI DUNG GIA" > "$G8/etc/siscom-crm/migrate.env.bak-20261120092749"; : > "$G8/etc/caddy/siscom-tls.caddy.bak-20261120085931"
+  r="$(bash "$G8/g8.sh" 2>&1)"; rc=$?; is "tep Caddy rong: ma thoat" "$rc" 1; has "bao THIEU tep rong" "$r" "THIEU tep de lui: $G8/etc/caddy/siscom-tls.caddy.bak-20261120085931"
+else echo "GC-1 (bo qua: thieu golive-check.sh cung thu muc)"; fi
+
 # ---------------------------------------------------------------- REAL: systemd that + tep khong xoa duoc (chi Linux root co systemd)
 if [ "$linux" = 1 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system ] && command -v chattr >/dev/null; then
   echo "S7-REAL hen gio systemd THAT (ten rieng $TT) + tep khoa gia khong xoa duoc (chattr +i)"
