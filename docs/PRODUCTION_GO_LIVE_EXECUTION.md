@@ -6,6 +6,7 @@
 - **Trạng thái (20/11/2026 17:40 giờ Việt Nam):** bước 0–4 xong; bước 7 xong phần sao lưu và bản sao ngoài VPS; **bước 5, 6b, phần khôi phục thử của bước 7 và bước 8 chưa làm** (chờ Owner). Hệ thống đang chạy trên `siscom_crm_prod`, **chưa có tài khoản nào**, chưa mở cho người dùng.
 - **KẾT LUẬN GO/NO-GO HIỆN TẠI: NO-GO — KHÔNG MỞ cho người dùng.** Còn thiếu G3, G4, G5, G7, G9, G10 (mục 3).
 - **Sửa sau review R1 của PR #256 (20/11/2026):** kịch bản bước 5 (tệp nhật ký 600 từ đầu, lọc đầu ra theo danh sách cho phép, dò mật khẩu trong đầu ra); kịch bản bước 7 (chỉ huỷ hẹn giờ sau khi xác nhận khoá đã xoá; `pull` dừng khi thiếu tệp bắt buộc; điều kiện G7); bộ thử nhánh lỗi bằng dữ liệu giả; mốc giờ các lần duyệt (mục 1.1); bảng GO/NO-GO có dòng kết luận; đối chiếu bằng chứng G5 trên staging (mục 2.6).
+- **Sửa sau review R2 của PR #256 (20/11/2026, mục 5.2):** `g5-api-flows.sh` không còn báo "đạt" khi Kỹ thuật không mở được cơ hội hoặc việc nhắc Tạm hoãn không chuyển `CANCELLED`; bộ thử nhóm REAL và `selftest-cleanup` chỉ dùng hẹn giờ thử tên riêng, không đụng hẹn giờ vận hành `siscom-key-cleanup`; mục 6 thống nhất với trạng thái G5.
 - Tài liệu và bằng chứng không chứa mật khẩu, khoá hay tên người dùng thật.
 - **Bằng chứng:** `docs/evidence/golive-20261120/thuc-thi/` — đầu ra lệnh từng bước (`*-pre`, `*-apply`, `*-post`) và các kịch bản đã dùng. Giờ trong nhật ký là UTC.
 
@@ -112,12 +113,26 @@ Kết quả chạy bộ thử và ShellCheck:
 - **ShellCheck 0.9.0** (`-x -S warning -e SC1091`, như CI): `step5-bootstrap-owner.sh`, `step7.sh`, `golive-check.sh`, `test-golive-scripts.sh` — **không có cảnh báo**. `step1-caddy.sh` và `step2-db.sh` **đã chạy thật nên giữ nguyên làm bằng chứng**; ShellCheck ghi nhận 2 cảnh báo, không sửa: SC1090 (nạp `caddy.env` theo biến đường dẫn cố định) và SC2010 (`ls | grep` trên thư mục sao lưu, tên tệp do `backup-db.sh` sinh, chỉ chữ số và gạch dưới; dòng này chỉ in thông tin). `shellcheck-run44732713218.log.txt`.
 - **Windows / Git Bash:** `test-golive-scripts-windows-…log.txt` — 69 đạt, 0 không đạt (bỏ qua phần quyền 600 và nhóm REAL).
 
-Hai kịch bản sửa sau R1 đã chép lên VPS thay bản cũ (`/root/golive-step5/bootstrap-owner.sh`, `/root/golive-step7/step7.sh`, đối chiếu SHA-256 với `SHA256SUMS.txt`); **chưa chạy thật**.
+Hai kịch bản sửa sau R1 đã chép lên VPS thay bản cũ (`/root/golive-step5/bootstrap-owner.sh`, `/root/golive-step7/step7.sh`, đối chiếu SHA-256 với `SHA256SUMS.txt` của vòng R1); **chưa chạy thật**.
+
+### 5.2 Sửa sau review R2 của PR #256
+
+| Điểm R2 | Đã sửa | Thử |
+|---|---|---|
+| HIGH — `g5-api-flows.sh` báo đạt sai | Kỹ thuật mở cơ hội theo việc được giao: mã khác 200 ⇒ **không đạt** ("KHONG mo duoc co hoi theo viec: HTTP …"); trước đây chỉ kiểm khi mã 200. Tạm hoãn: phải có **đúng 1** việc nhắc `HOLD_REMINDER` đang `OPEN`, ghi lại mã việc; Tiếp tục: **chính việc đó** phải `CANCELLED` và không còn việc nhắc `OPEN` — trước đây chỉ in ra. Trường bị ẩn với Kỹ thuật kiểm thêm `wonDocUrl`, `wonDocFileName`. Thêm `G5_ORIGIN` / `G5_ACCOUNTS` chỉ để bộ thử chạy với máy chủ giả | `test-golive-scripts.sh` nhóm G5 (máy chủ giả Node, dữ liệu giả): bình thường ⇒ mã 0 + "3 nghiep vu deu DAT"; Kỹ thuật bị 403 ⇒ mã 1, báo "KHONG mo duoc", **không** kết luận đạt; việc nhắc không huỷ ⇒ mã 1, báo "ky vong CANCELLED", **không** kết luận đạt |
+| HIGH — nhóm REAL dừng / thay hẹn giờ vận hành | `step7.sh selftest-cleanup` **bắt buộc** `STEP7_TEST_TIMER` dạng `siscom-key-cleanup-test-…` (thiếu ⇒ mã 1, sai dạng hoặc dùng tên vận hành ⇒ mã 2, không xoá gì). Bộ thử đặt tên riêng mỗi lần chạy (`siscom-key-cleanup-test-<pid>-<giờ>`); nhóm REAL chỉ tạo / kiểm / dừng hẹn giờ thử đó, **bỏ qua cả nhóm** nếu máy đang có `/run/siscom-restore/backup.key` hoặc hẹn giờ `siscom-key-cleanup.timer` đang chờ, và cuối nhóm kiểm hẹn giờ vận hành vẫn **không** bị tạo. Chế độ vận hành `owner-restore` / `cleanup` của `step7.sh` không đổi | S7-1 kiểm `stop` gọi đúng tên hẹn giờ thử, **không** gọi `stop siscom-key-cleanup.timer`; S7-3b thiếu tên / dùng tên vận hành ⇒ từ chối, tệp khoá giả còn nguyên; S7-REAL như trên với tên riêng |
+| MEDIUM — mục 6 mâu thuẫn mục 2.6 | Mục 6 ghi đúng: G5 đã có bằng chứng API trên môi trường thử cách ly, còn chờ Owner thử giao diện | — |
+
+- **Chạy lại bản R2 trên môi trường thử cách ly** (20/11 14:51 UTC, cùng môi trường mục 2.6): `g5-api-flows-r2-moi-truong-thu-20261120T145132Z.log.txt` — `CH-0005`: Tạm hoãn sinh đúng 1 việc nhắc `TT-000007` (OPEN), Tiếp tục ⇒ chính `TT-000007` thành `CANCELLED`, không còn việc nhắc OPEN; Thắng ⇒ việc bàn giao `TT-000008` cho `NV-0004`; Kỹ thuật mở cơ hội theo việc HTTP 200 (`access=TASK`), không có trường số tiền / chứng từ, hoàn thành ⇒ `DONE`. **3 nghiệp vụ đều đạt**, mã thoát 0. Kèm theo: sửa `bat-thu.ps1` (ngoài repo) vì lệnh bật PostgreSQL tạm có thể treo.
+- **Windows / Git Bash:** `test-golive-scripts-windows-r2-…log.txt` — **84 đạt, 0 không đạt** (gồm 3 ca G5 máy chủ giả và S7-3b; bỏ qua quyền 600 và nhóm REAL). Đối chứng: cùng bộ thử chạy với `g5-api-flows.sh` bản trước R2 ⇒ 5 không đạt (bản cũ không nhận máy chủ giả, không có các câu báo lỗi mới).
+- **Linux (nhóm REAL với tên hẹn giờ riêng) và ShellCheck cho bản R2: chưa chạy** — cần máy GitHub dùng một lần, chờ Owner duyệt riêng cho lần chạy này.
+- `step7.sh` trên VPS (`/root/golive-step7/step7.sh`) **vẫn là bản R1** (SHA-256 `3ff0498e…`); khác bản R2 chỉ ở nhánh `selftest-cleanup`. Thay bằng bản R2 (đối chiếu `SHA256SUMS.txt`) trước khi Owner chạy `owner-restore`; việc chép này cần Owner duyệt.
 
 ## 6. NOT_VERIFIED
 
 - Bước 5, 6b, khôi phục thử của bước 7, bước 8: chưa chạy. `step5-bootstrap-owner.sh` và chế độ `owner-restore` của `step7.sh` mới thử bằng dữ liệu giả, chưa chạy với mật khẩu / khoá thật.
-- G5: chưa có bằng chứng thử nghiệp vụ cho Thắng + việc bàn giao, Tạm hoãn / Tiếp tục, việc giao cho Kỹ thuật (mục 2.6).
+- G5: **đã có** bằng chứng qua API trên môi trường thử cách ly cho Thắng + việc bàn giao, Tạm hoãn / Tiếp tục, việc giao cho Kỹ thuật (mục 2.6); **chưa** có lần Owner thử trên giao diện (hoặc lời Owner chấp nhận bằng chứng API thay thế).
+- Bộ thử bản R2: nhóm REAL trên Linux và ShellCheck chưa chạy (mục 5.2).
 - Rollback thật trên VPS: chưa thử.
 - Đăng nhập thật trên `https://crm.siscom.io.vn`: chưa kiểm (chưa có tài khoản); mới kiểm preflight CORS trả đúng origin.
 - Sao lưu đêm tự động đầu tiên trên `siscom_crm_prod` (02:02 ngày 21/11): chưa tới giờ.

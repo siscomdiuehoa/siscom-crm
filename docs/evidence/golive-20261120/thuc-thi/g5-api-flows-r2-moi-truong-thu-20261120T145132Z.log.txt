@@ -1,0 +1,26 @@
+# g5-api-flows.sh ban R2 (sha256 b475128530e0e7f328d2f45352d1ffecad636571b4a0d7569981b22c2746c5ac) tren moi truong thu cach ly, 20261120T145132Z
+== G5 tren moi truong thu: 2026-11-20T14:51:32Z; "migrated":true ==
+-- Kinh doanh tao khach va co hoi
+  khach: KH-00006 THU-G5 Cong ty thu nghiem
+  co hoi: CH-0005 giai doan=Tiếp cận status=OPEN
+  chuyen giai doan: Báo giá
+-- N2: Tam hoan -> Tiep tuc
+  [DAT]       Tam hoan: status=ON_HOLD, han=2026-11-27
+  viec tu sinh khi tam hoan: TT-000007 HOLD_REMINDER/OPEN
+  [DAT]       Tam hoan sinh dung 1 viec nhac HOLD_REMINDER dang OPEN
+  [DAT]       Tiep tuc: status=OPEN, giu giai doan=QUOTATION
+  viec tu sinh sau tiep tuc: TT-000007 HOLD_REMINDER/CANCELLED
+  [DAT]       Tiep tuc: chinh viec nhac do chuyen CANCELLED
+  [DAT]       Tiep tuc: khong con viec nhac HOLD_REMINDER nao OPEN
+-- N1: Thang + viec ban giao cho Ky thuat
+  nguoi nhan ban giao: NV-0003 Nhân viên kinh doanh | NV-0005 Nhân viên kế toán | NV-0004 Nhân viên kỹ thuật | NV-0002 Quản trị CRM
+  [DAT]       Thang: status=WON, gia tri chot=148500000, chung tu=THU-G5-HD-001
+  [DAT]       co viec ban giao: TT-000008 OPEN giao cho=NV-0004
+-- N3: Ky thuat thay viec duoc giao, khong thay so tien, hoan thanh viec
+  [DAT]       Ky thuat thay viec ban giao trong 'Cong viec cua toi'
+  [DAT]       Ky thuat mo duoc co hoi theo viec: HTTP 200, access=TASK
+  [DAT]       co hoi theo viec KHONG tra so tien / chung tu (truong tra ve: 15 truong)
+  [DAT]       Ky thuat hoan thanh viec ban giao: status=DONE
+
+KET QUA G5 (API): 3 nghiep vu deu DAT
+ma thoat: 0

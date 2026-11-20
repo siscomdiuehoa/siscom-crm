@@ -7,9 +7,10 @@
 #   N3: Ky thuat thay viec duoc giao, thay co hoi "theo viec" KHONG co so tien, hoan thanh viec
 set -uo pipefail
 G="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; W="$G/tmp"; mkdir -p "$W"
-O=http://127.0.0.1:4174; B=$O/api/v1
+O="${G5_ORIGIN:-http://127.0.0.1:4174}"; B=$O/api/v1   # G5_ORIGIN / G5_ACCOUNTS: chi de bo thu dung may chu gia (test-golive-scripts.sh)
+ACC="${G5_ACCOUNTS:-}"
 fail=0; ok() { echo "  [DAT]       $*"; }; bad() { echo "  [KHONG DAT] $*"; fail=1; }
-pw() { awk -v u="$1" '$0 ~ u {print $NF}' "$G/TAI-KHOAN-THU.txt"; }
+pw() { awk -v u="$1" '$0 ~ u {print $NF}' "${ACC:-$G/TAI-KHOAN-THU.txt}"; }
 login() { # login <email> => ma HTTP; phien vao $W/sid, $W/csrf
   curl -s -o "$W/l.json" -D "$W/h.txt" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "Origin: $O" \
     --data "{\"login\":\"$1\",\"password\":\"$(pw "$1")\"}" "$B/auth/login"
@@ -42,11 +43,18 @@ need "$(api POST "/opportunities/$OPP/hold" "{\"version\":$V,\"holdUntil\":\"$pl
 V="$(js 'j.data.version')"; s="$(js 'j.data.status')"; if [ "$s" = ON_HOLD ]; then ok "Tam hoan: status=ON_HOLD, han=$(js 'j.data.holdUntil')"; else bad "Tam hoan: status=$s"; fi
 need "$(api GET "/opportunities/$OPP/activities")" 200 "viec cua co hoi"
 echo "  viec tu sinh khi tam hoan: $(js "j.data.items.filter(a=>a.autoKind).map(a=>a.code+' '+a.autoKind+'/'+a.status).join(', ')")"
+# Review R2 #256 (HIGH): phai co DUNG MOT viec nhac HOLD_REMINDER dang OPEN; ghi lai id de kiem chinh viec do sau Tiep tuc.
+REM="$(js "((a)=>a.length===1?a[0].id:'')(j.data.items.filter(a=>a.autoKind==='HOLD_REMINDER'&&a.status==='OPEN'))")"
+if [ -n "$REM" ]; then ok "Tam hoan sinh dung 1 viec nhac HOLD_REMINDER dang OPEN"; else bad "Tam hoan: khong co dung 1 viec nhac HOLD_REMINDER OPEN"; fi
 need "$(api POST "/opportunities/$OPP/resume" "{\"version\":$V,\"reason\":\"THU-G5 khach goi lai\"}")" 200 "tiep tuc"
 V="$(js 'j.data.version')"; s="$(js 'j.data.status')"; st="$(js 'j.data.stage.code')"
 if [ "$s" = OPEN ] && [ "$st" = QUOTATION ]; then ok "Tiep tuc: status=OPEN, giu giai doan=$st"; else bad "Tiep tuc: status=$s giai doan=$st"; fi
 need "$(api GET "/opportunities/$OPP/activities")" 200 "viec cua co hoi"
 echo "  viec tu sinh sau tiep tuc: $(js "j.data.items.filter(a=>a.autoKind).map(a=>a.code+' '+a.autoKind+'/'+a.status).join(', ')")"
+rs="$(js "((a)=>a?a.status:'KHONG THAY')(j.data.items.find(a=>a.id==='$REM'))")"
+if [ -n "$REM" ] && [ "$rs" = CANCELLED ]; then ok "Tiep tuc: chinh viec nhac do chuyen CANCELLED"; else bad "Tiep tuc: viec nhac co trang thai $rs (ky vong CANCELLED)"; fi
+openrem="$(js "j.data.items.filter(a=>a.autoKind==='HOLD_REMINDER'&&a.status==='OPEN').length")"
+if [ "$openrem" = 0 ]; then ok "Tiep tuc: khong con viec nhac HOLD_REMINDER nao OPEN"; else bad "Tiep tuc: con $openrem viec nhac OPEN"; fi
 
 echo "-- N1: Thang + viec ban giao cho Ky thuat"
 need "$(api GET "/opportunities/$OPP/handover-candidates")" 200 "danh sach nguoi nhan ban giao"
@@ -64,10 +72,14 @@ need "$(api GET "/activities?assignee=me")" 200 "Cong viec cua toi"
 TASK="$(js "(j.data.items||[]).find(a=>a.opportunityId==='$OPP'||(a.opportunity&&a.opportunity.id==='$OPP'))")"
 if [ -n "$TASK" ] && [ "$TASK" != undefined ]; then ok "Ky thuat thay viec ban giao trong 'Cong viec cua toi'"; TID="$(js "j.data.items.find(a=>a.opportunityId==='$OPP'||(a.opportunity&&a.opportunity.id==='$OPP')).id")"
 else bad "Ky thuat KHONG thay viec ban giao (so viec: $(js '(j.data.items||[]).length'))"; TID=""; fi
-code="$(api GET "/opportunities/$OPP")"; echo "  Ky thuat mo co hoi: HTTP $code"
+code="$(api GET "/opportunities/$OPP")"
+# Review R2 #256 (HIGH): Ky thuat PHAI mo duoc co hoi (HTTP 200) qua duong "theo viec"; khac 200 la KHONG DAT.
 if [ "$code" = 200 ]; then
-  amt="$(js "['expectedAmountVnd','wonAmountVnd','wonDocNo','wonDocUrl'].filter(k=>j.data[k]!==undefined&&j.data[k]!==null)")"
+  ok "Ky thuat mo duoc co hoi theo viec: HTTP 200, access=$(js 'j.data.access')"
+  amt="$(js "['expectedAmountVnd','wonAmountVnd','wonDocNo','wonDocUrl','wonDocFileName'].filter(k=>j.data[k]!==undefined&&j.data[k]!==null)")"
   if [ "$amt" = "[]" ]; then ok "co hoi theo viec KHONG tra so tien / chung tu (truong tra ve: $(js 'Object.keys(j.data).length') truong)"; else bad "Ky thuat thay truong nhay cam: $amt"; fi
+else
+  bad "Ky thuat KHONG mo duoc co hoi theo viec: HTTP $code - $(head -c 200 "$W/r.json")"
 fi
 if [ -n "$TID" ]; then
   need "$(api GET "/activities/$TID")" 200 "chi tiet viec"; TV="$(js 'j.data.version')"

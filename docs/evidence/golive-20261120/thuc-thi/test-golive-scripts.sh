@@ -13,6 +13,8 @@ is() { if [ "$2" = "$3" ]; then ok "$1 = $2"; else bad "$1 = $2 (ky vong $3)"; f
 has() { if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1"; else bad "$1 (khong thay: $3)"; fi; }
 hasnt() { if printf '%s' "$2" | grep -qF -- "$3"; then bad "$1 (THAY: $3)"; else ok "$1"; fi; }
 linux=0; [ "$(uname -s)" = Linux ] && linux=1
+# Review R2 #256 (HIGH): bo thu dung hen gio RIENG cho moi lan chay, KHONG dung / dung chung hen gio van hanh siscom-key-cleanup.
+TT="siscom-key-cleanup-test-$$-$(date +%s)"
 echo "== $(uname -srm); bash $BASH_VERSION; uid=$(id -u) =="
 for f in "$S5" "$S7"; do if bash -n "$f"; then ok "bash -n $(basename "$f")"; else bad "bash -n $(basename "$f")"; fi; done
 
@@ -83,23 +85,29 @@ mkdir -p "$T/stub" "$T/k" "$T/p1" "$T/p2" "$T/p3"
 cat > "$T/stub/systemctl" <<STUB
 #!/usr/bin/env bash
 echo "\$*" >> "$T/systemctl.calls"
-case "\$1" in list-timers) echo "x siscom-key-cleanup.timer siscom-key-cleanup.service" ;; esac
+case "\$1" in list-timers) echo "x $TT.timer $TT.service" ;; esac
 exit 0
 STUB
 printf '#!/usr/bin/env bash\nexit 1\n' > "$T/stub/fail"
 chmod +x "$T/stub"/*
 echo "S7-1 cleanup_key: xoa DUOC khoa gia => huy hen gio"
 echo "KHOA GIA" > "$T/k/backup.key"; : > "$T/systemctl.calls"; cp "$T/stub/systemctl" "$T/p1/"
-r="$(PATH="$T/p1:$PATH" STEP7_TEST_KEY="$T/k/backup.key" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
+r="$(PATH="$T/p1:$PATH" STEP7_TEST_KEY="$T/k/backup.key" STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
 is "ma thoat" "$rc" 0; if [ ! -e "$T/k/backup.key" ]; then ok "tep khoa gia da mat"; else bad "tep khoa gia con"; fi
-has "da goi systemctl stop hen gio" "$(cat "$T/systemctl.calls")" "stop siscom-key-cleanup.timer"
+has "da goi systemctl stop hen gio THU (ten rieng)" "$(cat "$T/systemctl.calls")" "stop $TT.timer"
+hasnt "KHONG dung hen gio van hanh" "$(cat "$T/systemctl.calls")" "stop siscom-key-cleanup.timer"
 echo "S7-2 cleanup_key: KHONG xoa duoc khoa gia (shred + rm deu loi) => GIU hen gio, bao loi"
 echo "KHOA GIA" > "$T/k/backup.key"; : > "$T/systemctl.calls"; cp "$T/stub/systemctl" "$T/p2/"; cp "$T/stub/fail" "$T/p2/shred"; cp "$T/stub/fail" "$T/p2/rm"
-r="$(PATH="$T/p2:$PATH" STEP7_TEST_KEY="$T/k/backup.key" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
+r="$(PATH="$T/p2:$PATH" STEP7_TEST_KEY="$T/k/backup.key" STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
 is "ma thoat" "$rc" 1; if [ -e "$T/k/backup.key" ]; then ok "tep khoa gia van con (dung kich ban loi)"; else bad "tep khoa gia bi xoa"; fi
 hasnt "KHONG goi systemctl stop" "$(cat "$T/systemctl.calls")" "stop"; has "bao KHONG XOA DUOC KHOA" "$r" "KHONG XOA DUOC KHOA"; has "noi ro giu hen gio" "$r" "KHONG huy hen gio"
 echo "S7-3 selftest tu choi duong dan khoa that"
-r="$(STEP7_TEST_KEY=/run/siscom-restore/backup.key bash "$S7" selftest-cleanup 2>&1)"; has "tu choi" "$r" "TU CHOI"
+r="$(STEP7_TEST_KEY=/run/siscom-restore/backup.key STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; has "tu choi" "$r" "TU CHOI"
+echo "S7-3b selftest bat buoc ten hen gio rieng, tu choi ten hen gio van hanh"
+echo "KHOA GIA" > "$T/k/backup.key"
+r="$(PATH="$T/p1:$PATH" STEP7_TEST_KEY="$T/k/backup.key" bash "$S7" selftest-cleanup 2>&1)"; rc=$?; is "thieu STEP7_TEST_TIMER: ma thoat" "$rc" 1; has "bao can ten hen gio rieng" "$r" "STEP7_TEST_TIMER"
+r="$(PATH="$T/p1:$PATH" STEP7_TEST_KEY="$T/k/backup.key" STEP7_TEST_TIMER=siscom-key-cleanup bash "$S7" selftest-cleanup 2>&1)"; rc=$?; is "STEP7_TEST_TIMER=ten van hanh: ma thoat" "$rc" 2; has "tu choi ten van hanh" "$r" "TU CHOI"
+if [ -e "$T/k/backup.key" ]; then ok "hai ca tu choi khong xoa tep (khong chay cleanup)"; else bad "tep bi xoa du da tu choi"; fi; rm -f "$T/k/backup.key"
 
 # ---------------------------------------------------------------- step7 verify-local (bo sao luu gia, khoa ky gia)
 echo "S7-4 verify-local / G7 tren bo sao luu GIA"
@@ -142,20 +150,73 @@ marker "$sp" "$(sha256sum "$V/$sp.dump.age" | cut -d' ' -f1)"; cp "$V/$sp.dump.a
 
 # ---------------------------------------------------------------- REAL: systemd that + tep khong xoa duoc (chi Linux root co systemd)
 if [ "$linux" = 1 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system ] && command -v chattr >/dev/null; then
-  echo "S7-REAL hen gio systemd THAT + tep khoa gia khong xoa duoc (chattr +i)"
-  I="/var/tmp/siscom-rsvc-test-$$"; mkdir -p "$I"; K="$I/backup.key"; echo "KHOA GIA" > "$K"
-  systemctl stop siscom-key-cleanup.timer siscom-key-cleanup.service 2>/dev/null; systemctl reset-failed siscom-key-cleanup.timer siscom-key-cleanup.service 2>/dev/null
-  if systemd-run --collect --on-active=30min --unit=siscom-key-cleanup /bin/sh -c "[ ! -e $K ] || /usr/bin/shred -u $K" >/dev/null 2>&1; then ok "hen gio that da tao"; else bad "khong tao duoc hen gio that"; fi
-  if chattr +i "$K" 2>/dev/null; then
-    r="$(STEP7_TEST_KEY="$K" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
-    is "khong xoa duoc: ma thoat" "$rc" 1; if [ -e "$K" ]; then ok "tep khoa gia van con"; else bad "tep bi xoa"; fi
-    is "hen gio that VAN CON cho" "$(systemctl list-timers 'siscom-key-cleanup*' --no-pager | grep -c siscom-key-cleanup)" 1; has "bao KHONG XOA DUOC KHOA" "$r" "KHONG XOA DUOC KHOA"
-    chattr -i "$K"
-  else echo "  (he tep khong ho tro chattr +i: bo qua nhanh loi that)"; fi
-  r="$(STEP7_TEST_KEY="$K" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
-  is "xoa duoc: ma thoat" "$rc" 0; if [ ! -e "$K" ]; then ok "tep khoa gia da mat"; else bad "tep con"; fi
-  is "hen gio that da huy" "$(systemctl list-timers 'siscom-key-cleanup*' --no-pager | grep -c siscom-key-cleanup)" 0
-  rm -rf "$I"
+  echo "S7-REAL hen gio systemd THAT (ten rieng $TT) + tep khoa gia khong xoa duoc (chattr +i)"
+  # Khong chay nhom nay khi co dau hieu dang khoi phuc that tren may (khoa that hoac hen gio van hanh dang cho).
+  realn() { systemctl list-timers 'siscom-key-cleanup.timer' --no-pager 2>/dev/null | grep -c 'siscom-key-cleanup\.timer' || true; }
+  if [ -e /run/siscom-restore/backup.key ] || [ "$(realn)" != 0 ]; then
+    echo "  (BO QUA nhom REAL: may dang co khoa that hoac hen gio van hanh siscom-key-cleanup - khong dung chung)"
+  else
+    I="/var/tmp/siscom-rsvc-test-$$"; mkdir -p "$I"; K="$I/backup.key"; echo "KHOA GIA" > "$K"
+    cnt() { systemctl list-timers "$TT*" --no-pager 2>/dev/null | grep -c "$TT" || true; }
+    if systemd-run --collect --on-active=30min --unit="$TT" /bin/sh -c "[ ! -e $K ] || /usr/bin/shred -u $K" >/dev/null 2>&1; then ok "hen gio THU that da tao ($TT)"; else bad "khong tao duoc hen gio thu"; fi
+    if chattr +i "$K" 2>/dev/null; then
+      r="$(STEP7_TEST_KEY="$K" STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
+      is "khong xoa duoc: ma thoat" "$rc" 1; if [ -e "$K" ]; then ok "tep khoa gia van con"; else bad "tep bi xoa"; fi
+      is "hen gio thu VAN CON cho" "$(cnt)" 1; has "bao KHONG XOA DUOC KHOA" "$r" "KHONG XOA DUOC KHOA"
+      chattr -i "$K"
+    else echo "  (he tep khong ho tro chattr +i: bo qua nhanh loi that)"; fi
+    r="$(STEP7_TEST_KEY="$K" STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
+    is "xoa duoc: ma thoat" "$rc" 0; if [ ! -e "$K" ]; then ok "tep khoa gia da mat"; else bad "tep con"; fi
+    is "hen gio thu da huy" "$(cnt)" 0
+    is "hen gio van hanh siscom-key-cleanup KHONG bi tao / dung (so dang cho)" "$(realn)" 0
+    systemctl stop "$TT.timer" "$TT.service" 2>/dev/null; systemctl reset-failed "$TT.timer" "$TT.service" 2>/dev/null; rm -rf "$I"
+  fi
 else echo "S7-REAL (bo qua: can Linux + root + systemd + chattr)"; fi
+
+# ---------------------------------------------------------------- g5-api-flows.sh voi MAY CHU GIA (review R2 #256: nhanh bao dat sai)
+G5="$here/g5-api-flows.sh"
+if [ -f "$G5" ] && command -v node >/dev/null; then
+  echo "G5-1..3 g5-api-flows.sh chay voi may chu gia: binh thuong / Ky thuat bi tu choi mo co hoi / viec nhac khong duoc huy"
+  cat > "$T/stub.js" <<'JS'
+// May chu gia toi thieu cho g5-api-flows.sh. VARIANT: ok | tech403 | remnotcancelled
+const http = require('http'); const V = process.env.VARIANT || 'ok';
+let opp = null, tasks = [], who = '';
+const J = (res, code, data, hdr) => { res.writeHead(code, Object.assign({ 'Content-Type': 'application/json' }, hdr || {})); res.end(JSON.stringify(data)); };
+const srv = http.createServer((req, res) => {
+  let b = ''; req.on('data', d => b += d); req.on('end', () => {
+    const u = req.url.replace(/^\/api\/v1/, ''); const m = req.method; const body = b ? JSON.parse(b) : {};
+    if (u === '/health/database') return J(res, 200, { migrated: true });
+    if (m === 'POST' && u === '/auth/login') { who = body.login; return J(res, 200, { data: {} }, { 'Set-Cookie': ['siscom_sid=s1; Path=/', 'siscom_csrf=c1; Path=/'] }); }
+    if (u === '/opportunities/meta') return J(res, 200, { data: { stages: [{ id: 'st-q', code: 'QUOTATION' }], types: [{ id: 'ty-1' }] } });
+    if (m === 'POST' && u === '/customers') return J(res, 201, { data: { id: 'cus-1', code: 'KH-1' } });
+    if (m === 'POST' && u === '/opportunities') { opp = { id: 'opp-1', code: 'CH-1', version: 1, status: 'OPEN', stage: { code: 'PROSPECTING' } }; return J(res, 201, { data: opp }); }
+    const mm = u.match(/^\/opportunities\/opp-1(\/[a-z-]+)?(\?.*)?$/);
+    if (mm) { const a = mm[1] || '';
+      if (m === 'POST' && a === '/stage') { opp.stage = { code: 'QUOTATION' }; opp.version++; return J(res, 201, { data: opp }); }
+      if (m === 'POST' && a === '/hold') { opp.status = 'ON_HOLD'; opp.holdUntil = body.holdUntil; opp.version++; tasks.push({ id: 't-rem', code: 'TT-1', autoKind: 'HOLD_REMINDER', status: 'OPEN', opportunityId: 'opp-1' }); return J(res, 201, { data: opp }); }
+      if (m === 'POST' && a === '/resume') { opp.status = 'OPEN'; opp.version++; if (V !== 'remnotcancelled') tasks.forEach(t => { if (t.autoKind === 'HOLD_REMINDER') t.status = 'CANCELLED'; }); return J(res, 201, { data: opp }); }
+      if (m === 'GET' && a === '/activities') return J(res, 200, { data: { items: tasks } });
+      if (m === 'GET' && a === '/handover-candidates') return J(res, 200, { data: { items: [{ id: 'emp-4', code: 'NV-0004' }] } });
+      if (m === 'POST' && a === '/win') { opp.status = 'WON'; opp.wonAmountVnd = body.wonAmountVnd; opp.wonDocNo = body.wonDocNo; tasks.push({ id: 't-ho', code: 'TT-2', autoKind: 'WIN_HANDOVER', status: 'OPEN', opportunityId: 'opp-1', performedBy: { code: 'NV-0004' } }); return J(res, 201, { data: opp }); }
+      if (m === 'GET' && a === '') { if (/kythuat@/.test(who)) { if (V === 'tech403') return J(res, 403, { message: 'Khong co quyen' }); return J(res, 200, { data: { id: 'opp-1', code: 'CH-1', access: 'TASK', status: 'WON' } }); } return J(res, 200, { data: opp }); }
+    }
+    if (m === 'GET' && u.startsWith('/activities?')) return J(res, 200, { data: { items: tasks.filter(t => t.autoKind === 'WIN_HANDOVER') } });
+    if (m === 'GET' && u === '/activities/t-ho') return J(res, 200, { data: { id: 't-ho', version: 1, status: 'OPEN' } });
+    if (m === 'POST' && u === '/activities/t-ho/complete') return J(res, 201, { data: { id: 't-ho', status: 'DONE' } });
+    J(res, 404, { message: 'stub: ' + m + ' ' + u });
+  });
+});
+srv.listen(Number(process.env.PORT), '127.0.0.1');
+JS
+  printf 'sale@thu.local x Gia-PW-1234\nkythuat@thu.local x Gia-PW-5678\n' > "$T/acc.txt"
+  g5run() { # g5run <variant> <cong> => $r, $rc
+    VARIANT="$1" PORT="$2" node "$T/stub.js" & local sp=$!; sleep 1
+    r="$(G5_ORIGIN="http://127.0.0.1:$2" G5_ACCOUNTS="$T/acc.txt" bash "$G5" 2>&1)"; rc=$?
+    kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
+  }
+  g5run ok 39291; is "may chu gia binh thuong: ma thoat" "$rc" 0; has "ket luan dat" "$r" "3 nghiep vu deu DAT"; has "kiem viec nhac CANCELLED" "$r" "chinh viec nhac do chuyen CANCELLED"
+  g5run tech403 39292; is "Ky thuat bi 403: ma thoat" "$rc" 1; has "bao KHONG mo duoc co hoi" "$r" "KHONG mo duoc co hoi theo viec: HTTP 403"; hasnt "khong ket luan dat" "$r" "3 nghiep vu deu DAT"
+  g5run remnotcancelled 39293; is "viec nhac khong huy: ma thoat" "$rc" 1; has "bao viec nhac sai trang thai" "$r" "ky vong CANCELLED"; hasnt "khong ket luan dat" "$r" "3 nghiep vu deu DAT"
+else echo "G5 (bo qua: thieu g5-api-flows.sh cung thu muc hoac node)"; fi
 
 echo; echo "TONG: $pass dat, $fail khong dat"; [ "$fail" = 0 ]

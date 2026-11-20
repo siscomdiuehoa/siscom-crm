@@ -35,6 +35,10 @@ cleanup_key() {
 if [ "$mode" = selftest-cleanup ]; then
   KEY="${STEP7_TEST_KEY:?can STEP7_TEST_KEY}"; KDIR="$(dirname "$KEY")"
   case "$KEY" in /run/siscom-restore/*) echo "TU CHOI: selftest khong dung duong dan khoa that."; exit 2 ;; esac
+  # Review R2 #256 (HIGH): bo thu KHONG duoc dung / dung chung hen gio van hanh siscom-key-cleanup.
+  # Bat buoc ten hen gio rieng dang siscom-key-cleanup-test-<chu so / chu thuong / gach>.
+  TIMER="${STEP7_TEST_TIMER:?can STEP7_TEST_TIMER (ten hen gio rieng cho bo thu)}"
+  [[ "$TIMER" =~ ^siscom-key-cleanup-test-[a-z0-9-]{1,40}$ ]] || { echo "TU CHOI: STEP7_TEST_TIMER phai dang siscom-key-cleanup-test-..."; exit 2; }
   cleanup_key; exit $?
 fi
 
