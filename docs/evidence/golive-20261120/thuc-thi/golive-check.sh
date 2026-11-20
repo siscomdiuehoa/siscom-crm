@@ -59,7 +59,11 @@ chk "bo sao luu staging lan cuoi" "$last" "siscom_crm_staging_20261120_092749.du
 if ( . "$LIN/lib.sh"; verify_backup_set "/var/backups/siscom-crm/$last" /etc/siscom-crm/backup-signing.allowed_signers "$STG" ) >/dev/null 2>&1; then ok "chu ky + SHA-256 bo sao luu staging lan cuoi"; else bad "chu ky bo sao luu staging"; fi
 chk "ban ma staging de lui (previous)" "$(cat /opt/siscom-crm/previous)" src-20261119093630
 if [ -d /opt/siscom-crm/releases/src-20261119093630 ]; then ok "thu muc ban staging con"; else bad "mat thu muc ban staging"; fi
-echo "      env .bak: $(find /etc/siscom-crm -maxdepth 1 -type f -name '*.bak-20261120092749' | wc -l) tep; caddy .bak: $(find /etc/siscom-crm/caddy.env.bak-20261120085931 /etc/caddy/siscom-tls.caddy.bak-20261120085931 -maxdepth 0 -type f 2>/dev/null | wc -l) tep"
+# Review R2 #256 vong 3 (HIGH): 4 tep cau hinh de lui (bien ban muc 4) la BAT BUOC cho G8 - thieu / rong / khong doc duoc => KHONG DAT.
+for b in /etc/siscom-crm/backend.env.bak-20261120092749 /etc/siscom-crm/migrate.env.bak-20261120092749 \
+         /etc/siscom-crm/caddy.env.bak-20261120085931 /etc/caddy/siscom-tls.caddy.bak-20261120085931; do
+  if [ -f "$b" ] && [ -r "$b" ] && [ -s "$b" ]; then ok "tep de lui con: $b"; else bad "THIEU tep de lui: $b"; fi
+done
 echo "      sao luu dem: $(systemctl list-timers --no-pager | grep siscom-crm-backup | awk '{print $1, $2, $3, $4}'); bo $PROD da co: $(find /var/backups/siscom-crm -maxdepth 1 -type f -name "${PROD}_*.dump.age" | wc -l)"
 
 echo

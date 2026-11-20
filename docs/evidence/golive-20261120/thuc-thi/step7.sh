@@ -47,11 +47,15 @@ case "$mode" in
     vps_root
     n="$(sudo -u postgres psql -X -q -tA -d "$PROD" -c 'SELECT count(*) FROM employee')"
     echo "employee tren $PROD: $n $([ "$n" = 5 ] || echo '(CHU Y: chua du 5 tai khoan => bo nay chi la ban SO BO, KHONG dung cho G7; sau buoc 5 phai sao luu lai roi khoi phuc thu chinh bo moi)')"
-    systemctl start siscom-crm-backup.service || true
+    # Review R2 #256 vong 3 (HIGH): khong bo qua loi khoi chay; bo sao luu phai thuoc LAN CHAY NAY (ten bo >= moc bat dau, UTC).
+    t0="$(date -u +%Y%m%d_%H%M%S)"
+    systemctl start siscom-crm-backup.service || { echo "DUNG: khong khoi chay duoc siscom-crm-backup.service - khong dung ket qua lan truoc."; exit 1; }
     res="$(systemctl show siscom-crm-backup.service -p Result --value)"; echo "Result=$res"
     [ "$res" = success ] || { journalctl -u siscom-crm-backup.service -n 15 --no-pager -o cat | grep -E '^\[' | tail -6; echo "DUNG: sao luu khong thanh cong."; exit 1; }
     f="$(journalctl -u siscom-crm-backup.service -n 40 --no-pager -o cat | grep 'Da sao luu:' | tail -n1 | grep -oE "$BK/${PROD}_[0-9]{8}_[0-9]{6}[.]dump[.]age")"
     [ -n "$f" ] && [ -f "$f" ] || { echo "DUNG: khong xac dinh duoc bo sao luu vua tao."; exit 1; }
+    ts="$(basename "$f" .dump.age)"; ts="${ts#"${PROD}"_}"
+    [[ "$ts" > "$t0" || "$ts" == "$t0" ]] || { echo "DUNG: bo $f co truoc lan chay nay ($t0 UTC) - khong phai bo vua tao."; exit 1; }
     ( . "$LIN/lib.sh"; verify_backup_set "$f" /etc/siscom-crm/backup-signing.allowed_signers "$PROD" ) || { echo "DUNG: bo sao luu khong qua kiem chu ky."; exit 1; }
     echo "$f" > "$SET"; echo "bo se kiem: $(cat "$SET") - chu ky manifest + SHA-256 hop le"
     ls -l "$f" "${f%.dump.age}.manifest" "${f%.dump.age}.manifest.sig" "$f.sha256" | awk '{print "  " $5, $9}'

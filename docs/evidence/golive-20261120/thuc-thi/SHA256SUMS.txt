@@ -1,9 +1,9 @@
 # SHA-256 cua noi dung trong repo (xuong dong LF). Ban lam viec tren Windows co the la CRLF (core.autocrlf) nen tinh tu tep se khac;
 # kiem bang: git show <commit>:docs/evidence/golive-20261120/thuc-thi/<tep> | sha256sum
 9d0c7ce9b881f90b6205f2f3c6787bc087789196155dedd2a48623f05d87d30f  g5-api-flows.sh
-a14a54bf65bcb94a0a91730c42f6e0887e128522ad24d4eb2a763e9d9be51759  golive-check.sh
+4d8bd9d105597029678743a8012b0459f10e59094bc006afe92f8015a29f4024  golive-check.sh
 b1a536811d9d3b9bb868c189acc41876fe056b65304e03cbb1341fa246ba28b1  step1-caddy.sh
 00e21dec57add87323766b08a68c5c91307946eaa9da898b4d89c045bcc3e6b6  step2-db.sh
 9349b80b0dc394d6298acb26a7a70b8dfa08f67d66f4596609f40edc34327f7a  step5-bootstrap-owner.sh
-45ec31adf9d4f5511798816456f75bde19ab1a13943fd5e73b5e67b3acacd962  step7.sh
+3d589fd465fb301e368ef24e0fcae9620d8e0b0cea9b3aed43315b0911cafdc6  step7.sh
 cdee207eee50319a5845d5d9570a5f485fb5922cc7677075a38095a615400efd  test-golive-scripts.sh
