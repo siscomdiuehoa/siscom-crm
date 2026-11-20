@@ -61,7 +61,11 @@ need "$(api GET "/opportunities/$OPP/handover-candidates")" 200 "danh sach nguoi
 TECH="$(js "(j.data.items||j.data).find(e=>/kythuat@/.test(e.email||'')||/NV-0004/.test(e.code||'')).id")"
 echo "  nguoi nhan ban giao: $(js "(j.data.items||j.data).map(e=>(e.code||'')+' '+(e.email||e.fullName||'')).join(' | ')")"
 need "$(api POST "/opportunities/$OPP/win" "{\"version\":$V,\"wonAmountVnd\":\"148500000\",\"wonDocType\":\"HOP_DONG\",\"wonDocNo\":\"THU-G5-HD-001\",\"wonDocDate\":\"$today\",\"wonDocUrl\":\"https://example.com/thu-g5-hd-001.pdf\",\"handoverToId\":\"$TECH\"}")" 200 "Thang"
-s="$(js 'j.data.status')"; if [ "$s" = WON ]; then ok "Thang: status=WON, gia tri chot=$(js 'j.data.wonAmountVnd'), chung tu=$(js 'j.data.wonDocNo')"; else bad "Thang: status=$s"; fi
+# Review R2 #256 (HIGH): khong chi status=WON - gia tri chot va chung tu phai DUNG nhu da gui, ca trong phan hoi lan khi doc lai.
+wonchk() { js "((d)=>{const e={status:'WON',wonAmountVnd:'148500000',wonDocType:'HOP_DONG',wonDocNo:'THU-G5-HD-001',wonDocUrl:'https://example.com/thu-g5-hd-001.pdf'};const x=Object.keys(e).filter(k=>String(d[k])!==e[k]);if(!String(d.wonDocDate||'').startsWith('$today'))x.push('wonDocDate');return x.length?x.map(k=>k+'='+d[k]).join(', '):'OK'})(j.data)"; }
+w="$(wonchk)"; if [ "$w" = OK ]; then ok "Thang (phan hoi): status=WON, gia tri chot=148500000, chung tu HOP_DONG THU-G5-HD-001, ngay, duong dan dung"; else bad "Thang (phan hoi) sai: $w"; fi
+need "$(api GET "/opportunities/$OPP")" 200 "Kinh doanh doc lai co hoi sau Thang"
+w="$(wonchk)"; if [ "$w" = OK ]; then ok "Thang (doc lai): du lieu da luu dung"; else bad "Thang (doc lai) sai: $w"; fi
 need "$(api GET "/opportunities/$OPP/activities")" 200 "viec cua co hoi"
 H="$(js "j.data.items.find(a=>a.autoKind==='WIN_HANDOVER')")"
 if [ -n "$H" ] && [ "$H" != undefined ]; then ok "co viec ban giao: $(js "((a)=>a.code+' '+a.status+' giao cho='+(a.performedBy&&(a.performedBy.code||a.performedBy.fullName)))(j.data.items.find(a=>a.autoKind==='WIN_HANDOVER'))")"; else bad "khong thay viec ban giao"; fi

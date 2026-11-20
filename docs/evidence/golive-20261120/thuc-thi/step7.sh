@@ -130,7 +130,14 @@ case "$mode" in
       [ -s "$DEST/$x" ] || { echo "[KHONG DAT] tep bat buoc $x rong - DUNG."; exit 1; }
     done
     marker="$stem.dump.age.restore-ok.txt"
-    if ssh "${K[@]}" -p 26266 root@42.96.15.235 "test -f '$BK/$marker'"; then
+    # Review R2 #256 (HIGH): phan biet "khong co dau" voi loi SSH (ma 255, mat ket noi, xac thuc). Chi chap nhan cau tra loi
+    # ro rang CO / KHONG; con lai => DUNG, giu nguyen dau cuc bo (khong xoa bang chung da luu).
+    mk="$(ssh "${K[@]}" -p 26266 root@42.96.15.235 "if [ -f '$BK/$marker' ]; then echo CO; else echo KHONG; fi")" && mrc=0 || mrc=$?
+    mk="$(printf '%s' "$mk" | tr -d '\r')"
+    if [ "$mrc" -ne 0 ] || { [ "$mk" != CO ] && [ "$mk" != KHONG ]; }; then
+      echo "[KHONG DAT] khong kiem duoc dau khoi phuc thu tren VPS (ssh ma $mrc) - DUNG, giu nguyen dau cuc bo."; exit 1
+    fi
+    if [ "$mk" = CO ]; then
       scp -q "${K[@]}" -P 26266 "root@42.96.15.235:$BK/$marker" "$DEST/" || { echo "[KHONG DAT] co dau khoi phuc thu tren VPS nhung khong chep duoc - DUNG."; exit 1; }
     else
       rm -f "$DEST/$marker"; echo "  (chua co dau khoi phuc thu cua bo nay tren VPS - chua khoi phuc thu)"

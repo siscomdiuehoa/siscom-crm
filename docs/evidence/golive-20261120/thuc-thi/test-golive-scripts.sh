@@ -134,7 +134,7 @@ sp=siscom_crm_prod_20261120_000003; mkset "$sp" 5; for x in dump.age manifest ma
 cat > "$T/p3/ssh" <<STUB
 #!/usr/bin/env bash
 c="\${!#}"
-case "\$c" in cat\ *) echo "/var/backups/siscom-crm/$sp.dump.age" ;; test\ -f*) [ -f "$R/$sp.dump.age.restore-ok.txt" ] ;; *) exit 9 ;; esac
+case "\$c" in cat\ *) echo "/var/backups/siscom-crm/$sp.dump.age" ;; *restore-ok.txt*) [ -z "\${FAKE_SSH_MARK_FAIL:-}" ] || exit 255; if [ -f "$R/$sp.dump.age.restore-ok.txt" ]; then echo CO; else echo KHONG; fi ;; *) exit 9 ;; esac
 STUB
 cat > "$T/p3/scp" <<STUB
 #!/usr/bin/env bash
@@ -143,10 +143,13 @@ n=\$#; src="\${@:n-1:1}"; dst="\${!#}"; b="\$(basename "\$src")"
 cp "$R/\$b" "\$dst" 2>/dev/null
 STUB
 chmod +x "$T/p3"/*
-pl() { r="$(PATH="$T/p3:$PATH" HOME="$H" FAKE_SCP_FAIL="${1:-}" bash "$S7" pull 2>&1)"; rc=$?; }
+pl() { r="$(PATH="$T/p3:$PATH" HOME="$H" FAKE_SCP_FAIL="${1:-}" FAKE_SSH_MARK_FAIL="${2:-}" bash "$S7" pull 2>&1)"; rc=$?; }
 pl "$sp.manifest.sig"; is "thieu tep BAT BUOC (manifest.sig): ma thoat" "$rc" 1; has "bao DUNG vi tep bat buoc" "$r" "khong chep duoc tep bat buoc"
 pl ""; is "du 4 tep, chua co dau: ma thoat" "$rc" 0; has "ghi ro chua khoi phuc thu" "$r" "chua co dau khoi phuc thu cua bo nay tren VPS"; has "G7 CHUA DAT" "$r" "KET LUAN G7: CHUA DAT"
 marker "$sp" "$(sha256sum "$V/$sp.dump.age" | cut -d' ' -f1)"; cp "$V/$sp.dump.age.restore-ok.txt" "$R/"; pl ""; is "co dau dung bo: ma thoat" "$rc" 0; has "G7 DAT" "$r" "KET LUAN G7 (phan ban sao ngoai VPS): DAT"
+lm="$H/SISCOM-CRM-PR178/backup/prod/$sp.dump.age.restore-ok.txt"; a="$(sha256sum "$lm" | cut -d' ' -f1)"
+pl "" 1; is "ssh loi (255) khi kiem dau: ma thoat" "$rc" 1; has "bao khong kiem duoc dau" "$r" "khong kiem duoc dau khoi phuc thu tren VPS (ssh ma 255)"; hasnt "khong coi la chua khoi phuc" "$r" "chua co dau khoi phuc thu cua bo nay"
+if [ -f "$lm" ] && [ "$(sha256sum "$lm" | cut -d' ' -f1)" = "$a" ]; then ok "dau cuc bo giu nguyen khi ssh loi"; else bad "dau cuc bo bi xoa / sua khi ssh loi"; fi
 
 # ---------------------------------------------------------------- REAL: systemd that + tep khong xoa duoc (chi Linux root co systemd)
 if [ "$linux" = 1 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system ] && command -v chattr >/dev/null; then
@@ -176,9 +179,9 @@ else echo "S7-REAL (bo qua: can Linux + root + systemd + chattr)"; fi
 # ---------------------------------------------------------------- g5-api-flows.sh voi MAY CHU GIA (review R2 #256: nhanh bao dat sai)
 G5="$here/g5-api-flows.sh"
 if [ -f "$G5" ] && command -v node >/dev/null; then
-  echo "G5-1..3 g5-api-flows.sh chay voi may chu gia: binh thuong / Ky thuat bi tu choi mo co hoi / viec nhac khong duoc huy"
+  echo "G5-1..4 g5-api-flows.sh chay voi may chu gia: binh thuong / Ky thuat bi tu choi mo co hoi / viec nhac khong duoc huy / Thang luu sai gia tri chot"
   cat > "$T/stub.js" <<'JS'
-// May chu gia toi thieu cho g5-api-flows.sh. VARIANT: ok | tech403 | remnotcancelled
+// May chu gia toi thieu cho g5-api-flows.sh. VARIANT: ok | tech403 | remnotcancelled | wonwrong
 const http = require('http'); const V = process.env.VARIANT || 'ok';
 let opp = null, tasks = [], who = '';
 const J = (res, code, data, hdr) => { res.writeHead(code, Object.assign({ 'Content-Type': 'application/json' }, hdr || {})); res.end(JSON.stringify(data)); };
@@ -197,7 +200,7 @@ const srv = http.createServer((req, res) => {
       if (m === 'POST' && a === '/resume') { opp.status = 'OPEN'; opp.version++; if (V !== 'remnotcancelled') tasks.forEach(t => { if (t.autoKind === 'HOLD_REMINDER') t.status = 'CANCELLED'; }); return J(res, 201, { data: opp }); }
       if (m === 'GET' && a === '/activities') return J(res, 200, { data: { items: tasks } });
       if (m === 'GET' && a === '/handover-candidates') return J(res, 200, { data: { items: [{ id: 'emp-4', code: 'NV-0004' }] } });
-      if (m === 'POST' && a === '/win') { opp.status = 'WON'; opp.wonAmountVnd = body.wonAmountVnd; opp.wonDocNo = body.wonDocNo; tasks.push({ id: 't-ho', code: 'TT-2', autoKind: 'WIN_HANDOVER', status: 'OPEN', opportunityId: 'opp-1', performedBy: { code: 'NV-0004' } }); return J(res, 201, { data: opp }); }
+      if (m === 'POST' && a === '/win') { opp.status = 'WON'; Object.assign(opp, { wonAmountVnd: V === 'wonwrong' ? '0' : body.wonAmountVnd, wonDocType: body.wonDocType, wonDocNo: body.wonDocNo, wonDocDate: body.wonDocDate + 'T00:00:00.000Z', wonDocUrl: body.wonDocUrl }); tasks.push({ id: 't-ho', code: 'TT-2', autoKind: 'WIN_HANDOVER', status: 'OPEN', opportunityId: 'opp-1', performedBy: { code: 'NV-0004' } }); return J(res, 201, { data: opp }); }
       if (m === 'GET' && a === '') { if (/kythuat@/.test(who)) { if (V === 'tech403') return J(res, 403, { message: 'Khong co quyen' }); return J(res, 200, { data: { id: 'opp-1', code: 'CH-1', access: 'TASK', status: 'WON' } }); } return J(res, 200, { data: opp }); }
     }
     if (m === 'GET' && u.startsWith('/activities?')) return J(res, 200, { data: { items: tasks.filter(t => t.autoKind === 'WIN_HANDOVER') } });
@@ -217,6 +220,7 @@ JS
   g5run ok 39291; is "may chu gia binh thuong: ma thoat" "$rc" 0; has "ket luan dat" "$r" "3 nghiep vu deu DAT"; has "kiem viec nhac CANCELLED" "$r" "chinh viec nhac do chuyen CANCELLED"
   g5run tech403 39292; is "Ky thuat bi 403: ma thoat" "$rc" 1; has "bao KHONG mo duoc co hoi" "$r" "KHONG mo duoc co hoi theo viec: HTTP 403"; hasnt "khong ket luan dat" "$r" "3 nghiep vu deu DAT"
   g5run remnotcancelled 39293; is "viec nhac khong huy: ma thoat" "$rc" 1; has "bao viec nhac sai trang thai" "$r" "ky vong CANCELLED"; hasnt "khong ket luan dat" "$r" "3 nghiep vu deu DAT"
+  g5run wonwrong 39294; is "Thang luu sai gia tri chot: ma thoat" "$rc" 1; has "bao Thang sai" "$r" "Thang (doc lai) sai: wonAmountVnd=0"; hasnt "khong ket luan dat" "$r" "3 nghiep vu deu DAT"
 else echo "G5 (bo qua: thieu g5-api-flows.sh cung thu muc hoac node)"; fi
 
 echo; echo "TONG: $pass dat, $fail khong dat"; [ "$fail" = 0 ]
