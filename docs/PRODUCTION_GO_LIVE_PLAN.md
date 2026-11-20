@@ -1,12 +1,12 @@
 # Kế hoạch đưa SISCOM CRM vào sử dụng thật (production)
 
 - **Ngày lập:** 19/11/2026 · **Người lập:** Claude, theo yêu cầu của Owner ("Soạn kế hoạch", sau khi S12 đạt nghiệm thu theo quyết định của Owner).
-- **Trạng thái (20/11/2026):** KẾ HOẠCH. **Bước 0 đã xong** (Owner duyệt bước 0 ngày 20/11/2026; chỉ đọc và chạy thử khô, không thay đổi cấu hình VPS — ghi chú bước 0 ở mục 5). **Bước 1–8 chưa làm.** Mỗi bước ở mục 5 cần Owner duyệt riêng bằng văn bản. Không bước nào được cấp phép bởi tài liệu này. **P3 (cloud-init): BLOCKED — chờ Owner chốt** (mục 2.1).
+- **Trạng thái (20/11/2026):** KẾ HOẠCH. **Bước 0 đã xong** (Owner duyệt bước 0 ngày 20/11/2026; chỉ đọc và chạy thử khô, không thay đổi cấu hình VPS — ghi chú bước 0 ở mục 5). **Bước 1–8 chưa làm.** Mỗi bước ở mục 5 cần Owner duyệt riêng bằng văn bản. Không bước nào được cấp phép bởi tài liệu này. **P3 (cloud-init): Owner chốt KHÔNG làm** (20/11/2026, mục 2.1).
 - **Mã nguồn:** `main` = `2de465c` (CI 6/6), đang chạy trên staging từ 19/11/2026 16:37 (giờ Việt Nam).
 - **Tài liệu nền:** `docs/VPS_RUNBOOK.md` (G6 sao lưu, G7 production, mục 9 giới hạn đã biết) — tài liệu này cụ thể hoá G7 cho lần đưa vào dùng thật đầu tiên; `docs/SALES_S12_STAGING_PLAN.md` (mục 10.7 — quyết định nghiệm thu và danh sách tiêu chí miễn kiểm); `docs/FV5_ACCOUNT_ADMIN.md`.
 - Tài liệu không chứa mật khẩu, khoá hay dữ liệu khách hàng.
 - **Sửa sau review R1 (20/11/2026):** bước 6 không tạo dữ liệu thử trên database thật (mục 5.4); rollback và điều kiện dừng (mục 5.2); sao lưu ngoài VPS tạm thời khi PR #235 chưa nghiệm thu (mục 5.3); bảng GO/NO-GO cho bước 8 (mục 5.1); quy ước tài khoản theo vai trò (mục 2.3). Bảng phản hồi từng điểm ở comment R2 của PR #255.
-- **Sửa sau rà soát 20/11/2026 (chiều):** P3 ghi đúng trạng thái "chờ Owner chốt" thay vì vừa "cho làm" vừa "đề xuất không làm" (mục 2.1, 3, 7); bước 0 tách rõ phần đã làm và kết quả (mục 5, ghi chú bước 0), lịch mục 2.2 cập nhật theo.
+- **Sửa sau rà soát 20/11/2026 (chiều):** P3 ghi đúng trạng thái "chờ Owner chốt" thay vì vừa "cho làm" vừa "đề xuất không làm" (mục 2.1, 3, 7); bước 0 tách rõ phần đã làm và kết quả (mục 5, ghi chú bước 0), lịch mục 2.2 cập nhật theo. Sau đó Owner chốt P3: **không làm** (nguyên văn "Không làm P3", 20/11/2026).
 
 ## 1. Tóm tắt
 
@@ -44,14 +44,14 @@
 | D5 | **Bắt đầu trống** (Owner đổi 20/11/2026; trước đó chọn nhập khách có sẵn) | Không cần công cụ nhập; không chặn ngày mở |
 | D6 | **Google Drive tự động** | PR #235 (Draft, +1065 dòng) **chưa nghiệm thu** ⇒ **không** là điều kiện mở. Trước khi mở dùng phương án tạm thời ở mục 5.3 (chép bản sao đã mã hoá + ký về máy Owner, kiểm chữ ký và SHA-256, khôi phục thử đạt). Chuyển sang Drive tự động chỉ sau khi #235 được review, Owner duyệt merge và chạy thử đạt |
 | D7 | Ngày mở: **càng sớm càng tốt**; báo lỗi qua **Zalo** (20/11/2026) | Lịch đề xuất ở mục 2.2 |
-| P3 | **Cho làm** (phiếu lưu 19/11/2026 17:08; lần lưu 20/11/2026 08:23 giữ nguyên) | **BLOCKED — chờ Owner chốt.** Sau khi Owner chọn "Cho làm", Claude kiểm chỉ đọc (19/11) và **đề xuất không làm** (ghi chú dưới). Owner **chưa trả lời** đề xuất này ⇒ chưa có quyết định cuối cùng. Không đụng cloud-init cho tới khi Owner chốt |
+| P3 | Phiếu: "Cho làm" (19/11/2026 17:08). **Chốt cuối: KHÔNG làm** — Owner trả lời đề xuất của Claude, nguyên văn "Không làm P3" (20/11/2026) | Không thay đổi cloud-init. Giữ hiện trạng: cloud-init vẫn đặt lại mật khẩu root mỗi lần khởi động; mật khẩu đó chỉ dùng được ở console web BKNS (đường cứu hộ), SSH vẫn chỉ đăng nhập bằng khoá. Không phải điều kiện mở |
 | P4 | Đã đặt mật khẩu cho `VPS.ppk`; chưa chuyển khoá sao lưu khỏi Dropbox; chưa đánh dấu cam kết không dùng lại mật khẩu từ chat | — |
 
 Ghi chú của Owner, nguyên văn: "em làm cái tối ưu thêm thì làm, đừng bảo mật quá".
 
-**P3 — đề xuất của Claude, chưa được Owner chốt: KHÔNG làm** (sau khi kiểm chỉ đọc 19/11): cloud-init của BKNS đặt lại mật khẩu root từ đĩa seed `cidata` mỗi lần khởi động, đúng mật khẩu Owner thấy trong bảng điều khiển BKNS. SSH đã chặn đăng nhập bằng mật khẩu, nên mật khẩu đó chỉ dùng được ở **console web của BKNS** — đây lại là đường cứu hộ khi mất khoá SSH. Tắt cloud-init còn có thể ảnh hưởng cấu hình mạng (`/etc/netplan/50-cloud-init.yaml` do cloud-init sinh). Rủi ro của việc giữ nguyên thấp hơn rủi ro của việc sửa; phù hợp ghi chú "đừng bảo mật quá".
+**P3 — Claude đề xuất KHÔNG làm (kiểm chỉ đọc 19/11); Owner chốt không làm (20/11/2026):** cloud-init của BKNS đặt lại mật khẩu root từ đĩa seed `cidata` mỗi lần khởi động, đúng mật khẩu Owner thấy trong bảng điều khiển BKNS. SSH đã chặn đăng nhập bằng mật khẩu, nên mật khẩu đó chỉ dùng được ở **console web của BKNS** — đây lại là đường cứu hộ khi mất khoá SSH. Tắt cloud-init còn có thể ảnh hưởng cấu hình mạng (`/etc/netplan/50-cloud-init.yaml` do cloud-init sinh). Rủi ro của việc giữ nguyên thấp hơn rủi ro của việc sửa; phù hợp ghi chú "đừng bảo mật quá".
 
-**Owner cần chốt một trong ba** (Claude không tự chọn): (1) **không làm** P3 — theo đề xuất trên; (2) **làm trước ngày mở** — thêm một bước riêng vào mục 5 (lệnh cụ thể được review trước, Owner duyệt riêng; chưa có trong lịch 2.2); (3) **làm sau ngày mở** — như (2) nhưng sau bước 8. P3 hiện **không** nằm trong bước 0–8 và **không** là hạng mục của bảng GO/NO-GO (mục 5.1); việc P3 có là điều kiện mở hay không cũng do Owner chốt cùng câu trả lời này. `provision.sh` chỉ giữ khoá host SSH qua cloud-init (`ssh_deletekeys: false`, đã có trên VPS) — không liên quan P3, và bước 1 không chạy lại `provision.sh`.
+**Quyết định cuối (Owner, 20/11/2026): không làm P3.** P3 không nằm trong bước 0–8, không là hạng mục GO/NO-GO (mục 5.1), không là điều kiện mở. Muốn làm sau này cần quyết định mới của Owner, lệnh cụ thể được review trước. `provision.sh` chỉ giữ khoá host SSH qua cloud-init (`ssh_deletekeys: false`, đã có trên VPS) — không liên quan P3, và bước 1 không chạy lại `provision.sh`.
 
 ### 2.2 Lịch dự kiến (Owner chọn "càng sớm càng tốt"; Owner chốt cài đặt T7 21/11/2026, mở T2 23/11/2026)
 
@@ -60,7 +60,7 @@ Lịch **không** phải quyền thực hiện: mỗi bước ở mục 5 vẫn 
 | Khi nào | Việc | Ai |
 |---|---|---|
 | 20/11 (đã làm) | **Bước 0 xong** — ghi chú bước 0 ở mục 5 | Claude (Owner duyệt) |
-| Trước T7 21/11 | Review kế hoạch (#255) tới PASS; Owner duyệt. Bước 6a: Owner thử nghiệp vụ trên **staging** (mục 5.4). Owner chốt P3 (mục 2.1) | Reviewer, Owner |
+| Trước T7 21/11 | Review kế hoạch (#255) tới PASS; Owner duyệt. Bước 6a: Owner thử nghiệp vụ trên **staging** (mục 5.4). | Reviewer, Owner |
 | T7 21/11 (~3 giờ, Owner ngồi cùng) | Kiểm lại `main` vẫn là `2de465c` (khác ⇒ dừng, làm lại bước 0 cho SHA mới, lịch lùi); bước 1 (chỉ đổi Caddy: tên miền + HTTPS) **ngay trước** bước 2; bước 2–5; bước 6b (kiểm chỉ đọc, xác nhận database thật sạch); bước 7 (sao lưu, khôi phục thử, bản sao ngoài VPS) | Claude + Owner |
 | T2 23/11 | Bảng GO/NO-GO (mục 5.1) đủ; Owner quyết GO ⇒ bước 8 | Owner |
 | Sau ngày mở | Chép bản sao ngoài VPS hằng ngày (mục 5.3) cho tới khi PR #235 được nghiệm thu | Claude (chỉ đọc), Owner duyệt |
@@ -81,7 +81,7 @@ Owner, nguyên văn: "Giữ tên theo vai trò, sửa sau khi có màn hình qu�
 |---|---|---|---|
 | **P1** | **Quản lý tài khoản dùng được trên máy chủ thật** — bắt buộc cho cách B; với cách A cần để đổi họ tên / email tài khoản theo vai trò (mục 2.3) và thêm người | Công cụ `account-admin` hiện **khoá cứng** vào PostgreSQL thử (FV5-DB-GUARD). Owner đã quyết 10/11/2026: phê duyệt hai người **chỉ bằng khai báo** (người chạy lệnh gõ mã hai người) **không được dùng thật**. Cần cơ chế hai người thật: người yêu cầu và người duyệt mỗi người **tự đăng nhập** và bấm trên giao diện (màn hình "Quản lý tài khoản" trong CRM). Hai kịch bản đặt lại mật khẩu dùng trên staging ngày 19/11 là loại "khai báo" ⇒ **không dùng cho database thật** | 3–5 ngày, gồm review |
 | P2 | **Mật khẩu** | Mỗi người có mật khẩu riêng ≥ 12 ký tự lúc khởi tạo (Owner gõ trên máy chủ). **Không** dùng mật khẩu chung, **không** dùng lại bất kỳ mật khẩu nào từng xuất hiện trong chat hay ảnh chụp (kể cả mật khẩu thử staging) | Trong bước 5 |
-| P3 | **Chặn cloud-init đặt lại mật khẩu root mỗi lần khởi động** (runbook mục 9.10) — **BLOCKED, chờ Owner chốt** (mục 2.1) | Đăng nhập root bằng mật khẩu qua SSH đã tắt; mật khẩu đó còn dùng được ở console web BKNS (đường cứu hộ). Claude đề xuất không làm; Owner chưa chốt. Chưa có trong bước 0–8 | 1 bước nhỏ, có duyệt — **chỉ** nếu Owner chọn làm |
+| P3 | **Chặn cloud-init đặt lại mật khẩu root mỗi lần khởi động** (runbook mục 9.10) — **Owner chốt KHÔNG làm (20/11/2026)**, mục 2.1 | Đăng nhập root bằng mật khẩu qua SSH đã tắt; mật khẩu đó chỉ dùng được ở console web BKNS (đường cứu hộ khi mất khoá SSH) | Không làm |
 | P4 | **Vị trí khoá** | Khoá đăng nhập VPS (`VPS.ppk`) và hai khoá giải mã sao lưu đang có bản trong **Dropbox**. Đề xuất: đặt mật khẩu bảo vệ cho `VPS.ppk` (PuTTYgen), giữ khoá giải mã sao lưu ở ổ rời / nơi không đồng bộ | Owner tự làm |
 | P5 | **Sao lưu dữ liệu thật** | Timer sao lưu đêm lấy database từ `migrate.env` (`backup-db.sh`, kiểm mã 20/11) nên sau bước 2 **tự chuyển sang `siscom_crm_prod`** và ngừng sao lưu staging. Phải **khôi phục thử** bản đầu tiên của database thật và có bản sao ngoài VPS đã kiểm (mục 5.3) | Trong bước 7 |
 | P6 | Mã đóng gói | Dùng `--src` từ `git archive <SHA đã duyệt>` như 19/11; hoặc Owner duyệt tạo tag `v0.1.0` trên `main` để dùng `--tag` (runbook mục 9.8) | — |
@@ -203,5 +203,5 @@ Có dòng ngoài kỳ vọng ⇒ NO-GO; không xoá tay — điều tra, rồi O
 ## 7. Thứ tự đề xuất
 
 1. Owner trả lời D1–D7 (mục 2) — **xong 20/11/2026** (mục 2.1).
-2. Song song: Owner làm P4 (khoá); bản ghi DNS (D3) **xong 20/11**. **P3: BLOCKED — chờ Owner chốt** (mục 2.1); Claude không làm gì với cloud-init trước khi Owner chốt. P1 làm sau ngày mở (Owner chọn cách A).
+2. Song song: Owner làm P4 (khoá); bản ghi DNS (D3) **xong 20/11**. **P3: Owner chốt không làm** (20/11/2026, mục 2.1); không thay đổi cloud-init. P1 làm sau ngày mở (Owner chọn cách A).
 3. Bước 0 **xong 20/11**; bước 1 → 8 (mục 5), mỗi bước Owner duyệt riêng; bước 8 chỉ khi bảng GO/NO-GO (mục 5.1) đủ.
