@@ -217,6 +217,8 @@ export function unplacedErrors(kind, fieldErrors, extra) {
 // kind: stage | hold | holdEdit | resume | win | lose | assign | reopen | delete. Mọi thao tác gửi version đã tải (khoá lạc quan).
 export const ACTION_TITLE = { stage: 'Chuyển giai đoạn', hold: 'Tạm hoãn cơ hội', holdEdit: 'Đổi hạn tạm hoãn', resume: 'Tiếp tục cơ hội', win: 'Chốt Thắng', lose: 'Chốt Thua', assign: 'Chuyển người phụ trách', reopen: 'Mở lại cơ hội', delete: 'Xoá cơ hội' };
 export const ACTION_DONE = { stage: 'Đã chuyển giai đoạn', hold: 'Đã tạm hoãn', holdEdit: 'Đã đổi hạn tạm hoãn', resume: 'Đã tiếp tục cơ hội', win: 'Đã chốt Thắng', lose: 'Đã chốt Thua', assign: 'Đã chuyển người phụ trách', reopen: 'Đã mở lại cơ hội', delete: 'Đã xoá cơ hội' };
+// T-09: máy chủ cắt danh sách người nhận ở 500 người (truncated = true) => báo ngắn dưới ô chọn, không cắt âm thầm.
+export const CANDIDATES_TRUNCATED_HINT = 'Chỉ hiện 500 người đầu theo tên — danh sách còn người khác chưa hiện.';
 // Thao tác cần danh sách người nhận từ máy chủ (S10a): assign => owner-candidates; win => handover-candidates.
 export const ACTION_CANDIDATES = { assign: 'owner-candidates', win: 'handover-candidates' };
 const EMPTY_ACTION = { stageId: '', probability: 'KEEP', holdUntil: '', holdReason: '', reason: '', wonAmount: '', wonDocType: 'HOP_DONG', wonDocNo: '', wonDocDate: '', wonDocUrl: '', wonDocFileName: '', handoverToId: '', handoverDueDate: '', lostReasonId: '', lostNote: '', ownerId: '' };
@@ -322,11 +324,19 @@ export function toPatchBody(o, form, meta) {
 // ───── S10c: Lịch sử thay đổi (GET /opportunities/:id/changes) ─────
 export const CHANGE_LABEL = { STAGE: 'Giai đoạn', STATUS: 'Trạng thái', HOLD: 'Ngày liên hệ lại', AMOUNT: 'Giá trị dự kiến', PROBABILITY: 'Xác suất', CLOSE_DATE: 'Dự kiến chốt', OWNER: 'Người phụ trách' };
 // Một dòng lịch sử => { label, text }. Giá trị trống của số tiền là "Chưa rõ" (không phải 0). Mã giai đoạn đổi sang tên theo danh mục (nếu có).
-// Người phụ trách lưu bằng id: chỉ hiện tên khi trùng người phụ trách hiện tại (API lịch sử không trả tên người cũ).
+// Người phụ trách lưu bằng id. T-03: API trả kèm oldOwner / newOwner (tên đọc cùng snapshot) => "Chuyển từ <cũ> sang <mới>". Thiếu tên (bản ghi cũ,
+// nhân viên không còn tìm thấy) => dùng người phụ trách hiện tại nếu trùng id, còn lại câu chung. KHÔNG bao giờ hiện id thô.
 export function describeChange(c, ctx = {}) {
   const stages = (ctx.meta && ctx.meta.stages) || []; const o = ctx.o || {};
   const label = CHANGE_LABEL[c.field] || String(c.field || '—');
-  if (c.field === 'OWNER') return { label, text: o.owner && o.owner.id === c.newValue ? 'Chuyển cho ' + o.owner.fullName : 'Đã chuyển người phụ trách' };
+  if (c.field === 'OWNER') {
+    const nameOf = (p, id) => (p && p.fullName ? p.fullName : o.owner && id && o.owner.id === id ? o.owner.fullName : null);
+    const from = nameOf(c.oldOwner, c.oldValue); const to = nameOf(c.newOwner, c.newValue);
+    if (from && to) return { label, text: 'Chuyển từ ' + from + ' sang ' + to };
+    if (to) return { label, text: 'Chuyển cho ' + to };
+    if (from) return { label, text: 'Chuyển từ ' + from + ' sang người khác' };
+    return { label, text: 'Đã chuyển người phụ trách' };
+  }
   const fmt = (v) => {
     if (v === null || v === undefined || v === '') return c.field === 'AMOUNT' ? AMOUNT_UNKNOWN : '—';
     if (c.field === 'AMOUNT') return moneyVN(v);
@@ -358,6 +368,8 @@ export function validateReason(reason, msg) { const e = {}; need(e, 'reason', re
 
 // ───── S11: kanban (§8.1) ─────
 export const BOARD_PAGE_SIZE = 100;
+// T-02: số dòng lịch sử thay đổi mỗi lần tải (máy chủ cho tối đa 100).
+export const CHANGES_PAGE_SIZE = 50;
 // Tổng giá trị dự kiến của các thẻ ĐÃ TẢI trong một cột, tách riêng số thẻ "chưa rõ giá trị" (không bao giờ cộng chúng như 0).
 // Chỉ tính thẻ đường đầy đủ; cộng bằng BigInt trên chuỗi chữ số. Không có thẻ nào có giá trị => sum = null (không phải "0").
 export function sumAmounts(items) {
@@ -389,6 +401,20 @@ export function columnTotalLabel(items) {
   if (t.sum !== null) parts.push(moneyShortVN(t.sum));
   if (t.unknown) parts.push(t.unknown + ' chưa rõ');
   return parts.join(' + ');
+}
+// T-04: dòng tổng của cột từ GET /opportunities/board-summary (tính trên MỌI cơ hội đang mở của cột, không chỉ thẻ đã tải). Cùng định dạng với
+// columnTotalLabel: tổng rút gọn + "n chưa rõ"; cột không có cơ hội nào (count 0) => ''. Dữ liệu lạ => '' (không đoán).
+export function summaryTotalLabel(s) {
+  if (!s || !Number.isInteger(s.count) || s.count <= 0) return '';
+  const parts = [];
+  if (s.sumExpectedAmountVnd !== null && s.sumExpectedAmountVnd !== undefined) parts.push(moneyShortVN(s.sumExpectedAmountVnd));
+  if (Number.isInteger(s.unknownAmountCount) && s.unknownAmountCount > 0) parts.push(s.unknownAmountCount + ' chưa rõ');
+  return parts.join(' + ');
+}
+// Tra cột theo stageId trong phản hồi board-summary; giai đoạn không có cơ hội nào không có dòng => cột rỗng (count 0).
+export function summaryOf(summary, stageId) {
+  const list = summary && Array.isArray(summary.stages) ? summary.stages : [];
+  return list.find((x) => x && x.stageId === stageId) || { stageId, count: 0, knownAmountCount: 0, unknownAmountCount: 0, sumExpectedAmountVnd: null };
 }
 // ───── S10c R2 (PR249-R1-01): lưu lại sau xung đột phiên bản (409) ─────
 // Vấn đề: sau 409, chi tiết được tải lại (version mới) nhưng biểu mẫu vẫn giữ MỌI giá trị cũ; so biểu mẫu cũ với bản mới sẽ coi cả những ô

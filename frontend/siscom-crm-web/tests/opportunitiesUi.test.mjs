@@ -170,6 +170,14 @@ test('candidates: gọi đúng API ứng viên theo thao tác; thao tác không 
   assert.equal(repo.calls[0].path, '/opportunities/o1/owner-candidates');
   const denied = await ctl.candidates('win', 'o1');
   assert.deepEqual([denied.ok, denied.error.kind], [false, 'forbidden']);
-  assert.deepEqual(await ctl.candidates('stage', 'o1'), { ok: true, items: [] });
+  assert.deepEqual(await ctl.candidates('stage', 'o1'), { ok: true, items: [], truncated: false });
   assert.equal(repo.calls.length, 2);
+});
+
+test('T-09 candidates: truncated chỉ true khi máy chủ trả truncated === true; thiếu khoá / giá trị lạ => false', async () => {
+  let body = { items: [{ id: 'e1', code: 'NV-1', fullName: 'Một', departmentCode: null }], truncated: true };
+  const repo = repoOf(() => body);
+  const ctl = createOpportunitiesController(repo, describeRepoError);
+  assert.deepEqual(await ctl.candidates('assign', 'o1'), { ok: true, items: body.items, truncated: true });
+  for (const v of [undefined, false, 'true', 1]) { body = { items: [], truncated: v }; assert.equal((await ctl.candidates('win', 'o1')).truncated, false, String(v)); }
 });

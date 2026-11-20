@@ -172,6 +172,7 @@ export default function OpportunitiesPage({ ui }) {
   const trash = mayRestore && deletedMode;
   // S11: kanban chỉ ở máy tính, cho người xem đầy đủ, ngoài chế độ "Đã xoá". Điện thoại: danh sách thẻ + thanh chọn giai đoạn + nút "Chuyển giai đoạn" (§8.5).
   const [view, setView] = React.useState('table');
+  const [onHold, setOnHold] = React.useState(null); // T-04: số cơ hội Tạm hoãn (cùng bộ lọc loại / từ khoá) từ board-summary; null = chưa có / lỗi
   const board = full && !ui.mobile && !trash && view === 'kanban';
   const mover = useStageMove(ui);
   const actx = { scopeOf, meId: ui.me ? ui.me.employeeId : null };
@@ -206,10 +207,10 @@ export default function OpportunitiesPage({ ui }) {
         {kw.trim().length === 1 ? <div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>Gõ ít nhất 2 ký tự để tìm.</div> : null}
         {board && meta ? (
           <>
-            <OpportunityKanban ui={ui} meta={meta} typeId={f.typeId} q={f.q} />
+            <OpportunityKanban ui={ui} meta={meta} typeId={f.typeId} q={f.q} onSummary={(x) => setOnHold(x && Number.isInteger(x.onHoldCount) ? x.onHoldCount : null)} />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', font: 'var(--type-sm)', color: 'var(--text-3)' }}>
               <span>Kanban chỉ gồm cơ hội đang mở. Xem ở dạng bảng:</span>
-              {[['ON_HOLD', 'Tạm hoãn'], ['WON', 'Đã Thắng'], ['LOST', 'Đã Thua']].map(([k, label]) => <Button key={k} size="sm" variant="ghost" onClick={() => { setF((x) => ({ ...x, status: k, stageId: '' })); setView('table'); }}>{label}</Button>)}
+              {[['ON_HOLD', 'Tạm hoãn'], ['WON', 'Đã Thắng'], ['LOST', 'Đã Thua']].map(([k, label]) => <Button key={k} size="sm" variant="ghost" aria-label={k === 'ON_HOLD' && onHold !== null ? label + ' (' + onHold + ' cơ hội)' : undefined} onClick={() => { setF((x) => ({ ...x, status: k, stageId: '' })); setView('table'); }}>{label}{k === 'ON_HOLD' && onHold !== null ? <Badge size="sm">{onHold}</Badge> : null}</Button>)}
             </div>
           </>
         ) : null}

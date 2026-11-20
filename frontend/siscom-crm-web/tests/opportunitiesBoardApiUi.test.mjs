@@ -105,6 +105,7 @@ const server = (h = {}) => {
     const n = calls.filter((c) => c.method === method && c.p === p).length;
     if (method !== 'GET') return (h.write && h.write(p, body, method, n)) || res(200, { data: detailOf(item(1), { version: 4 }) });
     if (p === '/opportunities/meta') return res(200, { data: META });
+    if (p === '/opportunities/board-summary') return h.summary ? h.summary(q, n) : res(404, { error: { code: 'NOT_FOUND', message: 'x' } });
     if (p === '/opportunities') {
       if (q.get('pageSize') === '100') return h.board ? h.board(q, n) : page([]);
       return (h.list || (() => page([item(1)])))(q, n);
@@ -123,6 +124,7 @@ const server = (h = {}) => {
   f.boards = () => calls.filter((c) => c.method === 'GET' && c.p === '/opportunities' && c.q.get('pageSize') === '100');
   f.lists = () => calls.filter((c) => c.method === 'GET' && c.p === '/opportunities' && c.q.get('pageSize') !== '100');
   f.gets = (p) => calls.filter((c) => c.method === 'GET' && c.p === p);
+  f.summaries = () => calls.filter((c) => c.method === 'GET' && c.p === '/opportunities/board-summary');
   f.writes = () => calls.filter((c) => c.method !== 'GET');
   return f;
 };
@@ -262,6 +264,55 @@ test('kanban — lỗi và dữ liệu lớn: một cột lỗi 500 chỉ báo �
     assert.equal(cards(columns(m.container)[0]).length, 101); assert.deepEqual(head(), ['Tiếp cận· 230', '100 tỷ + 1 chưa rõ · tính trên 101 / 230 thẻ đã tải']);
     await press(cards(columns(m.container)[0])[0], /Chuyển giai đoạn/);
     assert.equal(modal(m.container), undefined); assert.equal(m.toasts.pop().tone, 'error'); assert.equal(f.writes().length, 0);
+  } finally { await m.unmount(); }
+});
+
+// ───── T-04: tổng chính xác theo cột + số Tạm hoãn (GET /opportunities/board-summary) ─────
+const SUMMARY = { stages: [
+  { stageId: 's1', count: 230, knownAmountCount: 225, unknownAmountCount: 5, sumExpectedAmountVnd: '230000000000' },
+  { stageId: 's3', count: 1, knownAmountCount: 1, unknownAmountCount: 0, sumExpectedAmountVnd: '7200000000' },
+], onHoldCount: 4 };
+test('T-04 summaryTotalLabel / summaryOf: cùng định dạng với tổng theo thẻ; cột không có cơ hội => ""; chưa rõ tách riêng, KHÔNG cộng như 0; dữ liệu lạ => ""', async () => {
+  const { summaryTotalLabel, summaryOf } = await import('../src/features/opportunities/opportunitiesModel.js');
+  assert.equal(summaryTotalLabel(summaryOf(SUMMARY, 's1')), '230 tỷ + 5 chưa rõ');
+  assert.equal(summaryTotalLabel(summaryOf(SUMMARY, 's3')), '7,2 tỷ');
+  assert.equal(summaryTotalLabel(summaryOf(SUMMARY, 's4')), ''); // giai đoạn không có dòng => cột rỗng
+  assert.equal(summaryTotalLabel({ count: 2, knownAmountCount: 0, unknownAmountCount: 2, sumExpectedAmountVnd: null }), '2 chưa rõ');
+  assert.equal(summaryTotalLabel({ count: 1, knownAmountCount: 1, unknownAmountCount: 0, sumExpectedAmountVnd: '1999999999999998' }), '1.999.999,9 tỷ');
+  for (const bad of [null, undefined, {}, { count: '3' }, { count: -1 }]) assert.equal(summaryTotalLabel(bad), '', JSON.stringify(bad));
+  assert.deepEqual(summaryOf(null, 's1'), { stageId: 's1', count: 0, knownAmountCount: 0, unknownAmountCount: 0, sumExpectedAmountVnd: null });
+});
+
+test('T-04 kanban: tổng của cột lấy từ board-summary (đúng trên MỌI thẻ, không ghi "tính trên x / y"); nút "Tạm hoãn" có số; đổi loại => đọc lại tổng với typeId', async () => {
+  const big = Array.from({ length: 100 }, (_, i) => item(100 + i, { expectedAmountVnd: '1000000000' }));
+  const f = server({
+    board: (q) => (q.get('stageId') === 's1' ? page(big, { page: 1, pageSize: 100, total: 230, totalPages: 3 }) : q.get('stageId') === 's3' ? page([item(5, { stage: stageOf('s3'), expectedAmountVnd: '7200000000' })], { pageSize: 100 }) : page([])),
+    summary: () => res(200, { data: SUMMARY }),
+  });
+  const m = await listPage(f, SALES);
+  try {
+    assert.equal(f.summaries().length, 0, 'bảng không gọi tổng kanban');
+    await toKanban(m);
+    assert.equal(f.summaries().length, 1);
+    const cols = columns(m.container);
+    assert.deepEqual(headOf(cols[0]), ['Tiếp cận· 230', '230 tỷ + 5 chưa rõ']);
+    assert.deepEqual(headOf(cols[2]), ['Báo giá· 1', '7,2 tỷ']);
+    assert.deepEqual(headOf(cols[1]), ['Khảo sát· 0', '']);
+    assert.doesNotMatch(text(m.container), /tính trên/);
+    const hold = buttonByText(m.container, /^Tạm hoãn/); assert.ok(hold); assert.match(text(hold), /Tạm hoãn\s*4/); assert.equal(hold.attributes['aria-label'], 'Tạm hoãn (4 cơ hội)');
+    await pickIn(findAll(m.container, (e) => e.attributes['aria-label'] === 'Lọc theo loại')[0], /Thi công/);
+    const s = f.summaries(); assert.equal(s.at(-1).q.get('typeId'), 't-install'); assert.equal(s.at(-1).q.get('status'), null);
+  } finally { await m.unmount(); }
+});
+
+test('T-04 kanban: không đọc được tổng (lỗi 500 / 403) => quay về tổng trên thẻ đã tải kèm "tính trên x / y"; nút Tạm hoãn không có số', async () => {
+  const big = Array.from({ length: 100 }, (_, i) => item(100 + i, { expectedAmountVnd: '1000000000' }));
+  const f = server({ board: (q) => (q.get('stageId') === 's1' ? page(big, { page: 1, pageSize: 100, total: 230, totalPages: 3 }) : page([])), summary: () => fail(500, 'INTERNAL', 'Máy chủ lỗi') });
+  const m = await listPage(f, SALES);
+  try {
+    await toKanban(m);
+    assert.deepEqual(headOf(columns(m.container)[0]), ['Tiếp cận· 230', '100 tỷ · tính trên 100 / 230 thẻ đã tải']);
+    assert.equal(text(buttonByText(m.container, /^Tạm hoãn/)).trim(), 'Tạm hoãn');
   } finally { await m.unmount(); }
 });
 

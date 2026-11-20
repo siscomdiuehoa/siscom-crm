@@ -21,12 +21,14 @@ function sameField(k, x, y) {
 const actionText = (k) => ACTION_TEXT[String(k).replace(/^activity\./, '').replace(/\./g, '_')] || String(k);
 
 // Ứng viên (giao lại / đề xuất chuyển). external = người ngoài phạm vi khách (cần assign_external). Đọc tại chỗ, không lưu state chung.
+// T-09: máy chủ cắt ở 500 người (truncated) => báo ngắn, không cắt âm thầm.
+const TRUNCATED_HINT = 'Chỉ hiện 500 người đầu theo tên — danh sách còn người khác chưa hiện.';
 function useCandidates(ui, a, open, external, enabled) {
   const [st, setSt] = React.useState({ status: 'idle', items: [], error: null });
   React.useEffect(() => {
     if (!open || !enabled) return undefined;
     let live = true; setSt({ status: 'loading', items: [], error: null });
-    ui.customerApi.tasks.candidates(cid(a), external).then((r) => { if (live) setSt(r.ok ? { status: 'ready', items: r.items, error: null } : { status: 'error', items: [], error: r.error }); });
+    ui.customerApi.tasks.candidates(cid(a), external).then((r) => { if (live) setSt(r.ok ? { status: 'ready', items: r.items, truncated: r.truncated === true, error: null } : { status: 'error', items: [], error: r.error }); });
     return () => { live = false; };
   }, [open, external, enabled, a.id]); // eslint-disable-line react-hooks/exhaustive-deps
   return st;
@@ -120,14 +122,14 @@ function Dialog({ kind, a, ui, onClose }) {
           <>
             {canExternal ? <div><Switch label="Giao cho người phòng khác" checked={f.external} onChange={set('external')} /><p style={{ margin: '4px 0 0', font: 'var(--type-caption)', color: 'var(--text-3)' }}>Người nhận chỉ xem thẻ việc, không xem hồ sơ khách.</p></div> : null}
             <Select label="Người phụ trách mới" value={f.performedById} onChange={set('performedById')} error={fe('performedById')} disabled={cands.status !== 'ready'}
-              hint={cands.status === 'loading' ? 'Đang tải…' : cands.status === 'error' ? 'Chưa tải được danh sách' : f.external ? 'Người không đọc được khách này; có quyền theo việc đến khi xong' : 'Người đọc được khách này'}
+              hint={cands.status === 'loading' ? 'Đang tải…' : cands.status === 'error' ? 'Chưa tải được danh sách' : (f.external ? 'Người không đọc được khách này; có quyền theo việc đến khi xong' : 'Người đọc được khách này') + (cands.truncated ? '. ' + TRUNCATED_HINT : '')}
               options={[{ value: '', label: '— Chọn người —' }].concat(others(cands.items).map((e) => ({ value: e.id, label: e.fullName + ' · ' + e.code + (e.departmentCode ? ' · ' + e.departmentCode : '') })))} />
           </>
         ) : null}
         {kind === 'transfer' ? (
           <>
             {has(ui, 'activity.assign')
-              ? <Select label="Chuyển cho" required value={f.toEmployeeId} onChange={set('toEmployeeId')} error={fe('toEmployeeId')} disabled={cands.status !== 'ready'} hint="Người cùng phòng; người có quyền giao việc sẽ duyệt"
+              ? <Select label="Chuyển cho" required value={f.toEmployeeId} onChange={set('toEmployeeId')} error={fe('toEmployeeId')} disabled={cands.status !== 'ready'} hint={'Người cùng phòng; người có quyền giao việc sẽ duyệt' + (cands.truncated ? '. ' + TRUNCATED_HINT : '')}
                   options={[{ value: '', label: '— Chọn người —' }].concat(others(cands.items).map((e) => ({ value: e.id, label: e.fullName + ' · ' + e.code })))} />
               : <div role="note" style={{ font: 'var(--type-sm)', color: 'var(--warning-text)', background: 'var(--warning-soft)', padding: '10px 12px', borderRadius: 10 }}>Vai trò của bạn chưa có danh sách người cùng phòng để chọn (API hiện chỉ cấp cho người có quyền giao việc). Hãy nhờ trưởng nhóm giao lại.</div>}
             <Input label="Lý do" required multiline rows={2} maxLength={200} value={f.reason} onChange={set('reason')} error={fe('reason')} placeholder="Ví dụ: nghỉ phép, không đúng chuyên môn…" />

@@ -2,7 +2,7 @@
 // Mọi dữ liệu chỉ từ máy chủ; thao tác ghi thành công => đọc lại danh sách từ máy chủ (không tự sửa dòng); lỗi => báo, không thử lại ngầm.
 import {
   buildListQuery, validateCreate, toCreateBody, serverFieldErrors, validateAction, toActionRequest, ACTION_CANDIDATES,
-  validateEdit, toPatchBody, validateDocument, toDocumentBody, validateReason, BOARD_PAGE_SIZE,
+  validateEdit, toPatchBody, validateDocument, toDocumentBody, validateReason, BOARD_PAGE_SIZE, CHANGES_PAGE_SIZE,
 } from './opportunitiesModel.js';
 import { validateDraft, buildCreateBody, detailsToFieldErrors } from '../activities/activityModel.js';
 
@@ -129,9 +129,10 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
       } finally { inflight = false; set({ busy: null }); }
     },
     // Người có thể nhận (S10a): kind = assign (chuyển người phụ trách) | win (bàn giao). Máy chủ lọc đúng điều kiện của thao tác ghi.
+    // T-09: truncated = máy chủ chỉ trả 500 người đầu (giao diện báo, không cắt âm thầm).
     async candidates(kind, id) {
-      const path = ACTION_CANDIDATES[kind]; if (!path) return { ok: true, items: [] };
-      try { const d = await req('GET', '/opportunities/' + enc(id) + '/' + path); return { ok: true, items: d.items }; } catch (e) { return { ok: false, error: err(e) }; }
+      const path = ACTION_CANDIDATES[kind]; if (!path) return { ok: true, items: [], truncated: false };
+      try { const d = await req('GET', '/opportunities/' + enc(id) + '/' + path); return { ok: true, items: d.items, truncated: d.truncated === true }; } catch (e) { return { ok: false, error: err(e) }; }
     },
     // Đọc phụ (không lưu state chung): chi tiết một cơ hội.
     async get(id) { try { return { ok: true, data: await req('GET', '/opportunities/' + enc(id)) }; } catch (e) { return { ok: false, error: err(e) }; } },
@@ -165,10 +166,13 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
     },
     // Báo cho tab "Hoạt động & công việc" đang mở đọc lại (sau ghi nhận, hoặc sau thao tác trên công việc ở màn hình Công việc).
     touchActivities() { if (!muted) set({ activityTick: state.activityTick + 1 }); },
-    changes(id) { return read('/opportunities/' + enc(id) + '/changes'); },
+    // T-02: lịch sử phân trang (mới nhất trước) — mỗi lần CHANGES_PAGE_SIZE dòng; "Tải thêm" gọi trang kế tiếp.
+    changes(id, page = 1) { return read('/opportunities/' + enc(id) + '/changes' + qs({ page, pageSize: CHANGES_PAGE_SIZE })); },
     // ───── S11 ─────
     // Một cột kanban: cơ hội ĐANG MỞ của một giai đoạn (Tạm hoãn / đã đóng nằm ngoài kanban), tối đa 100 thẻ mỗi lần. f = { typeId, q }.
     board(stageId, f = {}, page = 1) { return read('/opportunities' + qs(buildListQuery({ status: 'OPEN', stageId, typeId: f.typeId, q: f.q, page, pageSize: BOARD_PAGE_SIZE, sortBy: 'updatedAt', sortOrder: 'desc' }))); },
+    // T-04: tổng CHÍNH XÁC theo cột (mọi thẻ, không chỉ thẻ đã tải) + số Tạm hoãn, cùng bộ lọc loại / từ khoá với các cột. Máy chủ chỉ tính trên đường đọc đầy đủ.
+    boardSummary(f = {}) { const q = {}; if (f.typeId) q.typeId = f.typeId; if (f.q) q.q = f.q; return read('/opportunities/board-summary' + qs(q)); },
     // Cơ hội của MỘT khách (tab "Cơ hội" ở chi tiết khách). 404 ở đây là của khách hàng => giữ nguyên thông báo của lớp khách hàng.
     async byCustomer(customerId, page = 1) {
       try { return { ok: true, data: await req('GET', '/customers/' + enc(customerId) + '/opportunities' + qs(buildListQuery({ page }))) }; } catch (e) { return { ok: false, error: describe(e) }; }

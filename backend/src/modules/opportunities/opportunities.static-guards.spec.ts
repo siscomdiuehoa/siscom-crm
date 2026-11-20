@@ -6,7 +6,7 @@ import { join } from 'node:path';
 // Bằng chứng hành vi: test/opportunities.int-spec.ts (ma trận quyền qua HTTP), test/opportunities.consistency.int-spec.ts (đọc nhất quán),
 // test/opportunities.write.int-spec.ts (ghi: quyền, luật R-S, lịch sử, xung đột phiên bản).
 const text = (f: string) => readFileSync(join(__dirname, f), 'utf8');
-const READ_FNS = ['async list(', 'async listByCustomer(', 'async detail(', 'async changes('];
+const READ_FNS = ['async list(', 'async listByCustomer(', 'async detail(', 'async changes(', 'async boardSummary('];
 
 describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
   const c = text('opportunities.controller.ts');
@@ -19,11 +19,11 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     const body = c.slice(start, next === -1 ? undefined : next);
     return [...body.matchAll(/@(Get|Post|Patch|Put|Delete)\(([^)]*)\)/g)].map((m) => m[1] + '(' + m[2] + ')');
   };
-  it('đúng tập route S6 + S7 + S8a + S8b + S9a + S9b + S10a', () => {
+  it('đúng tập route S6 + S7 + S8a + S8b + S9a + S9b + S10a + T-04', () => {
     expect(c).toMatch(/@Controller\('customers\/:customerId\/opportunities'\)/);
     expect(c).toMatch(/@Controller\('opportunities'\)/);
     expect(routes('CustomerOpportunitiesController')).toEqual(['Get()']);
-    expect(routes('OpportunitiesController')).toEqual(['Get()', "Get('meta')", 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Post(':id/hold')", "Post(':id/resume')", "Post(':id/win')", "Post(':id/lose')", "Post(':id/reopen')", "Get(':id/owner-candidates')", "Get(':id/handover-candidates')", "Get(':id/activities')", "Post(':id/activities')", "Get(':id/documents')", "Post(':id/documents')", "Delete(':id/documents/:docId')", "Delete(':id')"]);
+    expect(routes('OpportunitiesController')).toEqual(['Get()', "Get('meta')", "Get('board-summary')", 'Post()', "Get(':id')", "Patch(':id')", "Get(':id/changes')", "Post(':id/stage')", "Post(':id/assign')", "Post(':id/restore')", "Post(':id/hold')", "Post(':id/resume')", "Post(':id/win')", "Post(':id/lose')", "Post(':id/reopen')", "Get(':id/owner-candidates')", "Get(':id/handover-candidates')", "Get(':id/activities')", "Post(':id/activities')", "Get(':id/documents')", "Post(':id/documents')", "Delete(':id/documents/:docId')", "Delete(':id')"]);
     expect(c).not.toMatch(/@Put\(/);
   });
   it('mọi controller đều sau ActorGuard', () => {
@@ -36,9 +36,10 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
   });
   it('mọi truy vấn opportunity trong service đọc đều đi qua vị từ phạm vi (anyReadWhere = đầy đủ HOẶC theo việc / deletedListWhere)', () => {
     // Mỗi lần gọi *.opportunity.* phải dùng `where` dựng từ vị từ của opportunities.access.
-    const calls = [...s.matchAll(/\.opportunity\.(findFirst|findMany|count|findUnique|findUniqueOrThrow|findFirstOrThrow)\(([^;]*);/g)];
-    expect(calls.length).toBe(5);
-    for (const m of calls) expect(m[2]).toMatch(/anyReadWhere\(actor, scopeOf, |\bwhere\b[,} ]/);
+    // T-04: groupBy / aggregate cũng phải đi qua vị từ phạm vi (boardSummary dùng hàm where(status) dựng từ vị từ đầy đủ — ghim ở test T-04).
+    const calls = [...s.matchAll(/\.opportunity\.(findFirst|findMany|count|groupBy|aggregate|findUnique|findUniqueOrThrow|findFirstOrThrow)\(([^;]*);/g)];
+    expect(calls.length).toBe(7);
+    for (const m of calls) expect(m[2]).toMatch(/anyReadWhere\(actor, scopeOf, |\bwhere\b[,} ]|where: where\('(OPEN|ON_HOLD)'\)/);
     // S9a: service đọc KHÔNG gọi thẳng fullReadWhere / taskPathWhere — chỉ qua anyReadWhere (một vị từ cho mọi đường đọc).
     expect(s).not.toMatch(/fullReadWhere\(|taskPathWhere\(/);
     expect(s).not.toMatch(/opportunity\.(findUnique|findUniqueOrThrow|findFirstOrThrow)\(/);
@@ -52,9 +53,28 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     const ch = s.slice(s.indexOf('async changes('));
     expect(ch.indexOf('anyReadWhere(actor, scopeOf, ')).toBeGreaterThan(-1);
     expect(ch.indexOf('anyReadWhere(actor, scopeOf, ')).toBeLessThan(ch.indexOf('tx.opportunityChange.findMany('));
+    // T-02 / T-03: count + trang + tên người phụ trách đều đọc SAU bước kiểm readsFull, trong cùng snapshot.
+    expect(ch.indexOf('if (!readsFull(actor, scopeOf, row)) throw opportunityErrors.forbidden(')).toBeLessThan(ch.indexOf('tx.opportunityChange.count('));
+    expect(ch.indexOf('if (!readsFull(actor, scopeOf, row)) throw opportunityErrors.forbidden(')).toBeLessThan(ch.indexOf('tx.employee.findMany('));
     // S9a: lịch sử CHỈ cho đường đầy đủ — kiểm readsFull TRƯỚC khi đọc opportunity_change.
     expect(ch.indexOf('if (!readsFull(actor, scopeOf, row)) throw opportunityErrors.forbidden(')).toBeGreaterThan(-1);
     expect(ch.indexOf('if (!readsFull(actor, scopeOf, row)) throw opportunityErrors.forbidden(')).toBeLessThan(ch.indexOf('tx.opportunityChange.findMany('));
+  });
+  it('T-04 — tổng theo cột kanban: CHỈ đường đọc đầy đủ (không bao giờ tính dòng theo việc), cần opportunity.read, vị từ đứng đầu, đường tĩnh trước :id', () => {
+    const bs = s.slice(s.indexOf('async boardSummary('));
+    expect(bs.length).toBeGreaterThan(100);
+    const deny = "if (scopeOf('opportunity.read') === null) throw opportunityErrors.forbidden(";
+    expect(bs.indexOf(deny)).toBeGreaterThan(-1);
+    expect(bs.indexOf(deny)).toBeLessThan(bs.indexOf('this.snapshot('));
+    // Vị từ: listReadWhere với fullOnly = true (= fullReadWhere); không anyReadWhere / taskPathWhere.
+    expect(bs).toContain('const full = listReadWhere(actor, scopeOf, await dbNow(tx), true);');
+    expect(bs).not.toMatch(/anyReadWhere\(|taskPathWhere\(|readsByTask\(|resolvePath\(/);
+    expect(bs).toContain("const where = (status: 'OPEN' | 'ON_HOLD'): Prisma.OpportunityWhereInput => ({ AND: [full, ...p.filters, { status }] });");
+    expect(bs.indexOf('const full = ')).toBeLessThan(bs.indexOf('tx.opportunity.groupBy('));
+    expect(bs.indexOf('const full = ')).toBeLessThan(bs.indexOf('tx.opportunity.count('));
+    expect((bs.match(/tx\.opportunity\.(groupBy|count)\(\{ (by: \['stageId'\], )?where: where\('(OPEN|ON_HOLD)'\)/g) ?? []).length).toBe(2);
+    expect(c.indexOf("@Get('board-summary')")).toBeGreaterThan(-1);
+    expect(c.indexOf("@Get('board-summary')")).toBeLessThan(c.indexOf("@Get(':id')"));
   });
   it('PR241-R1-01/02: mọi truy vấn nghiệp vụ của đường đọc chạy trên tx của MỘT transaction REPEATABLE READ; không truy vấn nào đi thẳng qua this.prisma', () => {
     expect(s).not.toMatch(/this\.prisma\.(opportunity|opportunityChange|customer|contact|employee|lookupItem)\b/);

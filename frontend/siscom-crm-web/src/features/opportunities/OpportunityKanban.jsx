@@ -1,27 +1,38 @@
 import React from 'react';
 import { Avatar, Button, Icon } from '../../ds/index.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
-import { moneyVN, dateVN, isCloseOverdue, opportunityActions, columnTotalLabel } from './opportunitiesModel.js';
+import { moneyVN, dateVN, isCloseOverdue, opportunityActions, columnTotalLabel, summaryTotalLabel, summaryOf } from './opportunitiesModel.js';
 import { scopeOfUi, useStageMove } from './OpportunityActions.jsx';
 
 // Sales S11: kanban theo giai đoạn (§8.1). Mỗi cột = cơ hội ĐANG MỞ của một giai đoạn, do máy chủ lọc theo phạm vi (GET /opportunities?status=OPEN&stageId=…).
-// Tạm hoãn và đã đóng nằm ngoài kanban. Tổng của cột tính trên các thẻ ĐÃ TẢI, tách riêng số thẻ "chưa rõ giá trị" (không cộng như 0); cột còn thẻ
-// chưa tải thì ghi rõ "x / y thẻ". Kéo thả hoặc nút "Chuyển giai đoạn" đều mở hộp thoại xác nhận (máy chủ kiểm quy tắc: nhu cầu, giá trị, xác suất nhập tay).
+// Tạm hoãn và đã đóng nằm ngoài kanban. T-04: tổng của cột lấy từ GET /opportunities/board-summary — CHÍNH XÁC trên mọi cơ hội đang mở của cột (không
+// chỉ thẻ đã tải), tách riêng số "chưa rõ giá trị" (không cộng như 0); kèm số Tạm hoãn (báo lên trang qua onSummary). Không đọc được tổng => quay về
+// tổng trên các thẻ ĐÃ TẢI và ghi rõ "x / y thẻ" như trước. Kéo thả hoặc nút "Chuyển giai đoạn" đều mở hộp thoại xác nhận (máy chủ kiểm quy tắc).
 const idle = { status: 'loading', items: [], total: 0, page: 0, totalPages: 0, error: null, more: 'idle' };
 
-export function OpportunityKanban({ ui, meta, typeId = '', q = '' }) {
+export function OpportunityKanban({ ui, meta, typeId = '', q = '', onSummary }) {
   const opps = ui.customerApi.opportunities;
   const stages = (meta && meta.stages) || [];
   const [cols, setCols] = React.useState({});
   const [tick, setTick] = React.useState(0);
   const [over, setOver] = React.useState(null);
+  const [summary, setSummary] = React.useState(null); // T-04: { stages, onHoldCount } hoặc null (đang tải / lỗi => dùng tổng trên thẻ đã tải)
+  const report = React.useRef(onSummary); report.current = onSummary;
   const drag = React.useRef(null);
   const seq = React.useRef(0);
   const lastKey = React.useRef(null);
   const key = typeId + '|' + q + '|' + stages.map((x) => x.id).join(',');
   React.useEffect(() => {
     const my = ++seq.current;
-    if (lastKey.current !== key) { lastKey.current = key; setCols({}); } // bộ lọc đổi => tải lại từ đầu; chỉ tick đổi => giữ thẻ tới khi có dữ liệu mới
+    if (lastKey.current !== key) { lastKey.current = key; setCols({}); setSummary(null); } // bộ lọc đổi => tải lại từ đầu; chỉ tick đổi => giữ thẻ tới khi có dữ liệu mới
+    if (typeof opps.boardSummary === 'function') {
+      opps.boardSummary({ typeId, q }).then((r) => {
+        if (my !== seq.current) return;
+        const s = r.ok && r.data && Array.isArray(r.data.stages) ? r.data : null;
+        setSummary(s);
+        if (typeof report.current === 'function') report.current(s);
+      });
+    }
     stages.forEach((st) => {
       opps.board(st.id, { typeId, q }, 1).then((r) => {
         if (my !== seq.current) return;
@@ -47,8 +58,9 @@ export function OpportunityKanban({ ui, meta, typeId = '', q = '' }) {
       <div role="list" aria-label="Kanban theo giai đoạn" style={{ display: 'grid', gridTemplateColumns: 'repeat(' + Math.max(stages.length, 1) + ', minmax(230px, 1fr))', gap: 12, overflowX: 'auto', alignItems: 'start', paddingBottom: 4 }}>
         {stages.map((st) => {
           const c = cols[st.id] || idle;
-          const total = c.status === 'ready' ? columnTotalLabel(c.items) : '';
-          const partial = c.status === 'ready' && c.items.length < c.total;
+          const exact = summary ? summaryOf(summary, st.id) : null;
+          const total = exact ? summaryTotalLabel(exact) : c.status === 'ready' ? columnTotalLabel(c.items) : '';
+          const partial = !exact && c.status === 'ready' && c.items.length < c.total;
           return (
             <section key={st.id} role="listitem" aria-label={'Giai đoạn ' + st.label}
               onDragOver={(e) => { const o = drag.current; if (o && o.stage && o.stage.id !== st.id) { e.preventDefault(); if (over !== st.id) setOver(st.id); } }}

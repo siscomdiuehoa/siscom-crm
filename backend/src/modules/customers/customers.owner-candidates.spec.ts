@@ -32,12 +32,21 @@ describe('listOwnerCandidates', () => {
       { id: 'e3', code: 'NV-0003', fullName: 'Bình', department: null },
     ]);
     const r = await listOwnerCandidates({ employee: { findMany } } as never, me, 'DEPARTMENT');
-    expect(r).toEqual({ scope: 'DEPARTMENT', items: [{ id: 'e2', code: 'NV-0002', fullName: 'An', departmentCode: 'KD' }, { id: 'e3', code: 'NV-0003', fullName: 'Bình', departmentCode: null }] });
+    expect(r).toEqual({ scope: 'DEPARTMENT', items: [{ id: 'e2', code: 'NV-0002', fullName: 'An', departmentCode: 'KD' }, { id: 'e3', code: 'NV-0003', fullName: 'Bình', departmentCode: null }], truncated: false });
     const arg = findMany.mock.calls[0][0];
     expect(arg.where).toEqual({ status: 'ACTIVE', deletedAt: null, departmentId: 'd1' });
     expect(arg.select).toEqual({ id: true, code: true, fullName: true, department: { select: { code: true } } });
     expect(arg.orderBy).toEqual([{ fullName: 'asc' }, { code: 'asc' }]);
-    expect(arg.take).toBe(OWNER_CANDIDATES_MAX);
+    expect(arg.take).toBe(OWNER_CANDIDATES_MAX + 1); // T-09: đọc thêm một dòng để biết có bị cắt không
     expect(JSON.stringify(r)).not.toMatch(/email|phone/);
+  });
+  it('T-09: nhiều hơn OWNER_CANDIDATES_MAX người => trả đúng OWNER_CANDIDATES_MAX người đầu và truncated = true; vừa đủ => truncated = false', async () => {
+    const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ id: 'e' + i, code: 'NV-' + i, fullName: 'NV ' + String(i).padStart(4, '0'), department: null }));
+    const over = await listOwnerCandidates({ employee: { findMany: jest.fn().mockResolvedValue(mk(OWNER_CANDIDATES_MAX + 1)) } } as never, me, 'ALL');
+    expect(over.items.length).toBe(OWNER_CANDIDATES_MAX);
+    expect(over.truncated).toBe(true);
+    expect(over.items[OWNER_CANDIDATES_MAX - 1].id).toBe('e' + (OWNER_CANDIDATES_MAX - 1));
+    const exact = await listOwnerCandidates({ employee: { findMany: jest.fn().mockResolvedValue(mk(OWNER_CANDIDATES_MAX)) } } as never, me, 'ALL');
+    expect([exact.items.length, exact.truncated]).toEqual([OWNER_CANDIDATES_MAX, false]);
   });
 });

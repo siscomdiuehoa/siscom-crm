@@ -488,3 +488,27 @@ describe('PR245-R1-02 — người liên hệ ở đường Sales: cùng một c
     expect(own.body.data.contact).toMatchObject({ id: other.id, fullName: otherName });
   });
 });
+
+describe('T-04 — GET /opportunities/board-summary với đường theo việc: không bao giờ nhận số tiền của cơ hội chỉ thấy qua việc', () => {
+  it('Kỹ thuật chỉ có read_assigned => 403; người đạt CẢ HAI đường: cơ hội chỉ thấy qua việc bị loại khỏi CẢ số đếm LẪN tổng tiền, cơ hội đầy đủ của chính mình vẫn được tính', async () => {
+    const tok = 't04' + uniq().replace(/[^a-z0-9]/gi, '');
+    const viaTask = await makeOpportunity(prisma, fx, { customerId: cA.id, ownerId: fx.empA, title: 'S9 ' + tok + ' qua viec', stage: 'PROSPECTING', amount: BigInt(SECRET_AMOUNT) });
+    await task('salesA', viaTask.id, techX, true);
+    const tech = await a('techXp').get(O + '/board-summary?q=' + tok);
+    expect({ s: tech.status, code: tech.body.error?.code }).toEqual({ s: 403, code: 'FORBIDDEN' });
+    expect(JSON.stringify(tech.body)).not.toContain(SECRET_AMOUNT);
+    expect(await listIds('techXp', '&q=' + tok)).toEqual([viaTask.id]); // đối chứng: vẫn thấy bản kỹ thuật trong danh sách
+    // Đạt cả hai đường: đầy đủ với cơ hội mình phụ trách (own), theo việc với viaTask.
+    const own = await makeOpportunity(prisma, fx, { customerId: cA2.id, ownerId: techX, title: 'S9 ' + tok + ' cua minh', stage: 'PROSPECTING', amount: 5_000n });
+    preset('techXp', techX, fx.d2, { ...TECH, 'opportunity.read': 'OWN' });
+    const listed = (await a('techXp').get(O + '?pageSize=100&q=' + tok)).body.data.items as Array<{ id: string; access: string }>;
+    expect(listed.map((x) => [x.id, x.access]).sort()).toEqual([[own.id, 'FULL'], [viaTask.id, 'TASK']].sort());
+    const both = await a('techXp').get(O + '/board-summary?q=' + tok);
+    expect(both.status).toBe(200);
+    expect(both.body.data).toEqual({ stages: [{ stageId: fx.oppStage.PROSPECTING, count: 1, knownAmountCount: 1, unknownAmountCount: 0, sumExpectedAmountVnd: '5000' }], onHoldCount: 0 });
+    expect(JSON.stringify(both.body)).not.toContain(SECRET_AMOUNT);
+    // Người xem đầy đủ (Quản trị CRM) thấy cả hai.
+    const admin = await a('crmAdmin').get(O + '/board-summary?q=' + tok);
+    expect(admin.body.data.stages).toEqual([{ stageId: fx.oppStage.PROSPECTING, count: 2, knownAmountCount: 2, unknownAmountCount: 0, sumExpectedAmountVnd: String(BigInt(SECRET_AMOUNT) + 5_000n) }]);
+  });
+});

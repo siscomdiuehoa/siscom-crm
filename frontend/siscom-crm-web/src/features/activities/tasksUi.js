@@ -128,7 +128,8 @@ export function createTasksController(repo, describe, hooks = {}) {
     },
     // Đọc phụ (không lưu state chung): ứng viên giao (external = người ngoài phạm vi khách), lịch sử, chi tiết, thẻ việc.
     async candidates(customerId, external) {
-      try { const d = await req('GET', '/activities/assignee-candidates' + qs({ customerId, ...(external ? { external: 'true' } : {}) })); return { ok: true, items: d.items }; }
+      // T-09: truncated = máy chủ chỉ trả 500 người đầu.
+      try { const d = await req('GET', '/activities/assignee-candidates' + qs({ customerId, ...(external ? { external: 'true' } : {}) })); return { ok: true, items: d.items, truncated: d.truncated === true }; }
       catch (e) { return { ok: false, error: err(e) }; }
     },
     async history(id) { try { const d = await req('GET', '/activities/' + enc(id) + '/history'); return { ok: true, items: d.items }; } catch (e) { return { ok: false, error: err(e) }; } },

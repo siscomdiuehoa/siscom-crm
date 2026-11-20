@@ -191,6 +191,25 @@ describe('xoá mềm và khôi phục', () => {
     expect(JSON.stringify(h.body)).not.toContain(y.name);
     expect((await prisma.customer.findUnique({ where: { id: x.id } }))?.deletedAt).not.toBeNull();
   });
+  it('T-01. có customer.restore nhưng KHÔNG có customer.read: khôi phục được (200, dòng thật sự được khôi phục, có nhật ký), phản hồi tối thiểu không lộ dữ liệu khách; ngoài phạm vi khôi phục và không đọc được => 404', async () => {
+    t.actors!.presets.restoreOnly = { actor: { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { 'customer.restore': 'ALL' } };
+    t.actors!.presets.restoreOwnNoRead = { actor: { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { 'customer.restore': 'OWN' } };
+    const c = await makeCustomer(prisma, fx, { name: 'Khách T01 ' + uniq(), deleted: true, ownerId: fx.empA });
+    expect((await a('restoreOnly').get(URL + '/' + c.id)).status).toBe(403); // vẫn không xem được khách
+    const hidden = await a('restoreOwnNoRead').post(URL + '/' + c.id + '/restore');
+    expect({ s: hidden.status, code: hidden.body.error.code }).toEqual({ s: 404, code: 'CUSTOMER_NOT_FOUND' });
+    expect((await prisma.customer.findUnique({ where: { id: c.id } }))?.deletedAt).not.toBeNull();
+    const n = t.audit.entries.length;
+    const r = await a('restoreOnly').post(URL + '/' + c.id + '/restore');
+    expect(r.status).toBe(200);
+    expect(r.body.data).toEqual({ id: c.id, code: c.code, version: c.version + 1, restored: true });
+    expect(JSON.stringify(r.body)).not.toContain(c.name);
+    const row = await prisma.customer.findUnique({ where: { id: c.id } });
+    expect(row?.deletedAt).toBeNull();
+    expect(row?.restoredById).toBe(fx.empB);
+    expect(t.audit.entries.slice(n)).toMatchObject([{ action: 'customer.restore', entityId: c.id, actorEmployeeId: fx.empB }]);
+    expect((await a('restoreOnly').post(URL + '/' + c.id + '/restore')).body.error.code).toBe('CUSTOMER_NOT_DELETED');
+  });
   it('16. không tồn tại -> 404 (GET, PATCH, restore, DELETE)', async () => {
     expect((await a().get(URL + '/' + NIL)).status).toBe(404);
     expect((await a().patch(URL + '/' + NIL, { version: 1, note: 'x' })).status).toBe(404);

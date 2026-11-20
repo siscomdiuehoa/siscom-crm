@@ -29,7 +29,7 @@ describe('CustomersService.ownerCandidates', () => {
   it('phạm vi rộng nhất: create=OWN + update=ALL -> ALL (mọi nhân viên ACTIVE); chỉ update=DEPARTMENT -> cùng phòng; chỉ create=OWN -> chính mình', async () => {
     const all = build({ 'customer.create': 'OWN', 'customer.update': 'ALL' });
     const r = await all.svc.ownerCandidates(ctx);
-    expect(r).toEqual({ scope: 'ALL', items: [{ id: 'e1', code: 'NV-0001', fullName: 'A', departmentCode: 'KD' }] });
+    expect(r).toEqual({ scope: 'ALL', items: [{ id: 'e1', code: 'NV-0001', fullName: 'A', departmentCode: 'KD' }], truncated: false });
     expect(all.employee.findMany.mock.calls[0][0].where).toEqual({ status: 'ACTIVE', deletedAt: null });
     const dept = build({ 'customer.update': 'DEPARTMENT' });
     expect((await dept.svc.ownerCandidates(ctx)).scope).toBe('DEPARTMENT');
