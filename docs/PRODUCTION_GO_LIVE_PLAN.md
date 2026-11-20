@@ -7,6 +7,7 @@
 - Tài liệu không chứa mật khẩu, khoá hay dữ liệu khách hàng.
 - **Sửa sau review R1 (20/11/2026):** bước 6 không tạo dữ liệu thử trên database thật (mục 5.4); rollback và điều kiện dừng (mục 5.2); sao lưu ngoài VPS tạm thời khi PR #235 chưa nghiệm thu (mục 5.3); bảng GO/NO-GO cho bước 8 (mục 5.1); quy ước tài khoản theo vai trò (mục 2.3). Bảng phản hồi từng điểm ở comment R2 của PR #255.
 - **Sửa sau rà soát 20/11/2026 (chiều):** P3 ghi đúng trạng thái "chờ Owner chốt" thay vì vừa "cho làm" vừa "đề xuất không làm" (mục 2.1, 3, 7); bước 0 tách rõ phần đã làm và kết quả (mục 5, ghi chú bước 0), lịch mục 2.2 cập nhật theo. Sau đó Owner chốt P3: **không làm** (nguyên văn "Không làm P3", 20/11/2026).
+- **Sửa sau review R2/R3 (20/11/2026):** quy trình **R-SVC** trỏ dịch vụ sang database đã khôi phục, **đã diễn tập** trên PostgreSQL tạm cách ly, có RTO / RPO (mục 5.2); bằng chứng bước 0 đưa vào repo `docs/evidence/golive-20261120/` (ghi chú bước 0); sửa kỳ vọng VERIFY `PASS|73` → `PASS|75` theo kết quả chạy trên mã `2de465c` (16 migration).
 
 ## 1. Tóm tắt
 
@@ -105,7 +106,7 @@ Ma trận quyền Sales (10 mã `opportunity.*`) **không** cần bước cấp 
 | 0 | Chốt SHA `main`, build giao diện (PowerShell), chép mã + giao diện lên thư mục tạm, chạy thử khô (`provision.sh --dry-run`, `deploy.sh --dry-run`). **ĐẠT 20/11/2026** — ghi chú bước 0 dưới bảng | Không đổi cấu hình (mã + giao diện dùng lại thư mục tạm chép 19/11, không chép thêm) | Dry-run rc = 0; mã trên VPS trùng `git archive` của SHA đã chốt | Xoá thư mục tạm | Có (đã duyệt 20/11) |
 | 1 | Tên miền (D3, bản ghi A đã có 20/11): **làm ngay trước bước 2** — origin của staging (`CORS_ORIGINS`, `AUTH_ALLOWED_ORIGINS` = `https://42.96.15.235`) chỉ đổi ở bước 2, đổi Caddy sớm sẽ làm hỏng đăng nhập staging. **Chỉ đổi Caddy** (Owner chọn 20/11/2026, không chạy lại `provision.sh` — xem ghi chú dưới bảng): sao lưu `/etc/siscom-crm/caddy.env` + `/etc/caddy/siscom-tls.caddy` thành `.bak-<giờ>`; kiểm `/etc/caddy/Caddyfile` trùng tệp của repo; ghi `caddy.env` (600) `SISCOM_HOST=crm.siscom.io.vn`, `SISCOM_ACME_CA=https://acme-v02.api.letsencrypt.org/directory`; `install -m 644 tls-domain.caddy /etc/caddy/siscom-tls.caddy`; `caddy validate` (nạp `caddy.env`); `systemctl restart caddy` | Hai tệp cấu hình Caddy | `check-tls.sh` "TLS OK" (Let's Encrypt, ≥ 14 ngày); `curl` không `-k` đạt; HTTP → 308 | Trả hai tệp `.bak`, `systemctl restart caddy` (không đụng database, không cài gói) | Có |
 | 2 | Sao lưu staging lần cuối; dừng dịch vụ; tạo `siscom_crm_prod`; đổi cấu hình dịch vụ sang database thật (`create-db.sh siscom_crm_prod create` + `env --force-env`) | Database mới, đổi cấu hình | Database mới đúng chủ sở hữu và quyền | Trả cấu hình về staging, khởi động lại | **Có** — `OWNER_APPROVED_MIGRATION` ghi rõ `siscom_crm_prod` |
-| 3 | `deploy.sh --src … --frontend … --migrate` | 16 migration lên database mới | `migrate status` sạch, `PASS\|73` + `PASS\|33`, sức khoẻ đạt | **Không** dùng `deploy.sh --rollback` để lùi database (lệnh này chỉ đổi bản mã). Lùi theo mục 5.2: bỏ `siscom_crm_prod`, trả dịch vụ về staging | Có |
+| 3 | `deploy.sh --src … --frontend … --migrate` | 16 migration lên database mới | `migrate status` sạch, `PASS\|75` + `PASS\|33`, sức khoẻ đạt | **Không** dùng `deploy.sh --rollback` để lùi database (lệnh này chỉ đổi bản mã). Lùi theo mục 5.2: bỏ `siscom_crm_prod`, trả dịch vụ về staging | Có |
 | 4 | Nạp danh mục (`run-cli.sh seed-lookups`) | Danh mục | 73 mục; chạy lại không đổi | Ẩn mục | Có |
 | 5 | Khởi tạo tài khoản (`run-cli.sh bootstrap-auth`, `BOOTSTRAP_EMAIL_DOMAIN=siscom.vn`): Owner tự gõ mật khẩu từng người trên máy chủ (`read -rs`, không ghi tệp, không qua chat) | 5 tài khoản theo vai trò (mục 2.3); khoá chế độ khởi tạo | Chạy lại báo `BOOTSTRAP_CLOSED`; đăng nhập kiểm ở bước 6b | Không lùi bằng lệnh — theo mục 5.2: bỏ `siscom_crm_prod`, làm lại từ bước 2 với database mới (chỉ khi chưa mở) | **Có** — `OWNER_APPROVED_TASK` cho tài khoản thật |
 | 6 | **6a** (trước T7): thử nghiệp vụ trên **staging**. **6b** (sau bước 5): trên database thật **chỉ** đăng nhập 5 tài khoản và kiểm xem (không tạo / sửa / xoá dữ liệu nghiệp vụ), rồi xác nhận database sạch — mục 5.4 | 6a: dữ liệu thử chỉ ở staging. 6b: chỉ phiên đăng nhập + nhật ký đăng nhập | Mục 5.4 | 6b không đạt ⇒ NO-GO, mục 5.2 | 6a Owner làm; 6b Owner + Claude |
@@ -124,7 +125,7 @@ Ma trận quyền Sales (10 mã `opportunity.*`) **không** cần bước cấp 
 | Tự cập nhật | `unattended-upgrades` chỉ lấy gói từ kho Ubuntu, **không** lấy kho PGDG ⇒ PostgreSQL 18.6 không tự nâng trước ngày cài. Không chạy `apt upgrade` tay trong đợt này |
 | Dịch vụ | `siscom-crm-backend`, `caddy` active; đĩa trống 31 GB |
 
-Bằng chứng (đầu ra lệnh, không chứa mật khẩu) giữ trên máy Owner; sẽ chép vào `docs/evidence/golive-<ngày>/` cùng bằng chứng các bước sau. Điều kiện còn lại trước bước 1: `main` vẫn là `2de465c` (mục 2.2).
+**Bằng chứng bước 0** (đầu ra lệnh, không chứa mật khẩu) trong `docs/evidence/golive-20261120/`: `step0-provision-dry-run-20261120T041540Z.log` (rc = 0); `step0-deploy-dry-run-20261120T054011Z.log` (mã băm cây mã / giao diện trên VPS + `deploy.sh --dry-run` rc = 0); `step0-src-compare.txt` (546 = 546 tệp, `diff_lines=0`); `step0-vps-backend-2de465c.sha256` và `step0-git-archive-backend-2de465c.sha256` (danh sách SHA-256 từng tệp hai phía, trùng nhau — reviewer tự tạo lại phía repo bằng `git archive 2de465c backend` rồi `sha256sum` từng tệp). Bước 0 **không chạy lại** khi `main` vẫn là `2de465c`; sáng T7 chỉ kiểm SHA (mục 2.2).
 
 **Ghi chú bước 1:** chạy thật `provision.sh` còn chạy `apt-get install` toàn bộ gói nền ⇒ PostgreSQL khởi động lại (bản 18.7) ngay trước khi tạo database thật. Vì vậy bước 1 chỉ làm đúng phần Caddy của `provision.sh` (mục 11 của script) bằng các lệnh ở bảng trên. **Không nâng cấp PostgreSQL trong đợt triển khai này;** nâng cấp làm riêng sau khi mở, có sao lưu trước và Owner duyệt.
 
@@ -137,7 +138,7 @@ Mọi dòng phải **ĐẠT** và có bằng chứng (đầu ra lệnh lưu vào
 | # | Hạng mục | Tiêu chí đạt | Bằng chứng | Người xác nhận |
 |---|---|---|---|---|
 | G1 | HTTPS | `check-tls.sh` "TLS OK" cho `crm.siscom.io.vn`, Let's Encrypt, còn ≥ 14 ngày; `curl` không `-k` đạt; HTTP → 308; có HSTS, `nosniff`; quét cổng ngoài chỉ thấy 26266, 80, 443 | Đầu ra lệnh | Claude chạy; Owner xem |
-| G2 | Dịch vụ và database | `siscom-crm-backend` active; `/health/database`: `migrated:true`, `leastPrivilege:true`, `authPool:"separate"`, `authLeastPrivilege:true`; `migrate status` sạch; `PASS\|73`, `PASS\|33`; cổng 3000 chỉ `127.0.0.1` | Đầu ra lệnh | Claude |
+| G2 | Dịch vụ và database | `siscom-crm-backend` active; `/health/database`: `migrated:true`, `leastPrivilege:true`, `authPool:"separate"`, `authLeastPrivilege:true`; `migrate status` sạch; `PASS\|75`, `PASS\|33`; cổng 3000 chỉ `127.0.0.1` | Đầu ra lệnh | Claude |
 | G3 | Đăng nhập 5 tài khoản | Cả 5 đăng nhập được trên trình duyệt; ít nhất 1 tài khoản trên iPhone; cookie `Secure`; sai mật khẩu bị từ chối | Owner xác nhận từng tài khoản | Owner |
 | G4 | RBAC | `sysadmin` không thấy khách / cơ hội; Quản trị CRM thấy toàn bộ menu nghiệp vụ; Kinh doanh, Kỹ thuật, Kế toán chỉ thấy menu đúng vai trò; Kỹ thuật không thấy số tiền (chỉ xem, không tạo dữ liệu) | Ảnh chụp màn hình từng vai trò | Owner |
 | G5 | Chức năng nghiệp vụ thiết yếu | Bước 6a trên staging đạt: tạo khách / cơ hội, chuyển giai đoạn (hộp báo đúng lý do), số tiền có dấu chấm, Thắng tạo việc bàn giao, Tạm hoãn / Tiếp tục, Kỹ thuật thấy việc được giao | Danh sách mã dữ liệu thử trên staging + kết quả từng mục | Owner |
@@ -163,8 +164,29 @@ Mọi dòng phải **ĐẠT** và có bằng chứng (đầu ra lệnh lưu vào
 **Giai đoạn sau khi mở (bước 8 trở đi, có dữ liệu thật):**
 
 - Lỗi mã không liên quan dữ liệu: sửa qua PR, hoặc `deploy.sh --rollback` về bản mã trước **chỉ khi** bản sau không có migration (mục 6).
-- Lỗi làm hỏng / mất dữ liệu: **dừng dịch vụ**, không sửa tay database, báo Owner. Khôi phục bản sao lưu vào database **mới** bằng `restore-test.sh` (quy trình đã chạy đạt trên staging 19/11 — `docs/SALES_S12_STAGING_PLAN.md` mục 9 — và chạy lại trên `siscom_crm_prod` ở bước 7). Mất dữ liệu kể từ lần sao lưu gần nhất (tối đa 1 ngày).
-- **Giới hạn đã biết:** trỏ dịch vụ sang database đã khôi phục **chưa có script và chưa được kiểm** (`create-db.sh` chỉ nhận `siscom_crm_staging|siscom_crm_prod`; runbook mục 5). Đây là quyết định riêng của Owner, cần quy trình được review trước khi làm. Đề xuất: soạn và diễn tập quy trình này trên PostgreSQL tạm cách ly trong 2 tuần đầu sau mở.
+- Lỗi làm hỏng / mất dữ liệu: **dừng dịch vụ**, không sửa tay database, báo Owner. Owner quyết khôi phục ⇒ quy trình **R-SVC** dưới đây (mỗi lần cần Owner duyệt riêng, Owner nạp khoá age). Mất dữ liệu kể từ lần sao lưu gần nhất.
+
+**Quy trình R-SVC — trỏ dịch vụ sang database đã khôi phục** (giữ nguyên tên `siscom_crm_prod` nên `backend.env` / `migrate.env`, timer sao lưu và `create-db.sh` không phải đổi):
+
+| # | Việc (lệnh trên VPS, bằng root) | Đạt khi |
+|---|---|---|
+| R0 | Owner chọn bộ sao lưu (thường là bộ mới nhất đã qua kiểm ở mục 5.3); tránh khung sao lưu đêm (~02:00 giờ Việt Nam) | Owner ghi tên bộ |
+| R1 | `systemctl stop siscom-crm-backend` (mốc T0) | dịch vụ inactive |
+| R2 | Owner chép khoá age tạm; `restore-test.sh --db siscom_crm_prod --dump <bộ đã chọn> --identity <khoá>`; xoá khoá (`shred -u`) | "Chữ ký manifest hợp lệ", "PASS: n bảng khớp số dòng", có `.restore-ok.txt`; ghi tên DB `siscom_crm_restore_<UTC>` |
+| R3 | `sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('siscom_crm_prod','siscom_crm_restore_<UTC>')"`; `ALTER DATABASE siscom_crm_prod RENAME TO siscom_crm_prod_hong_<UTC>`; `ALTER DATABASE siscom_crm_restore_<UTC> RENAME TO siscom_crm_prod` | hai lệnh đổi tên thành công; DB hỏng **giữ lại** để điều tra |
+| R4 | Quyền cấp database (DB khôi phục được tạo không qua `create-db.sh create`): `sudo -u postgres psql -X -v ON_ERROR_STOP=1 -v target_db=siscom_crm_prod -d siscom_crm_prod -f /opt/siscom-crm/current/backend/docs/B1.3_S1_ROLE_SPLIT.sql.txt`, rồi tương tự với `B1.3_S1_AUTH_ROLE.sql.txt`; kiểm bằng đúng truy vấn của `create-db.sh create` | `siscom_migrator\|true\|true\|false\|false,false,false` |
+| R5 | `create-db.sh siscom_crm_prod grants` | `PASS\|75`, `PASS\|33`, "GRANTS + VERIFY DAT" |
+| R6 | `systemctl start siscom-crm-backend` (mốc T1) | `/health/database`: `migrated:true`, `leastPrivilege:true`, `authPool:"separate"`, `authLeastPrivilege:true` trong 30 giây |
+| R7 | Kiểm: 5 tài khoản đăng nhập bằng mật khẩu cũ, sai mật khẩu bị từ chối; dữ liệu đúng tới mốc sao lưu; ghi mới được; chạy `backup-db.sh` một lần trên DB mới | Owner xác nhận; có bộ sao lưu mới |
+| R8 | Xoá `siscom_crm_prod_hong_<UTC>` và DB khôi phục thừa (nếu có) **chỉ khi Owner duyệt** (`DROP DATABASE` bằng tay; `create-db.sh drop` không nhận tên này) | — |
+
+Lỗi ở R2–R5 ⇒ dịch vụ để dừng; nếu đã đổi tên ở R3 thì đổi ngược lại hai tên (`siscom_crm_prod` → tên khôi phục, `siscom_crm_prod_hong_<UTC>` → `siscom_crm_prod`), báo Owner; không sửa tay dữ liệu.
+
+**Diễn tập R-SVC (20/11/2026, PostgreSQL 18.6 tạm cách ly trên máy Owner, mã `2de465c`, không chạm database thật / staging):** kịch bản `docs/evidence/golive-20261120/rehearse-restore-service.sh`, đầu ra `rsvc-rehearsal-20261120T071114Z.log`. Dựng `siscom_crm_prod` đúng như bước 2–5, tạo khách `THU-K1`, sao lưu (age + ký), tạo `THU-K2` sau sao lưu, giả lập sự cố (đổi tên bảng `customer` ⇒ `GET /customers` 500), rồi chạy R1–R7 bằng chính các script trên. Kết quả: `restore-test.sh` PASS 24 bảng; quyền cấp database đúng; `PASS|75` + `PASS|33`; sức khoẻ đạt đủ bốn chỉ số; 5 tài khoản đăng nhập bằng mật khẩu cũ = 200, sai mật khẩu = 401; `THU-K1` còn, `THU-K2` mất (đúng RPO); ghi mới được; sao lưu chạy tiếp trên DB mới; DB hỏng còn nguyên.
+
+- **RTO đo được:** 9 giây phần máy (T0 → T1, database gần rỗng). Trên VPS cộng thêm thời gian Owner quyết định và nạp khoá, và thời gian `pg_restore` tăng theo dung lượng. Ước tính giai đoạn đầu: dưới 1 giờ khi Owner có mặt — ước tính, chưa đo trên VPS.
+- **RPO:** dữ liệu tạo sau mốc sao lưu dùng để khôi phục bị mất (diễn tập: `THU-K2`). Với sao lưu đêm: tối đa khoảng 24 giờ; `deploy.sh` tự sao lưu trước mỗi lần triển khai.
+- **Giới hạn:** diễn tập trên Windows (`SISCOM_REHEARSAL=1`: không `runuser` / `chown`, không `systemctl`); VPS dùng các lệnh tương ứng ở bảng trên. Đề xuất chạy lại kịch bản trên PostgreSQL tạm cách ly khi các script hoặc schema thay đổi.
 
 ### 5.3 Sao lưu ngoài VPS tạm thời (khi PR #235 chưa nghiệm thu)
 
