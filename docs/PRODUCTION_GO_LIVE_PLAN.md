@@ -1,11 +1,12 @@
 # Kế hoạch đưa SISCOM CRM vào sử dụng thật (production)
 
 - **Ngày lập:** 19/11/2026 · **Người lập:** Claude, theo yêu cầu của Owner ("Soạn kế hoạch", sau khi S12 đạt nghiệm thu theo quyết định của Owner).
-- **Trạng thái:** KẾ HOẠCH, **chưa thực hiện bước nào**. Mỗi bước ở mục 5 cần Owner duyệt riêng bằng văn bản. Không bước nào được cấp phép bởi tài liệu này.
+- **Trạng thái (20/11/2026):** KẾ HOẠCH. **Bước 0 đã xong** (Owner duyệt bước 0 ngày 20/11/2026; chỉ đọc và chạy thử khô, không thay đổi cấu hình VPS — ghi chú bước 0 ở mục 5). **Bước 1–8 chưa làm.** Mỗi bước ở mục 5 cần Owner duyệt riêng bằng văn bản. Không bước nào được cấp phép bởi tài liệu này. **P3 (cloud-init): BLOCKED — chờ Owner chốt** (mục 2.1).
 - **Mã nguồn:** `main` = `2de465c` (CI 6/6), đang chạy trên staging từ 19/11/2026 16:37 (giờ Việt Nam).
 - **Tài liệu nền:** `docs/VPS_RUNBOOK.md` (G6 sao lưu, G7 production, mục 9 giới hạn đã biết) — tài liệu này cụ thể hoá G7 cho lần đưa vào dùng thật đầu tiên; `docs/SALES_S12_STAGING_PLAN.md` (mục 10.7 — quyết định nghiệm thu và danh sách tiêu chí miễn kiểm); `docs/FV5_ACCOUNT_ADMIN.md`.
 - Tài liệu không chứa mật khẩu, khoá hay dữ liệu khách hàng.
 - **Sửa sau review R1 (20/11/2026):** bước 6 không tạo dữ liệu thử trên database thật (mục 5.4); rollback và điều kiện dừng (mục 5.2); sao lưu ngoài VPS tạm thời khi PR #235 chưa nghiệm thu (mục 5.3); bảng GO/NO-GO cho bước 8 (mục 5.1); quy ước tài khoản theo vai trò (mục 2.3). Bảng phản hồi từng điểm ở comment R2 của PR #255.
+- **Sửa sau rà soát 20/11/2026 (chiều):** P3 ghi đúng trạng thái "chờ Owner chốt" thay vì vừa "cho làm" vừa "đề xuất không làm" (mục 2.1, 3, 7); bước 0 tách rõ phần đã làm và kết quả (mục 5, ghi chú bước 0), lịch mục 2.2 cập nhật theo.
 
 ## 1. Tóm tắt
 
@@ -26,10 +27,10 @@
 |---|---|---|
 | D1 | Cách A hay cách B (mục 1)? | Cách A nếu nhóm dùng đầu tiên ≤ 5 người; nếu không thì cách B |
 | D2 | Chạy ở đâu? (a) chính VPS hiện tại, **chuyển** dịch vụ sang database thật `siscom_crm_prod` — staging tạm ngừng; (b) cùng VPS, chạy hai bản song song; (c) thuê VPS thứ hai | **(a)**: script đã hỗ trợ sẵn (G7), VPS còn trống 32 GB đĩa, 2,4 GB RAM. Staging giữ database để so sánh; khi cần thử bản mới thì làm trên database thử cục bộ như hôm nay. (b) cần sửa script, (c) tốn thêm chi phí |
-| D3 | Địa chỉ truy cập: `https://crm.siscom.io.vn` hay tiếp tục dùng IP? | **Tên miền.** Chứng chỉ theo IP chỉ có hạn 6 ngày, tự gia hạn nhưng chưa có cảnh báo khi hỏng. Việc cần làm: thêm **một** bản ghi A `crm` → `42.96.15.235` ở DNS **AZDIGI** (nơi đang trả lời cho `siscom.io.vn`; không đổi nameserver, không đụng website / mail). Hiện tên này chưa tồn tại (kiểm 19/11) |
+| D3 | Địa chỉ truy cập: `https://crm.siscom.io.vn` hay tiếp tục dùng IP? | **Tên miền.** Chứng chỉ theo IP chỉ có hạn 6 ngày, tự gia hạn nhưng chưa có cảnh báo khi hỏng. Việc cần làm: thêm **một** bản ghi A `crm` → `42.96.15.235` ở DNS **AZDIGI** (nơi đang trả lời cho `siscom.io.vn`; không đổi nameserver, không đụng website / mail). Ngày 19/11 tên này chưa tồn tại; **đã thêm 20/11** (mục 2.1) |
 | D4 | Danh sách người dùng đầu tiên: họ tên, email, phòng ban, vai trò. Ai là **Quản trị CRM** (người duyệt, thấy toàn bộ khách)? Ai là **quản trị kỹ thuật** (người yêu cầu thay đổi quyền)? | Hai người này phải **khác nhau** và nên có **hai** người duyệt — bài học 19/11: staging chỉ có một người duyệt nên không tự đặt lại mật khẩu cho chính người đó được |
 | D5 | Dữ liệu ban đầu: bắt đầu trống, hay nhập khách hàng có sẵn (Excel…)? | Nếu cần nhập: Owner gửi mẫu cột (không gửi dữ liệu thật qua chat); Claude kiểm hệ thống đã có chức năng nhập chưa rồi báo — **chưa kiểm** |
-| D6 | Bản sao lưu ngoài VPS đặt ở đâu? | Google Drive của Owner (PR #235 — kéo tự động, đang Draft) hoặc chép tay hằng tuần như hôm nay |
+| D6 | Bản sao lưu ngoài VPS đặt ở đâu? | Google Drive của Owner (PR #235 — kéo tự động, đang Draft) hoặc chép tay hằng tuần như hôm nay. Sau R1: trong lúc #235 chưa nghiệm thu, chép **hằng ngày** theo mục 5.3 |
 | D7 | Ngày mở cho người dùng và cách báo lỗi khi dùng | Một nhóm Zalo / một luồng chat cố định; Claude sửa qua PR như #253, #254 |
 
 ### 2.1 Câu trả lời của Owner (phiếu go-live, lưu 19/11/2026 17:08, cập nhật 20/11/2026 08:23 giờ Việt Nam)
@@ -43,12 +44,14 @@
 | D5 | **Bắt đầu trống** (Owner đổi 20/11/2026; trước đó chọn nhập khách có sẵn) | Không cần công cụ nhập; không chặn ngày mở |
 | D6 | **Google Drive tự động** | PR #235 (Draft, +1065 dòng) **chưa nghiệm thu** ⇒ **không** là điều kiện mở. Trước khi mở dùng phương án tạm thời ở mục 5.3 (chép bản sao đã mã hoá + ký về máy Owner, kiểm chữ ký và SHA-256, khôi phục thử đạt). Chuyển sang Drive tự động chỉ sau khi #235 được review, Owner duyệt merge và chạy thử đạt |
 | D7 | Ngày mở: **càng sớm càng tốt**; báo lỗi qua **Zalo** (20/11/2026) | Lịch đề xuất ở mục 2.2 |
-| P3 | Cho làm | Xem ghi chú dưới |
+| P3 | **Cho làm** (phiếu lưu 19/11/2026 17:08; lần lưu 20/11/2026 08:23 giữ nguyên) | **BLOCKED — chờ Owner chốt.** Sau khi Owner chọn "Cho làm", Claude kiểm chỉ đọc (19/11) và **đề xuất không làm** (ghi chú dưới). Owner **chưa trả lời** đề xuất này ⇒ chưa có quyết định cuối cùng. Không đụng cloud-init cho tới khi Owner chốt |
 | P4 | Đã đặt mật khẩu cho `VPS.ppk`; chưa chuyển khoá sao lưu khỏi Dropbox; chưa đánh dấu cam kết không dùng lại mật khẩu từ chat | — |
 
 Ghi chú của Owner, nguyên văn: "em làm cái tối ưu thêm thì làm, đừng bảo mật quá".
 
-**P3 — đề xuất KHÔNG làm** (sau khi kiểm chỉ đọc 19/11): cloud-init của BKNS đặt lại mật khẩu root từ đĩa seed `cidata` mỗi lần khởi động, đúng mật khẩu Owner thấy trong bảng điều khiển BKNS. SSH đã chặn đăng nhập bằng mật khẩu, nên mật khẩu đó chỉ dùng được ở **console web của BKNS** — đây lại là đường cứu hộ khi mất khoá SSH. Tắt cloud-init còn có thể ảnh hưởng cấu hình mạng (`/etc/netplan/50-cloud-init.yaml` do cloud-init sinh). Rủi ro của việc giữ nguyên thấp hơn rủi ro của việc sửa; phù hợp ghi chú "đừng bảo mật quá".
+**P3 — đề xuất của Claude, chưa được Owner chốt: KHÔNG làm** (sau khi kiểm chỉ đọc 19/11): cloud-init của BKNS đặt lại mật khẩu root từ đĩa seed `cidata` mỗi lần khởi động, đúng mật khẩu Owner thấy trong bảng điều khiển BKNS. SSH đã chặn đăng nhập bằng mật khẩu, nên mật khẩu đó chỉ dùng được ở **console web của BKNS** — đây lại là đường cứu hộ khi mất khoá SSH. Tắt cloud-init còn có thể ảnh hưởng cấu hình mạng (`/etc/netplan/50-cloud-init.yaml` do cloud-init sinh). Rủi ro của việc giữ nguyên thấp hơn rủi ro của việc sửa; phù hợp ghi chú "đừng bảo mật quá".
+
+**Owner cần chốt một trong ba** (Claude không tự chọn): (1) **không làm** P3 — theo đề xuất trên; (2) **làm trước ngày mở** — thêm một bước riêng vào mục 5 (lệnh cụ thể được review trước, Owner duyệt riêng; chưa có trong lịch 2.2); (3) **làm sau ngày mở** — như (2) nhưng sau bước 8. P3 hiện **không** nằm trong bước 0–8 và **không** là hạng mục của bảng GO/NO-GO (mục 5.1); việc P3 có là điều kiện mở hay không cũng do Owner chốt cùng câu trả lời này. `provision.sh` chỉ giữ khoá host SSH qua cloud-init (`ssh_deletekeys: false`, đã có trên VPS) — không liên quan P3, và bước 1 không chạy lại `provision.sh`.
 
 ### 2.2 Lịch dự kiến (Owner chọn "càng sớm càng tốt"; Owner chốt cài đặt T7 21/11/2026, mở T2 23/11/2026)
 
@@ -56,8 +59,9 @@ Lịch **không** phải quyền thực hiện: mỗi bước ở mục 5 vẫn 
 
 | Khi nào | Việc | Ai |
 |---|---|---|
-| Trước T7 21/11 | Review kế hoạch (#255) tới PASS; Owner duyệt. Bước 0 (chạy thử khô, kể cả `provision.sh --dry-run`). Bước 6a: Owner thử nghiệp vụ trên **staging** (mục 5.4) | Reviewer, Owner, Claude |
-| T7 21/11 (~3 giờ, Owner ngồi cùng) | Bước 1 (tên miền + HTTPS) **ngay trước** bước 2; bước 2–5; bước 6b (kiểm chỉ đọc, xác nhận database thật sạch); bước 7 (sao lưu, khôi phục thử, bản sao ngoài VPS) | Claude + Owner |
+| 20/11 (đã làm) | **Bước 0 xong** — ghi chú bước 0 ở mục 5 | Claude (Owner duyệt) |
+| Trước T7 21/11 | Review kế hoạch (#255) tới PASS; Owner duyệt. Bước 6a: Owner thử nghiệp vụ trên **staging** (mục 5.4). Owner chốt P3 (mục 2.1) | Reviewer, Owner |
+| T7 21/11 (~3 giờ, Owner ngồi cùng) | Kiểm lại `main` vẫn là `2de465c` (khác ⇒ dừng, làm lại bước 0 cho SHA mới, lịch lùi); bước 1 (chỉ đổi Caddy: tên miền + HTTPS) **ngay trước** bước 2; bước 2–5; bước 6b (kiểm chỉ đọc, xác nhận database thật sạch); bước 7 (sao lưu, khôi phục thử, bản sao ngoài VPS) | Claude + Owner |
 | T2 23/11 | Bảng GO/NO-GO (mục 5.1) đủ; Owner quyết GO ⇒ bước 8 | Owner |
 | Sau ngày mở | Chép bản sao ngoài VPS hằng ngày (mục 5.3) cho tới khi PR #235 được nghiệm thu | Claude (chỉ đọc), Owner duyệt |
 
@@ -77,7 +81,7 @@ Owner, nguyên văn: "Giữ tên theo vai trò, sửa sau khi có màn hình qu�
 |---|---|---|---|
 | **P1** | **Quản lý tài khoản dùng được trên máy chủ thật** — bắt buộc cho cách B; với cách A cần để đổi họ tên / email tài khoản theo vai trò (mục 2.3) và thêm người | Công cụ `account-admin` hiện **khoá cứng** vào PostgreSQL thử (FV5-DB-GUARD). Owner đã quyết 10/11/2026: phê duyệt hai người **chỉ bằng khai báo** (người chạy lệnh gõ mã hai người) **không được dùng thật**. Cần cơ chế hai người thật: người yêu cầu và người duyệt mỗi người **tự đăng nhập** và bấm trên giao diện (màn hình "Quản lý tài khoản" trong CRM). Hai kịch bản đặt lại mật khẩu dùng trên staging ngày 19/11 là loại "khai báo" ⇒ **không dùng cho database thật** | 3–5 ngày, gồm review |
 | P2 | **Mật khẩu** | Mỗi người có mật khẩu riêng ≥ 12 ký tự lúc khởi tạo (Owner gõ trên máy chủ). **Không** dùng mật khẩu chung, **không** dùng lại bất kỳ mật khẩu nào từng xuất hiện trong chat hay ảnh chụp (kể cả mật khẩu thử staging) | Trong bước 5 |
-| P3 | **Chặn cloud-init đặt lại mật khẩu root mỗi lần khởi động** (runbook mục 9.10) | Đăng nhập root bằng mật khẩu đã tắt nên rủi ro thấp, nhưng nên chặn hẳn trước khi chứa dữ liệu thật | 1 bước nhỏ, có duyệt |
+| P3 | **Chặn cloud-init đặt lại mật khẩu root mỗi lần khởi động** (runbook mục 9.10) — **BLOCKED, chờ Owner chốt** (mục 2.1) | Đăng nhập root bằng mật khẩu qua SSH đã tắt; mật khẩu đó còn dùng được ở console web BKNS (đường cứu hộ). Claude đề xuất không làm; Owner chưa chốt. Chưa có trong bước 0–8 | 1 bước nhỏ, có duyệt — **chỉ** nếu Owner chọn làm |
 | P4 | **Vị trí khoá** | Khoá đăng nhập VPS (`VPS.ppk`) và hai khoá giải mã sao lưu đang có bản trong **Dropbox**. Đề xuất: đặt mật khẩu bảo vệ cho `VPS.ppk` (PuTTYgen), giữ khoá giải mã sao lưu ở ổ rời / nơi không đồng bộ | Owner tự làm |
 | P5 | **Sao lưu dữ liệu thật** | Timer sao lưu đêm lấy database từ `migrate.env` (`backup-db.sh`, kiểm mã 20/11) nên sau bước 2 **tự chuyển sang `siscom_crm_prod`** và ngừng sao lưu staging. Phải **khôi phục thử** bản đầu tiên của database thật và có bản sao ngoài VPS đã kiểm (mục 5.3) | Trong bước 7 |
 | P6 | Mã đóng gói | Dùng `--src` từ `git archive <SHA đã duyệt>` như 19/11; hoặc Owner duyệt tạo tag `v0.1.0` trên `main` để dùng `--tag` (runbook mục 9.8) | — |
@@ -98,7 +102,7 @@ Ma trận quyền Sales (10 mã `opportunity.*`) **không** cần bước cấp 
 
 | # | Việc | Thay đổi gì | Tiêu chí đạt | Đường lùi | Owner duyệt |
 |---|---|---|---|---|---|
-| 0 | Chốt SHA `main`, build giao diện (PowerShell), chép mã + giao diện lên thư mục tạm, chạy thử khô | Chỉ thêm tệp tạm | Dry-run rc = 0 | Xoá thư mục tạm | Có |
+| 0 | Chốt SHA `main`, build giao diện (PowerShell), chép mã + giao diện lên thư mục tạm, chạy thử khô (`provision.sh --dry-run`, `deploy.sh --dry-run`). **ĐẠT 20/11/2026** — ghi chú bước 0 dưới bảng | Không đổi cấu hình (mã + giao diện dùng lại thư mục tạm chép 19/11, không chép thêm) | Dry-run rc = 0; mã trên VPS trùng `git archive` của SHA đã chốt | Xoá thư mục tạm | Có (đã duyệt 20/11) |
 | 1 | Tên miền (D3, bản ghi A đã có 20/11): **làm ngay trước bước 2** — origin của staging (`CORS_ORIGINS`, `AUTH_ALLOWED_ORIGINS` = `https://42.96.15.235`) chỉ đổi ở bước 2, đổi Caddy sớm sẽ làm hỏng đăng nhập staging. **Chỉ đổi Caddy** (Owner chọn 20/11/2026, không chạy lại `provision.sh` — xem ghi chú dưới bảng): sao lưu `/etc/siscom-crm/caddy.env` + `/etc/caddy/siscom-tls.caddy` thành `.bak-<giờ>`; kiểm `/etc/caddy/Caddyfile` trùng tệp của repo; ghi `caddy.env` (600) `SISCOM_HOST=crm.siscom.io.vn`, `SISCOM_ACME_CA=https://acme-v02.api.letsencrypt.org/directory`; `install -m 644 tls-domain.caddy /etc/caddy/siscom-tls.caddy`; `caddy validate` (nạp `caddy.env`); `systemctl restart caddy` | Hai tệp cấu hình Caddy | `check-tls.sh` "TLS OK" (Let's Encrypt, ≥ 14 ngày); `curl` không `-k` đạt; HTTP → 308 | Trả hai tệp `.bak`, `systemctl restart caddy` (không đụng database, không cài gói) | Có |
 | 2 | Sao lưu staging lần cuối; dừng dịch vụ; tạo `siscom_crm_prod`; đổi cấu hình dịch vụ sang database thật (`create-db.sh siscom_crm_prod create` + `env --force-env`) | Database mới, đổi cấu hình | Database mới đúng chủ sở hữu và quyền | Trả cấu hình về staging, khởi động lại | **Có** — `OWNER_APPROVED_MIGRATION` ghi rõ `siscom_crm_prod` |
 | 3 | `deploy.sh --src … --frontend … --migrate` | 16 migration lên database mới | `migrate status` sạch, `PASS\|73` + `PASS\|33`, sức khoẻ đạt | **Không** dùng `deploy.sh --rollback` để lùi database (lệnh này chỉ đổi bản mã). Lùi theo mục 5.2: bỏ `siscom_crm_prod`, trả dịch vụ về staging | Có |
@@ -108,7 +112,21 @@ Ma trận quyền Sales (10 mã `opportunity.*`) **không** cần bước cấp 
 | 7 | Sao lưu đầu tiên của database thật → khôi phục thử (Phụ lục A S12) vào database tạm → chép bản sao ra ngoài VPS và kiểm (mục 5.3) | Bộ sao lưu; database khôi phục thử (xoá sau khi Owner xem) | Có `.restore-ok.txt`; số dòng khớp manifest; bản ngoài VPS qua kiểm chữ ký + SHA-256 | Không đạt ⇒ NO-GO | Có (Owner cầm khoá) |
 | 8 | Mở cho người dùng (D7) khi bảng GO/NO-GO (mục 5.1) đủ; (cách B) tạo tài khoản nhân viên qua màn hình quản lý tài khoản của P1 | Người dùng thật bắt đầu nhập liệu | Mục 5.1 | Từ đây không còn "bỏ database làm lại": mục 5.2, giai đoạn sau mở | **Có** — Owner ghi GO |
 
-**Ghi chú bước 1 (bước 0 chạy 20/11/2026):** `SISCOM_HOST=crm.siscom.io.vn provision.sh --dry-run` rc = 0, DNS khớp IP máy, cổng SSH 26266 giữ nguyên, ufw không có rule lạ. Nhưng chạy thật `provision.sh` còn chạy `apt-get install` toàn bộ gói nền; mô phỏng `apt-get -s` cho thấy sẽ **nâng PostgreSQL 18.6 → 18.7** (kèm `libpq5` 19.0) ⇒ PostgreSQL khởi động lại ngay trước khi tạo database thật. Vì vậy bước 1 chỉ làm đúng phần Caddy của `provision.sh` (mục 11 của script) bằng các lệnh ở bảng trên. Nâng cấp PostgreSQL làm riêng sau khi mở, có sao lưu trước và Owner duyệt.
+**Ghi chú bước 0 (chạy 20/11/2026, Owner duyệt bước 0; chỉ đọc + chạy thử khô, không thay đổi cấu hình VPS):**
+
+| Phần | Kết quả |
+|---|---|
+| Chốt SHA | `main` = `2de465c` (kiểm 20/11); đúng bản đang chạy trên staging từ 19/11 |
+| Mã nguồn | `/root/s12-src-2de465c` (chép 19/11) **trùng từng tệp** với `git archive 2de465c backend`: 546/546 tệp, cùng SHA-256 (danh sách so khớp giữ trong bằng chứng bước 0) |
+| Giao diện | `/root/s12-web-dist-2de465c` (build bằng PowerShell 19/11) trùng mã băm với giao diện staging đang chạy (`releases/src-20261119093630/web`) |
+| `provision.sh --dry-run` | `SISCOM_HOST=crm.siscom.io.vn` rc = 0: DNS khớp IP máy, cổng SSH 26266 giữ nguyên, ufw không có rule lạ. Mô phỏng `apt-get -s` cho thấy chạy thật sẽ **nâng PostgreSQL 18.6 → 18.7** (kèm `libpq5` 19.0) ⇒ lý do bước 1 chỉ đổi Caddy |
+| `deploy.sh --src … --frontend … --migrate --dry-run` | rc = 0; không tạo / sửa / khởi động gì. **Giới hạn:** chạy với cấu hình hiện tại nên "DB đích" in ra là `siscom_crm_staging`; cấu hình `siscom_crm_prod` chỉ có sau bước 2, nên kiểm đúng database đích nằm ở tiêu chí bước 2–3 |
+| Tự cập nhật | `unattended-upgrades` chỉ lấy gói từ kho Ubuntu, **không** lấy kho PGDG ⇒ PostgreSQL 18.6 không tự nâng trước ngày cài. Không chạy `apt upgrade` tay trong đợt này |
+| Dịch vụ | `siscom-crm-backend`, `caddy` active; đĩa trống 31 GB |
+
+Bằng chứng (đầu ra lệnh, không chứa mật khẩu) giữ trên máy Owner; sẽ chép vào `docs/evidence/golive-<ngày>/` cùng bằng chứng các bước sau. Điều kiện còn lại trước bước 1: `main` vẫn là `2de465c` (mục 2.2).
+
+**Ghi chú bước 1:** chạy thật `provision.sh` còn chạy `apt-get install` toàn bộ gói nền ⇒ PostgreSQL khởi động lại (bản 18.7) ngay trước khi tạo database thật. Vì vậy bước 1 chỉ làm đúng phần Caddy của `provision.sh` (mục 11 của script) bằng các lệnh ở bảng trên. **Không nâng cấp PostgreSQL trong đợt triển khai này;** nâng cấp làm riêng sau khi mở, có sao lưu trước và Owner duyệt.
 
 Gián đoạn: staging ngừng phục vụ từ bước 2 (database staging vẫn giữ, không xoá).
 
@@ -184,6 +202,6 @@ Có dòng ngoài kỳ vọng ⇒ NO-GO; không xoá tay — điều tra, rồi O
 
 ## 7. Thứ tự đề xuất
 
-1. Owner trả lời D1–D7 (mục 2).
-2. Song song: Owner làm P4 (khoá) và thêm bản ghi DNS (D3); Claude làm P3 và — nếu cách B — P1.
-3. Bước 0 → 8 (mục 5), mỗi bước Owner duyệt riêng; bước 8 chỉ khi bảng GO/NO-GO (mục 5.1) đủ.
+1. Owner trả lời D1–D7 (mục 2) — **xong 20/11/2026** (mục 2.1).
+2. Song song: Owner làm P4 (khoá); bản ghi DNS (D3) **xong 20/11**. **P3: BLOCKED — chờ Owner chốt** (mục 2.1); Claude không làm gì với cloud-init trước khi Owner chốt. P1 làm sau ngày mở (Owner chọn cách A).
+3. Bước 0 **xong 20/11**; bước 1 → 8 (mục 5), mỗi bước Owner duyệt riêng; bước 8 chỉ khi bảng GO/NO-GO (mục 5.1) đủ.
