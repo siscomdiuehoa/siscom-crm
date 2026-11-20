@@ -160,11 +160,15 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_STRUCTURE_TESTS.sql.txt res migrator
           # Sales S2: CHECK, trigger cung khach/danh muc/ma co dinh, lich su chi them, activity.opportunity_id (chu so huu; S38: app chi SELECT cho toi S3/V5)
           bash scripts/ci/pg-sql-check.sh docs/SALES_S2_STRUCTURE_TESTS.sql.txt res migrator
+          # Sales T-07: cot sinh tu dong tim khong dau - cau truc, gia tri (co dau / d gach / NULL), ghi truc tiep bi tu choi, ap lai CHINH migration tren bang co du lieu (backfill); tu ROLLBACK
+          bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_TESTS.sql.txt ok migrator
       - name: Dien tap rollback day du (S1 -> M1.3 -> M1.2 -> M1.1 -> M1), migrate deploy lai (siscom_app), tach role lai, verify
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh unsplit
-          # Sales S9b (20261120000000_sales_opportunity_document) moi nhat => rollback DAU chuoi, truoc Sales S8b. PHAI TU CHOI khi con tai lieu (RED mong doi) + 9 kiem cau truc; transaction ngoai huy => khong de lai du lieu thu
+          # Sales T-07 (20261121000000_sales_opportunity_search_fold) moi nhat => rollback DAU chuoi, truoc Sales S9b. Khong tu choi theo du lieu (2 cot chi la gia tri suy ra tu title / project_name)
+          bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt run app
+          # Sales S9b (20261120000000_sales_opportunity_document) => rollback ngay sau T-07, truoc Sales S8b. PHAI TU CHOI khi con tai lieu (RED mong doi) + 9 kiem cau truc; transaction ngoai huy => khong de lai du lieu thu
           out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S9_DOCUMENT_ROLLBACK_REFUSE_TEST.sql.txt run app 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S9_DOCUMENT_ROLLBACK_REFUSE_TEST)'; exit 1; }
           echo "$out" | grep -E 'TU CHOI: con 2 dong opportunity_document' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (SALES_S9_DOCUMENT_ROLLBACK_REFUSE_TEST)'; exit 1; }
           if echo "$out" | grep -q 'CAU TRUC KHONG DAT'; then echo "$out" | grep 'CAU TRUC'; echo 'KHONG DAT: cau truc tai lieu co hoi (SALES_S9_DOCUMENT_ROLLBACK_REFUSE_TEST)'; exit 1; fi
@@ -212,6 +216,7 @@ jobs:
           npx prisma migrate status
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
           bash scripts/ci/pg-sql-check.sh docs/CUSTOMER_PHONE_OPTIONAL_STRUCTURE_TESTS.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_TESTS.sql.txt ok app
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
@@ -230,7 +235,9 @@ jobs:
       - name: B1.4 Remember Me - rollback (migrator) => V3 => VERIFY PASS; migrate deploy (migrator) => VERIFY FAIL B1f (quyen mac dinh) => V3 => PASS app + auth + cau truc
         run: |
           set -euo pipefail
-          # Sales S9b: moi nhat => rollback TRUOC Sales S8b (bang chu so huu sau tach role). PHAI TU CHOI khi con tai lieu (RED mong doi) + 9 kiem cau truc
+          # Sales T-07: moi nhat => rollback DAU chuoi, truoc Sales S9b (bang chu so huu sau tach role)
+          bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt run migrator
+          # Sales S9b: rollback TRUOC Sales S8b (bang chu so huu sau tach role). PHAI TU CHOI khi con tai lieu (RED mong doi) + 9 kiem cau truc
           out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S9_DOCUMENT_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S9_DOCUMENT_ROLLBACK_REFUSE_TEST)'; exit 1; }
           echo "$out" | grep -E 'TU CHOI: con 2 dong opportunity_document' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (SALES_S9_DOCUMENT_ROLLBACK_REFUSE_TEST)'; exit 1; }
           if echo "$out" | grep -q 'CAU TRUC KHONG DAT'; then echo "$out" | grep 'CAU TRUC'; echo 'KHONG DAT: cau truc tai lieu co hoi (SALES_S9_DOCUMENT_ROLLBACK_REFUSE_TEST)'; exit 1; fi
@@ -288,6 +295,8 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/B3_ACTIVITY_STRUCTURE_TESTS.sql.txt res migrator
           # Sales S2: cau truc sau ap lai bang migrator (thu tu production) + quyen mac dinh: app chi SELECT 2 bang moi (S38), ALLOWLIST da co 2 bang
           bash scripts/ci/pg-sql-check.sh docs/SALES_S2_STRUCTURE_TESTS.sql.txt res migrator
+          # Sales T-07: cau truc + hanh vi cot tim khong dau sau ap lai bang migrator (thu tu production)
+          bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_TESTS.sql.txt ok migrator
           # Sales S2: rollback PHAI TU CHOI khi con co hoi (ke ca xoa mem) - RED mong doi; transaction ngoai huy => khong de lai du lieu thu
           out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S2_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S2_ROLLBACK_REFUSE_TEST)'; exit 1; } || true
           echo "$out" | grep -E 'TU CHOI: con [0-9]+ dong opportunity' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (SALES_S2_ROLLBACK_REFUSE_TEST)'; exit 1; }

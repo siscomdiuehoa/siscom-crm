@@ -1,0 +1,48 @@
+-- SISCOM CRM - ROLLBACK Sales T-07 (20261121000000_sales_opportunity_search_fold). VIET SAN, KHONG TU CHAY.
+-- Dich: backend\docs\SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt (noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/staging/production: CAM, tru khi co phe duyet RIENG.
+-- Viec lam: go 2 chi muc ix_opportunity_title_fold / ix_opportunity_project_name_fold, 2 cot sinh tu dong opportunity.title_fold /
+--   project_name_fold + xoa dong _prisma_migrations.
+-- THU TU (docs/SALES_DESIGN.md §9 "Duong lui"): (1) trien khai lai backend ban TRUOC T-07 (ban cu tim bang title/project_name ILIKE, khong doc
+--   cot moi); (2) file nay - migration MOI NHAT nen go DAU TIEN; roi moi toi rollback cua migration cu hon (SALES_S9_DOCUMENT_ROLLBACK ...).
+--   SALES_S2_ROLLBACK tu choi khi T-07 chua go (DROP TABLE opportunity se mat cot nhung con dong _prisma_migrations => ap lai bi bo qua).
+-- KHONG MAT DU LIEU: hai cot chi la gia tri SUY RA tu title / project_name (PostgreSQL tu tinh) => khong co dieu kien tu choi theo du lieu;
+--   ap lai migration se tinh lai cho moi dong.
+-- MOT transaction. LOCK TABLE opportunity ACCESS EXCLUSIVE (DROP COLUMN cung can khoa nay) - chan ca doc trong luc rollback, chay khi bao tri.
+-- Chay bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi unsplit); khong phai chu so huu => 42501, huy.
+-- Quyen: khong GRANT/REVOKE (migration khong cap quyen; quyen muc bang cua siscom_app tren opportunity giu nguyen).
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261121000000_sales_opportunity_search_fold') THEN
+    RAISE EXCEPTION 'TU CHOI: chua ap 20261121000000_sales_opportunity_search_fold (khong co gi de rollback).';
+  END IF;
+END $$;
+LOCK TABLE public.opportunity IN ACCESS EXCLUSIVE MODE;
+
+DROP INDEX IF EXISTS public.ix_opportunity_title_fold;
+DROP INDEX IF EXISTS public.ix_opportunity_project_name_fold;
+ALTER TABLE public.opportunity DROP COLUMN IF EXISTS title_fold, DROP COLUMN IF EXISTS project_name_fold;
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261121000000_sales_opportunity_search_fold';
+
+DO $$ BEGIN
+  IF to_regclass('public.ix_opportunity_title_fold') IS NOT NULL OR to_regclass('public.ix_opportunity_project_name_fold') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'opportunity' AND column_name IN ('title_fold', 'project_name_fold'))
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261121000000_sales_opportunity_search_fold')
+     -- doi tuong cu phai con nguyen: bang + cot nguon + ham gap dau dung chung voi tim khach hang
+     OR to_regclass('public.opportunity') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'opportunity' AND column_name = 'title')
+     OR to_regprocedure('public.f_vn_fold(text)') IS NULL THEN
+    RAISE EXCEPTION 'Rollback Sales T-07 (opportunity search_fold) chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK Sales T-07 (20261121000000_sales_opportunity_search_fold) XONG' AS ket_qua;

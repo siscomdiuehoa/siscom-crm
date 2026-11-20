@@ -76,6 +76,11 @@ BEGIN
   IF to_regclass('public.opportunity_document') IS NOT NULL THEN
     RAISE EXCEPTION 'TU CHOI: con bang opportunity_document (Sales S9b) - chay SALES_S9_DOCUMENT_ROLLBACK.sql.txt truoc.';
   END IF;
+  -- Sales T-07: cot sinh tu dong title_fold / project_name_fold nam TREN bang opportunity => DROP TABLE se mat cot nhung con dong _prisma_migrations
+  --   cua T-07 (ap lai bi bo qua, tim co hoi loi). Phai go T-07 TRUOC (thu tu lui).
+  IF EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261121000000_sales_opportunity_search_fold') THEN
+    RAISE EXCEPTION 'TU CHOI: con migration 20261121000000_sales_opportunity_search_fold (Sales T-07) - chay SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt truoc.';
+  END IF;
 END $$;
 
 -- (c) Go (IF EXISTS: trang thai sua tay nua chung khong dung giua duong - hau kiem (d) moi ket luan "sach")
