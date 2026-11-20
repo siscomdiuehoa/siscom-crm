@@ -169,8 +169,9 @@ export function TaskView({ ui, id }) {
       <section className="sg-card sg-glass" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><span style={{ font: 'var(--type-mono)', color: 'var(--text-3)' }}>{a.code}</span><Badge size="sm">{(TYPE_META[a.type] || {}).label || a.type}</Badge><StatusBadge a={a} now={now} />{a.access === 'TASK' ? <Badge size="sm" tone="warning">Quyền theo việc{a.accessExpiresAt ? ' đến ' + U.dtVN(a.accessExpiresAt) : ''}</Badge> : null}</div>
         <h2 style={{ margin: 0, font: 'var(--type-h2)', overflowWrap: 'anywhere' }}>{titleOf(a)}</h2>
-        <div><TaskActions ui={ui} a={a} size="md" /></div>
       </section>
+      {/* T-06: nút thao tác nằm NGOÀI thẻ kính mờ: backdrop-filter của .sg-glass làm lớp phủ position:fixed của hộp thoại bị bó trong thẻ. */}
+      <div><TaskActions ui={ui} a={a} size="md" /></div>
       <section className="sg-card sg-solid" style={{ padding: '12px 20px' }}>
         {row('clock', 'Hạn', a.dueAt ? U.dtVN(a.dueAt) : null)}
         {row('bell', 'Nhắc lúc', a.remindAt ? U.dtVN(a.remindAt) : null)}

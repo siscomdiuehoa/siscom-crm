@@ -94,7 +94,8 @@ const item = (n, over = {}) => ({ id: 'o' + n, code: 'CH-' + String(n).padStart(
   holdUntil: null, wonAmountVnd: null, closedAt: null, deletedAt: null, version: 3, createdAt: NOW, updatedAt: NOW, ...over });
 const detailOf = (o, over = {}) => ({ ...o, customerReadable: true, contact: null, needSummary: 'Cần 2 chiller', offerScope: null, probabilityOverridden: false, holdReason: null, wonDocType: null, wonDocNo: null, wonDocDate: null, wonDocUrl: null, wonDocFileName: null, lostReason: null, lostNote: null, ...over });
 const page = (items, over = {}) => res(200, { data: { items, page: 1, pageSize: 20, total: items.length, totalPages: items.length ? 1 : 0, ...over } });
-const apiCust = () => ({ id: CID, code: 'KH-00478', name: 'Công ty A', short: 'Cty A', phone: '028 3822 1234', version: 2 });
+// Khách có người phụ trách (như thực tế: khách chưa có người phụ trách thì máy chủ từ chối tạo cơ hội — T-08).
+const apiCust = (over = {}) => ({ id: CID, code: 'KH-00478', name: 'Công ty A', short: 'Cty A', phone: '028 3822 1234', owner: { id: ME, code: 'NV-0003', fullName: 'Trần Bình' }, version: 2, ...over });
 
 // board: { stageId: [items] } cho các truy vấn kanban (status=OPEN&stageId=…); list: truy vấn danh sách thường.
 const server = (h = {}) => {
@@ -116,7 +117,7 @@ const server = (h = {}) => {
     if (/\/activities$/.test(p)) return page([]);
     if (/\/contacts$/.test(p)) return res(200, { data: { items: [] } });
     if (p === '/customers') return res(200, { data: { items: [apiCust()], page: 1, pageSize: 8, total: 1, totalPages: 1 } });
-    if (p === '/customers/' + CID) return res(200, { data: apiCust() });
+    if (p === '/customers/' + CID) return res(200, { data: apiCust(h.cust || {}) });
     return res(404, { error: { code: 'NOT_FOUND', message: 'x' } });
   };
   f.calls = calls;
@@ -325,6 +326,35 @@ test('chi tiết khách — tab Cơ hội: Tạo cơ hội mở biểu mẫu v�
   } finally { await m.unmount(); }
   const a = await custPage(server(), ACCT);
   try { await doAct(() => click(tabBtn(a.container, /^Cơ hội$/))); assert.equal(buttonByText(a.container, /Tạo cơ hội/), undefined); assert.match(text(a.container), /trong phạm vi của bạn/); } finally { await a.unmount(); }
+});
+
+test('T-08: khách CHƯA có người phụ trách => nút "Tạo cơ hội" bị khoá + câu hướng dẫn phân công; bấm không mở hộp, không gọi ghi', async () => {
+  const f = server({ cust: { owner: null } });
+  const m = await custPage(f, SALES);
+  try {
+    await doAct(() => click(tabBtn(m.container, /^Cơ hội$/)));
+    const b = buttonByText(m.container, /Tạo cơ hội/); assert.ok(b); assert.equal(b.disabled, true);
+    assert.match(text(m.container), /Khách hàng chưa có người phụ trách — hãy phân công người phụ trách trước khi tạo cơ hội\./);
+    assert.doesNotMatch(text(m.container), /Bấm "Tạo cơ hội"/);
+    await doAct(() => click(b));
+    assert.equal(modal(m.container), undefined); assert.equal(f.writes().length, 0);
+  } finally { await m.unmount(); }
+});
+
+test('T-08: máy chủ trả 409 OPPORTUNITY_CUSTOMER_NO_OWNER khi tạo => hộp báo đúng câu "chưa có người phụ trách", KHÔNG có tiền tố "Xung đột dữ liệu (bản ghi trùng…)"; giữ hộp', async () => {
+  const f = server({ write: () => fail(409, 'OPPORTUNITY_CUSTOMER_NO_OWNER', 'Khách hàng chưa có người phụ trách. Hãy phân công người phụ trách khách trước khi tạo cơ hội.') });
+  const m = await custPage(f, SALES);
+  try {
+    await doAct(() => click(tabBtn(m.container, /^Cơ hội$/)));
+    await press(m.container, /Tạo cơ hội/); const d = modal(m.container); assert.ok(d);
+    await doAct(() => type(inputByLabel(d, /Tiêu đề/), 'Bán 50 FCU'));
+    const radio = byTag(d, 'input').find((i) => i.attributes.type === 'radio'); radio.checked = true; await doAct(() => click(radio));
+    await press(d, /^Tạo cơ hội$/);
+    assert.equal(f.writes().length, 1); assert.ok(modal(m.container), 'hộp còn mở');
+    const al = findAll(modal(m.container), (e) => e.attributes.role === 'alert').map((e) => text(e)).join(' | ');
+    assert.match(al, /Khách hàng chưa có người phụ trách — hãy phân công người phụ trách trước khi tạo cơ hội\./);
+    assert.doesNotMatch(al, /Xung đột dữ liệu|bản ghi trùng/);
+  } finally { await m.unmount(); }
 });
 
 test('chi tiết khách — không có opportunity.read: KHÔNG có tab Cơ hội, không gọi API cơ hội, trang như trước; lỗi API ở tab => báo lỗi + Thử lại', async () => {

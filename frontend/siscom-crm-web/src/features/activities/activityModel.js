@@ -109,11 +109,12 @@ export function buildCreateBody(d) {
   if (s(d.contactId)) b.contactId = s(d.contactId);
   if (s(d.performedById)) b.performedById = s(d.performedById);
   if (d.external === true && type === 'TASK' && b.performedById) b.external = true; // B3 A8: giao ra ngoài phạm vi chỉ khi bật tường minh
+  if (s(d.opportunityId)) b.opportunityId = s(d.opportunityId); // T-05: gắn cơ hội của cùng khách (tuỳ chọn; máy chủ kiểm quyền opportunity.update)
   return b;
 }
 
 // Chi tiết lỗi 400 (chuỗi) => { fieldErrors, extra }. Gắn theo tên trường đứng đầu (class-validator) hoặc nhắc trong câu của dịch vụ.
-const FIELDS = ['title', 'content', 'outcome', 'occurredAt', 'dueAt', 'remindAt', 'contactId', 'performedById', 'type'];
+const FIELDS = ['title', 'content', 'outcome', 'occurredAt', 'dueAt', 'remindAt', 'contactId', 'performedById', 'opportunityId', 'type'];
 const HINT_RE = [[/1 ngày sau hiện tại|occurredAt/, 'occurredAt'], [/nhắc|remindAt/, 'remindAt'], [/dueAt|\bhạn\b/, 'dueAt']];
 export function detailsToFieldErrors(details) {
   const fieldErrors = {}; const extra = [];

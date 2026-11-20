@@ -79,6 +79,13 @@ test('editDraftOf: điền sẵn theo giờ VN; trường trống thành chuỗi
   assert.deepEqual(editDraftOf(a), { type: 'TASK', title: 'Gửi báo giá', content: 'VRV', outcome: '', occurredAt: '2026-11-05T08:00', dueAt: '2026-11-06T17:00', remindAt: '' });
 });
 
+test('T-05 buildCreateBody: opportunityId chỉ gửi khi đã chọn (cắt khoảng trắng); trống => không có khoá', () => {
+  assert.deepEqual(buildCreateBody({ type: 'CALL', content: 'Gọi', opportunityId: ' o1 ' }), { type: 'CALL', content: 'Gọi', opportunityId: 'o1' });
+  assert.equal('opportunityId' in buildCreateBody({ type: 'CALL', content: 'Gọi', opportunityId: '' }), false);
+  assert.equal('opportunityId' in buildCreateBody({ type: 'CALL', content: 'Gọi' }), false);
+  assert.deepEqual(detailsToFieldErrors(['opportunityId must be a UUID']).fieldErrors, { opportunityId: 'opportunityId must be a UUID' });
+});
+
 test('buildPatchBody: chỉ gửi trường đã đổi; không đổi gì => {}; giờ kèm +07:00', () => {
   const a = { type: 'TASK', title: 'Gửi báo giá', content: 'VRV', outcome: null, occurredAt: '2026-11-05T01:00:00.000Z', dueAt: '2026-11-06T10:00:00.000Z', remindAt: null, version: 3 };
   const d = editDraftOf(a);

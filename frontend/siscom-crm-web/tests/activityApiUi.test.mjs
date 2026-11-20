@@ -16,12 +16,13 @@ const act1 = (over = {}) => ({ id: 'a1', code: 'HD-000001', customerId: ID, type
 const page = (items, over = {}) => ({ data: { items, page: 1, pageSize: 20, total: items.length, totalPages: items.length ? 1 : 0, ...over } });
 
 // list(q): body cho GET /activities (q = URLSearchParams). post(body): response cho POST.
-const server = ({ list = () => page([act1()]), post, cands = () => res(200, { data: { items: [{ id: 'e2', code: 'NV-002', fullName: 'Lê Kỹ Thuật', departmentCode: 'KT' }] } }), contacts = () => [], contactWrite } = {}) => {
+const server = ({ list = () => page([act1()]), post, cands = () => res(200, { data: { items: [{ id: 'e2', code: 'NV-002', fullName: 'Lê Kỹ Thuật', departmentCode: 'KT' }] } }), contacts = () => [], contactWrite, opps } = {}) => {
   const calls = [];
   const f = async (url, init = {}) => {
     const method = init.method || 'GET'; const u = new URL(url); const p = u.pathname; const body = init.body ? JSON.parse(init.body) : null;
     calls.push({ p, method, q: u.searchParams, body });
     if (p.endsWith('/activities/assignee-candidates')) return cands(u.searchParams);
+    if (p.endsWith('/customers/' + ID + '/opportunities')) return opps ? opps(u.searchParams) : res(200, page([])); // T-05: cơ hội của khách cho ô "Cơ hội"
     if (p.endsWith('/activities') && method === 'GET') { const r = list(u.searchParams); return typeof r.status === 'number' ? r : res(200, r); }
     if (p.endsWith('/activities') && method === 'POST') return post ? post(body) : res(201, { data: act1({ id: 'a9', type: body.type, content: body.content }) });
     if (p.includes('/contacts') && method !== 'GET') return contactWrite ? contactWrite(method, p, body) : res(500, { error: { code: 'INTERNAL', message: 'x' } });
@@ -192,6 +193,45 @@ test('có activity.assign: ô "Người phụ trách" lấy ứng viên của kh
     await doAct(() => click(buttonByText(dialog(m.container), /^Lưu$/)));
     assert.equal(f.posts()[0].body.performedById, 'e2');
   } finally { await m.unmount(); }
+});
+
+// T-05 (b): drawer ở khách có ô chọn "Cơ hội" (tuỳ chọn) — chỉ khi máy chủ cấp opportunity.read + opportunity.update; chỉ cơ hội người dùng được sửa.
+const opp = (n, over = {}) => ({ id: 'o' + n, code: 'CH-000' + n, title: 'Cơ hội ' + n, status: 'OPEN', access: 'FULL', deletedAt: null, owner: { id: 'e1', code: 'NV-001', fullName: 'Trần Sale' }, ...over });
+const OPP_ME = { employeeId: 'e1', permissions: { 'customer.read': 'OWN', 'activity.read': 'OWN', 'activity.create': 'OWN', 'opportunity.read': 'OWN', 'opportunity.update': 'OWN' } };
+test('T-05: drawer có ô "Cơ hội" lấy từ GET /customers/:id/opportunities, chỉ cơ hội mình được sửa; chọn => POST kèm opportunityId', async () => {
+  const f = server({ opps: () => res(200, page([opp(1), opp(2, { owner: { id: 'e9', code: 'NV-009', fullName: 'Người khác' } }), opp(3, { status: 'WON' }), opp(4, { access: 'TASK' })])) });
+  const m = await mount(f, SALES, { me: OPP_ME });
+  try {
+    await openTab(m); await openDrawer(m);
+    const og = f.calls.filter((c) => c.p.endsWith('/customers/' + ID + '/opportunities')); assert.equal(og.length, 1); assert.equal(og[0].q.get('page'), '1');
+    const d = dialog(m.container);
+    const field = findAll(d, (e) => e.attributes.class === 'sg-field' && findAll(e, (l) => l.tagName === 'LABEL' && /^Cơ hội/.test(text(l))).length)[0]; assert.ok(field, 'có ô Cơ hội');
+    await doAct(() => click(findAll(field, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
+    assert.deepEqual(findAll(field, (e) => e.attributes.role === 'option').map((e) => text(e)), ['— Không gắn cơ hội —', 'CH-0001 · Cơ hội 1', 'CH-0003 · Cơ hội 3 (Thắng)']);
+    await doAct(() => click(findAll(field, (e) => e.attributes.role === 'option' && /CH-0001/.test(text(e)))[0]));
+    type(inputByLabel(dialog(m.container), /^Nội dung/), 'Gọi chốt lịch khảo sát'); await flush();
+    await doAct(() => click(buttonByText(dialog(m.container), /^Lưu$/)));
+    assert.equal(f.posts().length, 1);
+    assert.deepEqual(f.posts()[0].body, { type: 'CALL', content: 'Gọi chốt lịch khảo sát', opportunityId: 'o1' });
+  } finally { await m.unmount(); }
+});
+
+test('T-05: không chọn cơ hội => không gửi opportunityId; không có opportunity.update => không có ô Cơ hội, không gọi API cơ hội', async () => {
+  const f = server({ opps: () => res(200, page([opp(1)])) });
+  const m = await mount(f, SALES, { me: OPP_ME });
+  try {
+    await openTab(m); await openDrawer(m);
+    type(inputByLabel(dialog(m.container), /^Nội dung/), 'Ghi chú'); await flush();
+    await doAct(() => click(buttonByText(dialog(m.container), /^Lưu$/)));
+    assert.equal('opportunityId' in f.posts()[0].body, false);
+  } finally { await m.unmount(); }
+  const g = server({ opps: () => res(200, page([opp(1)])) });
+  const n = await mount(g, SALES, { me: { employeeId: 'e1', permissions: { ...OPP_ME.permissions, 'opportunity.update': undefined } } });
+  try {
+    await openTab(n); await openDrawer(n);
+    assert.equal(findAll(dialog(n.container), (e) => e.tagName === 'LABEL' && /^Cơ hội/.test(text(e))).length, 0);
+    assert.equal(g.calls.filter((c) => /opportunit/.test(c.p)).length, 0);
+  } finally { await n.unmount(); }
 });
 
 test('bộ lọc loại => tải lại trang 1 với type; "Tải thêm" nối trang 2', async () => {
