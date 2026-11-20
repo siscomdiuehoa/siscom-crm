@@ -31,23 +31,35 @@
 | D6 | Bản sao lưu ngoài VPS đặt ở đâu? | Google Drive của Owner (PR #235 — kéo tự động, đang Draft) hoặc chép tay hằng tuần như hôm nay |
 | D7 | Ngày mở cho người dùng và cách báo lỗi khi dùng | Một nhóm Zalo / một luồng chat cố định; Claude sửa qua PR như #253, #254 |
 
-### 2.1 Câu trả lời của Owner (phiếu go-live, lưu 19/11/2026 17:08 giờ Việt Nam)
+### 2.1 Câu trả lời của Owner (phiếu go-live, lưu 19/11/2026 17:08, cập nhật 20/11/2026 08:23 giờ Việt Nam)
 
 | Mã | Owner chọn | Hệ quả |
 |---|---|---|
 | D1 | **Cách A** — mở sớm, tối đa 5 tài khoản | P1 (quản lý tài khoản) **không** chặn ngày mở; làm sau khi Owner cần thêm người |
 | D2 | **(a)** máy chủ hiện tại, chuyển sang `siscom_crm_prod` | Staging ngừng phục vụ từ bước 2, database staging giữ nguyên |
-| D3 | **Tên miền** `crm.siscom.io.vn` | Chờ Owner thêm bản ghi A ở AZDIGI (chưa thêm lúc trả lời) |
-| D4 | **Chưa điền** | Cần 5 người: họ tên, email, phòng, vai trò |
-| D5 | **Nhập khách hàng có sẵn** | Hệ thống **chưa có** chức năng nhập (chỉ có xuất CSV) — kiểm mã 19/11. Cần một công cụ nhập (PR riêng) hoặc nhập tay; cần Owner cho biết dữ liệu ở đâu, bao nhiêu khách, những cột nào |
+| D3 | **Tên miền** `crm.siscom.io.vn` | **Xong 20/11/2026:** Owner thêm bản ghi A `crm` → `42.96.15.235` ở cPanel AZDIGI (tên miền mua ở BKNS, nameserver `ns3/ns4.azdigi.com`). Claude kiểm: AZDIGI, 8.8.8.8, 1.1.1.1 đều trả `42.96.15.235`. Bản ghi website giữ nguyên |
+| D4 | **Đủ 5 người** (cập nhật 20/11/2026): mỗi vai trò một người — quản trị kỹ thuật, Quản trị CRM, Kinh doanh, Kỹ thuật, Kế toán | Họ tên / email **không** ghi vào repo; nằm trong phiếu của Owner, dùng ở bước 5. Lưu ý: tài khoản Kinh doanh dùng hộp thư chung |
+| D5 | **Bắt đầu trống** (Owner đổi 20/11/2026; trước đó chọn nhập khách có sẵn) | Không cần công cụ nhập; không chặn ngày mở |
 | D6 | **Google Drive tự động** | Dùng PR #235 (Draft, +1065 dòng): cần review và Owner duyệt |
-| D7 | **Chưa điền** ngày mở và kênh báo lỗi | — |
+| D7 | Ngày mở: **càng sớm càng tốt**; báo lỗi qua **Zalo** (20/11/2026) | Lịch đề xuất ở mục 2.2 |
 | P3 | Cho làm | Xem ghi chú dưới |
 | P4 | Đã đặt mật khẩu cho `VPS.ppk`; chưa chuyển khoá sao lưu khỏi Dropbox; chưa đánh dấu cam kết không dùng lại mật khẩu từ chat | — |
 
 Ghi chú của Owner, nguyên văn: "em làm cái tối ưu thêm thì làm, đừng bảo mật quá".
 
 **P3 — đề xuất KHÔNG làm** (sau khi kiểm chỉ đọc 19/11): cloud-init của BKNS đặt lại mật khẩu root từ đĩa seed `cidata` mỗi lần khởi động, đúng mật khẩu Owner thấy trong bảng điều khiển BKNS. SSH đã chặn đăng nhập bằng mật khẩu, nên mật khẩu đó chỉ dùng được ở **console web của BKNS** — đây lại là đường cứu hộ khi mất khoá SSH. Tắt cloud-init còn có thể ảnh hưởng cấu hình mạng (`/etc/netplan/50-cloud-init.yaml` do cloud-init sinh). Rủi ro của việc giữ nguyên thấp hơn rủi ro của việc sửa; phù hợp ghi chú "đừng bảo mật quá".
+
+### 2.2 Lịch đề xuất (Owner chọn "càng sớm càng tốt")
+
+| Khi nào | Việc | Ai |
+|---|---|---|
+| T6 20/11 | Review kế hoạch này (#255); Owner duyệt kế hoạch. Bước 0 (chạy thử khô) và bước 1 (Caddy sang tên miền, chứng chỉ https) | Reviewer, Owner, Claude |
+| T7 21/11 hoặc T2 23/11 sáng (~2 giờ, Owner ngồi cùng) | Bước 2–5: tạo database thật, migration, danh mục, 5 tài khoản (Owner gõ mật khẩu trên máy chủ) | Claude + Owner |
+| Ngay sau đó (~45 phút) | Bước 6: Owner thử 15 phút rồi xoá dữ liệu thử. Bước 7: sao lưu đầu tiên, khôi phục thử, chép bản sao ra máy Owner (như 19/11) | Owner + Claude |
+| T2 23/11 | Bước 8: gửi tài khoản, nhân viên bắt đầu dùng | Owner |
+| Sau ngày mở | PR #235 (sao lưu tự động về Google Drive) review + duyệt; trong lúc chờ, bản sao ngoài VPS chép tay như bước 7 | Reviewer, Owner |
+
+Mỗi bước vẫn cần Owner duyệt riêng như mục 5.
 
 ## 3. Việc kỹ thuật phải xong trước (mỗi việc một PR hoặc một bước có duyệt)
 
