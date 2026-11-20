@@ -8,6 +8,7 @@
 - **Sửa sau review R1 (20/11/2026):** bước 6 không tạo dữ liệu thử trên database thật (mục 5.4); rollback và điều kiện dừng (mục 5.2); sao lưu ngoài VPS tạm thời khi PR #235 chưa nghiệm thu (mục 5.3); bảng GO/NO-GO cho bước 8 (mục 5.1); quy ước tài khoản theo vai trò (mục 2.3). Bảng phản hồi từng điểm ở comment R2 của PR #255.
 - **Sửa sau rà soát 20/11/2026 (chiều):** P3 ghi đúng trạng thái "chờ Owner chốt" thay vì vừa "cho làm" vừa "đề xuất không làm" (mục 2.1, 3, 7); bước 0 tách rõ phần đã làm và kết quả (mục 5, ghi chú bước 0), lịch mục 2.2 cập nhật theo. Sau đó Owner chốt P3: **không làm** (nguyên văn "Không làm P3", 20/11/2026).
 - **Sửa sau review R2/R3 (20/11/2026):** quy trình **R-SVC** trỏ dịch vụ sang database đã khôi phục, **đã diễn tập** trên PostgreSQL tạm cách ly, có RTO / RPO (mục 5.2); bằng chứng bước 0 đưa vào repo `docs/evidence/golive-20261120/` (ghi chú bước 0); sửa kỳ vọng VERIFY `PASS|73` → `PASS|75` theo kết quả chạy trên mã `2de465c` (16 migration).
+- **Sửa sau review R3/R4 (20/11/2026):** diễn tập R-SVC chạy lại trên **Linux Ubuntu 24.04, root, `runuser` / `chown` / systemd** (nhánh R-SVC giống VPS, không dùng chế độ diễn tập) và thêm **đường lùi khi R-SVC lỗi giữa chừng** — cả hai đạt (mục 5.2).
 
 ## 1. Tóm tắt
 
@@ -180,13 +181,20 @@ Mọi dòng phải **ĐẠT** và có bằng chứng (đầu ra lệnh lưu vào
 | R7 | Kiểm: 5 tài khoản đăng nhập bằng mật khẩu cũ, sai mật khẩu bị từ chối; dữ liệu đúng tới mốc sao lưu; ghi mới được; chạy `backup-db.sh` một lần trên DB mới | Owner xác nhận; có bộ sao lưu mới |
 | R8 | Xoá `siscom_crm_prod_hong_<UTC>` và DB khôi phục thừa (nếu có) **chỉ khi Owner duyệt** (`DROP DATABASE` bằng tay; `create-db.sh drop` không nhận tên này) | — |
 
-Lỗi ở R2–R5 ⇒ dịch vụ để dừng; nếu đã đổi tên ở R3 thì đổi ngược lại hai tên (`siscom_crm_prod` → tên khôi phục, `siscom_crm_prod_hong_<UTC>` → `siscom_crm_prod`), báo Owner; không sửa tay dữ liệu.
+**Đường lùi khi R-SVC lỗi ở R3–R5** (đã diễn tập): dịch vụ để dừng; đổi ngược hai tên — `ALTER DATABASE siscom_crm_prod RENAME TO siscom_crm_restore_<UTC>` rồi `ALTER DATABASE siscom_crm_prod_hong_<UTC> RENAME TO siscom_crm_prod` (sau khi `pg_terminate_backend` như R3). Kết quả: trở lại đúng trạng thái trước R-SVC, DB khôi phục còn nguyên để làm lại từ R3 (không cần khôi phục lại). Báo Owner; không sửa tay dữ liệu.
 
-**Diễn tập R-SVC (20/11/2026, PostgreSQL 18.6 tạm cách ly trên máy Owner, mã `2de465c`, không chạm database thật / staging):** kịch bản `docs/evidence/golive-20261120/rehearse-restore-service.sh`, đầu ra `rsvc-rehearsal-20261120T071114Z.log.txt`. Dựng `siscom_crm_prod` đúng như bước 2–5, tạo khách `THU-K1`, sao lưu (age + ký), tạo `THU-K2` sau sao lưu, giả lập sự cố (đổi tên bảng `customer` ⇒ `GET /customers` 500), rồi chạy R1–R7 bằng chính các script trên. Kết quả: `restore-test.sh` PASS 24 bảng; quyền cấp database đúng; `PASS|75` + `PASS|33`; sức khoẻ đạt đủ bốn chỉ số; 5 tài khoản đăng nhập bằng mật khẩu cũ = 200, sai mật khẩu = 401; `THU-K1` còn, `THU-K2` mất (đúng RPO); ghi mới được; sao lưu chạy tiếp trên DB mới; DB hỏng còn nguyên.
+**Diễn tập R-SVC (20/11/2026, mã `2de465c`, PostgreSQL tạm cách ly — không chạm VPS, database thật hay staging).** Kịch bản `docs/evidence/golive-20261120/rehearse-restore-service.sh` (SHA-256 `696715a1…b8b309ad`):
 
-- **RTO đo được:** 9 giây phần máy (T0 → T1, database gần rỗng). Trên VPS cộng thêm thời gian Owner quyết định và nạp khoá, và thời gian `pg_restore` tăng theo dung lượng. Ước tính giai đoạn đầu: dưới 1 giờ khi Owner có mặt — ước tính, chưa đo trên VPS.
+| Lần chạy | Môi trường | Bằng chứng |
+|---|---|---|
+| **Linux, nhánh VPS** (`REAL=1`) | Ubuntu 24.04.5, root, PostgreSQL 18.7 (PGDG); `create-db.sh` / `backup-db.sh` / `restore-test.sh` chạy **không** có `SISCOM_REHEARSAL` ⇒ superuser qua `runuser -u postgres` (peer), `restore-test.sh` `chown postgres` + `runuser pg_restore`, kiểm tệp 600 / root; backend chạy bằng `systemd-run` (unit tạm thời, `DynamicUser`) và dừng bằng `systemctl stop`. Máy GitHub dùng một lần, workflow tạm trên nhánh riêng `rehearsal/rsvc-linux-20261120` (Owner duyệt 20/11/2026; không merge, xoá sau khi lấy bằng chứng) | Run https://github.com/siscomdiuehoa/siscom-crm/actions/runs/44699663953 (commit nhánh `bcc1f95`); `rsvc-linux-real-20261120T080550Z.log.txt` (SHA-256 `91281390…2b760a7e`, bản tải từ artifact của run) |
+| Windows (`SISCOM_REHEARSAL=1`) | Git Bash, PostgreSQL 18.6 | `rsvc-windows-20261120T075940Z.log.txt` (cùng kịch bản); `rsvc-rehearsal-20261120T071114Z.log.txt` (bản trước, chưa có đường lùi) |
+
+Trình tự mỗi lần: dựng `siscom_crm_prod` như bước 2–5 → tạo `THU-K1` → sao lưu (age + ký) → tạo `THU-K2` → giả lập sự cố (đổi tên bảng `customer` ⇒ `GET /customers` 500) → R1–R2 → **lần 1: R3, cố ý làm R4 lỗi (`target_db` sai), chạy đường lùi** → **lần 2: R3–R7** dùng lại DB khôi phục. Kết quả (cả hai môi trường): `restore-test.sh` PASS 24 bảng; **đường lùi**: tên DB trở về như trước, dấu vân tay nội dung (số dòng từng bảng) DB gốc và DB khôi phục **trùng** trước / sau, dịch vụ chạy lại trên DB gốc vẫn lỗi 500 như trước R-SVC; **lần 2**: quyền cấp database `siscom_migrator\|true\|true\|false\|false,false,false`, `PASS\|75` + `PASS\|33`, `/health/database` đủ bốn chỉ số, 5 tài khoản đăng nhập bằng mật khẩu cũ = 200, sai mật khẩu = 401, `THU-K1` còn / `THU-K2` mất, ghi mới được, sao lưu chạy tiếp trên DB mới, DB hỏng còn nguyên.
+
+- **RTO đo được (phần máy, database gần rỗng):** Linux 2 giây đường chính (R1–R2 1 giây + R3–R6 1 giây), đường lùi dưới 1 giây; Windows 8 giây. Trên VPS cộng thời gian Owner quyết định và nạp khoá, và `pg_restore` tăng theo dung lượng. Ước tính giai đoạn đầu: dưới 1 giờ khi Owner có mặt — **ước tính, chưa đo trên VPS**.
 - **RPO:** dữ liệu tạo sau mốc sao lưu dùng để khôi phục bị mất (diễn tập: `THU-K2`). Với sao lưu đêm: tối đa khoảng 24 giờ; `deploy.sh` tự sao lưu trước mỗi lần triển khai.
-- **Giới hạn:** diễn tập trên Windows (`SISCOM_REHEARSAL=1`: không `runuser` / `chown`, không `systemctl`); VPS dùng các lệnh tương ứng ở bảng trên. Đề xuất chạy lại kịch bản trên PostgreSQL tạm cách ly khi các script hoặc schema thay đổi.
+- **Khác biệt còn lại so với VPS:** máy diễn tập dùng PostgreSQL 18.7 (VPS 18.6); unit backend là unit tạm `DynamicUser` thay cho `siscom-crm-backend.service` (`User=siscom`, các tuỳ chọn bảo vệ) — R-SVC chỉ `stop` / `start` unit đó, không đổi cấu hình unit. Chạy lại kịch bản trên PostgreSQL tạm cách ly khi script hoặc schema thay đổi.
 
 ### 5.3 Sao lưu ngoài VPS tạm thời (khi PR #235 chưa nghiệm thu)
 

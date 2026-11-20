@@ -1,0 +1,78 @@
+== MINGW64_NT-10.0-26200 3.6.6-1cdd4371.x86_64 x86_64; ?; uid=197609 ==
+== Che do: SISCOM_REHEARSAL=1; PostgreSQL 18.6 cong 55872; ban ma: 2de465c ==
+
+--- A. create / env / migrate / grants / seed / bootstrap (siscom_crm_prod) ---
+[OK] Da sinh mat khau 3 role -> /tmp/tmp.vEYZf46Reb/etc/db-roles.env (600). KHONG in ra man hinh.
+[OK] Da tao database siscom_crm_prod (prod), chu so huu siscom_migrator.
+[OK] Tach role xong: owner=siscom_migrator, app+auth CONNECT, PUBLIC khong co quyen. Tiep: ghi env (lenh env), migrate, 
+[OK] Da ghi /tmp/tmp.vEYZf46Reb/etc/backend.env va /tmp/tmp.vEYZf46Reb/etc/migrate.env (600) tro DB siscom_crm_prod, dom
+All migrations have been successfully applied.
+[OK] B1.3_S1_VERIFY.sql.txt: PASS|75
+[OK] B1.3_S1_VERIFY_AUTH.sql.txt: PASS|33
+[OK] GRANTS + VERIFY DAT tren siscom_crm_prod.
+Seed danh muc tren siscom_crm_prod: tong 73, chen moi 73, da co 0.
+Khoi tao xong tren siscom_crm_prod (qua MIGRATE_DATABASE_URL, closed=true). Tai khoan (dang nhap bang email HOAC ma NV):
+Tao khach THU-K1 (truoc sao luu): co=1
+
+--- B. sao luu (backup-db.sh, ma hoa age + ky) ---
+[OK] Da tao khoa ky sao luu /tmp/tmp.vEYZf46Reb/etc/backup-signing.key (600). Khoa CONG KHAI (chep ra ngoai VP
+moc sao luu: 2026-11-20T07:59:40Z
+[OK] Ket noi siscom_crm_prod (PostgreSQL 18), pg_dump 18
+[OK] Da sao luu: /tmp/tmp.vEYZf46Reb/bk/siscom_crm_prod_20261120_075940.dump.age (259561 byte, 484 muc, ma hoa=1); manif
+[OK] SHA-256 (file luu): ca74907a1d6f1dc3df00e142a372344d266f0ec26e1ffa3c8815f58ecb0cd3c8
+[OK] Con 1 bo .age (theo retention) va 0 bo plaintext cua siscom_crm_prod; 0 stem trung.
+[OK] Nho chep ra NGOAI may chu (Owner chon noi luu).
+ban sao luu: siscom_crm_prod_20261120_075940.dump.age (259561 byte)
+
+--- C. sau sao luu: tao THU-K2; gia lap su co (doi ten bang customer) ---
+THU-K2 co=1
+su co: GET /customers => 500 (mong doi 5xx)
+
+--- D. R1 dung dich vu, R2 restore-test.sh ---
+T0 dung dich vu: 2026-11-20T07:59:46Z
+dau van tay DB goc (hong) truoc R-SVC: 183cc82ccdaf0a3b090b2fc5ef4f9648
+[OK] Chu ky manifest hop le; file siscom_crm_prod_20261120_075940.dump.age khop SHA-256 da ky, thuoc DB siscom_crm_prod.
+[OK] Da tao DB thu siscom_crm_restore_20261120_075947
+[OK] pg_restore hoan tat
+[OK] DB thu siscom_crm_restore_20261120_075947: 24 bang public, schema_baseline=b1.1, migration xong=16
+[OK] PASS: 24 bang khop so dong.
+[OK] Da ghi /tmp/tmp.vEYZf46Reb/bk/siscom_crm_prod_20261120_075940.dump.age.restore-ok.txt
+dau van tay DB khoi phuc: b38811b15a2fdc6536922de527477052
+
+--- F. LAN 1 - loi giua chung o R4 => duong lui (doi nguoc ten) ---
+R3: siscom_crm_prod -> siscom_crm_prod_hong_20261120_075951 ; siscom_crm_restore_20261120_075947 -> siscom_crm_prod
+R4 loi (co chu dich): s1_fail_target_db_khac_current_database
+duong lui: siscom_crm_prod <- siscom_crm_prod_hong_20261120_075951 ; siscom_crm_restore_20261120_075947 <- siscom_crm_prod (1 giay)
+dau van tay DB goc sau duong lui: 183cc82ccdaf0a3b090b2fc5ef4f9648 (truoc: 183cc82ccdaf0a3b090b2fc5ef4f9648) ; DB khoi phuc: b38811b15a2fdc6536922de527477052 (truoc: b38811b15a2fdc6536922de527477052)
+dich vu tren DB goc sau duong lui: GET /customers => 500 (dung trang thai truoc R-SVC: van loi)
+dat: duong lui tra dung trang thai truoc R-SVC, DB khoi phuc con nguyen de lam lai
+
+--- G. LAN 2 - R3 -> R6 (dung lai DB khoi phuc o R2, khong khoi phuc lai) ---
+R3: siscom_crm_prod -> siscom_crm_prod_hong_20261120_075955 ; siscom_crm_restore_20261120_075947 -> siscom_crm_prod
+    kiem nhu create-db.sh: siscom_migrator|true|true|false|false,false,false
+R5 create-db.sh grants:
+[OK] B1.3_S1_VERIFY.sql.txt: PASS|75
+[OK] B1.3_S1_VERIFY_AUTH.sql.txt: PASS|33
+[OK] GRANTS + VERIFY DAT tren siscom_crm_prod.
+R6 T1 suc khoe dat: 2026-11-20T07:59:58Z
+/health/database: "database":"up" "migrated":true "leastPrivilege":true "authPool":"separate" "authLeastPrivilege":true 
+
+--- E. R7 kiem sau khoi phuc ---
+dang nhap sysadmin@ (mat khau cu) => 200
+dang nhap admin@ (mat khau cu) => 200
+dang nhap sale@ (mat khau cu) => 200
+dang nhap kythuat@ (mat khau cu) => 200
+dang nhap ketoan@ (mat khau cu) => 200
+sai mat khau => 401
+du lieu: THU-K1 (truoc sao luu) co=1 ; THU-K2 (sau sao luu) co=0
+ghi moi sau khoi phuc: dat (THU-K3)
+[OK] Con 2 bo .age (theo retention) va 0 bo plaintext cua siscom_crm_prod; 0 stem trung.
+[OK] Nho chep ra NGOAI may chu (Owner chon noi luu).
+sao luu chay tiep tren DB moi: so ban .age = 2
+DB hong giu lai: siscom_crm_prod_hong_20261120_075955 (xoa chi khi Owner duyet: DROP DATABASE)
+
+--- KET QUA ---
+RTO duong chinh (may): R1-R2 5 giay + R3-R6 3 giay = 8 giay (chua tinh Owner quyet dinh / nap khoa)
+Duong lui (doi nguoc ten): 1 giay; tong thoi gian ke ca lan loi: 12 giay
+RPO dien tap: mat du lieu tao sau moc sao luu (6 giay truoc su co; THU-K2). Production: sao luu dem => toi da ~24 gio.
+DIEN TAP R-SVC HOAN TAT: moi buoc dat. Da dung cum tam va xoa thu muc tam.
