@@ -54,13 +54,13 @@ echo "G8 rollback: staging con nguyen"
 chk "database" "$(sudo -u postgres psql -X -q -tA -d postgres -c "SELECT string_agg(datname, ',' ORDER BY datname) FROM pg_database WHERE datname LIKE 'siscom%'")" "$PROD,$STG"
 rows="$(sudo -u postgres psql -X -q -tA -d "$STG" -c "SELECT string_agg(tablename || '=' || (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM public.%I', tablename), false, true, '')))[1]::text, ',' ORDER BY tablename) FROM pg_tables WHERE schemaname = 'public'" | md5sum | cut -c1-32)"
 chk "staging dau van tay so dong" "$rows" 759869c0cd70a1f8e83140c273fe9339
-last="$(ls -1 /var/backups/siscom-crm | grep -E "^${STG}_[0-9_]+[.]dump[.]age$" | sort | tail -n1)"
+last="$(find /var/backups/siscom-crm -maxdepth 1 -type f -name "${STG}_*.dump.age" -printf '%f\n' | sort | tail -n1)"
 chk "bo sao luu staging lan cuoi" "$last" "siscom_crm_staging_20261120_092749.dump.age"
 if ( . "$LIN/lib.sh"; verify_backup_set "/var/backups/siscom-crm/$last" /etc/siscom-crm/backup-signing.allowed_signers "$STG" ) >/dev/null 2>&1; then ok "chu ky + SHA-256 bo sao luu staging lan cuoi"; else bad "chu ky bo sao luu staging"; fi
 chk "ban ma staging de lui (previous)" "$(cat /opt/siscom-crm/previous)" src-20261119093630
 if [ -d /opt/siscom-crm/releases/src-20261119093630 ]; then ok "thu muc ban staging con"; else bad "mat thu muc ban staging"; fi
-echo "      env .bak: $(ls /etc/siscom-crm/ | grep -c 'bak-20261120092749') tep; caddy .bak: $(ls /etc/siscom-crm/caddy.env.bak-20261120085931 /etc/caddy/siscom-tls.caddy.bak-20261120085931 2>/dev/null | wc -l) tep"
-echo "      sao luu dem: $(systemctl list-timers --no-pager | grep siscom-crm-backup | awk '{print $1, $2, $3, $4}'); bo $PROD da co: $(ls -1 /var/backups/siscom-crm | grep -c "^${PROD}_.*[.]dump[.]age$")"
+echo "      env .bak: $(find /etc/siscom-crm -maxdepth 1 -type f -name '*.bak-20261120092749' | wc -l) tep; caddy .bak: $(find /etc/siscom-crm/caddy.env.bak-20261120085931 /etc/caddy/siscom-tls.caddy.bak-20261120085931 -maxdepth 0 -type f 2>/dev/null | wc -l) tep"
+echo "      sao luu dem: $(systemctl list-timers --no-pager | grep siscom-crm-backup | awk '{print $1, $2, $3, $4}'); bo $PROD da co: $(find /var/backups/siscom-crm -maxdepth 1 -type f -name "${PROD}_*.dump.age" | wc -l)"
 
 echo
 if [ "$fail" = 0 ]; then echo "KET QUA: moi muc kiem duoc deu DAT."; else echo "KET QUA: CO MUC KHONG DAT (xem tren)."; fi
