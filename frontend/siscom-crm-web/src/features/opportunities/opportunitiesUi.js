@@ -3,6 +3,7 @@
 import {
   buildListQuery, validateCreate, toCreateBody, serverFieldErrors, validateAction, toActionRequest, ACTION_CANDIDATES,
   validateEdit, toPatchBody, validateDocument, toDocumentBody, validateReason, BOARD_PAGE_SIZE, CHANGES_PAGE_SIZE,
+  OPP_CUSTOMER_NO_OWNER, CUSTOMER_NO_OWNER_TITLE, CUSTOMER_NO_OWNER_MESSAGE,
 } from './opportunitiesModel.js';
 import { validateDraft, buildCreateBody, detailsToFieldErrors } from '../activities/activityModel.js';
 
@@ -23,6 +24,8 @@ export function createOpportunitiesController(repo, describe, hooks = {}) {
   const err = (e) => {
     const d = describe(e);
     if (d.kind === 'not_found') return { ...d, ...NOT_FOUND };
+    // T-08: 409 vì khách chưa có người phụ trách là quy tắc nghiệp vụ, không phải "bản ghi trùng" => câu rõ ràng, bỏ tiền tố xung đột chung.
+    if (d.kind === 'conflict' && d.code === OPP_CUSTOMER_NO_OWNER) return { ...d, title: CUSTOMER_NO_OWNER_TITLE, message: CUSTOMER_NO_OWNER_MESSAGE, hint: '' };
     if (d.kind !== 'bad_request') return d;
     const r = serverFieldErrors(e && e.details);
     return { ...d, fieldErrors: r.fieldErrors, extra: r.extra };

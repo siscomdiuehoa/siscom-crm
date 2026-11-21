@@ -1,5 +1,5 @@
 import React from 'react';
-import { Avatar, Badge, Button, EmptyState, Icon, IconButton, Input, Modal, Select, Tabs } from '../../ds/index.js';
+import { Avatar, Badge, Button, EmptyState, Icon, IconButton, Input, Modal, Select, Switch, Tabs } from '../../ds/index.js';
 import * as U from '../../data/util.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
@@ -15,6 +15,8 @@ const TYPE_OPTIONS = [{ value: '', label: 'Tất cả loại' }].concat(ALL_TYPE
 const STATUS_OPTIONS = [{ value: '', label: 'Mọi trạng thái' }].concat(Object.keys(ACTIVITY_STATUS).map((k) => ({ value: k, label: ACTIVITY_STATUS[k].label })));
 const loadingLine = (text) => <div role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-2)', padding: '12px 0' }}><span className="sg-btn__spin" />{text}</div>;
 const emptyDraft = (type) => ({ type, title: '', content: '', outcome: '', occurredAt: '', dueAt: '', remindAt: '', contactId: '', performedById: '', external: false });
+const canUi = (ui, p) => !!ui && typeof ui.can === 'function' && !!ui.can(p); // fail-closed
+const personLabel = (e) => e.fullName + ' · ' + e.code + (e.departmentCode ? ' · ' + e.departmentCode : '');
 
 // ───── Ghi nhận hoạt động gắn với cơ hội ─────
 function ActivityDialog({ ui, o, types, onClose }) {
@@ -24,9 +26,24 @@ function ActivityDialog({ ui, o, types, onClose }) {
   const [errs, setErrs] = React.useState({});
   const [error, setError] = React.useState(null);
   const busy = !!s.busy;
+  // T-05: chọn "Người phụ trách" như drawer Ghi nhận ở khách (ActivityDrawer) — chỉ khi có activity.assign; ứng viên từ máy chủ theo KHÁCH của cơ hội
+  // (GET /activities/assignee-candidates?customerId=…). Bật "Giao cho người phòng khác" (activity.assign_external, chỉ Công việc) => ứng viên external.
+  const tasks = ui.customerApi.tasks;
+  const customerId = o.customer ? o.customer.id : null;
+  const canAssign = canUi(ui, 'activity.assign') && !!tasks && !!customerId;
+  const canExternal = canAssign && canUi(ui, 'activity.assign_external');
+  const extOn = canExternal && f.external === true && f.type === 'TASK';
+  const [cands, setCands] = React.useState({ status: 'idle', items: [], error: null });
+  React.useEffect(() => {
+    if (!canAssign) return undefined;
+    let live = true; setCands({ status: 'loading', items: [], error: null });
+    tasks.candidates(customerId, extOn).then((r) => { if (live) setCands(r.ok ? { status: 'ready', items: r.items || [], error: null } : { status: 'error', items: [], error: r.error }); });
+    return () => { live = false; };
+  }, [tasks, customerId, canAssign, extOn]);
   const set = (k) => (v) => {
     const val = v && v.target ? v.target.value : v;
-    setF((x) => ({ ...x, [k]: val }));
+    // Đổi "phòng khác" hoặc rời loại Công việc khi đang giao ra ngoài => bỏ người đã chọn (danh sách ứng viên khác).
+    setF((x) => ({ ...x, [k]: val, ...(k === 'external' || (k === 'type' && x.external && val !== 'TASK') ? { performedById: '' } : {}), ...(k === 'type' && val !== 'TASK' ? { external: false } : {}) }));
     setErrs((x) => { if (!x[k]) return x; const n = { ...x }; delete n[k]; return n; });
   };
   const submit = async () => {
@@ -40,7 +57,7 @@ function ActivityDialog({ ui, o, types, onClose }) {
     <Modal open onClose={busy ? undefined : onClose} size="lg" icon="plus" title="Ghi nhận hoạt động" description={o.code + ' · ' + o.title}
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Huỷ</Button><Button icon="check" loading={busy} onClick={submit}>Lưu</Button></>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <p style={{ margin: 0, font: 'var(--type-sm)', color: 'var(--text-2)' }}>Hoạt động được gắn với cơ hội này và khách hàng của nó; người thực hiện là bạn. Giờ nhập theo giờ Việt Nam.</p>
+        <p style={{ margin: 0, font: 'var(--type-sm)', color: 'var(--text-2)' }}>{'Hoạt động được gắn với cơ hội này và khách hàng của nó; ' + (canAssign ? 'người thực hiện mặc định là bạn, có thể chọn người phụ trách khác.' : 'người thực hiện là bạn.') + ' Giờ nhập theo giờ Việt Nam.'}</p>
         {error ? <ApiErrorBox error={error} /> : null}
         <div role="radiogroup" aria-label="Loại hoạt động" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {types.map((t) => {
@@ -48,7 +65,9 @@ function ActivityDialog({ ui, o, types, onClose }) {
             return <button key={t} type="button" role="radio" aria-checked={on} className="sg-chip" disabled={busy} onClick={() => set('type')(t)} style={on ? { background: 'var(--primary-soft)', borderColor: 'transparent', color: 'var(--primary-text)' } : undefined}><Icon name={TYPE_META[t].icon} size={14} />{TYPE_META[t].label}</button>;
           })}
         </div>
-        {f.type === 'TASK' ? <p role="note" style={{ margin: 0, font: 'var(--type-caption)', color: 'var(--text-3)' }}>Công việc tạo ở đây được giao cho chính bạn. Nếu bạn phụ trách cơ hội nhưng không phụ trách khách hàng này, máy chủ sẽ từ chối tự nhận công việc; hãy nhờ người phụ trách khách hàng hoặc Quản trị CRM giao việc ở tab Hoạt động của khách hàng.</p> : null}
+        {f.type === 'TASK' ? <p role="note" style={{ margin: 0, font: 'var(--type-caption)', color: 'var(--text-3)' }}>{canAssign
+          ? 'Để trống "Người phụ trách" thì công việc giao cho chính bạn; chọn người khác để giao việc (máy chủ kiểm lại quyền của người nhận với khách hàng).'
+          : 'Công việc tạo ở đây được giao cho chính bạn. Nếu bạn phụ trách cơ hội nhưng không phụ trách khách hàng này, máy chủ sẽ từ chối tự nhận công việc; hãy nhờ người phụ trách khách hàng hoặc Quản trị CRM giao việc.'}</p> : null}
         {hasTitle(f.type) ? <Input label="Tiêu đề" maxLength={200} value={f.title} onChange={set('title')} error={errs.title} disabled={busy} /> : null}
         <Input label="Nội dung" required multiline rows={4} maxLength={4000} value={f.content} onChange={set('content')} error={errs.content} disabled={busy} />
         {hasOutcome(f.type) ? <Input label="Kết quả" multiline rows={2} maxLength={2000} value={f.outcome} onChange={set('outcome')} error={errs.outcome} disabled={busy} /> : null}
@@ -57,6 +76,12 @@ function ActivityDialog({ ui, o, types, onClose }) {
           {hasDue(f.type) ? <Input label="Hạn" required={f.type === 'TASK'} type="datetime-local" value={f.dueAt} onChange={set('dueAt')} error={errs.dueAt} disabled={busy} /> : null}
           {hasDue(f.type) ? <Input label="Nhắc lúc" type="datetime-local" hint="Không sau hạn" value={f.remindAt} onChange={set('remindAt')} error={errs.remindAt} disabled={busy} /> : null}
         </div>
+        {canExternal && f.type === 'TASK' ? <div><Switch label="Giao cho người phòng khác" checked={f.external} onChange={set('external')} disabled={busy} /><p style={{ margin: '4px 0 0', font: 'var(--type-caption)', color: 'var(--text-3)' }}>Người nhận chỉ xem thẻ việc, không xem hồ sơ khách.</p></div> : null}
+        {canAssign ? (
+          <Select label="Người phụ trách" value={f.performedById} onChange={set('performedById')} error={errs.performedById} disabled={busy || cands.status !== 'ready'}
+            hint={cands.status === 'loading' ? 'Đang tải…' : cands.status === 'error' ? 'Chưa tải được danh sách; hoạt động sẽ ghi cho bạn' : extOn ? 'Người phòng khác, không đọc được khách; có quyền theo việc đến khi xong' : 'Chỉ người đọc được khách hàng của cơ hội này'}
+            options={[{ value: '', label: extOn ? '— Chọn người —' : 'Tôi (người ghi nhận)' }].concat(cands.items.map((e) => ({ value: e.id, label: personLabel(e) })))} />
+        ) : null}
       </div>
     </Modal>
   );

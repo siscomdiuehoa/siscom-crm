@@ -2,7 +2,7 @@ import React from 'react';
 import { Button, Input, Modal, Select } from '../../ds/index.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
-import { opportunityActions, ACTION_LABEL, ACTION_ICON, ACTION_TITLE, ACTION_DONE, ACTION_CANDIDATES, CANDIDATES_TRUNCATED_HINT, WON_DOC_TYPES, initAction, moneyVN, unplacedErrors } from './opportunitiesModel.js';
+import { opportunityActions, ACTION_LABEL, ACTION_ICON, ACTION_TITLE, ACTION_DONE, ACTION_CANDIDATES, CANDIDATES_TRUNCATED_HINT, WON_DOC_TYPES, initAction, actionBaseKey, rebaseAction, moneyVN, unplacedErrors } from './opportunitiesModel.js';
 import { EditOpportunityDialog } from './OpportunityEdit.jsx';
 import { AmountInput } from './AmountInput.jsx';
 
@@ -29,6 +29,15 @@ export function ActionDialog({ kind, o, ui, onClose, onDone, onStale, preset = n
   const [f, setF] = React.useState(() => ({ ...initAction(kind, o), ...(preset || {}) })); // preset: giá trị chọn sẵn (kanban thả thẻ vào cột => stageId)
   const [errs, setErrs] = React.useState({});
   const [error, setError] = React.useState(null);
+  // T-10: 409 => nơi gọi đọc lại `o` (version mới, cờ nhập tay có thể khác) nhưng hộp KHÔNG tạo lại (giữ hộp báo lỗi) => đặt lại lựa chọn xác suất.
+  const baseKey = actionBaseKey(o);
+  const lastBase = React.useRef(baseKey);
+  React.useEffect(() => {
+    if (lastBase.current === baseKey) return;
+    lastBase.current = baseKey;
+    setF((x) => rebaseAction(kind, o, x));
+    setErrs((x) => { if (!x.probability) return x; const n = { ...x }; delete n.probability; return n; });
+  }, [baseKey, kind, o]);
   const wantsPeople = !!ACTION_CANDIDATES[kind];
   const [people, setPeople] = React.useState({ status: wantsPeople ? 'loading' : 'none', items: [], error: null });
   const needsMeta = kind === 'stage' || kind === 'lose';

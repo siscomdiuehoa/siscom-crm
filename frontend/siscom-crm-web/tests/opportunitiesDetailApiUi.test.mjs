@@ -43,6 +43,7 @@ const server = (h = {}) => {
     if (p === '/opportunities/o1/documents') return (h.documents || (() => res(200, { data: { items: [], access: 'FULL' } })))(n);
     if (p === '/customers/' + CID + '/contacts') return res(200, { data: { items: [{ id: 'k1', code: 'LH-1', fullName: 'Nguyễn An', isPrimary: true }, { id: 'k2', code: 'LH-2', fullName: 'Lê Bình', isPrimary: false }] } });
     if (p === '/opportunities/o1') return (h.get || (() => res(200, { data: detail() })))(n);
+    if (p === '/activities/assignee-candidates') return (h.cands || (() => res(200, { data: { items: [{ id: 'e2', code: 'NV-0002', fullName: 'Lê Thị Hai', departmentCode: 'KD' }] } })))(u.searchParams);
     return res(404, { error: { code: 'NOT_FOUND', message: 'x' } });
   };
   f.calls = calls;
@@ -342,6 +343,50 @@ test('Ghi nhận hoạt động cho cơ hội: thiếu nội dung / công việc
     await fill(d, /Nội dung/, 'Thử lỗi'); await press(d, /^Lưu$/);
     assert.match(text(d), /không được quá 1 ngày sau hiện tại/); assert.equal(inputByLabel(d, /Nội dung/).value, 'Thử lỗi'); assert.ok(modal(m.container));
   } finally { await m.unmount(); }
+});
+
+// T-05 (a): giao Công việc cho người khác ngay trong cơ hội — ô "Người phụ trách" như drawer ở khách, chỉ khi có activity.assign.
+const SALES_ASSIGN = role({ ...SALES.me.permissions, 'activity.assign': 'OWN' });
+const ADMIN_EXT = role({ ...ADMIN.me.permissions, 'activity.assign': 'ALL', 'activity.assign_external': 'ALL' });
+test('T-05: có activity.assign => ô "Người phụ trách" lấy ứng viên theo KHÁCH của cơ hội; chọn người => POST /opportunities/:id/activities kèm performedById', async () => {
+  const f = server({ write: () => res(201, { data: activity(8, { type: 'TASK', content: 'Khảo sát mặt bằng' }) }) });
+  const m = await viewPage(f, SALES_ASSIGN);
+  try {
+    await press(m.container, /Ghi nhận hoạt động/); const d = modal(m.container); assert.ok(d);
+    const cg = f.gets('/activities/assignee-candidates'); assert.equal(cg.length, 1); assert.equal(cg[0].q.get('customerId'), CID); assert.equal(cg[0].q.get('external'), null);
+    assert.match(text(d), /người thực hiện mặc định là bạn/);
+    await doAct(() => click(findAll(d, (e) => e.attributes.role === 'radio' && text(e) === 'Công việc')[0]));
+    assert.match(text(d), /Để trống "Người phụ trách" thì công việc giao cho chính bạn/);
+    assert.equal(findAll(d, (e) => e.tagName === 'INPUT' && e.attributes.role === 'switch').length, 0); // không có assign_external
+    await pickField(d, /^Người phụ trách/, /Lê Thị Hai/);
+    await fill(d, /Nội dung/, 'Khảo sát mặt bằng'); await fill(d, /^Hạn/, '2026-12-01T09:00');
+    await press(d, /^Lưu$/);
+    const w = f.writes(); assert.equal(w.length, 1);
+    assert.deepEqual([w[0].p, w[0].body], ['/opportunities/o1/activities', { type: 'TASK', content: 'Khảo sát mặt bằng', dueAt: '2026-12-01T09:00:00+07:00', performedById: 'e2' }]);
+  } finally { await m.unmount(); }
+});
+
+test('T-05: có activity.assign_external => bật "Giao cho người phòng khác" gọi ứng viên external=true và gửi external:true; không có activity.assign => không có ô, không gọi ứng viên', async () => {
+  const f = server({ get: () => res(200, { data: detail({ owner: { id: 'e-other', code: 'NV-9', fullName: 'Người khác' } }) }), write: () => res(201, { data: activity(9, { type: 'TASK' }) }), cands: (q) => res(200, { data: { items: q.get('external') === 'true' ? [{ id: 'e7', code: 'NV-0007', fullName: 'Phạm Kỹ Thuật', departmentCode: 'KT' }] : [] } }) });
+  const m = await viewPage(f, ADMIN_EXT);
+  try {
+    await press(m.container, /Ghi nhận hoạt động/); const d = modal(m.container);
+    await doAct(() => click(findAll(d, (e) => e.attributes.role === 'radio' && text(e) === 'Công việc')[0]));
+    const sw = findAll(d, (e) => e.tagName === 'INPUT' && e.attributes.role === 'switch')[0]; assert.ok(sw, 'có công tắc phòng khác');
+    sw.checked = true; await doAct(() => click(sw));
+    assert.equal(f.gets('/activities/assignee-candidates').at(-1).q.get('external'), 'true');
+    await pickField(d, /^Người phụ trách/, /Phạm Kỹ Thuật/);
+    await fill(d, /Nội dung/, 'Lắp đặt FCU'); await fill(d, /^Hạn/, '2026-12-02T08:00');
+    await press(d, /^Lưu$/);
+    assert.deepEqual(f.writes()[0].body, { type: 'TASK', content: 'Lắp đặt FCU', dueAt: '2026-12-02T08:00:00+07:00', performedById: 'e7', external: true });
+  } finally { await m.unmount(); }
+  const g = server();
+  const s = await viewPage(g, SALES);
+  try {
+    await press(s.container, /Ghi nhận hoạt động/); const d = modal(s.container);
+    assert.equal(findAll(d, (e) => e.tagName === 'LABEL' && /^Người phụ trách/.test(text(e))).length, 0);
+    assert.equal(g.gets('/activities/assignee-candidates').length, 0);
+  } finally { await s.unmount(); }
 });
 
 test('Ghi nhận hoạt động: Kinh doanh không thấy nút trên cơ hội của người khác; Quản trị CRM thấy', async () => {

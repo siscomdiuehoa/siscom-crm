@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { dtVN } from '../src/data/util.js';
-import { allowedTypes, activityVisual, vnLocalToIso, isoToVnLocal, validateDraft, buildCreateBody, detailsToFieldErrors, TYPE_META, editDraftOf, buildPatchBody } from '../src/features/activities/activityModel.js';
+import { allowedTypes, activityVisual, vnLocalToIso, isoToVnLocal, validateDraft, buildCreateBody, detailsToFieldErrors, TYPE_META, editDraftOf, buildPatchBody, collectPages } from '../src/features/activities/activityModel.js';
 
 const can = (...keys) => (a) => keys.includes(a);
 
@@ -79,6 +79,13 @@ test('editDraftOf: điền sẵn theo giờ VN; trường trống thành chuỗi
   assert.deepEqual(editDraftOf(a), { type: 'TASK', title: 'Gửi báo giá', content: 'VRV', outcome: '', occurredAt: '2026-11-05T08:00', dueAt: '2026-11-06T17:00', remindAt: '' });
 });
 
+test('T-05 buildCreateBody: opportunityId chỉ gửi khi đã chọn (cắt khoảng trắng); trống => không có khoá', () => {
+  assert.deepEqual(buildCreateBody({ type: 'CALL', content: 'Gọi', opportunityId: ' o1 ' }), { type: 'CALL', content: 'Gọi', opportunityId: 'o1' });
+  assert.equal('opportunityId' in buildCreateBody({ type: 'CALL', content: 'Gọi', opportunityId: '' }), false);
+  assert.equal('opportunityId' in buildCreateBody({ type: 'CALL', content: 'Gọi' }), false);
+  assert.deepEqual(detailsToFieldErrors(['opportunityId must be a UUID']).fieldErrors, { opportunityId: 'opportunityId must be a UUID' });
+});
+
 test('buildPatchBody: chỉ gửi trường đã đổi; không đổi gì => {}; giờ kèm +07:00', () => {
   const a = { type: 'TASK', title: 'Gửi báo giá', content: 'VRV', outcome: null, occurredAt: '2026-11-05T01:00:00.000Z', dueAt: '2026-11-06T10:00:00.000Z', remindAt: null, version: 3 };
   const d = editDraftOf(a);
@@ -95,4 +102,20 @@ test('buildPatchBody: MEETING bỏ hạn/nhắc => null; CALL đổi thời đi�
   const c = { type: 'CALL', title: null, content: 'Gọi', outcome: 'Hẹn', occurredAt: '2026-11-05T01:00:00.000Z', dueAt: null, remindAt: null, version: 2 };
   assert.deepEqual(buildPatchBody(c, { ...editDraftOf(c), occurredAt: '2026-11-05T09:30', outcome: '' }), { outcome: null, occurredAt: '2026-11-05T09:30:00+07:00' });
   assert.deepEqual(buildPatchBody(c, { ...editDraftOf(c), title: 'bị bỏ', dueAt: '2026-11-06T09:00' }), {}); // CALL không có tiêu đề/hạn
+});
+
+// Review Astra #257 (HIGH): ô "Cơ hội" đọc lần lượt các trang, lọc từng trang, bỏ trùng; lỗi giữa chừng => không hiện danh sách thiếu; quá maxPages => truncated.
+test('collectPages: đọc tới trang cuối, lọc + bỏ trùng; lỗi trang sau => ok=false; vượt maxPages => truncated', async () => {
+  const pages = { 1: [{ id: 'a', mine: false }, { id: 'b', mine: true }], 2: [{ id: 'b', mine: true }, { id: 'c', mine: true }], 3: [{ id: 'd', mine: true }] };
+  const calls = [];
+  const fetchPage = (total, failAt) => async (p) => { calls.push(p); return p === failAt ? { ok: false, error: { kind: 'network' } } : { ok: true, data: { items: pages[p] || [], totalPages: total } }; };
+  const keep = (xs) => xs.filter((x) => x.mine);
+  let r = await collectPages(fetchPage(3), { keep });
+  assert.deepEqual([r.ok, r.truncated, r.items.map((x) => x.id), calls], [true, false, ['b', 'c', 'd'], [1, 2, 3]]);
+  calls.length = 0; r = await collectPages(fetchPage(3, 2), { keep });
+  assert.deepEqual([r.ok, r.items, r.error.kind, calls], [false, [], 'network', [1, 2]]);
+  calls.length = 0; r = await collectPages(fetchPage(3), { keep, maxPages: 2 });
+  assert.deepEqual([r.ok, r.truncated, r.items.map((x) => x.id), calls], [true, true, ['b', 'c'], [1, 2]]);
+  calls.length = 0; r = await collectPages(fetchPage(0));
+  assert.deepEqual([r.ok, r.truncated, r.items.length, calls], [true, false, 2, [1]]); // totalPages 0 (danh sách trống) => dừng ở trang 1
 });

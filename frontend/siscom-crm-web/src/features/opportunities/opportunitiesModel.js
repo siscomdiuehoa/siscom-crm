@@ -143,6 +143,12 @@ export const ACTION_LABEL = { edit: 'Sửa', stage: 'Chuyển giai đoạn', hol
 export const ACTION_ICON = { edit: 'pencil', stage: 'arrow-right', hold: 'pause', holdEdit: 'calendar-clock', resume: 'play', win: 'trophy', lose: 'circle-x', assign: 'user-round-cog', reopen: 'rotate-ccw', delete: 'trash-2' };
 // Nút "Tạo cơ hội": có opportunity.create (máy chủ kiểm theo KHÁCH được chọn).
 export const canCreate = (scopeOf) => scopeOfSafe(scopeOf, 'opportunity.create') !== null;
+// T-08 (giữ nguyên quy tắc máy chủ): khách chưa có người phụ trách thì không tạo được cơ hội (409 OPPORTUNITY_CUSTOMER_NO_OWNER).
+export const OPP_CUSTOMER_NO_OWNER = 'OPPORTUNITY_CUSTOMER_NO_OWNER';
+export const CUSTOMER_NO_OWNER_TITLE = 'Khách hàng chưa có người phụ trách';
+export const CUSTOMER_NO_OWNER_MESSAGE = 'Khách hàng chưa có người phụ trách — hãy phân công người phụ trách trước khi tạo cơ hội.';
+// Chỉ coi là "chưa có người phụ trách" khi biết chắc (ownerId === null); không có thông tin (undefined) => không chặn, máy chủ quyết.
+export const customerLacksOwner = (customer) => !!customer && customer.ownerId === null;
 // Mục "Cơ hội kinh doanh" trên thanh bên: có ít nhất một mã đọc (đường đầy đủ hoặc theo việc).
 export const canSeeOpportunities = (scopeOf) => scopeOfSafe(scopeOf, 'opportunity.read') !== null || scopeOfSafe(scopeOf, 'opportunity.read_assigned') !== null;
 
@@ -228,6 +234,13 @@ export function initAction(kind, o) {
   if (kind === 'holdEdit' && o) { f.holdUntil = o.holdUntil || ''; f.holdReason = o.holdReason || ''; }
   if (kind === 'win' && o && o.expectedAmountVnd) f.wonAmount = groupAmountText(String(o.expectedAmountVnd));
   return f;
+}
+// T-10: khoá "bản gốc" của hộp thao tác — đổi khi máy chủ trả bản mới (409 rồi đọc lại) hoặc cờ xác suất nhập tay đổi.
+export const actionBaseKey = (o) => (o ? String(o.version) + ':' + (o.probabilityOverridden === true ? '1' : '0') : '');
+// T-10: sau khi đọc lại bản mới, lựa chọn KEEP / RESET cũ không còn đúng ngữ cảnh (phiên khác có thể vừa nhập tay hoặc bỏ nhập tay xác suất)
+// => đặt lại xác suất về mặc định của bản mới; các ô khác người dùng đã nhập giữ nguyên.
+export function rebaseAction(kind, latest, form) {
+  return { ...form, probability: initAction(kind, latest).probability };
 }
 const HTTPS = /^https:\/\/[^\s]+$/i;
 const need = (e, k, v, msg, max) => { const s = t(v); if (!s) e[k] = msg; else if (max && s.length > max) e[k] = 'Tối đa ' + max + ' ký tự'; };
