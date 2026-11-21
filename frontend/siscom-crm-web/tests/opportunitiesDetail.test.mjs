@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   opportunityActions, holdsUpdate, canRestore, initEdit, validateEdit, toPatchBody, probabilityChanged, describeChange, CHANGE_LABEL,
-  DOC_KINDS, EMPTY_DOC, validateDocument, toDocumentBody, safeHttps, validateReason, buildListQuery, rebaseEdit, editTouched,
+  DOC_KINDS, EMPTY_DOC, validateDocument, toDocumentBody, safeHttps, validateReason, buildListQuery, rebaseEdit, editTouched, pagedReloadStart, pagedCanLoadMore,
 } from '../src/features/opportunities/opportunitiesModel.js';
 import { createOpportunitiesController } from '../src/features/opportunities/opportunitiesUi.js';
 import { describeRepoError } from '../src/features/customers/customerApiUi.js';
@@ -395,4 +395,22 @@ test('PR249-R1-01 — các trường khác: loại, gắn dự án, ngày, ngư�
   assert.deepEqual(r.conflicts, []); assert.deepEqual(toPatchBody(latest, r.form, META), { title: 'Mới' });
   const c = rebaseEdit(base, latest, { ...initEdit(base), expectedCloseDate: '2026-12-31', contactId: '' });
   assert.deepEqual(c.conflicts.map((x) => x.k), ['expectedCloseDate', 'contactId']);
+});
+
+// Review Astra #259 (HIGH): đã tải trang 2/3, version đổi => tải lại trang 1; trong lúc chờ KHÔNG được "Tải thêm" (nếu không sẽ xin trang 3
+// rồi nối vào trang 1 mới => mất trang 2, nút "Tải thêm" biến mất). Kết quả tải lại thay toàn bộ state => mở lại "Tải thêm".
+test('T-02 lịch sử: đang tải lại trang 1 thì chặn "Tải thêm"; tải lại xong mới cho tải tiếp', () => {
+  const IDLE = { status: 'loading', items: [], page: 0, total: 0, totalPages: 0, error: null, more: 'idle', moreError: null };
+  const loaded = { ...IDLE, status: 'ready', items: [{ id: 'c1' }, { id: 'c2' }], page: 2, total: 150, totalPages: 3 };
+  assert.equal(pagedCanLoadMore(loaded), true);
+  const reloading = pagedReloadStart(loaded, IDLE);
+  assert.deepEqual([reloading.reloading, reloading.items.length, reloading.page], [true, 2, 2], 'giữ dữ liệu đang hiện trong lúc tải lại');
+  assert.equal(pagedCanLoadMore(reloading), false, 'đang tải lại => không cho Tải thêm');
+  const fresh = { ...IDLE, status: 'ready', items: [{ id: 'c0' }], page: 1, total: 151, totalPages: 4 };
+  assert.equal(pagedCanLoadMore(fresh), true, 'tải lại xong (state mới, không còn reloading) => Tải thêm trang 2');
+  assert.equal(pagedReloadStart(IDLE, IDLE), IDLE, 'chưa có dữ liệu => về trạng thái đang tải');
+  assert.equal(pagedCanLoadMore({ ...fresh, more: 'loading' }), false);
+  assert.equal(pagedCanLoadMore({ ...fresh, page: 4 }), false);
+  assert.equal(pagedCanLoadMore({ ...IDLE, status: 'error' }), false);
+  assert.equal(pagedCanLoadMore(null), false);
 });

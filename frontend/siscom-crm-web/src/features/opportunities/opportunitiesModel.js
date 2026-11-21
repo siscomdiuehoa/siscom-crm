@@ -322,6 +322,10 @@ export function toPatchBody(o, form, meta) {
 }
 
 // ───── S10c: Lịch sử thay đổi (GET /opportunities/:id/changes) ─────
+// T-02 (review Astra #259): danh sách phân trang có "Tải thêm". Đang tải lại trang 1 (version đổi) => đánh dấu reloading và CHẶN "Tải thêm",
+// để không nối trang N+1 của lượt cũ vào trang 1 mới (mất các trang ở giữa, nút "Tải thêm" biến mất dù chưa đủ). Kết quả tải lại thay toàn bộ state.
+export const pagedReloadStart = (x, idle) => (x && x.status === 'ready' ? { ...x, reloading: true } : idle);
+export const pagedCanLoadMore = (x) => !!x && x.status === 'ready' && !x.reloading && x.more !== 'loading' && x.page < x.totalPages;
 export const CHANGE_LABEL = { STAGE: 'Giai đoạn', STATUS: 'Trạng thái', HOLD: 'Ngày liên hệ lại', AMOUNT: 'Giá trị dự kiến', PROBABILITY: 'Xác suất', CLOSE_DATE: 'Dự kiến chốt', OWNER: 'Người phụ trách' };
 // Một dòng lịch sử => { label, text }. Giá trị trống của số tiền là "Chưa rõ" (không phải 0). Mã giai đoạn đổi sang tên theo danh mục (nếu có).
 // Người phụ trách lưu bằng id. T-03: API trả kèm oldOwner / newOwner (tên đọc cùng snapshot) => "Chuyển từ <cũ> sang <mới>". Thiếu tên (bản ghi cũ,

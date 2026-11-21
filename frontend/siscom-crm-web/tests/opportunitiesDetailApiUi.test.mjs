@@ -397,6 +397,38 @@ test('T-02 + T-03 tab Lịch sử: trang đầu + "Tải thêm" nối trang kế
   } finally { await m.unmount(); }
 });
 
+// Review Astra #259 (HIGH): đã tải trang 2/3; sửa cơ hội => version đổi => tải lại trang 1 (đang chờ). Bấm "Tải thêm" lúc này KHÔNG được xin trang 3
+// (nếu không: trang 1 mới + trang 3 cũ, mất trang 2, nút biến mất). Tải lại xong => danh sách là trang 1 mới, "Tải thêm" dùng lại được.
+test('T-02 tab Lịch sử: đang tải lại trang 1 sau khi sửa (version đổi) thì "Tải thêm" bị khoá, không xin trang kế của dữ liệu cũ', async () => {
+  const by = { id: 'e2', code: 'NV-0002', fullName: 'Lê Thị Hai' };
+  const ch = (id) => ({ id, field: 'PROBABILITY', oldValue: '10', newValue: '20', reason: null, changedAt: NOW, changedBy: by });
+  let release; let page1Calls = 0;
+  const f = server({
+    get: (n) => res(200, { data: detail(n === 1 ? {} : { version: 4, title: 'Bán 150 FCU' }) }),
+    changes: (n, q) => {
+      const pg = q.get('page');
+      if (pg === '1') { page1Calls += 1; if (page1Calls === 2) return new Promise((r) => { release = () => r(res(200, { data: { items: [ch('c0'), ch('c1')], page: 1, pageSize: 50, total: 7, totalPages: 4 } })); }); return res(200, { data: { items: [ch('c1'), ch('c2')], page: 1, pageSize: 50, total: 6, totalPages: 3 } }); }
+      if (pg === '2') return res(200, { data: { items: [ch('c3'), ch('c4')], page: 2, pageSize: 50, total: 6, totalPages: 3 } });
+      return res(200, { data: { items: [ch('c5'), ch('c6')], page: Number(pg), pageSize: 50, total: 6, totalPages: 3 } });
+    },
+  });
+  const m = await viewPage(f, SALES);
+  try {
+    await openTab(m.container, /Lịch sử thay đổi/);
+    await press(panel(m.container), /Tải thêm/);
+    assert.equal(byTag(panel(m.container), 'li').length, 4, 'đã tải trang 1 + 2');
+    await press(m.container, /^Sửa$/); await fill(modal(m.container), /Tiêu đề/, 'Bán 150 FCU'); await press(modal(m.container), /Lưu thay đổi/);
+    assert.equal(page1Calls, 2, 'version đổi => đọc lại trang 1 (đang chờ)');
+    const more = buttonByText(panel(m.container), /Tải thêm/); assert.ok(more, 'vẫn hiện nút trong lúc tải lại');
+    assert.equal(more.disabled, true, 'nút Tải thêm bị khoá khi đang tải lại');
+    await doAct(() => click(more));
+    assert.deepEqual(f.gets('/opportunities/o1/changes').map((c) => c.q.get('page')), ['1', '2', '1'], 'KHÔNG xin trang 3 của dữ liệu cũ');
+    await doAct(async () => { release(); });
+    assert.deepEqual(byTag(panel(m.container), 'li').length, 2, 'danh sách = trang 1 mới');
+    const again = buttonByText(panel(m.container), /Tải thêm/); assert.ok(again); assert.notEqual(again.disabled, true, 'tải lại xong => mở khoá');
+  } finally { await m.unmount(); }
+});
+
 test('tab Lịch sử: chưa có thay đổi => trạng thái trống; máy chủ từ chối 403 => báo lỗi, không hiện dữ liệu', async () => {
   const empty = await viewPage(server(), SALES);
   try { await openTab(empty.container, /Lịch sử thay đổi/); assert.match(text(panel(empty.container)), /Chưa có thay đổi nào được ghi lại/); } finally { await empty.unmount(); }
