@@ -1,0 +1,79 @@
+== 2026-11-19T07:55:55Z nguoi yeu cau NV-0001 (admin) ...559a3e · nguoi duyet NV-0002 (crm_admin) ...d73f55
+== TRUOC: permission=27 (opportunity=0) role_permission=49 yeu_cau=0 audit=30
+SET
+Pager usage is off.
+SET
+      db_dich       |    chay_bang    
+--------------------+-----------------
+ siscom_crm_staging | siscom_migrator
+(1 row)
+BEGIN
+LOCK TABLE
+DO
+              set_config              |              set_config              |                                                                                               set_config                 
+--------------------------------------+--------------------------------------+--------------------------------------------------------------------------------------------------------------------------
+ 092e0598-93b3-40df-8112-b190b0559a3e | 659c7c19-28ab-440a-b5bb-f9969ad73f55 | opportunity.read,opportunity.read_assigned,opportunity.create,opportunity.update,opportunity.move_stage,opportunity.close
+(1 row)
+DO
+INSERT 0 10
+psql:SALES_S5_OPPORTUNITY_PERMISSIONS.sql.txt:115: NOTICE:  Sales S5: da cap 17 dong, bo qua 0 dong da co.
+DO
+               muc               | gia_tri 
+---------------------------------+---------
+ ma_opportunity (phai 10)        | 10
+ dong_technician (phai 1)        | 1
+ dong_crm_admin (phai 9)         | 9
+ dong_accountant (phai 1)        | 1
+ dong_admin (phai 0)             | 0
+ dong_sales (phai 6)             | 6
+ tong_dong_opportunity (phai 17) | 17
+(7 rows)
+COMMIT
+                ket_qua                
+---------------------------------------
+ SALES_S5_OPPORTUNITY_PERMISSIONS XONG
+(1 row)
+rc=0
+== SAU: permission=37 (opportunity=10) role_permission=66 yeu_cau=17 audit=81
+== MA TRAN:
+accountant | 1 | read:ALL
+crm_admin | 9 | assign:ALL, close:ALL, create:ALL, delete:ALL, move_stage:ALL, read:ALL, reopen:ALL, restore:ALL, update:ALL
+sales | 6 | assign:OWN, close:OWN, create:OWN, move_stage:OWN, read:OWN, update:OWN
+technician | 1 | read_assigned:OWN
+== vai tro admin giu ma opportunity: 0
+== yeu cau dac quyen:
+== audit moi:
+PRIV_REQUEST_APPROVE | 17
+PRIV_REQUEST_CREATE | 17
+ROLE_PERMISSION_CHANGE | 17
+== cot privileged_change_request: id,type,subject_employee_id,subject_role_id,payload,payload_hash,requested_by,approved_by,executed_by,status,created_at,decided_at,expires_at,executed_at
+== credential cols: employee_id,password_algo,password_params,password_changed_at,must_change_password,failed_count,window_started_at,locked_until,lock_level,token_version,status,last_login_at,created_at,updated_at
+== khach + nguoi phu trach:
+KH-00002 | (chua co) | t | t
+KH-00003 | NV-0003 | t | t
+KH-00004 | NV-0003 | t | t
+== phong ban nhan vien:
+NV-0001 | IT
+NV-0002 | BGD
+NV-0003 | KD
+NV-0004 | KT
+NV-0005 | KETOAN
+== health: {"status":"ok","database":"up","latencyMs":13,"schema":{"migrated":true,"baseline":"b1.1"},"role":{"leastPrivilege":true,"authPool":"separat
+== chua dang nhap: opportunities=401 meta=401 board=401 trang=200
+== log backend (khong tinh 401): 0
+failed units: 0
+== yeu cau dac quyen:
+ROLE_PERMISSION_CHANGE | EXECUTED | 17 | 1 | 1 | t | t | 17
+nguoi yc=NV-0001 nguoi duyet=NV-0002
+== tai khoan (trang thai, khong co gia tri bi mat):
+NV-0001 | ACTIVE | f | 0 | f | 12/11 06:57
+NV-0002 | ACTIVE | f | 0 | f | 12/11 07:01
+NV-0003 | ACTIVE | f | 1 | f | 12/11 10:33
+NV-0004 | ACTIVE | f | 0 | f | 12/11 05:56
+NV-0005 | ACTIVE | f | 0 | f | 12/11 05:56
+== quyen hieu luc theo vai tro (dem ma):
+accountant | 5 | 1
+admin | 8 | 0
+crm_admin | 28 | 9
+sales | 17 | 6
+technician | 8 | 1

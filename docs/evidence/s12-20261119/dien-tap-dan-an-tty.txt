@@ -1,0 +1,17 @@
+== T0 truoc
+ECHO=echo TEP=khong KHOA=
+== T1 dan mot lan + Ctrl-D
+ECHO=echo TEP=124 KHOA=1
+== T2 Ctrl-C giua chung
+ECHO=echo TEP=0 KHOA=0
+== T3 dan sai tep (khong phai khoa) + Ctrl-D
+ECHO=echo TEP=53 KHOA=0
+== T4 chay lai, dan dung
+ECHO=echo TEP=124 KHOA=1
+== T5 lenh CU (khong bay): Ctrl-C giua chung
+ECHO=-echo TEP=0 KHOA=0
+== sau stty sane
+ECHO=echo TEP=0 KHOA=0
+$ echo "== DON"; shred -u $F 2>/dev/null; rmdir $D; echo "con lai: $(ls -d $D 2>/dev/null | wc -l)"; exit
+== DON
+con lai: 0
