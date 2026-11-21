@@ -1,0 +1,98 @@
+[OK] DNS: crm.siscom.io.vn -> 42.96.15.235 (dung IP cong khai cua may).
+[OK] Cong SSH dang dung: 26266
+
+== 1. Goi nen + cap nhat ==
+[DRY] apt-get update -y
+[DRY] apt-get install -y ca-certificates curl gnupg openssl ufw fail2ban unattended-upgrades apt-transport-https rsync age lsb-release jq
+
+== 2. Gio he thong UTC + dong bo gio ==
+[DRY] timedatectl set-timezone UTC
+[DRY] timedatectl set-ntp true
+[DRY] systemctl enable --now systemd-timesyncd
+
+== 3. Swap 2 GB (RAM 3 GB chat: PostgreSQL + Node + Caddy) ==
+[DRY] fallocate -l 2G /swapfile
+[DRY] chmod 600 /swapfile
+[DRY] mkswap /swapfile
+[DRY] swapon /swapfile
+[DRY] them /swapfile vao /etc/fstab
+[DRY] ghi /etc/sysctl.d/99-siscom.conf (mode 644):
+[DRY]   | vm.swappiness = 10
+[DRY]   | vm.vfs_cache_pressure = 50
+[DRY] sysctl --system
+
+== 4. Tuong lua ufw: chi SSH (26266)/80/443 ==
+[DRY] kiem ke ufw: khong co rule ngoai allowlist
+[DRY] ufw allow 26266/tcp
+[DRY] ufw allow 80/tcp
+[DRY] ufw allow 443/tcp
+[DRY] ufw default deny incoming
+[DRY] ufw default allow outgoing
+[DRY] kiem ke lai (ufw show added = allowlist)
+[DRY] ufw --force enable
+[DRY] kiem ufw status: phai co 26266/tcp ALLOW; TOAN BO rule = allowlist; mac dinh deny incoming (thieu SSH => ufw --force disable va dung; rule la => dung)
+
+== 5. fail2ban (SSH, cung cong) ==
+[DRY] ghi /etc/fail2ban/jail.d/siscom.local (mode 644):
+[DRY]   | [sshd]
+[DRY]   | enabled = true
+[DRY]   | port = 26266
+[DRY]   | maxretry = 5
+[DRY]   | findtime = 10m
+[DRY]   | bantime = 1h
+[DRY] systemctl enable --now fail2ban
+[DRY] systemctl restart fail2ban
+
+== 6. Tu dong cap nhat bao mat (khong tu khoi dong lai) ==
+[DRY] ghi /etc/apt/apt.conf.d/20auto-upgrades (mode 644):
+[DRY]   | APT::Periodic::Update-Package-Lists "1";
+[DRY]   | APT::Periodic::Unattended-Upgrade "1";
+[DRY] ghi /etc/apt/apt.conf.d/52siscom-unattended (mode 644):
+[DRY]   | Unattended-Upgrade::Automatic-Reboot "false";
+[DRY]   | Unattended-Upgrade::Remove-Unused-Dependencies "true";
+[DRY] systemctl enable --now unattended-upgrades
+
+== 7. Node 24 (NodeSource, kho apt co khoa ky) ==
+[DRY] them kho NodeSource node_24.x va cai nodejs
+
+== 8. PostgreSQL 18 (PGDG) chi nghe localhost ==
+[DRY] them kho PGDG noble-pgdg, cai postgresql-18, ghi conf.d, kiem pg_hba chi loopback
+
+== 9. Caddy (kho chinh thuc Cloudsmith) ==
+[DRY] them kho Caddy, cai caddy
+
+== 10. User dich vu + thu muc ==
+[DRY] useradd --system --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin --user-group siscom
+[DRY] install -d -m 700 -o root -g root /etc/siscom-crm
+[DRY] install -d -m 755 -o root -g root /opt/siscom-crm /opt/siscom-crm/releases
+[DRY] install -d -m 700 -o root -g root /var/backups/siscom-crm
+[DRY] ghi /etc/systemd/journald.conf.d/siscom.conf (mode 644):
+[DRY]   | [Journal]
+[DRY]   | SystemMaxUse=500M
+[DRY] systemctl restart systemd-journald
+
+== 11. Unit systemd + Caddyfile cua repo ==
+[DRY] install -m 644 -o root -g root /root/s12-src-2de465c/backend/scripts/linux/systemd/siscom-crm-backend.service /etc/systemd/system/siscom-crm-backend.service
+[DRY] install -m 644 -o root -g root /root/s12-src-2de465c/backend/scripts/linux/systemd/siscom-crm-backup.service /etc/systemd/system/siscom-crm-backup.service
+[DRY] install -m 644 -o root -g root /root/s12-src-2de465c/backend/scripts/linux/systemd/siscom-crm-backup.timer /etc/systemd/system/siscom-crm-backup.timer
+[DRY] systemctl daemon-reload
+[DRY] kiem phien ban Caddy (che do domain; IPv4 + acme can >= 2.10)
+[DRY] ghi /etc/siscom-crm/caddy.env (mode 600):
+[DRY]   | SISCOM_HOST=crm.siscom.io.vn
+[DRY]   | SISCOM_ACME_CA=https://acme-v02.api.letsencrypt.org/directory
+[DRY] install -m 644 -o root -g root /root/s12-src-2de465c/backend/scripts/linux/caddy/tls-domain.caddy /etc/caddy/siscom-tls.caddy
+[DRY] ghi /etc/systemd/system/caddy.service.d/siscom.conf (mode 644):
+[DRY]   | [Service]
+[DRY]   | EnvironmentFile=/etc/siscom-crm/caddy.env
+[DRY] install -m 644 -o root -g root /root/s12-src-2de465c/backend/scripts/linux/caddy/Caddyfile /etc/caddy/Caddyfile
+[DRY] systemctl daemon-reload
+[DRY] cho chung chi: curl https://crm.siscom.io.vn/ (khong -k) toi da 180 giay; that bai => dung (khong chuyen sang HTTP)
+[OK] Caddy cho https://crm.siscom.io.vn (TLS: tls-domain.caddy). Kiem chung chi: check-tls.sh crm.siscom.io.vn
+
+== 12. cloud-init: giu khoa host SSH (BKNS gan lai dia seed NoCloud moi lan boot => cloud-init coi la may moi) ==
+[DRY] ghi /etc/cloud/cloud.cfg.d/99-siscom-keep-ssh-hostkeys.cfg (mode 644):
+[DRY]   | # SISCOM CRM: khong xoa/tao lai khoa host SSH khi cloud-init chay lai (seed NoCloud cua nha cung cap gan lai moi lan boot).
+[DRY]   | ssh_deletekeys: false
+
+== Kiem tra cuoi ==
+[OK] Xong. Tiep theo: create-db.sh siscom_crm_staging create (xem docs/VPS_RUNBOOK.md).
