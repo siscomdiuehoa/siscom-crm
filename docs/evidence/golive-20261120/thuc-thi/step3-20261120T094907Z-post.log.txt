@@ -1,0 +1,17 @@
+[OK] B1.3_S1_VERIFY.sql.txt: PASS|75
+[OK] B1.3_S1_VERIFY_AUTH.sql.txt: PASS|33
+== SAU BUOC 3 == 2026-11-20T09:53:21Z
+backend: active; current: /opt/siscom-crm/releases/src-20261120095200; previous: src-20261119093630
+releases: src-20261119073843 src-20261119093630 src-20261120095200 
+health/database: {"status":"ok","database":"up","latencyMs":3,"schema":{"migrated":true,"baseline":"b1.1"},"role":{"leastPrivilege":true,"authPool":"separate","authLeastPrivilege":true},"time":"2026-11-20T09:53:21.365Z"}
+
+Database schema is up to date!
+prod bang public: 24
+prod du lieu: employee=0 lookup_item=0 customer=0 role=0
+cong 3000: 127.0.0.1:3000
+staging (sau buoc 3): dau van tay siscom_crm_staging: owner+acl=[siscom_migrator {siscom_migrator=CTc/siscom_migrator,siscom_app=Tc/siscom_migrator,siscom_auth=c/siscom_migrator}] schema=f725755b359e33366f686c17de6f00f8 rows=759869c0cd70a1f8e83140c273fe9339
+== tu ngoai ==
+https://crm.siscom.io.vn/ => 200
+https://crm.siscom.io.vn/api/v1/health => {"status":"ok","service":"siscom-crm-backend","version":"dev","uptimeSeconds":33,"time":"2026-11-20T09:53:26.640Z"}
+https://crm.siscom.io.vn/api/v1/health/database => {"status":"ok","database":"up","latencyMs":1,"schema":{"migrated":true,"baseline":"b1.1"},"role":{"leastPrivilege":true,"authPool":"separate","authLeastPrivilege":true},"time":"2026-11-20T09:53:26.741Z"}
+CORS preflight login Origin https://crm.siscom.io.vn: [Access-Control-Allow-Origin: https://crm.siscom.io.vn]

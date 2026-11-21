@@ -1,0 +1,10 @@
+vps step7 sha=3d589fd465fb
+employee tren siscom_crm_prod: 5 
+Result=success
+bo se kiem: /var/backups/siscom-crm/siscom_crm_prod_20261121_063345.dump.age - chu ky manifest + SHA-256 hop le
+  260945 /var/backups/siscom-crm/siscom_crm_prod_20261121_063345.dump.age
+  107 /var/backups/siscom-crm/siscom_crm_prod_20261121_063345.dump.age.sha256
+  828 /var/backups/siscom-crm/siscom_crm_prod_20261121_063345.manifest
+  314 /var/backups/siscom-crm/siscom_crm_prod_20261121_063345.manifest.sig
+manifest: db=siscom_crm_prod file_sha256=86e6600fb78ea0d963a7375fb1cf791f4775a625ea8f110240efaa3d6f33da4f  so bang: 24
+khoa ky (cong khai) tren VPS: 5e93e09f78bd7422

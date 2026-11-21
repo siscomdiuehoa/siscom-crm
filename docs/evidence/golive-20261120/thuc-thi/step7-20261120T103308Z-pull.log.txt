@@ -1,0 +1,12 @@
+== chep ra ngoai VPS 2026-11-20T10:33:24Z ==
+scp: /var/backups/siscom-crm/siscom_crm_prod_20261120_103421.dump.age.restore-ok.txt: No such file or directory
+  (khong co siscom_crm_prod_20261120_103421.dump.age.restore-ok.txt tren VPS)
+[DAT] chu ky manifest hop le (khoa cong khai Owner giu ngoai VPS)
+[DAT] SHA-256 khop manifest da ky: 88b579d79dbf46f032891ef26961723fa7e9a56bd4c0b266480b9bb71c4a5010
+[CHUA CO] dau khoi phuc thu (.restore-ok.txt)
+so bo siscom_crm_prod dang giu ngoai VPS: 1 (giu toi thieu 14 bo gan nhat)
+rc=0
+  254743 siscom_crm_prod_20261120_103421.dump.age
+  107 siscom_crm_prod_20261120_103421.dump.age.sha256
+  825 siscom_crm_prod_20261120_103421.manifest
+  314 siscom_crm_prod_20261120_103421.manifest.sig

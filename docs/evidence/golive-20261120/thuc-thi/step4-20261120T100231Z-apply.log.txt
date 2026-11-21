@@ -1,0 +1,28 @@
+== seed-lookups lan 1 10:03:48Z ==
+Chay seed-lookups tren DB siscom_crm_prod (tai khoan siscom_migrator).
+Seed bang MIGRATE_DATABASE_URL (tai khoan siscom_migrator).
+Seed danh muc tren siscom_crm_prod: tong 73, chen moi 73, da co 0.
+  customer_tier            4/4
+  customer_status          4/4
+  source                   5/5
+  industry                 10/10
+  province                 34/34
+  opportunity_stage        4/4
+  opportunity_type         3/3
+  opportunity_lost_reason  9/9
+rc=0
+prod lookup_item=73
+== seed-lookups lan 2 10:03:49Z ==
+Chay seed-lookups tren DB siscom_crm_prod (tai khoan siscom_migrator).
+Seed bang MIGRATE_DATABASE_URL (tai khoan siscom_migrator).
+Seed danh muc tren siscom_crm_prod: tong 73, chen moi 0, da co 73.
+  customer_tier            4/4
+  customer_status          4/4
+  source                   5/5
+  industry                 10/10
+  province                 34/34
+  opportunity_stage        4/4
+  opportunity_type         3/3
+  opportunity_lost_reason  9/9
+rc=0
+prod lookup_item=73

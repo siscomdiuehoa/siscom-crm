@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+# SISCOM CRM - bo thu NHANH LOI cho step5-bootstrap-owner.sh va step7.sh bang DU LIEU GIA (review R1 cua PR #256).
+# Khong cham database, khong goi CLI that, khong dung khoa / mat khau that: mat khau gia sinh ngau nhien, CLI gia, tep "khoa" gia.
+# Dung: bash test-golive-scripts.sh            (chay duoc tren Git Bash va Linux; cung thu muc voi 2 kich ban)
+#       Linux + root + systemd: them nhom "REAL" (hen gio systemd that + tep khong xoa duoc bang chattr +i).
+set -uo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; S5="$here/step5-bootstrap-owner.sh"; S7="$here/step7.sh"
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+pass=0; fail=0
+ok()  { echo "  [DAT]       $*"; pass=$((pass + 1)); }
+bad() { echo "  [KHONG DAT] $*"; fail=$((fail + 1)); }
+is() { if [ "$2" = "$3" ]; then ok "$1 = $2"; else bad "$1 = $2 (ky vong $3)"; fi; }
+has() { if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1"; else bad "$1 (khong thay: $3)"; fi; }
+hasnt() { if printf '%s' "$2" | grep -qF -- "$3"; then bad "$1 (THAY: $3)"; else ok "$1"; fi; }
+linux=0; [ "$(uname -s)" = Linux ] && linux=1
+# Review R2 #256 (HIGH): bo thu dung hen gio RIENG cho moi lan chay, KHONG dung / dung chung hen gio van hanh siscom-key-cleanup.
+TT="siscom-key-cleanup-test-$$-$(date +%s)"
+echo "== $(uname -srm); bash $BASH_VERSION; uid=$(id -u) =="
+for f in "$S5" "$S7"; do if bash -n "$f"; then ok "bash -n $(basename "$f")"; else bad "bash -n $(basename "$f")"; fi; done
+
+# ---------------------------------------------------------------- step5
+g() { openssl rand -hex 8; }
+A="$(g)"; B="$(g)"; C="$(g)"; D="$(g)"; E="$(g)"
+inp() { printf '%s\n' "$A" "$A" "$B" "$B" "$C" "$C" "$D" "$D" "$E" "$E"; }
+run5() { # run5 <cli gia> => dau ra vao $o, nhat ky vao $l, ma thoat $rc5; thu muc nhat ky $T/st
+  rm -rf "$T/st"; rc5=0
+  inp | STEP5_SELFTEST=1 STEP5_FAKE_CLI="$1" STEP5_TEST_DIR="$T/st" bash "$S5" > "$T/o" 2>&1 || rc5=$?
+  o="$(cat "$T/o")"; logf="$(find "$T/st" -name 'bootstrap-*.out' 2>/dev/null | head -n1)"; l=""; [ -z "$logf" ] || l="$(cat "$logf")"
+}
+nosecret() { local x; for x in "$A" "$B" "$C" "$D" "$E"; do hasnt "$1: khong lo mat khau gia" "$o$l" "$x"; done; }
+
+echo "S5-1 nhap sai (qua ngan, go lai khac, trung nhau)"
+r="$(printf '%s\n' ngan "$A" "$A" "$B" "$B" "$C" "$C" "$D" "$D" "$E" "$E" | STEP5_SELFTEST=1 bash "$S5" 2>&1)"; has "qua ngan bi tu choi roi nhap lai duoc" "$r" "can tu 12 den 128"; has "ket thuc hop le" "$r" "SELFTEST: nhap hop le"
+r="$(printf '%s\n' "$A" khackhackhackhac "$A" "$A" "$B" "$B" "$C" "$C" "$D" "$D" "$E" "$E" | STEP5_SELFTEST=1 bash "$S5" 2>&1)"; has "go lai khac bi tu choi" "$r" "khong giong nhau"
+r="$(printf '%s\n' "$A" "$A" "$A" "$A" "$C" "$C" "$D" "$D" "$E" "$E" | STEP5_SELFTEST=1 bash "$S5" 2>&1)"; has "trung nhau bi dung" "$r" "co mat khau trung nhau"
+
+cat > "$T/cli-ok.sh" <<'CLI'
+# CLI gia: thanh cong. Ghi lai quyen cua tep nhat ky TAI THOI DIEM CLI dang chay (tep phai da ton tai va 600).
+lf="$(find "$STEP5_TEST_DIR" -name 'bootstrap-*.out' | head -n1)"
+{ if [ -n "$lf" ]; then stat -c '%a' "$lf"; else echo THIEU; fi; stat -c '%a' "$STEP5_TEST_DIR"; } > "$STEP5_TEST_DIR/../perm.txt" 2>/dev/null
+echo "Chay bootstrap-auth tren DB siscom_crm_prod (tai khoan siscom_migrator)."
+echo "Khoi tao xong tren siscom_crm_prod (qua MIGRATE_DATABASE_URL, closed=true). Tai khoan (dang nhap bang email HOAC ma NV):"
+echo "  sysadmin   NV-0001  sysadmin@siscom.vn  vai tro=admin"
+echo "  admin      NV-0002  admin@siscom.vn  vai tro=crm_admin"
+echo "  sale       NV-0003  sale@siscom.vn  vai tro=sales"
+echo "  technician NV-0004  kythuat@siscom.vn  vai tro=technician"
+echo "  accountant NV-0005  ketoan@siscom.vn  vai tro=accountant"
+CLI
+echo "S5-2 CLI gia thanh cong"
+run5 "$T/cli-ok.sh"; is "ma thoat" "$rc5" 0; has "in dong XONG" "$o" "=== XONG: da tao 5 tai khoan"; has "nhat ky co 5 tai khoan" "$l" "so tai khoan in ra: 5"; nosecret "S5-2"
+if [ "$linux" = 1 ]; then
+  is "quyen tep nhat ky luc CLI dang chay" "$(sed -n 1p "$T/perm.txt")" 600; is "quyen thu muc nhat ky" "$(sed -n 2p "$T/perm.txt")" 700; is "quyen tep nhat ky sau cung" "$(stat -c '%a' "$logf")" 600
+else echo "  (bo qua kiem quyen 600/700: khong phai Linux)"; fi
+
+cat > "$T/cli-leak.sh" <<'CLI'
+echo "Chay bootstrap-auth tren DB siscom_crm_prod (tai khoan siscom_migrator)."
+echo "debug env: BOOTSTRAP_PASSWORD_ADMIN=$BOOTSTRAP_PASSWORD_ADMIN"
+echo "Khoi tao xong tren siscom_crm_prod (qua MIGRATE_DATABASE_URL, closed=true). Tai khoan (dang nhap bang email HOAC ma NV):"
+CLI
+echo "S5-3 CLI gia LO mat khau"
+run5 "$T/cli-leak.sh"; is "ma thoat" "$rc5" 3; has "bao CLI lo mat khau" "$o" "CHUA MAT KHAU"; nosecret "S5-3"; hasnt "khong in dong debug" "$o$l" "debug env"
+
+cat > "$T/cli-noise.sh" <<'CLI'
+echo "Chay bootstrap-auth tren DB siscom_crm_prod (tai khoan siscom_migrator)."
+echo "Khoi tao that bai: Invalid tx.employeeCredential.create() invocation: { passwordHash: '\$argon2id\$v=19\$m=65536\$GIAGIAGIA', url: 'postgresql://siscom_migrator:GIA-PW-DB@127.0.0.1:5432/siscom_crm_prod' }"
+echo "DATABASE_URL=postgresql://siscom_app:GIA-PW-APP@127.0.0.1/siscom_crm_prod"
+exit 1
+CLI
+echo "S5-4 CLI gia loi, in hash / URL co mat khau DB (gia)"
+run5 "$T/cli-noise.sh"; is "ma thoat" "$rc5" 1; has "bao KHONG THANH CONG" "$o" "=== KHONG THANH CONG"; has "dem dong bi loc" "$o" "2 dong cua CLI bi loc"
+hasnt "khong in / ghi hash" "$o$l" 'argon2id'; hasnt "khong in / ghi URL" "$o$l" 'postgresql://'; hasnt "khong in / ghi mat khau DB gia" "$o$l" 'GIA-PW'; nosecret "S5-4"
+
+cat > "$T/cli-closed.sh" <<'CLI'
+echo "Chay bootstrap-auth tren DB siscom_crm_prod (tai khoan siscom_migrator)."
+echo "Khoi tao that bai: BOOTSTRAP_CLOSED: chế độ khởi tạo đã đóng; không khởi tạo lại."
+exit 1
+CLI
+echo "S5-5 CLI gia bao BOOTSTRAP_CLOSED"
+run5 "$T/cli-closed.sh"; is "ma thoat" "$rc5" 1; has "in ly do da biet" "$o" "BOOTSTRAP_CLOSED"; nosecret "S5-5"
+echo "S5-6 chan dung CLI gia ngoai che do thu"
+r="$(STEP5_FAKE_CLI="$T/cli-ok.sh" bash "$S5" 2>&1 </dev/null)"; has "tu choi STEP5_FAKE_CLI khi khong SELFTEST" "$r" "chi dung khi STEP5_SELFTEST=1"
+
+# ---------------------------------------------------------------- step7 cleanup_key (lenh gia tren PATH)
+mkdir -p "$T/stub" "$T/k" "$T/p1" "$T/p2" "$T/p3"
+cat > "$T/stub/systemctl" <<STUB
+#!/usr/bin/env bash
+echo "\$*" >> "$T/systemctl.calls"
+case "\$1" in list-timers) echo "x $TT.timer $TT.service" ;; esac
+exit 0
+STUB
+printf '#!/usr/bin/env bash\nexit 1\n' > "$T/stub/fail"
+chmod +x "$T/stub"/*
+echo "S7-1 cleanup_key: xoa DUOC khoa gia => huy hen gio"
+echo "KHOA GIA" > "$T/k/backup.key"; : > "$T/systemctl.calls"; cp "$T/stub/systemctl" "$T/p1/"
+r="$(PATH="$T/p1:$PATH" STEP7_TEST_KEY="$T/k/backup.key" STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
+is "ma thoat" "$rc" 0; if [ ! -e "$T/k/backup.key" ]; then ok "tep khoa gia da mat"; else bad "tep khoa gia con"; fi
+has "da goi systemctl stop hen gio THU (ten rieng)" "$(cat "$T/systemctl.calls")" "stop $TT.timer"
+hasnt "KHONG dung hen gio van hanh" "$(cat "$T/systemctl.calls")" "stop siscom-key-cleanup.timer"
+echo "S7-2 cleanup_key: KHONG xoa duoc khoa gia (shred + rm deu loi) => GIU hen gio, bao loi"
+echo "KHOA GIA" > "$T/k/backup.key"; : > "$T/systemctl.calls"; cp "$T/stub/systemctl" "$T/p2/"; cp "$T/stub/fail" "$T/p2/shred"; cp "$T/stub/fail" "$T/p2/rm"
+r="$(PATH="$T/p2:$PATH" STEP7_TEST_KEY="$T/k/backup.key" STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
+is "ma thoat" "$rc" 1; if [ -e "$T/k/backup.key" ]; then ok "tep khoa gia van con (dung kich ban loi)"; else bad "tep khoa gia bi xoa"; fi
+hasnt "KHONG goi systemctl stop" "$(cat "$T/systemctl.calls")" "stop"; has "bao KHONG XOA DUOC KHOA" "$r" "KHONG XOA DUOC KHOA"; has "noi ro giu hen gio" "$r" "KHONG huy hen gio"
+echo "S7-3 selftest tu choi duong dan khoa that"
+r="$(STEP7_TEST_KEY=/run/siscom-restore/backup.key STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; has "tu choi" "$r" "TU CHOI"
+echo "S7-3b selftest bat buoc ten hen gio rieng, tu choi ten hen gio van hanh"
+echo "KHOA GIA" > "$T/k/backup.key"
+r="$(PATH="$T/p1:$PATH" STEP7_TEST_KEY="$T/k/backup.key" bash "$S7" selftest-cleanup 2>&1)"; rc=$?; is "thieu STEP7_TEST_TIMER: ma thoat" "$rc" 1; has "bao can ten hen gio rieng" "$r" "STEP7_TEST_TIMER"
+r="$(PATH="$T/p1:$PATH" STEP7_TEST_KEY="$T/k/backup.key" STEP7_TEST_TIMER=siscom-key-cleanup bash "$S7" selftest-cleanup 2>&1)"; rc=$?; is "STEP7_TEST_TIMER=ten van hanh: ma thoat" "$rc" 2; has "tu choi ten van hanh" "$r" "TU CHOI"
+if [ -e "$T/k/backup.key" ]; then ok "hai ca tu choi khong xoa tep (khong chay cleanup)"; else bad "tep bi xoa du da tu choi"; fi; rm -f "$T/k/backup.key"
+
+# ---------------------------------------------------------------- step7 verify-local (bo sao luu gia, khoa ky gia)
+echo "S7-4 verify-local / G7 tren bo sao luu GIA"
+V="$T/v"; mkdir -p "$V"; ssh-keygen -q -t ed25519 -N '' -f "$V/sign" >/dev/null
+echo "siscom-crm-backup namespaces=\"siscom-crm-backup\" $(cut -d' ' -f1,2 "$V/sign.pub")" > "$V/allowed"
+mkset() { # mkset <stem> <so employee>
+  local st="$1"; head -c 2048 /dev/urandom > "$V/$st.dump.age"
+  { echo "db=siscom_crm_prod"; echo "file=$st.dump.age"; echo "file_sha256=$(sha256sum "$V/$st.dump.age" | cut -d' ' -f1)"; echo "rows|employee|$2"; echo "rows|customer|0"; } > "$V/$st.manifest"
+  rm -f "$V/$st.manifest.sig"; ssh-keygen -q -Y sign -f "$V/sign" -n siscom-crm-backup "$V/$st.manifest" >/dev/null 2>&1
+}
+marker() { { echo "sha256_file=$2"; echo "manifest_signature=verified"; echo "dump=$1.dump.age"; echo "restored_db=siscom_crm_restore_20261120_000000"; echo "tables_checked=24"; } > "$V/$1.dump.age.restore-ok.txt"; }
+vl() { r="$(bash "$S7" verify-local "$V/$1.dump.age" "$V/allowed" siscom_crm_prod 2>&1)"; rc=$?; }
+s0=siscom_crm_prod_20261120_000001; mkset "$s0" 0; vl "$s0"; is "employee=0, chua co dau: ma thoat" "$rc" 0; has "bao CHUA DU employee" "$r" "CHUA DU"; has "G7 CHUA DAT" "$r" "KET LUAN G7: CHUA DAT"
+s5=siscom_crm_prod_20261120_000002; mkset "$s5" 5; vl "$s5"; has "employee=5 nhung chua co dau => G7 CHUA DAT" "$r" "KET LUAN G7: CHUA DAT"
+marker "$s5" "$(sha256sum "$V/$s5.dump.age" | cut -d' ' -f1)"; vl "$s5"; is "employee=5 + dau dung bo: ma thoat" "$rc" 0; has "G7 DAT" "$r" "KET LUAN G7 (phan ban sao ngoai VPS): DAT"
+marker "$s5" "0000000000000000000000000000000000000000000000000000000000000000"; vl "$s5"; is "dau cua bo khac: ma thoat" "$rc" 1; has "bao dau khong thuoc bo" "$r" "KHONG thuoc bo nay"
+rm -f "$V/$s5.dump.age.restore-ok.txt"; echo x >> "$V/$s5.dump.age"; vl "$s5"; is "tep bi sua: ma thoat" "$rc" 1; has "bao SHA-256 khac" "$r" "SHA-256 tep khac manifest"
+mkset "$s5" 5; sed -i 's/^rows|employee|5/rows|employee|6/' "$V/$s5.manifest"; vl "$s5"; is "manifest bi sua: ma thoat" "$rc" 1; has "bao chu ky khong hop le" "$r" "chu ky manifest khong hop le"
+
+# ---------------------------------------------------------------- step7 pull (ssh / scp gia): tep bat buoc fail-closed, dau tuy chon
+echo "S7-5 pull voi ssh / scp GIA"
+R="$T/remote"; H="$T/home"; mkdir -p "$R" "$H/SISCOM-CRM-PR178/backup"; cp "$V/allowed" "$H/SISCOM-CRM-PR178/backup/backup-signing.allowed_signers"
+sp=siscom_crm_prod_20261120_000003; mkset "$sp" 5; for x in dump.age manifest manifest.sig; do cp "$V/$sp.$x" "$R/"; done; echo "sha" > "$R/$sp.dump.age.sha256"
+cat > "$T/p3/ssh" <<STUB
+#!/usr/bin/env bash
+c="\${!#}"
+case "\$c" in cat\ *) echo "/var/backups/siscom-crm/$sp.dump.age" ;; *restore-ok.txt*) [ -z "\${FAKE_SSH_MARK_FAIL:-}" ] || exit 255; if [ -f "$R/$sp.dump.age.restore-ok.txt" ]; then echo CO; else echo KHONG; fi ;; *) exit 9 ;; esac
+STUB
+cat > "$T/p3/scp" <<STUB
+#!/usr/bin/env bash
+n=\$#; src="\${@:n-1:1}"; dst="\${!#}"; b="\$(basename "\$src")"
+[ "\$b" != "\${FAKE_SCP_FAIL:-}" ] || exit 1
+cp "$R/\$b" "\$dst" 2>/dev/null
+STUB
+chmod +x "$T/p3"/*
+pl() { r="$(PATH="$T/p3:$PATH" HOME="$H" FAKE_SCP_FAIL="${1:-}" FAKE_SSH_MARK_FAIL="${2:-}" bash "$S7" pull 2>&1)"; rc=$?; }
+pl "$sp.manifest.sig"; is "thieu tep BAT BUOC (manifest.sig): ma thoat" "$rc" 1; has "bao DUNG vi tep bat buoc" "$r" "khong chep duoc tep bat buoc"
+pl ""; is "du 4 tep, chua co dau: ma thoat" "$rc" 0; has "ghi ro chua khoi phuc thu" "$r" "chua co dau khoi phuc thu cua bo nay tren VPS"; has "G7 CHUA DAT" "$r" "KET LUAN G7: CHUA DAT"
+marker "$sp" "$(sha256sum "$V/$sp.dump.age" | cut -d' ' -f1)"; cp "$V/$sp.dump.age.restore-ok.txt" "$R/"; pl ""; is "co dau dung bo: ma thoat" "$rc" 0; has "G7 DAT" "$r" "KET LUAN G7 (phan ban sao ngoai VPS): DAT"
+lm="$H/SISCOM-CRM-PR178/backup/prod/$sp.dump.age.restore-ok.txt"; a="$(sha256sum "$lm" | cut -d' ' -f1)"
+pl "" 1; is "ssh loi (255) khi kiem dau: ma thoat" "$rc" 1; has "bao khong kiem duoc dau" "$r" "khong kiem duoc dau khoi phuc thu tren VPS (ssh ma 255)"; hasnt "khong coi la chua khoi phuc" "$r" "chua co dau khoi phuc thu cua bo nay"
+if [ -f "$lm" ] && [ "$(sha256sum "$lm" | cut -d' ' -f1)" = "$a" ]; then ok "dau cuc bo giu nguyen khi ssh loi"; else bad "dau cuc bo bi xoa / sua khi ssh loi"; fi
+
+# ---------------------------------------------------------------- S7-6 che do backup (sua R2 #256 vong 3) - moi truong GIA
+# Ban sao step7.sh chi doi duong dan (BK, SET, ST, LIN, allowed_signers) sang thu muc tam; logic giu nguyen (kiem bang diff).
+# uname / id / install / sudo / systemctl / journalctl deu GIA: khong chay sao luu that, khong cham postgres / systemd.
+echo "S7-6 backup voi systemctl / journalctl GIA: khoi chay loi / journal tra bo cu / binh thuong"
+B6="$T/b6"; mkdir -p "$B6/bk" "$B6/root" "$B6/lin" "$B6/etc" "$B6/p"
+sed -e "s#BK=/var/backups/siscom-crm#BK=$B6/bk#" -e "s#SET=/root/restore-set.txt#SET=$B6/root/restore-set.txt#" \
+    -e "s#ST=/root/golive-step7#ST=$B6/root/st#" -e "s#LIN=/opt/siscom-crm/current/backend/scripts/linux#LIN=$B6/lin#" \
+    -e "s#/etc/siscom-crm/backup-signing.allowed_signers#$B6/etc/allowed#g" "$S7" > "$B6/step7-thu.sh"
+is "ban sao: moi dong khac ban goc deu chi la duong dan sang thu muc tam" "$(diff "$S7" "$B6/step7-thu.sh" | grep '^>' | grep -vc "$B6" || true)" 0
+echo "x" > "$B6/etc/allowed"; echo 'verify_backup_set() { [ -f "$1" ]; }' > "$B6/lin/lib.sh"
+mkset6() { # mkset6 <ten bo> : tao 4 tep gia cua mot bo
+  local s="$B6/bk/$1"; echo "GIA" > "$s.dump.age"; printf 'db=siscom_crm_prod\nfile_sha256=abc\nrows|x|1\n' > "${s}.manifest"
+  echo sig > "${s}.manifest.sig"; echo sha > "$s.dump.age.sha256"; }
+printf '#!/usr/bin/env bash\necho Linux\n' > "$B6/p/uname"
+printf '#!/usr/bin/env bash\nif [ "${1:-}" = -u ]; then echo 0; else exec /usr/bin/id "$@"; fi\n' > "$B6/p/id"
+printf '#!/usr/bin/env bash\nmkdir -p "${@: -1}"\n' > "$B6/p/install"
+printf '#!/usr/bin/env bash\necho 5\n' > "$B6/p/sudo"
+cat > "$B6/p/systemctl" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  start) [ -z "\${FAKE_START_FAIL:-}" ] || exit 1
+         [ -z "\${FAKE_START_NOLOG:-}" ] || exit 0
+         n="siscom_crm_prod_\$(date -u +%Y%m%d_%H%M%S)"; s="$B6/bk/\$n"; echo GIA > "\$s.dump.age"
+         printf 'db=siscom_crm_prod\nfile_sha256=abc\nrows|x|1\n' > "\$s.manifest"; echo sig > "\$s.manifest.sig"; echo sha > "\$s.dump.age.sha256"
+         echo "[OK] Da sao luu: \$s.dump.age" >> "$B6/journal" ;;
+  show) echo success ;;
+  *) exit 0 ;;
+esac
+STUB
+printf '#!/usr/bin/env bash\ncat "%s/journal"\n' "$B6" > "$B6/p/journalctl"
+chmod +x "$B6/p"/*
+old=siscom_crm_prod_20261119_000000; mkset6 "$old"; echo "[OK] Da sao luu: $B6/bk/$old.dump.age" > "$B6/journal"
+b6() { r="$(PATH="$B6/p:$PATH" FAKE_START_FAIL="${1:-}" FAKE_START_NOLOG="${2:-}" bash "$B6/step7-thu.sh" backup 2>&1)"; rc=$?; }
+b6 1 ""; is "khoi chay sao luu loi (Result cu = success): ma thoat" "$rc" 1; has "bao khong khoi chay duoc" "$r" "khong khoi chay duoc siscom-crm-backup.service"
+if [ -e "$B6/root/restore-set.txt" ]; then bad "restore-set.txt bi ghi du khoi chay loi"; else ok "khong ghi restore-set.txt (khong nhan bo cu)"; fi
+b6 "" 1; is "khoi chay duoc nhung journal chi co bo cu: ma thoat" "$rc" 1; has "bao bo cu khong phai bo vua tao" "$r" "khong phai bo vua tao"
+if [ -e "$B6/root/restore-set.txt" ]; then bad "restore-set.txt bi ghi bo cu"; else ok "khong ghi restore-set.txt (bo cu bi tu choi)"; fi
+b6 "" ""; is "binh thuong: ma thoat" "$rc" 0
+nf="$(cat "$B6/root/restore-set.txt" 2>/dev/null || true)"
+if [ -n "$nf" ] && [ "$(basename "$nf")" != "$old.dump.age" ] && [ -f "$nf" ]; then ok "restore-set.txt ghi bo MOI: $(basename "$nf")"; else bad "restore-set.txt sai: $nf"; fi
+
+# ---------------------------------------------------------------- GC-1 golive-check.sh muc G8: 4 tep de lui (sua R2 #256 vong 3)
+# Chi chay doan G8 trich tu golive-check.sh (khong chay phan con lai vi no goi curl / psql / systemctl that), /etc doi sang thu muc tam.
+GC="$here/golive-check.sh"
+if [ -f "$GC" ]; then
+  echo "GC-1 golive-check.sh G8: du 4 tep / thieu 1 tep / tep rong"
+  G8="$T/g8"; mkdir -p "$G8/etc/siscom-crm" "$G8/etc/caddy"
+  { echo 'fail=0; ok() { echo "  [DAT]       $*"; }; bad() { echo "  [KHONG DAT] $*"; fail=1; }'
+    awk '/^# Review R2 #256 vong 3/{p=1} p{print} p&&/^done$/{exit}' "$GC" | sed "s#/etc/#$G8/etc/#g"
+    echo 'exit $fail'; } > "$G8/g8.sh"
+  is "doan G8 trich du 4 duong dan" "$(grep -o "$G8/etc/[a-z/.-]*bak-[0-9]*" "$G8/g8.sh" | wc -l | tr -d ' ')" 4
+  BAKS="siscom-crm/backend.env.bak-20261120092749 siscom-crm/migrate.env.bak-20261120092749 siscom-crm/caddy.env.bak-20261120085931 caddy/siscom-tls.caddy.bak-20261120085931"
+  for b in $BAKS; do echo "NOI DUNG GIA" > "$G8/etc/$b"; done
+  r="$(bash "$G8/g8.sh" 2>&1)"; rc=$?; is "du 4 tep: ma thoat" "$rc" 0; is "du 4 tep: so dong DAT" "$(printf '%s\n' "$r" | grep -c 'tep de lui con')" 4
+  rm -f "$G8/etc/siscom-crm/migrate.env.bak-20261120092749"
+  r="$(bash "$G8/g8.sh" 2>&1)"; rc=$?; is "thieu migrate.env.bak: ma thoat" "$rc" 1; has "bao THIEU dung tep" "$r" "THIEU tep de lui: $G8/etc/siscom-crm/migrate.env.bak-20261120092749"
+  echo "NOI DUNG GIA" > "$G8/etc/siscom-crm/migrate.env.bak-20261120092749"; : > "$G8/etc/caddy/siscom-tls.caddy.bak-20261120085931"
+  r="$(bash "$G8/g8.sh" 2>&1)"; rc=$?; is "tep Caddy rong: ma thoat" "$rc" 1; has "bao THIEU tep rong" "$r" "THIEU tep de lui: $G8/etc/caddy/siscom-tls.caddy.bak-20261120085931"
+else echo "GC-1 (bo qua: thieu golive-check.sh cung thu muc)"; fi
+
+# ---------------------------------------------------------------- REAL: systemd that + tep khong xoa duoc (chi Linux root co systemd)
+if [ "$linux" = 1 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system ] && command -v chattr >/dev/null; then
+  echo "S7-REAL hen gio systemd THAT (ten rieng $TT) + tep khoa gia khong xoa duoc (chattr +i)"
+  # Khong chay nhom nay khi co dau hieu dang khoi phuc that tren may (khoa that hoac hen gio van hanh dang cho).
+  realn() { systemctl list-timers 'siscom-key-cleanup.timer' --no-pager 2>/dev/null | grep -c 'siscom-key-cleanup\.timer' || true; }
+  if [ -e /run/siscom-restore/backup.key ] || [ "$(realn)" != 0 ]; then
+    echo "  (BO QUA nhom REAL: may dang co khoa that hoac hen gio van hanh siscom-key-cleanup - khong dung chung)"
+  else
+    I="/var/tmp/siscom-rsvc-test-$$"; mkdir -p "$I"; K="$I/backup.key"; echo "KHOA GIA" > "$K"
+    cnt() { systemctl list-timers "$TT*" --no-pager 2>/dev/null | grep -c "$TT" || true; }
+    if systemd-run --collect --on-active=30min --unit="$TT" /bin/sh -c "[ ! -e $K ] || /usr/bin/shred -u $K" >/dev/null 2>&1; then ok "hen gio THU that da tao ($TT)"; else bad "khong tao duoc hen gio thu"; fi
+    if chattr +i "$K" 2>/dev/null; then
+      r="$(STEP7_TEST_KEY="$K" STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
+      is "khong xoa duoc: ma thoat" "$rc" 1; if [ -e "$K" ]; then ok "tep khoa gia van con"; else bad "tep bi xoa"; fi
+      is "hen gio thu VAN CON cho" "$(cnt)" 1; has "bao KHONG XOA DUOC KHOA" "$r" "KHONG XOA DUOC KHOA"
+      chattr -i "$K"
+    else echo "  (he tep khong ho tro chattr +i: bo qua nhanh loi that)"; fi
+    r="$(STEP7_TEST_KEY="$K" STEP7_TEST_TIMER="$TT" bash "$S7" selftest-cleanup 2>&1)"; rc=$?
+    is "xoa duoc: ma thoat" "$rc" 0; if [ ! -e "$K" ]; then ok "tep khoa gia da mat"; else bad "tep con"; fi
+    is "hen gio thu da huy" "$(cnt)" 0
+    is "hen gio van hanh siscom-key-cleanup KHONG bi tao / dung (so dang cho)" "$(realn)" 0
+    systemctl stop "$TT.timer" "$TT.service" 2>/dev/null; systemctl reset-failed "$TT.timer" "$TT.service" 2>/dev/null; rm -rf "$I"
+  fi
+else echo "S7-REAL (bo qua: can Linux + root + systemd + chattr)"; fi
+
+# ---------------------------------------------------------------- g5-api-flows.sh voi MAY CHU GIA (review R2 #256: nhanh bao dat sai)
+G5="$here/g5-api-flows.sh"
+if [ -f "$G5" ] && command -v node >/dev/null; then
+  echo "G5-1..4 g5-api-flows.sh chay voi may chu gia: binh thuong / Ky thuat bi tu choi mo co hoi / viec nhac khong duoc huy / Thang luu sai gia tri chot"
+  cat > "$T/stub.js" <<'JS'
+// May chu gia toi thieu cho g5-api-flows.sh. VARIANT: ok | tech403 | remnotcancelled | wonwrong
+const http = require('http'); const V = process.env.VARIANT || 'ok';
+let opp = null, tasks = [], who = '';
+const J = (res, code, data, hdr) => { res.writeHead(code, Object.assign({ 'Content-Type': 'application/json' }, hdr || {})); res.end(JSON.stringify(data)); };
+const srv = http.createServer((req, res) => {
+  let b = ''; req.on('data', d => b += d); req.on('end', () => {
+    const u = req.url.replace(/^\/api\/v1/, ''); const m = req.method; const body = b ? JSON.parse(b) : {};
+    if (u === '/health/database') return J(res, 200, { migrated: true });
+    if (m === 'POST' && u === '/auth/login') { who = body.login; return J(res, 200, { data: {} }, { 'Set-Cookie': ['siscom_sid=s1; Path=/', 'siscom_csrf=c1; Path=/'] }); }
+    if (u === '/opportunities/meta') return J(res, 200, { data: { stages: [{ id: 'st-q', code: 'QUOTATION' }], types: [{ id: 'ty-1' }] } });
+    if (m === 'POST' && u === '/customers') return J(res, 201, { data: { id: 'cus-1', code: 'KH-1' } });
+    if (m === 'POST' && u === '/opportunities') { opp = { id: 'opp-1', code: 'CH-1', version: 1, status: 'OPEN', stage: { code: 'PROSPECTING' } }; return J(res, 201, { data: opp }); }
+    const mm = u.match(/^\/opportunities\/opp-1(\/[a-z-]+)?(\?.*)?$/);
+    if (mm) { const a = mm[1] || '';
+      if (m === 'POST' && a === '/stage') { opp.stage = { code: 'QUOTATION' }; opp.version++; return J(res, 201, { data: opp }); }
+      if (m === 'POST' && a === '/hold') { opp.status = 'ON_HOLD'; opp.holdUntil = body.holdUntil; opp.version++; tasks.push({ id: 't-rem', code: 'TT-1', autoKind: 'HOLD_REMINDER', status: 'OPEN', opportunityId: 'opp-1' }); return J(res, 201, { data: opp }); }
+      if (m === 'POST' && a === '/resume') { opp.status = 'OPEN'; opp.version++; if (V !== 'remnotcancelled') tasks.forEach(t => { if (t.autoKind === 'HOLD_REMINDER') t.status = 'CANCELLED'; }); return J(res, 201, { data: opp }); }
+      if (m === 'GET' && a === '/activities') return J(res, 200, { data: { items: tasks } });
+      if (m === 'GET' && a === '/handover-candidates') return J(res, 200, { data: { items: [{ id: 'emp-4', code: 'NV-0004' }] } });
+      if (m === 'POST' && a === '/win') { opp.status = 'WON'; Object.assign(opp, { wonAmountVnd: V === 'wonwrong' ? '0' : body.wonAmountVnd, wonDocType: body.wonDocType, wonDocNo: body.wonDocNo, wonDocDate: body.wonDocDate + 'T00:00:00.000Z', wonDocUrl: body.wonDocUrl }); tasks.push({ id: 't-ho', code: 'TT-2', autoKind: 'WIN_HANDOVER', status: 'OPEN', opportunityId: 'opp-1', performedBy: { code: 'NV-0004' } }); return J(res, 201, { data: opp }); }
+      if (m === 'GET' && a === '') { if (/kythuat@/.test(who)) { if (V === 'tech403') return J(res, 403, { message: 'Khong co quyen' }); return J(res, 200, { data: { id: 'opp-1', code: 'CH-1', access: 'TASK', status: 'WON' } }); } return J(res, 200, { data: opp }); }
+    }
+    if (m === 'GET' && u.startsWith('/activities?')) return J(res, 200, { data: { items: tasks.filter(t => t.autoKind === 'WIN_HANDOVER') } });
+    if (m === 'GET' && u === '/activities/t-ho') return J(res, 200, { data: { id: 't-ho', version: 1, status: 'OPEN' } });
+    if (m === 'POST' && u === '/activities/t-ho/complete') return J(res, 201, { data: { id: 't-ho', status: 'DONE' } });
+    J(res, 404, { message: 'stub: ' + m + ' ' + u });
+  });
+});
+srv.listen(Number(process.env.PORT), '127.0.0.1');
+JS
+  printf 'sale@thu.local x Gia-PW-1234\nkythuat@thu.local x Gia-PW-5678\n' > "$T/acc.txt"
+  g5run() { # g5run <variant> <cong> => $r, $rc
+    VARIANT="$1" PORT="$2" node "$T/stub.js" & local sp=$!; sleep 1
+    r="$(G5_ORIGIN="http://127.0.0.1:$2" G5_ACCOUNTS="$T/acc.txt" bash "$G5" 2>&1)"; rc=$?
+    kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
+  }
+  g5run ok 39291; is "may chu gia binh thuong: ma thoat" "$rc" 0; has "ket luan dat" "$r" "3 nghiep vu deu DAT"; has "kiem viec nhac CANCELLED" "$r" "chinh viec nhac do chuyen CANCELLED"
+  g5run tech403 39292; is "Ky thuat bi 403: ma thoat" "$rc" 1; has "bao KHONG mo duoc co hoi" "$r" "KHONG mo duoc co hoi theo viec: HTTP 403"; hasnt "khong ket luan dat" "$r" "3 nghiep vu deu DAT"
+  g5run remnotcancelled 39293; is "viec nhac khong huy: ma thoat" "$rc" 1; has "bao viec nhac sai trang thai" "$r" "ky vong CANCELLED"; hasnt "khong ket luan dat" "$r" "3 nghiep vu deu DAT"
+  g5run wonwrong 39294; is "Thang luu sai gia tri chot: ma thoat" "$rc" 1; has "bao Thang sai" "$r" "Thang (doc lai) sai: wonAmountVnd=0"; hasnt "khong ket luan dat" "$r" "3 nghiep vu deu DAT"
+else echo "G5 (bo qua: thieu g5-api-flows.sh cung thu muc hoac node)"; fi
+
+echo; echo "TONG: $pass dat, $fail khong dat"; [ "$fail" = 0 ]

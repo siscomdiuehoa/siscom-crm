@@ -1,0 +1,5 @@
+STAMP=20261120085931 (sao luu: /etc/siscom-crm/caddy.env.bak-20261120085931, /etc/caddy/siscom-tls.caddy.bak-20261120085931)
+caddy validate: Valid configuration
+TLS dat cho https://crm.siscom.io.vn/ (khong -k).
+"msg":"certificate obtained successfully"
+"msg":"obtaining certificate"

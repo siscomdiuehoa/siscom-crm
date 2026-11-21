@@ -1,0 +1,34 @@
+== Kiem hang ngay (chi doc) == 2026-11-21T08:42:43Z; ban dang chay: src-20261121084141
+1. HTTPS
+  [DAT]       check-tls.sh TLS OK
+  [DAT]       chung chi con 88 ngay
+  [DAT]       https://crm.siscom.io.vn/ = 200
+2. Dich vu
+  [DAT]       siscom-crm-backend = active
+  [DAT]       caddy = active
+  [DAT]       postgresql = active
+  [DAT]       health "database":"up"
+  [DAT]       health "migrated":true
+  [DAT]       backend khong tu khoi dong lai (NRestarts=0)
+3. Sao luu dem
+  [DAT]       lan sao luu gan nhat: success
+  [DAT]       bo moi nhat siscom_crm_prod_20261121_084222.dump.age (0 gio truoc)
+  [DAT]       chu ky + SHA-256 bo moi nhat hop le
+      so dong trong bo moi nhat: activity|0 customer|0 employee|5 opportunity|0 
+      so bo siscom_crm_prod tren VPS: 4; hen gio tiep: Sat 2026-11-21 19:01:10 UTC
+4. Dia va bo nho
+  [DAT]       o / dung 20%, con 31G
+      RAM: 626 / 2972 MB dang dung
+5. Loi dich vu trong 24 gio
+  [DAT]       siscom-crm-backend: 0 dong loi
+  [DAT]       caddy: 0 dong loi
+  [DAT]       siscom-crm-backup: 0 dong loi
+
+KET QUA: moi muc deu DAT
+== kiem rieng sau trien khai
+migration hoan tat / chua xong: 16 / 0
+index.html dang phuc vu = ban moi: CO
+GET /opportunities/board-summary (khong dang nhap): 401 (401 = co tuyen, can dang nhap; 404 = chua co)
+cong 3000: 127.0.0.1:3000
+ban dang chay: /opt/siscom-crm/releases/src-20261121084141; ban lui: src-20261120095200; cac ban: src-20261119093630 src-20261120095200 src-20261121084141 
+loi backend tu luc trien khai: 0 dong

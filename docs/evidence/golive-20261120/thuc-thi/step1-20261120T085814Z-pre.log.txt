@@ -1,0 +1,18 @@
+main=2de465c32a2e2cb2626309c550a02bb592d6e705
+== TRUOC BUOC 1 ==
+thoi diem: 2026-11-20T08:59:20Z
+caddy: active; backend: active; postgresql: active
+caddy.env: SISCOM_HOST=42.96.15.235 SISCOM_ACME_CA=https://acme-v02.api.letsencrypt.org/directory (600 root)
+siscom-tls.caddy: tls { issuer acme {$SISCOM_ACME_CA:https://acme-v02.api.letsencrypt.org/directory} { profile shortlived } } (644 root; sha 094d5b501bd93205)
+Caddyfile sha: f88e8d8eeaf7f2f6
+health/database: "database":"up" "migrated":true "leastPrivilege":true "authLeastPrivilege":true 
+DB: siscom_crm_staging
+dau van tay staging: b29f5864dd6017f73c017229216bbb4e (24 bang)
+cong nghe ngoai: *:443 *:80 0.0.0.0:26266 [::]:26266 
+Caddyfile live = repo: co
+tep repo: Caddyfile f88e8d8eeaf7f2f6, tls-domain.caddy 6442ed1226a18ec1
+DNS: 42.96.15.235
+https://42.96.15.235/ => 200
+[OK] https://42.96.15.235/ bat tay TLS dat (KHONG dung -k: chung chi duoc tin), HTTP 200.
+[OK] https://42.96.15.235/api/v1/health = 200.
+[OK] TLS OK.

@@ -1,0 +1,10 @@
+== TRUOC BUOC 7 (Owner: "duyet buoc 7") ==
+== BUOC 7 - trang thai == 2026-11-20T10:34:12Z
+bo siscom_crm_prod dang co: 
+bo da chon: /var/backups/siscom-crm/siscom_crm_staging_20261119_063952.dump.age
+restore-ok: sha256_file=8dc29a323cee9c47431497e96c234cf21b64788795ec555e54a9ef5907f6442b manifest_signature=verified dump=siscom_crm_staging_20261119_063952.dump.age restored_db=siscom_crm_restore_20261119_064915 tables_checked=21 schema_baseline=b1.1 at=2026-11-19T06:49:19Z 
+tep khoa tren VPS: khong co; hen gio xoa khoa dang cho: 0
+DB khoi phuc thu: (khong co)
+sao luu dem: Fri 2026-11-20 19:01:55 UTC; lan gan nhat: success luc Thu 2026-11-19 19:04:58 UTC
+tep kich ban sha: 8cd37164797073c6
+backend: active; employee=0; dia trong: 31G

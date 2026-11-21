@@ -1,0 +1,30 @@
+main=2de465c32a2e2cb2626309c550a02bb592d6e705
+== TRUOC BUOC 3 == 2026-11-20T09:50:12Z
+backend: inactive; current: /opt/siscom-crm/releases/src-20261119093630
+siscom_crm_prod bang public: 0
+staging: owner+acl=[siscom_migrator {siscom_migrator=CTc/siscom_migrator,siscom_app=Tc/siscom_migrator,siscom_auth=c/siscom_migrator}] schema=0716fff5d7988eb4872b7a3dbd9b7fc1 rows=759869c0cd70a1f8e83140c273fe9339
+nguon: /root/s12-src-2de465c/backend /root/s12-web-dist-2de465c/index.html 
+dia trong: 31G; RAM trong: 2473 MB
+== deploy.sh --dry-run ==
+== KE HOACH (DRY-RUN) ==
+  DB dich      : siscom_crm_prod
+  Ban moi      : src-20261120095013   (nguon: /root/s12-src-2de465c | (thu muc /root/s12-src-2de465c))
+  Frontend     : /root/s12-web-dist-2de465c
+  Migrate      : co   DB moi tinh: khong
+  Tu lui       : khong
+[DRY] install -d -m 755 /opt/siscom-crm/releases/src-20261120095013
+[DRY] tar (tru node_modules/.git/dist) /root/s12-src-2de465c/backend -> /opt/siscom-crm/releases/src-20261120095013/backend
+[DRY] cd /opt/siscom-crm/releases/src-20261120095013/backend && npm ci --ignore-scripts && npm run build (DATABASE_URL gia, khong MIGRATE) && kiem argon2 hash/verify + Prisma CLI
+[DRY] cp -a /root/s12-web-dist-2de465c /opt/siscom-crm/releases/src-20261120095013/web
+[DRY] /opt/siscom-crm/current/backend/scripts/linux/backup-db.sh (bat buoc PASS)
+[DRY] prisma migrate status (migrator) ; neu --migrate: migrate deploy + create-db.sh grants
+[DRY] bash -c printf '%s' 'src-20261119093630' > '/opt/siscom-crm/previous'
+[DRY] ln -sfn /opt/siscom-crm/releases/src-20261120095013 /opt/siscom-crm/current.new
+[DRY] mv -T /opt/siscom-crm/current.new /opt/siscom-crm/current
+[DRY] systemctl daemon-reload
+[DRY] systemctl restart siscom-crm-backend
+[DRY] kiem /health + /health/database trong 30 s
+[OK] TRIEN KHAI THANH CONG: src-20261120095013 (DB siscom_crm_prod).
+dry-run rc=0
+
+GHI CHU (20/11 09:55 UTC): dong "staging: ... schema=0716fff5..." o tren KHONG hop le - lenh go truc tiep qua heredoc lam mat dau \ trong bo loc nen dong estrict ngau nhien cua pg_dump khong bi loc. Tinh lai bang step2-db.sh (chay tu tep) 2 lan: schema=f725755b359e33366f686c17de6f00f8, rows=759869c0cd70a1f8e83140c273fe9339 - trung luc sau buoc 2. Staging khong doi.

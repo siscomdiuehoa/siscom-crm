@@ -1,0 +1,21 @@
+== KE HOACH (DRY-RUN) ==
+  DB dich      : siscom_crm_prod
+  Ban moi      : src-20261121084125   (nguon: /root/s12-src-fd2a8a4 | (thu muc /root/s12-src-fd2a8a4))
+  Frontend     : /root/s12-web-dist-fd2a8a4
+  Migrate      : khong   DB moi tinh: khong
+  Tu lui       : co
+[DRY] install -d -m 755 /opt/siscom-crm/releases/src-20261121084125
+[DRY] tar (tru node_modules/.git/dist) /root/s12-src-fd2a8a4/backend -> /opt/siscom-crm/releases/src-20261121084125/backend
+[DRY] cd /opt/siscom-crm/releases/src-20261121084125/backend && npm ci --ignore-scripts && npm run build (DATABASE_URL gia, khong MIGRATE) && kiem argon2 hash/verify + Prisma CLI
+[DRY] cp -a /root/s12-web-dist-fd2a8a4 /opt/siscom-crm/releases/src-20261121084125/web
+[DRY] /root/s12-src-fd2a8a4/backend/scripts/linux/backup-db.sh (bat buoc PASS)
+[DRY] prisma migrate status (migrator) ; neu --migrate: migrate deploy + create-db.sh grants
+[DRY] bash -c printf '%s' 'src-20261120095200' > '/opt/siscom-crm/previous'
+[DRY] ln -sfn /opt/siscom-crm/releases/src-20261121084125 /opt/siscom-crm/current.new
+[DRY] mv -T /opt/siscom-crm/current.new /opt/siscom-crm/current
+[DRY] systemctl daemon-reload
+[DRY] systemctl restart siscom-crm-backend
+[DRY] kiem /health + /health/database trong 30 s
+[OK] TRIEN KHAI THANH CONG: src-20261121084125 (DB siscom_crm_prod).
+rc=0
+/opt/siscom-crm/releases/src-20261120095200
