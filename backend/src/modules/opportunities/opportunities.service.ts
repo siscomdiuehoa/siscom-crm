@@ -15,6 +15,7 @@ import {
   ContactCard, CustomerCard, OPP_DETAIL_SELECT, OPP_LIST_SELECT, OppDetailRow, OppListRow, oppRef, toOpportunityDetail, toOpportunityListItem,
   toOpportunityTechDetail, toOpportunityTechListItem,
 } from './opportunities.mapper';
+import { foldedTextWhere, foldSearch } from './opportunities.search';
 import type { QueryOpportunitiesDto } from './dto/query-opportunities.dto';
 
 type Tx = Prisma.TransactionClient;
@@ -31,7 +32,8 @@ function parseYmd(v: string): Date | null {
 }
 // Tham số đã kiểm hợp lệ của một lần đọc danh sách (dựng TRƯỚC khi mở transaction).
 // fullOnly: yêu cầu có bộ lọc trên trường mà bản kỹ thuật KHÔNG được thấy (status, ownerId) => chỉ xét dòng đạt đường đầy đủ (L-01).
-interface ListPlan { page: number; pageSize: number; deletedOnly: boolean; fullOnly: boolean; filters: Prisma.OpportunityWhereInput[]; orderBy: Prisma.OpportunityOrderByWithRelationInput[] }
+// search: từ khoá đã trim (≥ 2 ký tự); được GẬP DẤU trong transaction đọc (listIn) rồi mới thành điều kiện (T-07).
+interface ListPlan { page: number; pageSize: number; deletedOnly: boolean; fullOnly: boolean; search?: string; filters: Prisma.OpportunityWhereInput[]; orderBy: Prisma.OpportunityOrderByWithRelationInput[] }
 
 // Sales S6 (docs/SALES_DESIGN.md §5.1, §5.4, §7) — ĐỌC cơ hội: danh sách, chi tiết, theo khách. S9a thêm ĐƯỜNG ĐỌC THEO VIỆC (§5.5(d)).
 // Quy tắc: không có mã đọc nào => 403; ngoài phạm vi xem => 404 (không lộ tồn tại); mọi bộ lọc áp SAU vị từ phạm vi.
@@ -99,9 +101,8 @@ export class OpportunitiesService {
     if (q.typeId) filters.push({ typeId: q.typeId });
     if (q.ownerId) filters.push({ ownerId: q.ownerId });
     if (from || to) filters.push({ expectedCloseDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } });
-    // Giới hạn S6: tìm CHỨA trên tiêu đề / tên dự án. Không phân biệt hoa thường chỉ chắc chắn với chữ không dấu (ASCII); chữ có dấu tuỳ collation
-    // của DB và CHƯA bỏ dấu (tìm khách hàng dùng cột đã gập dấu + chỉ mục trigram — cơ hội chưa có; đề xuất làm ở PR sau).
-    if (search) filters.push({ OR: [{ title: { contains: search, mode: 'insensitive' } }, { projectName: { contains: search, mode: 'insensitive' } }] });
+    // T-07: tìm CHỨA trên tiêu đề / tên dự án, KHÔNG phân biệt dấu tiếng Việt và hoa/thường — điều kiện dựng ở listIn (cần gập dấu từ khoá
+    // bằng public.f_vn_fold trong transaction; xem opportunities.search.ts). Ở đây chỉ kiểm độ dài.
 
     const order = q.sortOrder ?? 'desc';
     const orderBy: Prisma.OpportunityOrderByWithRelationInput[] = q.sortBy === 'expectedCloseDate'
@@ -109,7 +110,14 @@ export class OpportunitiesService {
       : q.sortBy === 'code' ? [{ code: order }]
         : q.sortBy === 'createdAt' ? [{ createdAt: order }, { code: order }]
           : [{ updatedAt: order }, { code: order }];
-    return { page, pageSize, deletedOnly: q.deleted === 'only', fullOnly: q.status !== undefined || q.ownerId !== undefined, filters, orderBy };
+    return { page, pageSize, deletedOnly: q.deleted === 'only', fullOnly: q.status !== undefined || q.ownerId !== undefined, ...(search ? { search } : {}), filters, orderBy };
+  }
+
+  // T-07: gập dấu từ khoá (plan đã kiểm ≥ 2 ký tự). Sau gập còn < 2 ký tự (không xảy ra với f_vn_fold hiện tại) => 400, không tìm với mẫu rỗng.
+  private async folded(tx: Tx, search: string): Promise<string> {
+    const f = await foldSearch(tx, search);
+    if (f.length < 2) throw opportunityErrors.validation(['Từ khoá tìm kiếm cần ít nhất 2 ký tự.']);
+    return f;
   }
 
   // Đọc danh sách TRONG snapshot đã mở: count và rows dùng CÙNG where, cùng snapshot.
@@ -119,8 +127,10 @@ export class OpportunitiesService {
     // L-01: bản kỹ thuật (đường theo việc) không có trạng thái / người phụ trách (§5.4). Nếu vẫn áp bộ lọc status / ownerId lên dòng theo việc thì việc
     // dòng đó có / không trong kết quả sẽ tiết lộ đúng hai trường này. Có một trong hai bộ lọc => vị từ phạm vi CHỈ còn đường đầy đủ; dòng theo việc
     // không tham gia cả đếm lẫn phân trang (không phải lọc sau khi đọc). Bộ lọc trên trường được thấy (giai đoạn, loại, khách, ngày, từ khoá) không đổi.
+    // T-07: từ khoá gập dấu bằng CHÍNH hàm sinh hai cột gập dấu (opportunities.search.ts), trong cùng snapshot; điều kiện văn bản đứng SAU vị từ phạm vi.
+    const text = p.search === undefined ? [] : [foldedTextWhere(await this.folded(tx, p.search))];
     const scope = p.deletedOnly ? deletedListWhere(actor, scopeOf) : listReadWhere(actor, scopeOf, now, p.fullOnly);
-    const where: Prisma.OpportunityWhereInput = { AND: [scope, ...p.filters] };
+    const where: Prisma.OpportunityWhereInput = { AND: [scope, ...p.filters, ...text] };
     const total = await tx.opportunity.count({ where });
     const rows = (total === 0 ? [] : await tx.opportunity.findMany({ where, orderBy: p.orderBy, skip: (p.page - 1) * p.pageSize, take: p.pageSize, select: OPP_LIST_SELECT })) as OppListRow[];
     // Cơ hội đã xoá: không tính cờ người phụ trách (mọi đường đọc qua cơ hội đang tắt).

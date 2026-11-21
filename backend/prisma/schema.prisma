@@ -537,6 +537,10 @@ model Opportunity {
   closedAt              DateTime?              @map("closed_at") @db.Timestamptz(3)
   isDemo                Boolean                @default(false) @map("is_demo")
   version               Int                    @default(1)
+  // Sales T-07: cot SINH TU DONG (GENERATED ALWAYS AS (public.f_vn_fold(...)) STORED, migration 20261121000000) - CHI DOC, chi de loc tim khong dau.
+  // Prisma khong mo ta duoc bieu thuc sinh; ung dung KHONG BAO GIO ghi hai truong nay (PostgreSQL tu choi; kiem tinh o opportunities.static-guards.spec.ts).
+  titleFold             String?                @default(dbgenerated("f_vn_fold((title)::text)")) @map("title_fold")
+  projectNameFold       String?                @default(dbgenerated("f_vn_fold((project_name)::text)")) @map("project_name_fold")
 
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   createdById  String?   @map("created_by") @db.Uuid
@@ -564,6 +568,8 @@ model Opportunity {
   @@index([stageId])
   @@index([contactId])
   @@index([deletedAt])
+  @@index([titleFold(ops: raw("gin_trgm_ops"))], map: "ix_opportunity_title_fold", type: Gin)
+  @@index([projectNameFold(ops: raw("gin_trgm_ops"))], map: "ix_opportunity_project_name_fold", type: Gin)
   @@map("opportunity")
 }
 
