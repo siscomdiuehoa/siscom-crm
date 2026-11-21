@@ -1,7 +1,7 @@
 import React from 'react';
 import { Badge, Button, EmptyState } from '../../ds/index.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
-import { STATUS_META, statusLabel, moneyVN, dateVN, isCloseOverdue, canCreate } from './opportunitiesModel.js';
+import { STATUS_META, statusLabel, moneyVN, dateVN, isCloseOverdue, canCreate, customerLacksOwner, CUSTOMER_NO_OWNER_MESSAGE } from './opportunitiesModel.js';
 import { scopeOfUi } from './OpportunityActions.jsx';
 import { CreateDialog } from './OpportunitiesPage.jsx';
 
@@ -29,17 +29,20 @@ export function CustomerOpportunitiesPanel({ ui, customer }) {
     setL((x) => { const seen = new Set(x.items.map((o) => o.id)); return { ...x, items: x.items.concat(r.data.items.filter((o) => !seen.has(o.id))), page: r.data.page || x.page + 1, total: r.data.total, totalPages: r.data.totalPages, more: 'idle' }; });
   };
   const mayCreate = canCreate(scopeOfUi(ui));
+  // T-08: khách chưa có người phụ trách => máy chủ từ chối tạo cơ hội (đúng thiết kế). Khoá nút và nói rõ cần làm gì trước.
+  const noOwner = mayCreate && customerLacksOwner(customer);
   const open = (o) => ui.navigate('/pipeline/view/' + encodeURIComponent(o.id));
-  const createBtn = mayCreate ? <Button size="sm" icon="plus" onClick={() => setCreating(true)}>Tạo cơ hội</Button> : null;
+  const createBtn = mayCreate ? <Button size="sm" icon="plus" disabled={noOwner} onClick={() => { if (!noOwner) setCreating(true); }}>Tạo cơ hội</Button> : null;
   return (
     <section className="sg-card sg-solid" style={{ padding: ui.mobile ? '12px 14px' : '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <span style={{ flex: 1, minWidth: 0, font: 'var(--type-sm)', color: 'var(--text-3)' }}>{l.status === 'ready' && l.items.length ? l.items.length + ' / ' + l.total + ' cơ hội trong phạm vi của bạn' : 'Cơ hội kinh doanh của khách hàng này'}</span>
         {createBtn}
       </div>
+      {noOwner ? <p role="note" style={{ margin: 0, font: 'var(--type-sm)', color: 'var(--warning-text)' }}>{CUSTOMER_NO_OWNER_MESSAGE}</p> : null}
       {l.status === 'loading' ? <div role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-2)', padding: '12px 0' }}><span className="sg-btn__spin" />Đang tải cơ hội…</div> : null}
       {l.status === 'error' ? <ApiErrorBox error={l.error} onRetry={load} /> : null}
-      {l.status === 'ready' && !l.items.length ? <EmptyState compact icon="target" title="Chưa có cơ hội nào" description={mayCreate ? 'Bấm "Tạo cơ hội" để bắt đầu theo dõi một nhu cầu của khách hàng này.' : 'Chưa có cơ hội nào của khách hàng này trong phạm vi của bạn.'} /> : null}
+      {l.status === 'ready' && !l.items.length ? <EmptyState compact icon="target" title="Chưa có cơ hội nào" description={mayCreate && !noOwner ? 'Bấm "Tạo cơ hội" để bắt đầu theo dõi một nhu cầu của khách hàng này.' : 'Chưa có cơ hội nào của khách hàng này trong phạm vi của bạn.'} /> : null}
       {l.status === 'ready' && l.items.length ? (
         <ul aria-label="Cơ hội của khách hàng" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {l.items.map((o) => {
