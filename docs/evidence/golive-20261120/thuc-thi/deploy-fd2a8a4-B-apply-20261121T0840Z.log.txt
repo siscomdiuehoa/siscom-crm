@@ -1,0 +1,30 @@
+== KE HOACH (THAT) ==
+  DB dich      : siscom_crm_prod
+  Ban moi      : src-20261121084141   (nguon: /root/s12-src-fd2a8a4 | (thu muc /root/s12-src-fd2a8a4))
+  Frontend     : /root/s12-web-dist-fd2a8a4
+  Migrate      : khong   DB moi tinh: khong
+  Tu lui       : co
+
+added 734 packages in 19s
+
+> siscom-crm-backend@0.1.0 build
+> prisma generate && nest build && node -e "require('fs').accessSync('dist/main.js')"
+
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma/schema.prisma.
+
+✔ Generated Prisma Client (7.10.1) to ./src/generated/prisma in 865ms
+
+[OK] argon2 hash/verify (linux-x64, node 24.22.3)
+[OK] prisma               : 7.10.1
+[OK] Ket noi siscom_crm_prod (PostgreSQL 18), pg_dump 18
+[OK] Da sao luu: /var/backups/siscom-crm/siscom_crm_prod_20261121_084222.dump.age (260949 byte, 484 muc, ma hoa=1); manifest da ky va tu kiem dat.
+[OK] SHA-256 (file luu): 4dde00524b3e6fe4dd83101e772690935748cd178ce9bc78c9f103c1a59e546c
+[OK] Con 4 bo .age (theo retention) va 0 bo plaintext cua siscom_crm_prod; 0 stem trung.
+[OK] Nho chep ra NGOAI may chu (Owner chon noi luu).
+[OK] Suc khoe OK (database up, migrated:true).
+[OK] TRIEN KHAI THANH CONG: src-20261121084141 (DB siscom_crm_prod).
+[OK] Da xoa ban phat hanh cu: src-20261119073843
+rc=0
+current: /opt/siscom-crm/releases/src-20261121084141; previous: src-20261120095200

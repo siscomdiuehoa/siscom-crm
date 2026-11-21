@@ -1,0 +1,62 @@
+== GO/NO-GO chi doc == 2026-11-21T06:40:00Z; tai khoan ky vong: 5; ban dang chay: src-20261120095200
+G1 HTTPS
+      Host: crm.siscom.io.vn (domain) | Het han: Feb 18 08:01:08 2027 GMT | Con: 89 ngay | Cap boi: C = US, O = Let's Encrypt, CN = YE2
+      [OK] https://crm.siscom.io.vn/ bat tay TLS dat (KHONG dung -k: chung chi duoc tin), HTTP 200.
+      [OK] https://crm.siscom.io.vn/api/v1/health = 200.
+      [OK] TLS OK.
+  [DAT]       check-tls.sh TLS OK
+  [DAT]       cap boi Let's Encrypt
+  [DAT]       con 89 ngay (>= 14)
+  [DAT]       https://crm.siscom.io.vn/ (khong -k) = 200
+  [DAT]       http://crm.siscom.io.vn/ = 308 https://crm.siscom.io.vn/
+  [DAT]       HSTS
+  [DAT]       nosniff
+  [DAT]       cong nghe ra ngoai = 80 443 26266 
+G2 dich vu va database
+  [DAT]       siscom-crm-backend = active
+  [DAT]       health "database":"up"
+  [DAT]       health "migrated":true
+  [DAT]       health "leastPrivilege":true
+  [DAT]       health "authPool":"separate"
+  [DAT]       health "authLeastPrivilege":true
+  [DAT]       cong 3000 = 127.0.0.1:3000 
+  [DAT]       migration hoan tat / chua xong = 16 / 0
+  [DAT]       cau hinh tro database = siscom_crm_prod siscom_crm_prod siscom_crm_prod
+  [DAT]       origin dang nhap = https://crm.siscom.io.vn
+      (PASS|75 + PASS|33 cua create-db.sh grants: xem nhat ky buoc 3 - khong chay lai vi lenh do co ghi quyen)
+G6 database that sach (muc 5.4)
+  [DAT]       customer = 0
+  [DAT]       contact = 0
+  [DAT]       customer_assignment = 0
+  [DAT]       opportunity = 0
+  [DAT]       opportunity_change = 0
+  [DAT]       opportunity_document = 0
+  [DAT]       activity = 0
+  [DAT]       activity_access = 0
+  [DAT]       activity_transfer_request = 0
+  [DAT]       privileged_change_request = 0
+  [DAT]       password_reset_token = 0
+  [DAT]       employee = 5
+  [DAT]       employee_credential = 5
+  [DAT]       employee_role = 5
+  [DAT]       role = 5
+  [DAT]       lookup_item = 73
+      audit_log theo hanh dong: auth.bootstrap_user=5, auth.login_failed=1, auth.login_ok=6, auth.logout=4
+  [DAT]       audit_log ngoai auth.* = 0
+      auth_session=6 remember_device=0 (chi phien dang nhap - duoc phep)
+  [DAT]       che do khoi tao dang mo = f
+      app_meta: auth_bootstrap_done, schema_baseline
+G8 rollback: staging con nguyen
+  [DAT]       database = siscom_crm_prod,siscom_crm_staging
+  [DAT]       staging dau van tay so dong = 759869c0cd70a1f8e83140c273fe9339
+  [DAT]       bo sao luu staging lan cuoi = siscom_crm_staging_20261120_092749.dump.age
+  [DAT]       chu ky + SHA-256 bo sao luu staging lan cuoi
+  [DAT]       ban ma staging de lui (previous) = src-20261119093630
+  [DAT]       thu muc ban staging con
+  [DAT]       tep de lui con: /etc/siscom-crm/backend.env.bak-20261120092749
+  [DAT]       tep de lui con: /etc/siscom-crm/migrate.env.bak-20261120092749
+  [DAT]       tep de lui con: /etc/siscom-crm/caddy.env.bak-20261120085931
+  [DAT]       tep de lui con: /etc/caddy/siscom-tls.caddy.bak-20261120085931
+      sao luu dem: Sat 2026-11-21 19:04:04 UTC; bo siscom_crm_prod da co: 3
+
+KET QUA: moi muc kiem duoc deu DAT.

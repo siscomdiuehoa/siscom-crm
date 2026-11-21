@@ -1,0 +1,13 @@
+[DAT] chu ky manifest hop le (khoa cong khai Owner giu ngoai VPS)
+[DAT] SHA-256 khop manifest da ky: 86e6600fb78ea0d963a7375fb1cf791f4775a625ea8f110240efaa3d6f33da4f
+[DAT] manifest: employee = 5
+[DAT] dau khoi phuc thu dung bo nay (restored_db=siscom_crm_restore_20261121_063648, tables_checked=24)
+KET LUAN G7 (phan ban sao ngoai VPS): DAT
+so bo siscom_crm_prod dang giu ngoai VPS: 2 (giu toi thieu 14 bo gan nhat)
+== BUOC 7 - trang thai == 2026-11-21T06:37:15Z
+bo siscom_crm_prod dang co: siscom_crm_prod_20261120_103421.dump.age siscom_crm_prod_20261120_190358.dump.age siscom_crm_prod_20261121_063345.dump.age 
+bo da chon: /var/backups/siscom-crm/siscom_crm_prod_20261121_063345.dump.age
+restore-ok: sha256_file=86e6600fb78ea0d963a7375fb1cf791f4775a625ea8f110240efaa3d6f33da4f manifest_signature=verified dump=siscom_crm_prod_20261121_063345.dump.age restored_db=siscom_crm_restore_20261121_063648 tables_checked=24 schema_baseline=b1.1 at=2026-11-21T06:36:52Z 
+tep khoa tren VPS: khong co; hen gio xoa khoa dang cho: 0
+DB khoi phuc thu: siscom_crm_restore_20261121_063648
+sao luu dem: Sat 2026-11-21 19:04:04 UTC; lan gan nhat: success luc Sat 2026-11-21 06:33:46 UTC

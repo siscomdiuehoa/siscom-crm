@@ -3,8 +3,9 @@
 - **Kế hoạch:** `docs/PRODUCTION_GO_LIVE_PLAN.md` (PR #255, review R5 PASS trên `709926a`). Tài liệu này **không** sửa kế hoạch; chỉ ghi việc đã chạy thật, kết quả và điểm lệch so với kế hoạch.
 - **Người chạy:** Claude (qua SSH bằng khoá, root), từng bước theo duyệt riêng của Owner trong chat ngày 20/11/2026. Reviewer chưa xem biên bản này.
 - **Mã triển khai:** `main` = `2de465c` (kiểm lại trước bước 1 và bước 3).
-- **Trạng thái (20/11/2026 17:40 giờ Việt Nam):** bước 0–4 xong; bước 7 xong phần sao lưu và bản sao ngoài VPS; **bước 5, 6b, phần khôi phục thử của bước 7 và bước 8 chưa làm** (chờ Owner). Hệ thống đang chạy trên `siscom_crm_prod`, **chưa có tài khoản nào**, chưa mở cho người dùng.
-- **KẾT LUẬN GO/NO-GO HIỆN TẠI: NO-GO — KHÔNG MỞ cho người dùng.** Còn thiếu G3, G4, G5, G7, G9, G10 (mục 3).
+- **Trạng thái (21/11/2026 15:55 giờ Việt Nam):** bước 0–8 xong. Owner ghi **GO** lúc 21/11 13:39 (06:39:38 UTC) sau khi bảng GO/NO-GO đủ 10 dòng đạt (mục 3); CRM mở cho nhân viên trên `https://crm.siscom.io.vn`.
+- **KẾT LUẬN GO/NO-GO: GO** (Owner quyết). G4, G9, G10 đạt theo **xác nhận của Owner**, Claude không tự kiểm được (mục 3, mục 6).
+- **Sau GO (mục 7):** triển khai `main` = `fd2a8a4` (#257 + #259, không migration) lúc 21/11 15:42, Owner duyệt riêng; lịch kiểm chỉ đọc mỗi sáng.
 - **Sửa sau review R1 của PR #256 (20/11/2026):** kịch bản bước 5 (tệp nhật ký 600 từ đầu, lọc đầu ra theo danh sách cho phép, dò mật khẩu trong đầu ra); kịch bản bước 7 (chỉ huỷ hẹn giờ sau khi xác nhận khoá đã xoá; `pull` dừng khi thiếu tệp bắt buộc; điều kiện G7); bộ thử nhánh lỗi bằng dữ liệu giả; mốc giờ các lần duyệt (mục 1.1); bảng GO/NO-GO có dòng kết luận; đối chiếu bằng chứng G5 trên staging (mục 2.6).
 - **Sửa sau review R2 của PR #256 (20/11/2026, mục 5.2):** `g5-api-flows.sh` không còn báo "đạt" khi Kỹ thuật không mở được cơ hội hoặc việc nhắc Tạm hoãn không chuyển `CANCELLED`, hoặc giá trị chốt / chứng từ khi Thắng không lưu đúng; `step7.sh pull` dừng khi lỗi SSH lúc kiểm dấu khôi phục thử, không xoá dấu đã lưu; `step7.sh backup` dừng khi không khởi chạy được sao lưu và chỉ nhận bộ của lần chạy này; `golive-check.sh` bắt buộc 4 tệp cấu hình để lùi cho G8; bộ thử nhóm REAL và `selftest-cleanup` chỉ dùng hẹn giờ thử tên riêng, không đụng hẹn giờ vận hành `siscom-key-cleanup`; mục 6 thống nhất với trạng thái G5.
 - Tài liệu và bằng chứng không chứa mật khẩu, khoá hay tên người dùng thật.
@@ -19,11 +20,12 @@
 | 2 | "Anh duyệt bước 2" + "OWNER_APPROVED_MIGRATION siscom_crm_prod" | 16:27 | `backup-db.sh` (staging, lần cuối) + kiểm chữ ký; `systemctl stop siscom-crm-backend`; sao lưu `backend.env` / `migrate.env` (`.bak-20261120092749`); `create-db.sh siscom_crm_prod create`; `SISCOM_HOST=crm.siscom.io.vn create-db.sh siscom_crm_prod env --force-env` | Bộ `siscom_crm_staging_20261120_092749` chữ ký + SHA-256 hợp lệ; `siscom_crm_prod`: `siscom_migrator\|true\|true\|false\|false,false,false`, 0 bảng; ba URL và origin trỏ `siscom_crm_prod` / `https://crm.siscom.io.vn`; staging trùng dấu vân tay (chủ sở hữu + ACL, `pg_dump -s`, số dòng) |
 | 3 | "A duyệt bước 3" | 16:52 | `deploy.sh --src /root/s12-src-2de465c --frontend /root/s12-web-dist-2de465c --migrate --dry-run` (DB đích in ra `siscom_crm_prod`, rc = 0), rồi chạy thật | Bản `src-20261120095200`; 16 migration; `PASS\|75` + `PASS\|33`; `migrate status` "up to date"; `/health/database`: `migrated:true`, `leastPrivilege:true`, `authPool:"separate"`, `authLeastPrivilege:true`; cổng 3000 chỉ `127.0.0.1`; `previous` = `src-20261119093630`; staging không đổi |
 | 4 | "Duyệt bước 4" | 17:03 | `run-cli.sh seed-lookups` hai lần | Lần 1: chèn 73; lần 2: chèn 0, đã có 73; staging không đổi |
-| 5 | "OWNER_APPROVED_TASK" | — | **Chưa làm.** Đã đặt `/root/golive-step5/bootstrap-owner.sh` (Owner tự chạy bằng PuTTY, tự gõ 5 mật khẩu; từ chối khi không có màn hình; chỉ gọi `run-cli.sh bootstrap-auth`, `BOOTSTRAP_EMAIL_DOMAIN=siscom.vn`). Kiểm trước: `employee` = 0, chế độ khởi tạo đang mở | Chờ Owner |
+| 5 | "OWNER_APPROVED_TASK" (20/11), "Làm bước 5" (21/11) | 21/11 10:40–10:46 | Kiểm chỉ đọc trước: `bootstrap-owner.sh` trên VPS trùng SHA-256 bản trong repo; dịch vụ chạy. **Owner tự chạy** `bash /root/golive-step5/bootstrap-owner.sh` bằng PuTTY và tự gõ 5 mật khẩu; Claude không thấy, không nhận mật khẩu | `golive-check.sh 5` (`golive-check-sau-buoc5-…`): `employee` / `employee_credential` / `employee_role` / `role` = 5; chế độ khởi tạo **đóng** (`fn_auth_bootstrap_open` = f); `audit_log` chỉ `auth.bootstrap_user` = 5; 11 bảng nghiệp vụ = 0; mọi mục đạt |
 | 6a | "Anh đã hoàn thành kiểm thử staging." | 20/11 15:52 (lời báo) | Owner báo đã thử nghiệp vụ trên staging | **Chưa có bằng chứng.** Đối chiếu chỉ đọc trên staging (mục 2.6): không có dữ liệu `THU-`, không có phiên làm việc nào ngày 20/11; thao tác có ghi nhận là của đợt nghiệm thu S12 ngày 19/11 |
-| 6b | — | — | **Chưa làm** (cần tài khoản) | Chờ bước 5 |
-| 7 | "duyệt bước 7" | 17:34 | `systemctl start siscom-crm-backup.service`; kiểm chữ ký; chép 4 tệp của bộ về máy Owner; `ssh-keygen -Y verify` bằng `allowed_signers` Owner giữ ngoài VPS + so SHA-256 | Bộ `siscom_crm_prod_20261120_103421` (24 bảng, mã hoá) chữ ký hợp lệ; bản sao ngoài VPS đạt. **Khôi phục thử chưa làm** (cần Owner nạp khoá age) |
-| 8 | — | — | **Chưa làm** | Chờ bảng GO/NO-GO đủ và Owner ghi GO |
+| 6b | "Làm 6b trước" | 21/11 13:21–13:30 (Owner) | Owner đăng nhập lần lượt 5 tài khoản trên `https://crm.siscom.io.vn`, chỉ xem; thử 1 lần sai mật khẩu; 1 tài khoản trên iPhone. Claude kiểm chỉ đọc sau đó | `audit_log`: `auth.login_failed` = 1, `auth.login_ok` = 6 (5/5 tài khoản trên Chrome Windows + `admin@` trên iPhone), `auth.logout` = 4; `golive-check.sh 5` (`golive-check-sau-6b-…`): 11 bảng nghiệp vụ vẫn = 0, `audit_log` ngoài `auth.*` = 0. **Ảnh Owner gửi là của môi trường thử G5, không phải hệ thống thật**; phần quyền từng vai trò dựa trên lời Owner "tất cả ok" |
+| 7 (sơ bộ) | "duyệt bước 7" | 20/11 17:34 | `systemctl start siscom-crm-backup.service`; kiểm chữ ký; chép 4 tệp của bộ về máy Owner; `ssh-keygen -Y verify` bằng `allowed_signers` Owner giữ ngoài VPS + so SHA-256 | Bộ `siscom_crm_prod_20261120_103421` (`employee` = 0) chữ ký hợp lệ; bản sao ngoài VPS đạt. Chỉ là bản sơ bộ, **không dùng cho G7** |
+| 7 (G7) | "Sao lưu lại" (duyệt riêng sau bước 5) | 21/11 13:33–13:37 | `step7.sh backup` (bản R2, `3d589fd4…`, kiểm SHA-256 trước khi chạy); **Owner tự chạy** `step7.sh owner-restore` và tự dán khoá age; Claude chạy `step7.sh pull` + `verify-local` trên máy Owner | (1) bộ `siscom_crm_prod_20261121_063345` chụp sau bước 5, manifest `employee` = 5, chữ ký + SHA-256 hợp lệ (`step7-backup-sau-buoc5-…`); (2) khôi phục thử vào `siscom_crm_restore_20261121_063648`: 24 bảng khớp số dòng, `.restore-ok.txt` đúng bộ; khoá đã xoá, không còn hẹn giờ chờ; (3) bản sao ngoài VPS: chữ ký + SHA-256 khớp, dấu khôi phục đúng bộ, "KET LUAN G7 … DAT" (`step7-pull-verify-…`). DB khôi phục thử đã xoá bằng `step7.sh drop` theo lời Owner "Duyệt xoá" |
+| 8 | "GO" | 21/11 13:39 | Claude chạy `golive-check.sh 5` lần cuối (`golive-check-truoc-GO-…`, mọi mục đạt) rồi trình bảng 10 dòng; Owner ghi GO | CRM mở cho nhân viên. P4 (chuyển khoá sao lưu khỏi Dropbox), G9, G10: theo lời Owner "P4: đã xong", "G9 đã xong, G10 cũng xong" |
 
 ### 1.1 Mốc giờ các lần duyệt của Owner
 
@@ -39,7 +41,13 @@ Owner duyệt trong phiên chat với Claude, **ngoài repo**. Mốc giờ dư�
 | 3 | "A duyệt bước 3" | 20/11 09:48:43 | 09:52:00 |
 | 4 | "Duyệt bước 4" | 20/11 10:02:19 | 10:03:48 |
 | 5 | "OWNER_APPROVED_TASK" | 20/11 10:14:01 | chưa chạy |
-| 7 | "duyệt bước 7" | 20/11 10:32:49 | 10:34:21 (sao lưu) |
+| 7 (sơ bộ) | "duyệt bước 7" | 20/11 10:32:49 | 10:34:21 (sao lưu) |
+| 5 (chạy) | "Làm bước 5" | 21/11 03:40:11 | Owner tự chạy; kiểm xong 03:48:00 |
+| 6b | "Làm 6b trước" | 21/11 03:48:51 | Owner đăng nhập 06:21–06:30 |
+| 7 (G7) | "Sao lưu lại" | 21/11 06:32:27 | 06:33:45 (sao lưu) |
+| 7 (xoá DB thử) | "Duyệt xoá" | 21/11 06:37:12 | 06:37:30 |
+| 8 | "GO" | 21/11 06:39:38 | — |
+| Sau GO: triển khai `fd2a8a4` | "cả A và B" | 21/11 08:39:54 | 08:40:12 (chép gói), 08:41:41 (triển khai) |
 
 Điều kiện ngày chạy của kế hoạch (mục 2.2: "`main` vẫn là `2de465c`, khác ⇒ dừng"): kiểm bằng `git fetch` + `git rev-parse origin/main` trước bước 1 và trước bước 3, đều ra `2de465c` (dòng đầu của `step1-…-pre` và `step3-…-pre`).
 
@@ -60,21 +68,23 @@ Owner duyệt trong phiên chat với Claude, **ngoài repo**. Mốc giờ dư�
    - **Chưa có:** Owner tự thử trên giao diện (màn hình, hộp thoại, số tiền có dấu chấm). Môi trường thử để sẵn ở `C:\Users\namph\siscom-thu-g5` (ngoài repo) với `BAT-THU.bat`, `TAT-THU.bat`, `HUONG-DAN-THU.txt`.
    - Ghi nhận phụ: trong lúc chạy, cơ chế giới hạn đăng nhập (`LOGIN_MAX_PER_IDENTIFIER` = 5 / 15 phút) đã chặn tài khoản thử `sale@thu.local` ở lần thứ 6 (HTTP 429) — đúng thiết kế.
 
-## 3. Bảng GO/NO-GO (kiểm chỉ đọc 20/11 17:20, `gonogo-truoc-buoc5-…log.txt`)
+## 3. Bảng GO/NO-GO (kiểm chỉ đọc cuối 21/11 06:40 UTC, `golive-check-truoc-GO-…log.txt`)
 
-| # | Trạng thái | Ghi chú |
+Bảng trước bước 5 (20/11 17:20, NO-GO) giữ trong `gonogo-truoc-buoc5-…log.txt`.
+
+| # | Trạng thái | Căn cứ |
 |---|---|---|
-| G1 HTTPS | Đạt | Let's Encrypt, còn 89 ngày; cổng ngoài 80 / 443 / 26266 (quét từ máy Owner) |
-| G2 Dịch vụ và database | Đạt | `PASS\|75` + `PASS\|33` lấy từ nhật ký bước 3 (không chạy lại `grants` vì lệnh có ghi quyền) |
-| G3 Đăng nhập 5 tài khoản | Chưa | Sau bước 5 |
-| G4 RBAC | Chưa | Sau bước 5 |
-| G5 Nghiệp vụ thiết yếu | **Đạt phần API · chờ Owner thử giao diện** | Mục 2.6: staging 19/11 (tạo / sửa / chuyển giai đoạn / Thua / Mở lại / Xoá) + môi trường thử cách ly 20/11 qua API (Thắng + việc bàn giao, Tạm hoãn / Tiếp tục, Kỹ thuật thấy việc, không thấy số tiền) + test tự động CI `2de465c`. Còn: Owner thử trên giao diện ở môi trường thử, hoặc Owner ghi rõ chấp nhận bằng chứng API thay cho thử giao diện |
-| G6 Database thật sạch | **Tạm** (chưa kết luận) | 11 bảng nghiệp vụ = 0; `lookup_item` = 73; `audit_log` trống; `employee` = 0. Chỉ kết luận sau bước 6b, bằng `golive-check.sh 5` |
-| G7 Sao lưu | **Chưa đạt** (một phần) | Bộ sơ bộ (`employee` = 0) có chữ ký + bản sao ngoài VPS qua kiểm. Chưa có bộ sau bước 5, chưa khôi phục thử (điều kiện ở mục 2.2). Chỉ đạt khi đủ 3 điều kiện ở mục 6 |
-| G8 Rollback | Đạt phần **chuẩn bị** | Bộ sao lưu staging cuối có chữ ký; staging trùng dấu vân tay; bản mã `src-20261119093630` và 4 tệp `.bak` còn; lệnh lùi ghi sẵn (kế hoạch mục 5.2). **Chưa thử rollback thật trên VPS**; quy trình khôi phục chỉ mới diễn tập trên PostgreSQL tạm cách ly (#255) |
-| G9 Giao tài khoản | Chưa | Owner |
-| G10 Kênh báo lỗi | Chưa | Owner |
-| **Kết luận** | **NO-GO** | Không mở cho người dùng. Chỉ Owner quyết GO khi cả 10 dòng đạt |
+| G1 HTTPS | Đạt | Claude kiểm: Let's Encrypt, còn 89 ngày; HTTP → 308; HSTS, `nosniff`; cổng ngoài 80 / 443 / 26266 |
+| G2 Dịch vụ và database | Đạt | Claude kiểm: 16 / 0 migration; sức khoẻ đủ 5 chỉ số; cổng 3000 chỉ `127.0.0.1`; `PASS\|75` + `PASS\|33` lấy từ nhật ký bước 3 |
+| G3 Đăng nhập 5 tài khoản | Đạt | `audit_log`: 5/5 tài khoản đăng nhập được (Chrome Windows), `admin@` thêm trên iPhone; 1 lần sai mật khẩu bị từ chối (bước 6b) |
+| G4 RBAC | **Đạt (Owner xác nhận)** | Owner xem đủ 5 vai trò trên hệ thống thật và báo "tất cả ok". **Không có ảnh chụp hệ thống thật** (ảnh gửi kèm là của môi trường thử). Quyền theo vai trò có test tự động trong CI |
+| G5 Nghiệp vụ thiết yếu | Đạt | Qua API trên môi trường thử cách ly (mục 2.6) + Owner thử trên giao diện môi trường thử, báo "G5 đạt cả 3" (21/11 03:38 UTC) |
+| G6 Database thật sạch | Đạt | Sau 6b: 11 bảng nghiệp vụ = 0; 5 nhân viên; 73 danh mục; `audit_log` chỉ `auth.*` (5 khởi tạo, 6 đăng nhập, 1 sai mật khẩu, 4 đăng xuất) |
+| G7 Sao lưu | Đạt | Đủ 3 điều kiện ở mục 6 (bước 7 G7, mục 1) |
+| G8 Rollback | Đạt phần **chuẩn bị** | Bộ sao lưu staging cuối có chữ ký; staging trùng dấu vân tay; bản mã `src-20261119093630` và 4 tệp `.bak` còn. **Chưa thử rollback thật trên VPS** |
+| G9 Giao tài khoản | **Đạt (Owner xác nhận)** | Owner báo mỗi tài khoản đã giao đúng một người |
+| G10 Kênh báo lỗi | **Đạt (Owner xác nhận)** | Owner báo đã lập nhóm Zalo |
+| **Kết luận** | **GO** | Owner ghi "GO" 21/11 06:39:38 UTC (13:39 giờ Việt Nam) |
 
 ## 4. Trạng thái để lùi (giai đoạn trước khi mở, kế hoạch mục 5.2)
 
@@ -89,11 +99,12 @@ Owner duyệt trong phiên chat với Claude, **ngoài repo**. Mốc giờ dư�
 |---|---|---|
 | `step1-caddy.sh` | Bước 1: `pre` / `apply` / `post` / `rollback <STAMP>` | `b1a536811d9d3b9b` |
 | `step2-db.sh` | Bước 2: `pre` / `apply` / `post`; hàm dấu vân tay staging dùng lại ở bước 3–5 | `00e21dec57add873` |
-| `step5-bootstrap-owner.sh` | Bước 5: Owner tự chạy (**chưa chạy thật**). Bản sửa sau R1 | xem `SHA256SUMS.txt` |
+| `step5-bootstrap-owner.sh` | Bước 5: Owner tự chạy (đã chạy thật 21/11). Bản sửa sau R1 | xem `SHA256SUMS.txt` |
 | `golive-check.sh` | Kiểm GO/NO-GO chỉ đọc: `0` trước bước 5, `5` sau bước 5. Lần chạy 17:20 dùng bản `8e477b201c2dadc2`; bản hiện tại đổi 3 chỗ `ls \| grep` sang `find` theo ShellCheck và (sau R2 lần 3) bắt buộc 4 tệp cấu hình để lùi cho G8 | xem `SHA256SUMS.txt` |
-| `step7.sh` | Bước 7: `backup` / `owner-restore` (Owner, **chưa chạy**) / `status` / `drop` / `pull` / `verify-local` / `selftest-cleanup`. Bản sửa sau R1; lần sao lưu 17:34 chạy bằng bản trước (`8cd37164797073c6`, phần `backup` không đổi logic) | xem `SHA256SUMS.txt` |
+| `step7.sh` | Bước 7: `backup` / `owner-restore` (Owner, đã chạy thật 21/11) / `status` / `drop` / `pull` / `verify-local` / `selftest-cleanup`. Bản sửa sau R1; lần sao lưu 17:34 chạy bằng bản trước (`8cd37164797073c6`, phần `backup` không đổi logic) | xem `SHA256SUMS.txt` |
 | `test-golive-scripts.sh` | Bộ thử nhánh lỗi bằng dữ liệu giả cho hai kịch bản trên | xem `SHA256SUMS.txt` |
 | `g5-api-flows.sh` | G5: 3 nghiệp vụ còn thiếu, chạy trên môi trường thử cách ly (không chạm VPS) | xem `SHA256SUMS.txt` |
+| `daily-check.sh` | Sau GO: kiểm chỉ đọc hằng ngày (mục 7.2); cũng dùng để kiểm sau triển khai `fd2a8a4` | xem `SHA256SUMS.txt` |
 
 Các kịch bản này là công cụ một lần cho đợt go-live, nằm ngoài phạm vi ShellCheck của CI (chỉ quét `backend/scripts/linux`); chỉ gọi lại các script đã review (`create-db.sh`, `deploy.sh`, `backup-db.sh`, `restore-test.sh`, `run-cli.sh`, `check-tls.sh`).
 
@@ -142,18 +153,34 @@ Hai kịch bản sửa sau R1 đã chép lên VPS thay bản cũ (`/root/golive-
 
 ## 6. NOT_VERIFIED
 
-- Bước 5, 6b, khôi phục thử của bước 7, bước 8: chưa chạy. `step5-bootstrap-owner.sh` và chế độ `owner-restore` của `step7.sh` mới thử bằng dữ liệu giả, chưa chạy với mật khẩu / khoá thật.
-- G5: **đã có** bằng chứng qua API trên môi trường thử cách ly cho Thắng + việc bàn giao, Tạm hoãn / Tiếp tục, việc giao cho Kỹ thuật (mục 2.6); **chưa** có lần Owner thử trên giao diện (hoặc lời Owner chấp nhận bằng chứng API thay thế).
-- Sửa R2 lần 3:
-  - `golive-check.sh` G8: **đã kiểm** — thử cô lập + chạy chỉ đọc trên VPS (mục 5.2).
-  - `step7.sh backup`: **đã thử cô lập**; **chưa chạy thật trên VPS**. Lần chạy thật đầu tiên là lần sao lưu lại sau bước 5, cần Owner duyệt riêng.
-- **G7 chưa đạt** và không được coi là đạt cho tới khi đủ cả ba:
-  1. có bộ sao lưu chụp **sau bước 5** (`employee` = 5);
-  2. Owner **khôi phục thử thành công** chính bộ đó (`owner-restore`, có dấu `.restore-ok.txt`);
-  3. **bản sao ngoài VPS** của bộ đó qua kiểm chữ ký + SHA-256 + dấu khôi phục (`pull` / `verify-local`).
+- G4, G9, G10: dựa trên **lời Owner**, Claude không tự kiểm được. G4 không có ảnh chụp hệ thống thật.
+- `step5-bootstrap-owner.sh`, `step7.sh owner-restore`: đã chạy thật một lần (bước 5, bước 7 G7) với mật khẩu / khoá do Owner tự nhập; Claude chỉ thấy kết quả qua kiểm chỉ đọc và ảnh màn hình Owner gửi (không chứa khoá).
+- **G7 đạt** khi đủ cả ba điều kiện (bước 7 G7, mục 1):
+  1. bộ sao lưu chụp **sau bước 5** (`employee` = 5): `siscom_crm_prod_20261121_063345`;
+  2. Owner **khôi phục thử thành công** chính bộ đó (dấu `.restore-ok.txt`, 24 bảng);
+  3. **bản sao ngoài VPS** của bộ đó qua kiểm chữ ký + SHA-256 + dấu khôi phục.
 
   Bộ sơ bộ `siscom_crm_prod_20261120_103421` (`employee` = 0) không dùng để kết luận G7.
-- Rollback thật trên VPS: chưa thử.
-- Đăng nhập thật trên `https://crm.siscom.io.vn`: chưa kiểm (chưa có tài khoản); mới kiểm preflight CORS trả đúng origin.
-- Sao lưu đêm tự động đầu tiên trên `siscom_crm_prod` (02:02 ngày 21/11): chưa tới giờ.
+- Rollback thật trên VPS: chưa thử (kể cả `deploy.sh --rollback` cho bản `fd2a8a4`, mục 7).
+- Sao lưu đêm tự động đầu tiên trên `siscom_crm_prod` (02:02 ngày 21/11) đã chạy: bộ `siscom_crm_prod_20261120_190358`; từ 21/11 có kiểm mỗi sáng (mục 7).
 - Tờ hướng dẫn nhân viên (ngoài repo) soạn từ mã nguồn giao diện, chưa đối chiếu trên màn hình thật.
+- P4 (chuyển khoá giải mã sao lưu khỏi Dropbox): theo lời Owner, Claude không kiểm được.
+
+## 7. Sau GO
+
+### 7.1 Triển khai `main` = `fd2a8a4` (#257 + #259)
+
+- **Duyệt:** Owner "cả A và B" (21/11 08:39:54 UTC) sau khi Claude trình kế hoạch hai bước (A: chép gói + chạy thử; B: triển khai thật). Merge #257 (`7b7606c`) và #259 (`fd2a8a4`) vào `main` trước đó, mỗi PR Owner duyệt riêng; cả hai qua review Astra (vòng 2 PASS) và CI 6/6.
+- **Phạm vi:** `2de465c..fd2a8a4` không có migration, không đổi `schema.prisma`, `package.json`, script Linux hay CI; chỉ mã máy chủ và giao diện (9 điểm tồn T-01…T-06, T-08…T-10).
+- **Build giao diện tái lập được:** build lại `2de465c` trên Windows bằng PowerShell (cờ `VITE_CRM_AUTH_ENABLED`, `VITE_CRM_API_ENABLED`, `VITE_CRM_API_BASE=/api/v1`) cho 17 tệp trùng từng tệp với `/root/s12-web-dist-2de465c` đang chạy; build `fd2a8a4` cùng cách. Gói nguồn = `git archive fd2a8a4 backend` (549 tệp).
+- **A** (`deploy-fd2a8a4-A-…`, `…-A-dryrun-…`): chép 2 gói lên `/root`, SHA-256 khớp, giải nén `/root/s12-src-fd2a8a4`, `/root/s12-web-dist-fd2a8a4`; 17 tệp giao diện trên VPS trùng bản build; `deploy.sh --src … --frontend … --auto-rollback --dry-run` rc = 0, "Migrate: khong".
+- **B** (`deploy-fd2a8a4-B-apply-…`): `deploy.sh --src /root/s12-src-fd2a8a4 --frontend /root/s12-web-dist-fd2a8a4 --auto-rollback` (không `--migrate`). Trước đó kiểm chỉ đọc: 1 phiên dùng trong 10 phút, 0 dữ liệu nghiệp vụ. Sao lưu bắt buộc của `deploy.sh`: `siscom_crm_prod_20261121_084222` (manifest đã ký); sức khoẻ đạt; bản mới `src-20261121084141`, `previous` = `src-20261120095200`; `deploy.sh` tự dọn bản cũ `src-20261119073843` theo retention.
+- **Kiểm sau** (`deploy-fd2a8a4-B-post-…`): `daily-check.sh` mọi mục đạt; 16 / 0 migration; `index.html` đang phục vụ = bản mới; `GET /api/v1/opportunities/board-summary` không đăng nhập = 401 (tuyến mới có, cần đăng nhập); 0 dòng lỗi backend. Bộ sao lưu trước triển khai đã chép ra máy Owner, chữ ký + SHA-256 hợp lệ (`deploy-fd2a8a4-backup-ngoai-vps…`).
+- **Thử trên trình duyệt** (môi trường thử cách ly trên máy Owner, backend + giao diện `fd2a8a4`, cùng database thử G5; không phải hệ thống thật): T-04 (tổng cột "300 triệu", số đếm Tạm hoãn, gọi `board-summary` 200), T-02 (lịch sử gọi `page=1&pageSize=50`), T-03 ("Chuyển từ … sang …", lịch sử tự tải lại khi version đổi), T-05 (ô người phụ trách + "Giao cho người phòng khác" trong cơ hội; ô "Cơ hội" ở drawer khách), T-06 (hộp thoại "Sửa hoạt động" ở trang chi tiết Công việc nằm giữa màn hình). **Chưa thử trên trình duyệt:** T-01, T-08, T-09, T-10 (có test tự động).
+- **Lùi:** `deploy.sh --rollback` về `src-20261120095200` (database không đổi). Chưa thử.
+- `golive-check.sh` (công cụ go-live) mục G8 kiểm `previous` = `src-20261119093630`; sau triển khai này `previous` đổi nên mục đó sẽ báo khác — đúng, không còn dùng cho vận hành.
+
+### 7.2 Kiểm hằng ngày
+
+- `daily-check.sh` (chỉ đọc, chạy qua `ssh 'bash -s'`): HTTPS + số ngày chứng chỉ; 3 dịch vụ; sức khoẻ database; bộ sao lưu đêm mới nhất ≤ 26 giờ, chữ ký + SHA-256; đĩa / RAM; dòng lỗi journal 24 giờ. Không ghi gì lên VPS.
+- Lịch tự động trên máy Owner mỗi sáng khoảng 07:30 (chỉ chạy khi ứng dụng Claude đang mở), kết quả lưu ngoài repo; chỉ báo, không tự sửa.
