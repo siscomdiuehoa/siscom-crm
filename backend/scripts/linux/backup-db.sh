@@ -167,5 +167,7 @@ info "SHA-256 (file luu): $(cut -d' ' -f1 "$final.sha256")"
 # --- Giu ban (SEC-02): CHI bo .dump.age cua DB nay bi retention xoa; plaintext chi duoc liet ke. Ma hoa + con plaintext => ban .age moi
 # DA tao + tu kiem, nhung thoat != 0 cho toi khi Owner xu ly tay. ---
 prc=0; backup_prune "$SISCOM_BACKUP_DIR" "$db" "$encrypt" || prc=$?
+grc=0; backup_pull_sync "$SISCOM_BACKUP_DIR" || grc=$?   # bo ma hoa hoan chinh -> thu muc keo cua backup-pull (neu da cai); go bo da xoa
 [ "$prc" = 0 ] || die "Ban sao luu ma hoa moi DA tao va tu kiem dat ($final), nhung buoc giu ban/plaintext chua xong (ma $prc, chi tiet o tren)."
+[ "$grc" = 0 ] || die "Ban sao luu ma hoa moi DA tao va tu kiem dat ($final), nhung CHUA dua duoc sang $SISCOM_PULL_DIR (may Owner se khong keo duoc). Xem canh bao o tren."
 info "Nho chep ra NGOAI may chu (Owner chon noi luu)."

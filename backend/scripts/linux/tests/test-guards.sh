@@ -578,6 +578,126 @@ else
   bad "thieu npm - khong kiem duoc don ban do dang"
 fi
 
+echo "== 13. Tai khoan CHI DOC backup-pull (setup-backup-pull.sh): thu muc keo rieng, chi bo ma hoa hoan chinh (PR235-R1-SEC-01) =="
+sbp="$lin/setup-backup-pull.sh"
+ssh-keygen -q -t ed25519 -N '' -C 'owner may' -f "$tmp/pull" >/dev/null 2>&1
+ssh-keygen -q -t rsa -b 2048 -N '' -f "$tmp/pullrsa" >/dev/null 2>&1
+check_not "khong tham so => tu choi" bash "$sbp"
+check_not "tham so la => tu choi" bash "$sbp" --pubkey "$tmp/pull.pub" --yes
+check_not "file .pub khong ton tai => tu choi" bash "$sbp" --pubkey "$tmp/khong-co.pub" --dry-run
+check_not "khoa RSA => tu choi" bash "$sbp" --pubkey "$tmp/pullrsa.pub" --dry-run
+cat "$tmp/pull.pub" "$tmp/pull.pub" > "$tmp/two.pub"
+check_not "2 dong khoa => tu choi" bash "$sbp" --pubkey "$tmp/two.pub" --dry-run
+printf 'command="/bin/sh" %s\n' "$(cat "$tmp/pull.pub")" > "$tmp/opt.pub"
+check_not "khoa kem tuy chon (command=...) => tu choi" bash "$sbp" --pubkey "$tmp/opt.pub" --dry-run
+printf 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIhong\n' > "$tmp/badb64.pub"
+check_not "khoa ed25519 hong => tu choi" bash "$sbp" --pubkey "$tmp/badb64.pub" --dry-run
+check_not "thu muc sao luu co dau cach => tu choi" env SISCOM_BACKUP_DIR="/var/backups/a b" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "thu muc keo co dau nhay => tu choi" env SISCOM_PULL_DIR='/var/backups/a"x' bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "thu muc keo tuong doi => tu choi" env SISCOM_PULL_DIR="pull" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "thu muc keo = thu muc sao luu => tu choi" env SISCOM_BACKUP_DIR=/var/backups/x SISCOM_PULL_DIR=/var/backups/x bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "thu muc keo NAM TRONG thu muc sao luu => tu choi" env SISCOM_BACKUP_DIR=/var/backups/x SISCOM_PULL_DIR=/var/backups/x/pull bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "thu muc keo LA CHA cua thu muc sao luu => tu choi (rm -rf --remove xoa ca ban goc)" env SISCOM_BACKUP_DIR=/var/backups/siscom-crm SISCOM_PULL_DIR=/var/backups bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "thu muc keo la cha (co dau / cuoi) => tu choi" env SISCOM_BACKUP_DIR=/var/backups/x/y SISCOM_PULL_DIR=/var/backups/x/ bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "duong dan tuong duong '/./' (cung thu muc) => tu choi" env SISCOM_BACKUP_DIR=/var/backups/./siscom-crm SISCOM_PULL_DIR=/var/backups/siscom-crm bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "duong dan '//' lap => tu choi" env SISCOM_BACKUP_DIR=/var/backups/siscom-crm SISCOM_PULL_DIR=/var/backups//siscom-crm bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "duong dan ket thuc '/.' => tu choi" env SISCOM_BACKUP_DIR=/var/backups/siscom-crm SISCOM_PULL_DIR=/var/backups/. bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+mkdir -p "$tmp/real" && ln -s "$tmp/real" "$tmp/alias"
+check_not "symlink o thu muc CHA cua thu muc keo (alias toi thu muc sao luu) => tu choi" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$tmp/alias/sl" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "symlink o thu muc cha cua thu muc sao luu => tu choi" env SISCOM_BACKUP_DIR="$tmp/alias/sl" SISCOM_PULL_DIR="$tmp/real/sl-pull" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "--remove qua symlink cha => tu choi (khong rm -rf nham)" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$tmp/alias/sl" bash "$sbp" --remove --dry-run
+check "doi chung: cung cap duong dan that thi hop le" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$tmp/real/sl-pull" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "setup khong dung tep tam theo PID doan duoc (bp.\$\$)" grep -qF 'bp.$$' "$sbp"
+check "setup tao tep tam bang mktemp" grep -qF 'tmpf="$(mktemp)"' "$sbp"
+check "setup don tep tam bang trap EXIT" grep -qF "trap 'rm -f -- \"\$tmpf\"' EXIT" "$sbp"
+# Dau nhan dien .siscom-pull-dir: thu muc co san chi duoc nhan khi co dau KHOP hoac RONG (cau hinh nham SISCOM_PULL_DIR khong duoc xoa noi dung ung dung khac).
+fo="$tmp/real/foreign"; mkdir -p "$fo/sub"; echo keep > "$fo/app.txt"
+check_not "thu muc keo co san, co noi dung la, KHONG dau => tu choi (cai)" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$fo" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "thu muc keo co san, co noi dung la, KHONG dau => tu choi (--remove)" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$fo" bash "$sbp" --remove --dry-run
+printf 'siscom-pull-dir v1\nsource=/var/backups/mot-noi-khac\n' > "$fo/.siscom-pull-dir"
+check_not "dau nhan dien KHAC thu muc sao luu => tu choi (cai)" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$fo" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check_not "dau nhan dien KHAC thu muc sao luu => tu choi (--remove)" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$fo" bash "$sbp" --remove --dry-run
+printf 'siscom-pull-dir v1\nsource=%s\n' "$tmp/real/sl" > "$fo/.siscom-pull-dir"
+check "dau nhan dien KHOP => nhan (cai)" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$fo" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check "dau nhan dien KHOP => nhan (--remove)" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$fo" bash "$sbp" --remove --dry-run
+mkdir -p "$tmp/real/trong"
+check "thu muc keo co san nhung RONG => nhan" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$tmp/real/trong" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+check "dry-run in dong ghi dau nhan dien" contains "$(SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$tmp/real/trong" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run 2>&1)" ".siscom-pull-dir (root:root 600): source=$tmp/real/sl"
+check "dau o tren thu muc la khong bi dong vao (tep van con)" test -f "$fo/app.txt"
+# --remove: home do script tao chi co .ssh/authorized_keys; du lieu la => tu choi, khong rm -rf home.
+# PULL_HOME la HANG SO trong script (khong con bien moi truong ghi de - tranh tro --remove vao home cua tai khoan khac). De thu duoc ma khong can root,
+# chay tren BAN SAO script (+ lib.sh) o thu muc tam, chi doi dong PULL_HOME=; ban that trong kho khong bi dung.
+check_not "setup-backup-pull.sh KHONG doc bien moi truong SISCOM_PULL_HOME" grep -q 'SISCOM_PULL_HOME' "$sbp"
+hm="$tmp/real/home"; mkdir -p "$hm/.ssh" "$tmp/sbpcopy"; : > "$hm/.ssh/authorized_keys"
+cp "$lin/lib.sh" "$tmp/sbpcopy/lib.sh"; sed "s#^PULL_HOME=.*#PULL_HOME=\"$hm\"#" "$sbp" > "$tmp/sbpcopy/setup-backup-pull.sh"
+check "ban sao script da doi PULL_HOME dung" grep -q "^PULL_HOME=\"$hm\"" "$tmp/sbpcopy/setup-backup-pull.sh"
+sbpc="$tmp/sbpcopy/setup-backup-pull.sh"
+check "--remove: home chi co .ssh/authorized_keys => nhan" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$tmp/real/khong-co-pull" bash "$sbpc" --remove --dry-run
+echo keep > "$hm/du-lieu-la"
+check_not "--remove: home co du lieu la => tu choi" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$tmp/real/khong-co-pull" bash "$sbpc" --remove --dry-run
+rm -f "$hm/du-lieu-la"; echo keep > "$hm/.ssh/known_hosts"
+check_not "--remove: .ssh co tep la (known_hosts) => tu choi" env SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$tmp/real/khong-co-pull" bash "$sbpc" --remove --dry-run
+rm -f "$hm/.ssh/known_hosts"
+out="$(SISCOM_BACKUP_DIR="$tmp/real/sl" SISCOM_PULL_DIR="$tmp/real/khong-co-pull" bash "$sbpc" --remove --dry-run 2>&1)"
+check "--remove --dry-run: bo authorized_keys roi go home bang rmdir" contains "$out" "rmdir -- $hm"
+check_not "--remove --dry-run KHONG co rm -rf" bash -c "printf '%s' \"\$1\" | grep -q 'rm -rf'" _ "$out"
+check_not "setup khong con rm -rf \$PULL_HOME" grep -qF 'rm -rf --one-file-system -- "$PULL_HOME"' "$sbp"
+check_not "--remove KHONG con rm -rf thu muc keo" grep -qF 'rm -rf --one-file-system -- "$PDIR"' "$sbp"
+check_not "backup_pull_sync KHONG con rm -rf muc trong thu muc keo" grep -qF 'rm -rf --one-file-system -- "${dst:?}' "$lin/lib.sh"
+check "backup_pull_sync tu choi khi thieu dau" grep -q 'pull_marker_ok "\$dst" "\$src"' "$lin/lib.sh"
+# Loi find KHONG bi nuot: find/id gia (find that bai khi tham so dau = $FAIL_FIND_ON; id bao co user backup-pull) => ham phai thoat != 0.
+fb="$tmp/fakebin"; mkdir -p "$fb" "$tmp/fsrc" "$tmp/fdst"
+printf '#!/bin/sh\n[ "$1" = "$FAIL_FIND_ON" ] && { echo "find: loi gia lap" >&2; exit 2; }\nexec "$REALFIND" "$@"\n' > "$fb/find"
+printf '#!/bin/sh\n[ "$1" = backup-pull ] && exit 0\nexec "$REALID" "$@"\n' > "$fb/id"; chmod +x "$fb/find" "$fb/id"
+printf 'siscom-pull-dir v1\nsource=%s\n' "$tmp/fsrc" > "$tmp/fdst/.siscom-pull-dir"
+fake_run() { local fail="$1"; shift; env PATH="$fb:$PATH" REALFIND="$(command -v find)" REALID="$(command -v id)" FAIL_FIND_ON="$fail" SISCOM_PULL_DIR="$tmp/fdst" bash -c ". '$lin/lib.sh'; $*"; }
+check "doi chung: find that => backup_pull_sync thoat 0" fake_run "" "backup_pull_sync '$tmp/fsrc'"
+check_not "find loi khi liet ke thu muc sao luu => backup_pull_sync thoat != 0" fake_run "$tmp/fsrc" "backup_pull_sync '$tmp/fsrc'"
+check_not "find loi khi liet ke thu muc keo (don dep) => backup_pull_sync thoat != 0" fake_run "$tmp/fdst" "backup_pull_sync '$tmp/fsrc'"
+mkdir -p "$tmp/fst"; for p in .dump.age .dump.age.sha256 .manifest .manifest.sig; do : > "$tmp/fst/siscom_crm_staging_20261114_020000$p"; done
+check_not "pull_complete_stems: find loi => thoat != 0 (khong in danh sach rong gia)" fake_run "$tmp/fst" "pull_complete_stems '$tmp/fst'"
+check "pull_complete_stems: find that => van in bo 020000" test "$(fake_run "" "pull_complete_stems '$tmp/fst'")" = siscom_crm_staging_20261114_020000
+mkdir -p "$tmp/fdst2"; printf 'siscom-pull-dir v1\nsource=%s\n' "$tmp/khong-co-src" > "$tmp/fdst2/.siscom-pull-dir"   # dau KHOP => di den buoc kiem thu muc sao luu
+check_not "backup_pull_sync: thu muc sao luu khong ton tai (dau khop) => thoat != 0" env SISCOM_PULL_DIR="$tmp/fdst2" PATH="$fb:$PATH" REALFIND="$(command -v find)" REALID="$(command -v id)" FAIL_FIND_ON= bash -c ". '$lin/lib.sh'; backup_pull_sync '$tmp/khong-co-src'"
+check "thu muc keo anh em (siscom-crm-pull canh siscom-crm) van hop le" env SISCOM_BACKUP_DIR=/var/backups/siscom-crm SISCOM_PULL_DIR=/var/backups/siscom-crm-pull bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run
+# systemd: ProtectSystem=strict + ln giua 2 mount bind rieng => EXDEV; thu muc keo phai nam CUNG mount ghi duoc voi thu muc sao luu.
+check "unit sao luu: ReadWritePaths=/var/backups (cung mount cho thu muc sao luu va thu muc keo)" grep -qx 'ReadWritePaths=/var/backups' "$lin/systemd/siscom-crm-backup.service"
+check_not "unit sao luu: KHONG liet ke rieng /var/backups/siscom-crm (se tach mount, hong lien ket cung)" grep -q '^ReadWritePaths=.*/var/backups/siscom-crm' "$lin/systemd/siscom-crm-backup.service"
+if [ "$(id -u)" != 0 ]; then check_not "chay that khong phai root => tu choi" bash "$sbp" --pubkey "$tmp/pull.pub"; fi
+out="$(SISCOM_BACKUP_DIR=/var/backups/siscom-crm bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run 2>&1)"; rc=$?
+check "dry-run hop le thoat 0" test "$rc" = 0
+check "authorized_keys: restrict + sftp-server CHI DOC, khoa vao THU MUC KEO" contains "$out" 'restrict,command="/usr/lib/openssh/sftp-server -R -d /var/backups/siscom-crm-pull" ssh-ed25519 AAAA'
+check_not "authorized_keys khong giu ghi chu cua khoa goc" contains "$out" 'owner may'
+check "user he thong shell /bin/sh" contains "$out" 'useradd --system --user-group --home-dir /var/lib/backup-pull --no-create-home --shell /bin/sh backup-pull'
+check "mat khau '*' (khong dang nhap bang mat khau)" contains "$out" "usermod -p * backup-pull"
+check "home root:root 755" contains "$out" 'install -d -m 755 -o root -g root /var/lib/backup-pull'
+check ".ssh root:backup-pull 750" contains "$out" 'install -d -m 750 -o root -g backup-pull /var/lib/backup-pull/.ssh'
+check "thu muc keo root:backup-pull 750" contains "$out" 'install -d -m 750 -o root -g backup-pull /var/backups/siscom-crm-pull'
+check_not "PR235-SEC-01: KHONG cap quyen gi tren thu muc sao luu chinh (khong ACL/chmod/chown)" bash -c "printf '%s' \"\$1\" | grep -E '(setfacl|chmod|chown|install ).*/var/backups/siscom-crm( |\$)'" _ "$out"
+check_not "khong dung sshd/ufw/fail2ban/systemctl" bash -c "printf '%s' \"\$1\" | grep -Ei 'sshd_config|systemctl|ufw|fail2ban'" _ "$out"
+# Chi bo MA HOA HOAN CHINH duoc dua sang: du 4 tep, khong trung stem voi .dump
+mkdir -p "$tmp/bp13"; for f in siscom_crm_staging_20261114_020000.dump.age siscom_crm_staging_20261114_020000.dump.age.sha256 \
+  siscom_crm_staging_20261114_020000.manifest siscom_crm_staging_20261114_020000.manifest.sig siscom_crm_staging_20261114_030000.dump \
+  siscom_crm_staging_20261114_030000.dump.sha256 la.txt siscom_crm_staging_20261114_030000.manifest siscom_crm_staging_20261114_030000.manifest.sig \
+  siscom_crm_staging_20261114_040000.dump.age siscom_crm_staging_20261114_040000.dump.age.sha256 siscom_crm_staging_20261114_040000.manifest \
+  siscom_crm_staging_20261114_050000.dump.age siscom_crm_staging_20261114_050000.dump.age.sha256 siscom_crm_staging_20261114_050000.manifest \
+  siscom_crm_staging_20261114_050000.manifest.sig siscom_crm_staging_20261114_050000.dump siscom_crm_staging_20261114_060000.dump.age.partial; do : > "$tmp/bp13/$f"; done
+check "pull_complete_stems: chi bo 020000" test "$(bash -c ". '$lin/lib.sh'; pull_complete_stems '$tmp/bp13'")" = siscom_crm_staging_20261114_020000
+out="$(SISCOM_BACKUP_DIR="$tmp/bp13" SISCOM_PULL_DIR="$tmp/bp13-pull" bash "$sbp" --pubkey "$tmp/pull.pub" --dry-run 2>&1)"
+check "dry-run liet ke bo hoan chinh 020000" contains "$out" "lien ket cung $tmp/bp13/siscom_crm_staging_20261114_020000."
+for st in 030000 040000 050000 060000; do check_not "PR235-SEC-01: KHONG dua bo $st (plaintext/thieu tep/trung stem/partial)" contains "$out" "siscom_crm_staging_20261114_$st"; done
+check "dem 1 bo" contains "$out" "Dua 1 bo ma hoa hoan chinh sang $tmp/bp13-pull"
+out="$(SISCOM_BACKUP_DIR="$tmp/bp13" SISCOM_PULL_DIR="$tmp/bp13-pull" bash "$sbp" --remove --dry-run 2>&1)"; rc=$?
+check "--remove --dry-run thoat 0" test "$rc" = 0
+check "--remove xoa user" contains "$out" 'userdel backup-pull'
+check_not "--remove KHONG xoa thu muc sao luu chinh" bash -c "printf '%s' \"\$1\" | grep -E 'rm .*$tmp/bp13( |\$)'" _ "$out"
+# backup-db.sh: dua bo sang thu muc keo SAU khi tao + tu kiem + retention; loi => thoat != 0
+gl="$(grep -n 'backup_pull_sync "' "$lin/backup-db.sh" | head -n1 | cut -d: -f1)"; dl="$(grep -n '^done_ok=1' "$lin/backup-db.sh" | head -n1 | cut -d: -f1)"
+check "PR235-SEC-01: backup-db.sh goi backup_pull_sync SAU khi tu kiem (done_ok=1)" test "${gl:-0}" -gt "${dl:-999999}"
+check "PR235-SEC-01: backup-db.sh thoat != 0 neu dua sang thu muc keo that bai" grep -q '\[ "\$grc" = 0 \] || die' "$lin/backup-db.sh"
+check "backup_pull_sync khong lam gi khi chua cai backup-pull" bash -c "id backup-pull >/dev/null 2>&1 || { . '$lin/lib.sh'; SISCOM_PULL_DIR='$tmp/khong-co' backup_pull_sync '$tmp/bp13'; }"
+check_not "lib.sh khong con ACL cho backup-pull" grep -q 'setfacl' "$lin/lib.sh" "$sbp"
+
 echo
 echo "Ket qua: $pass dat, $fail loi."
 [ "$fail" -eq 0 ]
