@@ -216,6 +216,25 @@ test('T-05: drawer có ô "Cơ hội" lấy từ GET /customers/:id/opportunitie
   } finally { await m.unmount(); }
 });
 
+// Review Astra #257 (HIGH): cơ hội gắn được chỉ có ở trang 2 => vẫn phải hiện và chọn được (trước đây chỉ đọc trang 1 => ô bị ẩn).
+test('T-05: ô "Cơ hội" đọc cả trang sau — trang 1 toàn cơ hội người khác, cơ hội của mình ở trang 2 vẫn chọn được', async () => {
+  const other = { owner: { id: 'e9', code: 'NV-009', fullName: 'Người khác' } };
+  const f = server({ opps: (q) => (q.get('page') === '2' ? res(200, page([opp(7)], { page: 2, totalPages: 2, total: 21 })) : res(200, page([opp(1, other), opp(2, other)], { page: 1, totalPages: 2, total: 21 }))) });
+  const m = await mount(f, SALES, { me: OPP_ME });
+  try {
+    await openTab(m); await openDrawer(m);
+    const og = f.calls.filter((c) => c.p.endsWith('/customers/' + ID + '/opportunities')); assert.deepEqual(og.map((c) => c.q.get('page')), ['1', '2']);
+    const d = dialog(m.container);
+    const field = findAll(d, (e) => e.attributes.class === 'sg-field' && findAll(e, (l) => l.tagName === 'LABEL' && /^Cơ hội/.test(text(l))).length)[0]; assert.ok(field, 'có ô Cơ hội (cơ hội gắn được ở trang 2)');
+    await doAct(() => click(findAll(field, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
+    assert.deepEqual(findAll(field, (e) => e.attributes.role === 'option').map((e) => text(e)), ['— Không gắn cơ hội —', 'CH-0007 · Cơ hội 7']);
+    await doAct(() => click(findAll(field, (e) => e.attributes.role === 'option' && /CH-0007/.test(text(e)))[0]));
+    type(inputByLabel(dialog(m.container), /^Nội dung/), 'Gọi khách'); await flush();
+    await doAct(() => click(buttonByText(dialog(m.container), /^Lưu$/)));
+    assert.equal(f.posts()[0].body.opportunityId, 'o7');
+  } finally { await m.unmount(); }
+});
+
 test('T-05: không chọn cơ hội => không gửi opportunityId; không có opportunity.update => không có ô Cơ hội, không gọi API cơ hội', async () => {
   const f = server({ opps: () => res(200, page([opp(1)])) });
   const m = await mount(f, SALES, { me: OPP_ME });

@@ -2,12 +2,13 @@ import React from 'react';
 import { Button, Icon, IconButton, Input, Select, Switch } from '../../ds/index.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
-import { TYPE_META, allowedTypes, hasTitle, hasDue, hasOutcome, hasOccurred, validateDraft, buildCreateBody } from './activityModel.js';
+import { TYPE_META, allowedTypes, hasTitle, hasDue, hasOutcome, hasOccurred, validateDraft, buildCreateBody, collectPages } from './activityModel.js';
 import { holdsUpdate, statusLabel } from '../opportunities/opportunitiesModel.js';
 
 const empty = (type) => ({ type, title: '', content: '', outcome: '', occurredAt: '', dueAt: '', remindAt: '', contactId: '', performedById: '', external: false, opportunityId: '' });
 const scopeOf = (ui) => (p) => (ui && ui.me && ui.me.permissions ? ui.me.permissions[p] || null : null);
 // T-05: chỉ gợi ý cơ hội người dùng có thể gắn (đường đầy đủ + opportunity.update trên cơ hội); máy chủ luôn kiểm lại.
+const OPP_PICK_MAX_PAGES = 10; // 10 trang × 20 = 200 cơ hội gần nhất của khách
 const linkableOpps = (ui, items) => (Array.isArray(items) ? items : []).filter((o) => holdsUpdate(o, { scopeOf: scopeOf(ui), meId: ui && ui.me ? ui.me.employeeId : null }));
 const can = (ui, p) => typeof ui.can === 'function' && !!ui.can(p); // fail-closed
 // R2 F-1 (trợ năng, WCAG 2.4.3): phần tử nhận focus bằng Tab trong dialog — duyệt cây DOM (không phụ thuộc selector CSS).
@@ -38,7 +39,8 @@ export function ActivityDrawer({ open, ui, customerId, onClose, onSaved }) {
   React.useEffect(() => {
     if (!open || !canLinkOpp) return undefined;
     let live = true; setOpps({ status: 'loading', items: [], error: null });
-    oppsCtl.byCustomer(customerId, 1).then((r) => { if (live) setOpps(r.ok ? { status: 'ready', items: linkableOpps(ui, r.data && r.data.items), error: null } : { status: 'error', items: [], error: r.error }); });
+    collectPages((p) => oppsCtl.byCustomer(customerId, p), { maxPages: OPP_PICK_MAX_PAGES, keep: (xs) => linkableOpps(ui, xs) })
+      .then((r) => { if (live) setOpps(r.ok ? { status: 'ready', items: r.items, truncated: r.truncated, error: null } : { status: 'error', items: [], error: r.error }); });
     return () => { live = false; };
   }, [open, customerId, canLinkOpp]); // eslint-disable-line react-hooks/exhaustive-deps
   const [f, setF] = React.useState(() => empty(types[0]));
@@ -138,7 +140,7 @@ export function ActivityDrawer({ open, ui, customerId, onClose, onSaved }) {
           ) : null}
           {canLinkOpp && (opps.status !== 'ready' || opps.items.length) ? (
             <Select label="Cơ hội" value={f.opportunityId} onChange={set('opportunityId')} error={err('opportunityId')} disabled={opps.status !== 'ready'}
-              hint={opps.status === 'loading' ? 'Đang tải…' : opps.status === 'error' ? 'Chưa tải được danh sách cơ hội; hoạt động không gắn cơ hội' : 'Tuỳ chọn: gắn hoạt động vào một cơ hội của khách hàng này'}
+              hint={opps.status === 'loading' ? 'Đang tải…' : opps.status === 'error' ? 'Chưa tải được danh sách cơ hội; hoạt động không gắn cơ hội' : opps.truncated ? 'Chỉ liệt kê trong 200 cơ hội gần nhất của khách; cơ hội khác hãy ghi nhận từ trang chi tiết cơ hội' : 'Tuỳ chọn: gắn hoạt động vào một cơ hội của khách hàng này'}
               options={[{ value: '', label: '— Không gắn cơ hội —' }].concat(opps.items.map((o) => ({ value: o.id, label: o.code + ' · ' + o.title + (o.status && o.status !== 'OPEN' ? ' (' + statusLabel(o.status) + ')' : '') })))} />
           ) : null}
         </div>

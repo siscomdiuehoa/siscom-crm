@@ -113,6 +113,21 @@ export function buildCreateBody(d) {
   return b;
 }
 
+// T-05 (review Astra #257): ô "Cơ hội" đọc lần lượt các trang (tối đa maxPages) — cơ hội gắn được có thể nằm ở trang sau.
+// fetchPage(p) => { ok, data: { items, totalPages } } | { ok: false, error }. keep(items) lọc từng trang; bỏ trùng theo id.
+// Lỗi ở bất kỳ trang nào => { ok: false } (không hiện danh sách thiếu). Còn trang sau maxPages => truncated: true.
+export async function collectPages(fetchPage, { maxPages = 10, keep = (xs) => xs } = {}) {
+  const items = []; const seen = new Set();
+  for (let p = 1; p <= maxPages; p += 1) {
+    const r = await fetchPage(p);
+    if (!r || !r.ok) return { ok: false, items: [], truncated: false, error: r ? r.error : null };
+    const d = r.data || {};
+    for (const x of keep(Array.isArray(d.items) ? d.items : [])) { if (x && !seen.has(x.id)) { seen.add(x.id); items.push(x); } }
+    if (p >= (Number(d.totalPages) || 0)) return { ok: true, items, truncated: false, error: null };
+  }
+  return { ok: true, items, truncated: true, error: null };
+}
+
 // Chi tiết lỗi 400 (chuỗi) => { fieldErrors, extra }. Gắn theo tên trường đứng đầu (class-validator) hoặc nhắc trong câu của dịch vụ.
 const FIELDS = ['title', 'content', 'outcome', 'occurredAt', 'dueAt', 'remindAt', 'contactId', 'performedById', 'opportunityId', 'type'];
 const HINT_RE = [[/1 ngày sau hiện tại|occurredAt/, 'occurredAt'], [/nhắc|remindAt/, 'remindAt'], [/dueAt|\bhạn\b/, 'dueAt']];
