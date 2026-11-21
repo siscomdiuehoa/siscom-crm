@@ -86,7 +86,8 @@ describe('GET /opportunities/:id/owner-candidates — người có thể nhận 
     expect(ids(r)).toContain(fx.empB);
     for (const out of [fx.empA, fx.empC, techD, acctE, goneF, deptG]) expect(ids(r)).not.toContain(out);
     for (const x of r.body.data.items) expect(Object.keys(x).sort()).toEqual(['code', 'departmentCode', 'fullName', 'id']);
-    expect(Object.keys(r.body.data)).toEqual(['items']);
+    expect(Object.keys(r.body.data).sort()).toEqual(['items', 'truncated']); // T-09: cờ bị cắt ở 500 người
+    expect(r.body.data.truncated).toBe(false);
   });
 
   it('khớp với /assign: MỌI người trong danh sách đều chuyển được; người ngoài danh sách bị từ chối (một mã chung)', async () => {
@@ -159,6 +160,8 @@ describe('GET /opportunities/:id/handover-candidates — người có thể nh�
     expect(ids(r)).toEqual(expect.arrayContaining([fx.empA, techD, acctE])); // A phụ trách khách; D kỹ thuật phòng khác; E đọc mọi khách
     for (const out of [fx.empB, fx.empC, goneF, deptG]) expect(ids(r)).not.toContain(out);
     for (const x of r.body.data.items) expect(Object.keys(x).sort()).toEqual(['code', 'departmentCode', 'fullName', 'id']);
+    expect(Object.keys(r.body.data).sort()).toEqual(['items', 'truncated']); // T-09
+    expect(r.body.data.truncated).toBe(false);
   });
 
   it('khớp với /win: người trong danh sách nhận bàn giao được (nội bộ lẫn kỹ thuật ngoài phạm vi); người ngoài danh sách => 400 theo trường handoverToId, không ghi gì', async () => {

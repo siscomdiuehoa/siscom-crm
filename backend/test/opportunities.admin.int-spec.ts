@@ -161,6 +161,23 @@ describe('DELETE /opportunities/:id và POST /opportunities/:id/restore (§5.4, 
     expect({ s: again.status, code: again.body.error.code }).toEqual({ s: 409, code: 'OPPORTUNITY_STATE' });
     expect(await prisma.opportunityChange.count({ where: { opportunityId: o.id } })).toBe(0); // xoá/khôi phục ghi ở nhật ký, không ở lịch sử cơ hội
   });
+  it('T-01: có opportunity.restore ALL nhưng KHÔNG đọc được cơ hội (không có opportunity.read, hoặc read OWN ngoài phạm vi) => 201, cơ hội THẬT SỰ được khôi phục (không rollback), phản hồi tối thiểu không có giá trị / xác suất', async () => {
+    t.actors!.presets.oppRestoreOnly = { actor: { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { 'opportunity.restore': 'ALL' } };
+    t.actors!.presets.oppRestoreOwnRead = { actor: { employeeId: fx.empB, departmentId: fx.d1 }, scopes: { 'opportunity.restore': 'ALL', 'opportunity.read': 'OWN' } };
+    for (const who of ['oppRestoreOnly', 'oppRestoreOwnRead']) {
+      const o = await opp(fx.empA, cA.id, { amount: 7_000_000n, probability: 45 });
+      await del('crmAdmin', o.id, { version: 1, reason: 'Xoá để thử khôi phục không có quyền đọc' });
+      const n = t.audit.entries.length;
+      const r = await restore(who, o.id, { version: 2 });
+      expect({ who, s: r.status }).toEqual({ who, s: 201 });
+      expect(r.body.data).toEqual({ id: o.id, code: o.code, version: 3, restored: true });
+      expect(JSON.stringify(r.body)).not.toMatch(/7000000|probability|expectedAmount|owner/);
+      expect(await row(o.id)).toMatchObject({ deletedAt: null, deletedById: null, deleteReason: null, version: 3 });
+      expect(t.audit.entries.slice(n)).toMatchObject([{ action: 'opportunity.restore', entityId: o.id, actorEmployeeId: fx.empB }]);
+      expect((await a(who).get(O + '/' + o.id)).status).not.toBe(200); // quyền khôi phục không mở quyền xem
+      expect((await a('salesA').get(O + '/' + o.id)).status).toBe(200);
+    }
+  });
   it('khách còn bị xoá mềm => 409 OPPORTUNITY_CUSTOMER_DELETED, không ghi; khôi phục khách xong thì khôi phục cơ hội được; không tự khôi phục khách', async () => {
     const cust = await makeCustomer(prisma, fx, { ownerId: fx.empA });
     const o = await opp(fx.empA, cust.id);

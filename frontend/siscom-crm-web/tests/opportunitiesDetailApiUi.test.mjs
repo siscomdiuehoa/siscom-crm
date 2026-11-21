@@ -39,7 +39,7 @@ const server = (h = {}) => {
     if (p === '/opportunities/meta') return res(200, { data: META });
     if (p === '/opportunities') return (h.list || (() => page([item(1)])))(u.searchParams, n);
     if (p === '/opportunities/o1/activities') return (h.activities || (() => actPage([])))(u.searchParams, n);
-    if (p === '/opportunities/o1/changes') return (h.changes || (() => res(200, { data: { items: [] } })))(n);
+    if (p === '/opportunities/o1/changes') return (h.changes || (() => res(200, { data: { items: [] } })))(n, u.searchParams);
     if (p === '/opportunities/o1/documents') return (h.documents || (() => res(200, { data: { items: [], access: 'FULL' } })))(n);
     if (p === '/customers/' + CID + '/contacts') return res(200, { data: { items: [{ id: 'k1', code: 'LH-1', fullName: 'Nguyễn An', isPrimary: true }, { id: 'k2', code: 'LH-2', fullName: 'Lê Bình', isPrimary: false }] } });
     if (p === '/opportunities/o1') return (h.get || (() => res(200, { data: detail() })))(n);
@@ -417,6 +417,60 @@ test('tab Lịch sử: chỉ gọi API khi mở tab; giá trị trống hiện "
     assert.match(p, /Giai đoạn\s*Tiếp cận → Báo giá/); assert.match(p, /10% → 60%/); assert.match(p, /Lý do: Khách duyệt ngân sách/); assert.match(p, /Lê Thị Hai/);
     assert.match(p, /Đã chuyển người phụ trách/); assert.match(p, /Lý do: Đổi địa bàn/); assert.doesNotMatch(p, /uuid-/);
     assert.equal(byTag(panel(m.container), 'li').length, 5);
+  } finally { await m.unmount(); }
+});
+
+test('T-02 + T-03 tab Lịch sử: trang đầu + "Tải thêm" nối trang kế tiếp (không trùng dòng), hết trang thì không còn nút; người phụ trách hiện "Chuyển từ <cũ> sang <mới>"', async () => {
+  const by = { id: 'e2', code: 'NV-0002', fullName: 'Lê Thị Hai' };
+  const ch = (id, over = {}) => ({ id, field: 'PROBABILITY', oldValue: '10', newValue: '20', reason: null, changedAt: NOW, changedBy: by, ...over });
+  const owner = ch('c1', { field: 'OWNER', oldValue: 'uuid-cu', newValue: 'uuid-moi', oldOwner: { id: 'uuid-cu', code: 'NV-0007', fullName: 'Phạm Cũ' }, newOwner: { id: 'uuid-moi', code: 'NV-0008', fullName: 'Võ Mới' } });
+  const f = server({ changes: (n, q) => (q.get('page') === '2'
+    ? res(200, { data: { items: [ch('c2'), ch('c3')], page: 2, pageSize: 50, total: 3, totalPages: 2 } })
+    : res(200, { data: { items: [owner, ch('c2')], page: 1, pageSize: 50, total: 3, totalPages: 2 } })) });
+  const m = await viewPage(f, SALES);
+  try {
+    await openTab(m.container, /Lịch sử thay đổi/);
+    const first = f.gets('/opportunities/o1/changes'); assert.equal(first.length, 1);
+    assert.deepEqual([first[0].q.get('page'), first[0].q.get('pageSize')], ['1', '50']);
+    assert.equal(byTag(panel(m.container), 'li').length, 2);
+    const p = text(panel(m.container));
+    assert.match(p, /Chuyển từ Phạm Cũ sang Võ Mới/); assert.doesNotMatch(p, /uuid-/); assert.match(p, /2 \/ 3 thay đổi/);
+    await press(panel(m.container), /Tải thêm/);
+    const all = f.gets('/opportunities/o1/changes'); assert.equal(all.length, 2); assert.equal(all[1].q.get('page'), '2');
+    assert.equal(byTag(panel(m.container), 'li').length, 3, 'nối trang 2, bỏ dòng trùng c2');
+    assert.equal(buttonByText(panel(m.container), /Tải thêm/), undefined);
+  } finally { await m.unmount(); }
+});
+
+// Review Astra #259 (HIGH): đã tải trang 2/3; sửa cơ hội => version đổi => tải lại trang 1 (đang chờ). Bấm "Tải thêm" lúc này KHÔNG được xin trang 3
+// (nếu không: trang 1 mới + trang 3 cũ, mất trang 2, nút biến mất). Tải lại xong => danh sách là trang 1 mới, "Tải thêm" dùng lại được.
+test('T-02 tab Lịch sử: đang tải lại trang 1 sau khi sửa (version đổi) thì "Tải thêm" bị khoá, không xin trang kế của dữ liệu cũ', async () => {
+  const by = { id: 'e2', code: 'NV-0002', fullName: 'Lê Thị Hai' };
+  const ch = (id) => ({ id, field: 'PROBABILITY', oldValue: '10', newValue: '20', reason: null, changedAt: NOW, changedBy: by });
+  let release; let page1Calls = 0;
+  const f = server({
+    get: (n) => res(200, { data: detail(n === 1 ? {} : { version: 4, title: 'Bán 150 FCU' }) }),
+    changes: (n, q) => {
+      const pg = q.get('page');
+      if (pg === '1') { page1Calls += 1; if (page1Calls === 2) return new Promise((r) => { release = () => r(res(200, { data: { items: [ch('c0'), ch('c1')], page: 1, pageSize: 50, total: 7, totalPages: 4 } })); }); return res(200, { data: { items: [ch('c1'), ch('c2')], page: 1, pageSize: 50, total: 6, totalPages: 3 } }); }
+      if (pg === '2') return res(200, { data: { items: [ch('c3'), ch('c4')], page: 2, pageSize: 50, total: 6, totalPages: 3 } });
+      return res(200, { data: { items: [ch('c5'), ch('c6')], page: Number(pg), pageSize: 50, total: 6, totalPages: 3 } });
+    },
+  });
+  const m = await viewPage(f, SALES);
+  try {
+    await openTab(m.container, /Lịch sử thay đổi/);
+    await press(panel(m.container), /Tải thêm/);
+    assert.equal(byTag(panel(m.container), 'li').length, 4, 'đã tải trang 1 + 2');
+    await press(m.container, /^Sửa$/); await fill(modal(m.container), /Tiêu đề/, 'Bán 150 FCU'); await press(modal(m.container), /Lưu thay đổi/);
+    assert.equal(page1Calls, 2, 'version đổi => đọc lại trang 1 (đang chờ)');
+    const more = buttonByText(panel(m.container), /Tải thêm/); assert.ok(more, 'vẫn hiện nút trong lúc tải lại');
+    assert.equal(more.disabled, true, 'nút Tải thêm bị khoá khi đang tải lại');
+    await doAct(() => click(more));
+    assert.deepEqual(f.gets('/opportunities/o1/changes').map((c) => c.q.get('page')), ['1', '2', '1'], 'KHÔNG xin trang 3 của dữ liệu cũ');
+    await doAct(async () => { release(); });
+    assert.deepEqual(byTag(panel(m.container), 'li').length, 2, 'danh sách = trang 1 mới');
+    const again = buttonByText(panel(m.container), /Tải thêm/); assert.ok(again); assert.notEqual(again.disabled, true, 'tải lại xong => mở khoá');
   } finally { await m.unmount(); }
 });
 

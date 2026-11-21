@@ -369,14 +369,20 @@ export class CustomersService {
   }
 
   // ───── khôi phục ─────
+  // T-01: quyền khôi phục KHÔNG đòi quyền đọc. Nạp theo id (không qua loadVisible — hàm đó đòi customer.read và làm người chỉ có restore nhận lỗi),
+  // kiểm phạm vi KHÔI PHỤC trước. Không lộ tồn tại: ngoài cả phạm vi đọc lẫn phạm vi khôi phục => 404; đọc được nhưng ngoài phạm vi khôi phục => 403.
+  // Sau khi khôi phục: đọc được khách => chi tiết như cũ; không đọc được => bản tối thiểu { id, code, version, restored } (không có dữ liệu khách).
   async restore(ctx: RequestCtx, id: string) {
     const { actor } = ctx;
     const rScope = this.scopeOf(actor, 'customer.restore');
+    const readScope = this.actors.scopeFor(actor, 'customer.read');
     const box: Box = { taxId: null, excludeId: id };
     return this.guarded(actor, 'restore', box, () => this.inTx(async (tx) => {
       if (!(await this.lock(tx, id))) throw customerErrors.notFound();
-      const cur = await this.loadVisible(tx, actor, id, true);
-      if (!inScope(actor, rScope, ownerInfo(cur))) throw customerErrors.forbidden();
+      const cur = await tx.customer.findFirst({ where: { id }, include: CUSTOMER_DETAIL_INCLUDE });
+      if (!cur) throw customerErrors.notFound();
+      const readable = inScope(actor, readScope, ownerInfo(cur));
+      if (!inScope(actor, rScope, ownerInfo(cur))) throw readable ? customerErrors.forbidden() : customerErrors.notFound();
       if (!cur.deletedAt) throw customerErrors.notDeleted();
       box.taxId = cur.taxId;
       const conflicts = await tx.$queryRaw<{ conflict_code: string; conflict_name: string }[]>`SELECT conflict_code, conflict_name FROM public.fn_customer_restore_conflicts(${id}::uuid)`;
@@ -384,6 +390,7 @@ export class CustomersService {
       const r = await tx.customer.updateMany({ where: { id, deletedAt: { not: null } }, data: { deletedAt: null, deletedById: null, deleteReason: null, restoredAt: new Date(), restoredById: actor.employeeId, updatedById: actor.employeeId, version: { increment: 1 } } });
       if (r.count !== 1) throw customerErrors.notDeleted();
       await this.audit.record(tx, { action: 'customer.restore', entityType: 'customer', entityId: id, entityCode: cur.code, summary: 'Khôi phục khách hàng ' + cur.code, actorEmployeeId: actor.employeeId, requestId: ctx.requestId });
+      if (!readable) return { id, code: cur.code, version: cur.version + 1, restored: true as const };
       return toDetail(await tx.customer.findUniqueOrThrow({ where: { id }, include: CUSTOMER_DETAIL_INCLUDE }));
     }));
   }

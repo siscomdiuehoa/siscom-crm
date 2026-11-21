@@ -65,14 +65,15 @@ export function toApiCustomer(ui, maps, opts = {}) {
   return body;
 }
 
-// `data` of GET /customers/owner-candidates -> { scope: 'ALL'|'DEPARTMENT'|'OWN', items: [{ id, code, fullName, departmentCode, label }] }.
+// `data` of GET /customers/owner-candidates -> { scope: 'ALL'|'DEPARTMENT'|'OWN', items: [{ id, code, fullName, departmentCode, label }], truncated }.
+// T-09: truncated = the server returned only the first 500 people (true only when the server says so).
 // Malformed rows are dropped; nothing is invented. `label` = "Tên (NV-xxxx)" for the select.
 export function normalizeOwnerCandidates(d) {
   if (!d || typeof d !== 'object' || !Array.isArray(d.items)) throw new AdapterError('Phản hồi ứng viên phụ trách không hợp lệ.');
   const scope = ['ALL', 'DEPARTMENT', 'OWN'].includes(d.scope) ? d.scope : 'OWN'; // unknown scope -> most restrictive (no "none" choice)
   const items = d.items.filter((r) => r && typeof r.id === 'string' && r.id && typeof r.fullName === 'string' && r.fullName.trim())
     .map((r) => ({ id: r.id, code: s(r.code), fullName: r.fullName.trim(), departmentCode: typeof r.departmentCode === 'string' ? r.departmentCode : null, label: r.fullName.trim() + (s(r.code) ? ' (' + s(r.code) + ')' : '') }));
-  return { scope, items };
+  return { scope, items, truncated: d.truncated === true };
 }
 
 // api = one item of `data` from GET /customers/:id (detail) or GET /customers (list item, fewer fields). Missing optionals become ''.

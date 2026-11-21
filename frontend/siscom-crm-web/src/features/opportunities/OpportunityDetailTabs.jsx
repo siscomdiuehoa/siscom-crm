@@ -5,7 +5,7 @@ import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
 import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import { ActivityItem } from '../activities/ActivitiesPanel.jsx';
 import { TYPE_META, ALL_TYPES, STATUS_META as ACTIVITY_STATUS, allowedTypes, hasTitle, hasDue, hasOutcome, hasOccurred } from '../activities/activityModel.js';
-import { holdsUpdate, describeChange, DOC_KINDS, EMPTY_DOC, safeHttps } from './opportunitiesModel.js';
+import { holdsUpdate, describeChange, DOC_KINDS, EMPTY_DOC, safeHttps, pagedReloadStart, pagedCanLoadMore } from './opportunitiesModel.js';
 
 // Sales S10c: ba tab ở chi tiết cơ hội (§8.2) — Hoạt động & công việc (§5.5), Lịch sử thay đổi, Tài liệu (§6.14).
 // Mọi dữ liệu do máy chủ lọc theo ĐƯỜNG TRUY CẬP: bản kỹ thuật chỉ thấy việc của chính mình và tài liệu nhóm Kỹ thuật, không có tab Lịch sử.
@@ -146,19 +146,35 @@ function ActivitiesTab({ ui, o }) {
 }
 
 // ───── Tab Lịch sử thay đổi (chỉ đường đầy đủ) ─────
+// T-02: lịch sử phân trang — trang đầu khi mở / khi version đổi, "Tải thêm" nối trang kế tiếp (bỏ dòng trùng theo id), như tab Hoạt động.
+const HISTORY_IDLE = { status: 'loading', items: [], page: 0, total: 0, totalPages: 0, error: null, more: 'idle', moreError: null };
 function HistoryTab({ ui, o, meta }) {
   const opps = ui.customerApi.opportunities;
-  const [h, setH] = React.useState({ status: 'loading', items: [], error: null });
+  const [h, setH] = React.useState(HISTORY_IDLE);
+  const seq = React.useRef(0);
   const load = React.useCallback(() => {
-    let live = true; setH((x) => (x.status === 'ready' ? x : { status: 'loading', items: [], error: null }));
-    opps.changes(o.id).then((r) => { if (live) setH(r.ok ? { status: 'ready', items: r.data.items || [], error: null } : { status: 'error', items: [], error: r.error }); });
-    return () => { live = false; };
+    const my = ++seq.current; setH((x) => pagedReloadStart(x, HISTORY_IDLE)); // review Astra #259: đang tải lại => chặn "Tải thêm"
+    opps.changes(o.id, 1).then((r) => {
+      if (my !== seq.current) return;
+      setH(r.ok ? { ...HISTORY_IDLE, status: 'ready', items: r.data.items || [], page: r.data.page || 1, total: r.data.total || 0, totalPages: r.data.totalPages || 0 } : { ...HISTORY_IDLE, status: 'error', error: r.error });
+    });
+    return () => { if (my === seq.current) seq.current += 1; };
   }, [opps, o.id, o.version]); // version đổi (vừa sửa / chuyển giai đoạn…) => đọc lại
   React.useEffect(() => load(), [load]);
+  const loadMore = async () => {
+    if (!pagedCanLoadMore(h)) return;
+    const my = seq.current; setH((x) => ({ ...x, more: 'loading', moreError: null }));
+    const r = await opps.changes(o.id, h.page + 1);
+    if (my !== seq.current) return;
+    if (!r.ok) { setH((x) => ({ ...x, more: 'error', moreError: r.error })); return; }
+    setH((x) => { const seen = new Set(x.items.map((c) => c.id)); return { ...x, items: x.items.concat((r.data.items || []).filter((c) => !seen.has(c.id))), page: r.data.page || x.page + 1, total: r.data.total, totalPages: r.data.totalPages, more: 'idle' }; });
+  };
   if (h.status === 'loading') return loadingLine('Đang tải lịch sử…');
   if (h.status === 'error') return <ApiErrorBox error={h.error} onRetry={load} />;
   if (!h.items.length) return <EmptyState compact icon="history" title="Chưa có thay đổi nào được ghi lại" description="Lịch sử ghi các lần đổi giai đoạn, trạng thái, giá trị, xác suất, ngày dự kiến chốt và người phụ trách." />;
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    {h.total > h.items.length ? <div style={{ font: 'var(--type-sm)', color: 'var(--text-3)' }}>{h.items.length + ' / ' + h.total + ' thay đổi'}</div> : null}
     <ol aria-label="Lịch sử thay đổi" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' }}>
       {h.items.map((c) => {
         const d = describeChange(c, { meta, o });
@@ -174,6 +190,9 @@ function HistoryTab({ ui, o, meta }) {
         );
       })}
     </ol>
+    {h.more === 'error' && h.moreError ? <ApiErrorBox error={h.moreError} /> : null}
+    {h.page < h.totalPages ? <div style={{ display: 'flex', justifyContent: 'center' }}><Button variant="secondary" size="sm" loading={h.more === 'loading'} disabled={!!h.reloading} onClick={loadMore}>Tải thêm</Button></div> : null}
+    </div>
   );
 }
 

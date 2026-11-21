@@ -4,7 +4,9 @@ import { CurrentCtx } from '../../common/auth/actor.decorator';
 import { ActorGuard } from '../../common/auth/actor.guard';
 import { CreateActivityDto } from '../activities/dto/create-activity.dto';
 import { AddOpportunityDocumentDto, DeleteOpportunityDocumentDto } from './dto/opportunity-document.dto';
+import { QueryBoardSummaryDto } from './dto/query-board-summary.dto';
 import { QueryOpportunitiesDto } from './dto/query-opportunities.dto';
+import { QueryOpportunityChangesDto } from './dto/query-opportunity-changes.dto';
 import { QueryOpportunityActivitiesDto } from './dto/query-opportunity-activities.dto';
 import {
   AssignOpportunityDto, CreateOpportunityDto, DeleteOpportunityDto, HoldOpportunityDto, LoseOpportunityDto, MoveStageDto, ReopenOpportunityDto, RestoreOpportunityDto,
@@ -47,6 +49,12 @@ export class OpportunitiesController {
     return { data: await this.choices.meta(ctx) };
   }
 
+  // T-04 — tổng theo cột kanban (chỉ đường đọc đầy đủ). ĐƯỜNG TĨNH: khai báo TRƯỚC ':id' như 'meta'.
+  @Get('board-summary')
+  async boardSummary(@CurrentCtx() ctx: RequestCtx, @Query() q: QueryBoardSummaryDto) {
+    return { data: await this.service.boardSummary(ctx, q) };
+  }
+
   @Post()
   async create(@CurrentCtx() ctx: RequestCtx, @Body() dto: CreateOpportunityDto) {
     return { data: await this.writes.create(ctx, dto) };
@@ -63,8 +71,8 @@ export class OpportunitiesController {
   }
 
   @Get(':id/changes')
-  async changes(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string) {
-    return { data: await this.service.changes(ctx, id) };
+  async changes(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Query() q: QueryOpportunityChangesDto) {
+    return { data: await this.service.changes(ctx, id, q) };
   }
 
   @Post(':id/stage')

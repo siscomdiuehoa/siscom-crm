@@ -91,10 +91,12 @@ export function ownerFieldView(owners, value) {
   if (st === 'error') return { options: [], disabled: true, hint: 'Chưa tải được danh sách nhân viên.', allowNone: false };
   const items = (owners.items || []).map((x) => ({ value: x.id, label: x.label || x.fullName }));
   const allowNone = owners.scope === 'ALL';
+  // T-09: the server cut the list at 500 people => say so (never a silent cut).
+  const hint = owners.truncated === true ? 'Chỉ hiện 500 người đầu theo tên — danh sách còn người khác chưa hiện.' : '';
   const v = String(value == null ? '' : value).trim();
   if (v && !items.some((o) => o.value === v)) items.unshift({ value: v, label: 'Người phụ trách hiện tại' });
   const options = allowNone ? [{ value: '', label: '— Chưa phân công —' }, ...items] : items;
-  return { options, disabled: false, hint: '', allowNone };
+  return { options, disabled: false, hint, allowNone };
 }
 
 // API mode only: what a lookup <Select> may show/do, from controller state `lookups` ({ status, maps }). Only server choices are ever offered (no demo list, no invented value).
@@ -260,7 +262,7 @@ export function createCustomerApiController(repo) {
       set({ owners: { status: 'loading', scope: null, items: [], error: null } });
       try {
         const r = typeof repo.ownerCandidates === 'function' ? await repo.ownerCandidates() : null;
-        if (my === oseq) set({ owners: r ? { status: 'ready', scope: r.scope, items: r.items, error: null } : noOwners });
+        if (my === oseq) set({ owners: r ? { status: 'ready', scope: r.scope, items: r.items, truncated: r.truncated === true, error: null } : noOwners });
       } catch (e) { if (my === oseq) set({ owners: { status: 'error', scope: null, items: [], error: describeRepoError(e) } }); }
     },
     // params = { page, pageSize, search } normalised by buildListParams. They stay in state (also on error) so retry/next/prev reuse them. Stale responses are dropped.
