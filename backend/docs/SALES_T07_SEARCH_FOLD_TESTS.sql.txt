@@ -1,0 +1,80 @@
+-- SISCOM CRM - Sales T-07: kiem CAU TRUC + HANH VI cot sinh tu dong tim khong dau (20261121000000_sales_opportunity_search_fold).
+-- CHI CHAY TREN DB TAM CUA CI (siscom_crm_test_*), bang CHU SO HUU BANG (siscom_migrator sau tach role). Mot transaction ngoai, ROLLBACK o cuoi
+--   => khong de lai du lieu thu, khong doi cau truc. In "nhan|t" (pg-sql-check.sh mode ok: co dong "|f" => KHONG DAT).
+-- Gom: (1) 2 cot GENERATED STORED dung bieu thuc f_vn_fold, 2 chi muc GIN gin_trgm_ops, khong DEFAULT/khong NOT NULL; (2) gia tri dung cho dong moi
+--   (co dau, d gach, NULL), tu tinh lai khi UPDATE title/project_name; (3) ghi truc tiep vao cot bi tu choi (428C9) ca INSERT lan UPDATE;
+--   (4) AP LAI CHINH migration.sql (\ir) tren bang DA CO DU LIEU (ke ca dong xoa mem) => moi dong cu duoc tinh gia tri (backfill), roi ROLLBACK.
+-- Chuoi co dau viet bang U&'...' (khong phu thuoc ma hoa file).
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_test_[0-9]{8}_[0-9]{6}$' THEN RAISE EXCEPTION 'TU CHOI CHAY BAI THU: % khong phai DB tam CI.', current_database(); END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261121000000_sales_opportunity_search_fold' AND finished_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'Chua ap migration 20261121000000_sales_opportunity_search_fold.';
+  END IF;
+END $$;
+BEGIN;
+-- (1) Cau truc
+SELECT 'title_fold la cot GENERATED STORED = f_vn_fold(title)', EXISTS (
+  SELECT 1 FROM pg_attribute a JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+  WHERE a.attrelid = 'public.opportunity'::regclass AND a.attname = 'title_fold' AND a.attgenerated = 's' AND NOT a.attnotnull
+    AND a.atttypid = 'text'::regtype AND pg_get_expr(d.adbin, d.adrelid) ~ 'f_vn_fold\(\(?title\)?(::text)?\)');
+SELECT 'project_name_fold la cot GENERATED STORED = f_vn_fold(project_name)', EXISTS (
+  SELECT 1 FROM pg_attribute a JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+  WHERE a.attrelid = 'public.opportunity'::regclass AND a.attname = 'project_name_fold' AND a.attgenerated = 's' AND NOT a.attnotnull
+    AND a.atttypid = 'text'::regtype AND pg_get_expr(d.adbin, d.adrelid) ~ 'f_vn_fold\(\(?project_name\)?(::text)?\)');
+SELECT 'chi muc GIN trigram tren 2 cot', (SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'opportunity'
+  AND ((indexname = 'ix_opportunity_title_fold' AND indexdef ~ 'USING gin \(title_fold (public\.)?gin_trgm_ops\)$')
+    OR (indexname = 'ix_opportunity_project_name_fold' AND indexdef ~ 'USING gin \(project_name_fold (public\.)?gin_trgm_ops\)$'))) = 2;
+SELECT 'f_vn_fold van IMMUTABLE (dieu kien cua cot sinh)', (SELECT provolatile = 'i' FROM pg_proc WHERE oid = 'public.f_vn_fold(text)'::regprocedure);
+
+-- (2) Gia tri dong moi + tinh lai khi UPDATE
+INSERT INTO lookup_item (id, type, code, label_vi) VALUES
+ ('5a700000-0000-4000-8000-000000000011', 'customer_tier',     'ZZ_T07_TIER',   'T07 hang thu'),
+ ('5a700000-0000-4000-8000-000000000012', 'customer_status',   'ZZ_T07_STATUS', 'T07 trang thai thu'),
+ ('5a700000-0000-4000-8000-000000000013', 'opportunity_type',  'ZZ_T07_TYPE',   'T07 loai thu'),
+ ('5a700000-0000-4000-8000-000000000014', 'opportunity_stage', 'ZZ_T07_STAGE',  'T07 giai doan thu');
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES ('5a700000-0000-4000-8000-000000000021', 'T07 NV', 't07.nv@example.invalid', 'ACTIVE', true);
+INSERT INTO customer (id, name, phone, tier_id, status_id, is_demo) VALUES ('5a700000-0000-4000-8000-000000000031', 'T07 Khach', '0905700001', '5a700000-0000-4000-8000-000000000011', '5a700000-0000-4000-8000-000000000012', true);
+-- "Chiller Hoa Phat" co dau (o huyen, a sac) + "DONG DO" voi D gach hoa; du an "Toa nha Duc Giang" voi d gach thuong
+INSERT INTO opportunity (id, customer_id, title, type_id, stage_id, owner_id, is_project_linked, project_name, offer_scope, is_demo) VALUES
+ ('5a700000-0000-4000-8000-000000000041', '5a700000-0000-4000-8000-000000000031', U&'Chiller H\00F2a Ph\00E1t \0110\00D4NG \0110\00D4',
+  '5a700000-0000-4000-8000-000000000013', '5a700000-0000-4000-8000-000000000014', '5a700000-0000-4000-8000-000000000021', true, U&'T\00F2a nh\00E0 \0111\1EE9c Giang', 'Pham vi thu', true),
+ ('5a700000-0000-4000-8000-000000000042', '5a700000-0000-4000-8000-000000000031', 'Khong du an 50% x_y',
+  '5a700000-0000-4000-8000-000000000013', '5a700000-0000-4000-8000-000000000014', '5a700000-0000-4000-8000-000000000021', false, NULL, NULL, true);
+SELECT 'dong moi: tieu de gap dau + d gach', (SELECT title_fold = 'chiller hoa phat dong do' FROM opportunity WHERE id = '5a700000-0000-4000-8000-000000000041');
+SELECT 'dong moi: ten du an gap dau + d gach', (SELECT project_name_fold = 'toa nha duc giang' FROM opportunity WHERE id = '5a700000-0000-4000-8000-000000000041');
+SELECT 'dong moi: project_name NULL => project_name_fold NULL; % _ giu nguyen', (SELECT project_name_fold IS NULL AND title_fold = 'khong du an 50% x_y' FROM opportunity WHERE id = '5a700000-0000-4000-8000-000000000042');
+SELECT 'dang to hop NFD gap giong NFC', public.f_vn_fold(U&'Ho\0300a Pha\0301t') = 'hoa phat';
+UPDATE opportunity SET title = U&'\0110i\1EC1u h\00F2a Nguy\1EC5n Tr\00E3i', is_project_linked = false, project_name = NULL, offer_scope = NULL WHERE id = '5a700000-0000-4000-8000-000000000041';
+SELECT 'UPDATE title/project_name => cot gap dau tu tinh lai', (SELECT title_fold = 'dieu hoa nguyen trai' AND project_name_fold IS NULL FROM opportunity WHERE id = '5a700000-0000-4000-8000-000000000041');
+
+-- (3) Ghi truc tiep vao cot sinh tu dong: PostgreSQL tu choi (428C9) - ke ca chu so huu bang. WHERE false: loi o buoc phan tich, khong can dong nao.
+DO $$ BEGIN
+  BEGIN
+    EXECUTE 'UPDATE public.opportunity SET title_fold = ''gia'' WHERE false';
+    RAISE EXCEPTION 'KHONG DAT: UPDATE title_fold khong bi tu choi';
+  EXCEPTION WHEN SQLSTATE '428C9' THEN NULL;
+  END;
+  BEGIN
+    EXECUTE 'INSERT INTO public.opportunity (customer_id, title, type_id, stage_id, owner_id, project_name_fold) SELECT gen_random_uuid(), ''x'', gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), ''gia'' WHERE false';
+    RAISE EXCEPTION 'KHONG DAT: INSERT project_name_fold khong bi tu choi';
+  EXCEPTION WHEN SQLSTATE '428C9' THEN NULL;
+  END;
+END $$;
+SELECT 'ghi truc tiep vao cot sinh tu dong bi tu choi (428C9, INSERT va UPDATE)', true;
+
+-- (4) Backfill: go 2 cot (chi muc di theo) roi ap lai CHINH migration tren bang DA CO DU LIEU, ke ca dong xoa mem.
+UPDATE opportunity SET deleted_at = now(), deleted_by = '5a700000-0000-4000-8000-000000000021', delete_reason = 'thu T07' WHERE id = '5a700000-0000-4000-8000-000000000042';
+ALTER TABLE opportunity DROP COLUMN title_fold, DROP COLUMN project_name_fold;
+SELECT 'truoc khi ap lai: khong con cot / chi muc gap dau', NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'opportunity' AND column_name IN ('title_fold', 'project_name_fold'))
+  AND to_regclass('public.ix_opportunity_title_fold') IS NULL AND to_regclass('public.ix_opportunity_project_name_fold') IS NULL;
+\ir ../prisma/migrations/20261121000000_sales_opportunity_search_fold/migration.sql
+SELECT 'ap lai migration: MOI dong cu duoc tinh (ke ca xoa mem), khong dong nao lech f_vn_fold', NOT EXISTS (SELECT 1 FROM opportunity
+  WHERE title_fold IS DISTINCT FROM public.f_vn_fold(title) OR project_name_fold IS DISTINCT FROM public.f_vn_fold(project_name));
+SELECT 'ap lai migration: gia tri dong thu (dong da xoa mem)', (SELECT title_fold = 'khong du an 50% x_y' AND project_name_fold IS NULL FROM opportunity WHERE id = '5a700000-0000-4000-8000-000000000042');
+SELECT 'ap lai migration: du 2 chi muc', to_regclass('public.ix_opportunity_title_fold') IS NOT NULL AND to_regclass('public.ix_opportunity_project_name_fold') IS NOT NULL;
+ROLLBACK;
+SELECT 'sau ROLLBACK: khong con du lieu thu, cot van con', NOT EXISTS (SELECT 1 FROM opportunity WHERE id::text LIKE '5a700000-%')
+  AND (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'opportunity' AND column_name IN ('title_fold', 'project_name_fold')) = 2;

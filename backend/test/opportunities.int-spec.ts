@@ -184,10 +184,11 @@ describe('bộ lọc, tìm kiếm, phân trang — luôn áp SAU vị từ phạ
     expect(ids(await list('crmAdmin', '&closeFrom=2026-12-21'))).toEqual(sorted(oB1));
     expect(ids(await list('crmAdmin', '&closeTo=2026-12-19'))).toEqual([]);
   });
-  // Giới hạn S6: không phân biệt hoa thường chỉ CAM KẾT với chữ không dấu (ASCII); chữ có dấu tuỳ collation của DB; CHƯA bỏ dấu như tìm khách hàng.
-  it('tìm theo tiêu đề hoặc tên dự án (chứa); không phân biệt hoa thường với chữ không dấu; kết quả vẫn trong phạm vi', async () => {
+  // T-07: tìm không phân biệt dấu tiếng Việt và hoa/thường (cột gập dấu f_vn_fold) — các ca chi tiết ở describe "tìm không dấu (T-07)" bên dưới.
+  it('tìm theo tiêu đề hoặc tên dự án (chứa); không phân biệt hoa thường; kết quả vẫn trong phạm vi', async () => {
     expect(ids(await a('crmAdmin').get(O + '?q=' + encodeURIComponent('Tháp ' + TOK.toUpperCase())))).toEqual(sorted(oA1));
     expect(ids(await a('crmAdmin').get(O + '?q=' + encodeURIComponent('Tháp ' + TOK)))).toEqual(sorted(oA1));
+    expect(ids(await a('crmAdmin').get(O + '?q=' + encodeURIComponent('thap ' + TOK)))).toEqual(sorted(oA1));
     expect(ids(await a('crmAdmin').get(O + '?q=' + encodeURIComponent(TOK.toUpperCase() + ' FCU')))).toEqual(sorted(oA2));
     expect(ids(await a('salesC').get(O + '?q=' + encodeURIComponent('Tháp ' + TOK)))).toEqual([]);
   });
@@ -361,6 +362,93 @@ describe('ownerLostAccess — chỉ trả cho người có opportunity.assign (T
   });
   it('Kinh doanh (có assign) thấy cờ trên cơ hội mình nhìn được', async () => {
     expect((await flagOf('salesA', oA2)).ownerLostAccess).toBe(false);
+  });
+});
+
+// Sales T-07: tìm KHÔNG PHÂN BIỆT DẤU tiếng Việt và hoa/thường trên tiêu đề / tên dự án (cột sinh tự động title_fold / project_name_fold =
+// public.f_vn_fold(...), từ khoá gập bằng cùng hàm). Bộ dữ liệu riêng với từ khoá T7 để không đổi tập kết quả q=TOK của các ca S6 ở trên.
+describe('tìm không dấu (T-07)', () => {
+  const T7 = 't7' + uniq().replace(/[^a-z0-9]/gi, '');
+  let hp: Ref; let hpOut: Ref; let dd: Ref; let prj: Ref; let pct: Ref; let del7: Ref; let held: Ref;
+  const find = (who: string, q: string, qs = '') => a(who).get(O + '?pageSize=100&q=' + encodeURIComponent(q) + qs);
+  beforeAll(async () => {
+    hp = await makeOpportunity(prisma, fx, { customerId: cA.id, ownerId: fx.empA, title: 'Chiller Hòa Phát ' + T7 });
+    hpOut = await makeOpportunity(prisma, fx, { customerId: cC.id, ownerId: fx.empC, title: 'Chiller Hòa Phát ' + T7 + ' phòng khác' });
+    dd = await makeOpportunity(prisma, fx, { customerId: cA.id, ownerId: fx.empA, title: 'Điều hoà ' + T7 + ' Đông Đô' });
+    prj = await makeOpportunity(prisma, fx, { customerId: cA.id, ownerId: fx.empA, title: 'Cơ hội dự án ' + T7, projectName: 'Tòa nhà Đức Giang ' + T7 });
+    pct = await makeOpportunity(prisma, fx, { customerId: cA.id, ownerId: fx.empA, title: 'Giảm 50% ' + T7 + ' mã x_y c:\\d ' + T7 });
+    del7 = await makeOpportunity(prisma, fx, { customerId: cA.id, ownerId: fx.empA, title: 'Bảo trì Hòa Phát ' + T7 + ' đã xoá', deleted: true });
+    held = await makeOpportunity(prisma, fx, { customerId: cA.id, ownerId: fx.empA, title: 'Tạm hoãn Hòa Phát ' + T7, status: 'ON_HOLD' });
+  });
+
+  it('từ khoá KHÔNG dấu khớp tiêu đề CÓ dấu ("hoa phat" => "Hòa Phát"); không phân biệt hoa/thường', async () => {
+    expect(ids(await find('crmAdmin', 'hoa phat ' + T7))).toEqual(sorted(hp, hpOut, held));
+    expect(ids(await find('crmAdmin', 'HOA PHAT ' + T7.toUpperCase()))).toEqual(sorted(hp, hpOut, held));
+    expect((await find('crmAdmin', 'hoa phat ' + T7)).body.data.total).toBe(3);
+    expect(ids(await find('crmAdmin', 'chiller hoa phat ' + T7))).toEqual(sorted(hp, hpOut));
+  });
+  it('"d" khớp "đ" / "Đ" và ngược lại', async () => {
+    expect(ids(await find('crmAdmin', 'dieu hoa ' + T7))).toEqual(sorted(dd));
+    expect(ids(await find('crmAdmin', T7 + ' dong do'))).toEqual(sorted(dd));
+    expect(ids(await find('crmAdmin', T7 + ' Đông Đô'))).toEqual(sorted(dd));
+    expect(ids(await find('crmAdmin', 'đieu hoa ' + T7))).toEqual(sorted(dd));
+  });
+  it('từ khoá CÓ dấu vẫn khớp, kể cả dấu đặt khác chỗ / dạng tổ hợp (NFD) và có dấu trên dòng không dấu', async () => {
+    expect(ids(await find('crmAdmin', 'Hòa Phát ' + T7))).toEqual(sorted(hp, hpOut, held));
+    expect(ids(await find('crmAdmin', 'Hoà Phát ' + T7))).toEqual(sorted(hp, hpOut, held)); // "oà" thay cho "òa"
+    expect(ids(await find('crmAdmin', ('Hòa Phát ' + T7).normalize('NFD')))).toEqual(sorted(hp, hpOut, held));
+    expect(ids(await find('crmAdmin', 'CHILLER HÒA PHÁT ' + T7.toUpperCase()))).toEqual(sorted(hp, hpOut));
+    expect(ids(await find('crmAdmin', 'Điều Hòa ' + T7))).toEqual(sorted(dd)); // tiêu đề viết "hoà"
+  });
+  it('tên dự án / công trình: khớp không dấu; tiêu đề và tên dự án là HAI trường riêng (không khớp vắt qua ranh giới)', async () => {
+    expect(ids(await find('crmAdmin', 'toa nha duc giang ' + T7))).toEqual(sorted(prj));
+    expect(ids(await find('crmAdmin', 'TÒA NHÀ ĐỨC GIANG ' + T7.toUpperCase()))).toEqual(sorted(prj));
+    expect(ids(await find('crmAdmin', 'co hoi du an ' + T7))).toEqual(sorted(prj));
+    expect(ids(await find('crmAdmin', T7 + ' toa nha'))).toEqual([]); // cuối tiêu đề + đầu tên dự án: không phải một chuỗi
+  });
+  it('% _ \\ là ký tự thường, không phải ký tự đại diện của LIKE', async () => {
+    expect(ids(await find('crmAdmin', '50% ' + T7))).toEqual(sorted(pct));
+    expect(ids(await find('crmAdmin', '5_% ' + T7))).toEqual([]); // nếu _ / % là đại diện thì "50% t7.." sẽ khớp
+    expect(ids(await find('crmAdmin', 'giam 5%'))).toEqual([]); // "% " đại diện sẽ khớp "giảm 50% "
+    expect(ids(await find('crmAdmin', T7 + ' ma x_y'))).toEqual(sorted(pct));
+    expect(ids(await find('crmAdmin', T7 + ' ma x%y'))).toEqual([]);
+    expect(ids(await find('crmAdmin', T7 + ' ma x_'))).toEqual(sorted(pct));
+    expect(ids(await find('crmAdmin', 'x_y c:\\d ' + T7))).toEqual(sorted(pct));
+    expect(ids(await find('crmAdmin', 'x_y c:d ' + T7))).toEqual([]); // \ là ký tự thường, không bị nuốt
+    expect(ids(await find('crmAdmin', T7 + '%'))).toEqual([]);
+    expect(ids(await find('crmAdmin', '%%'))).toEqual([]);
+    expect(ids(await find('crmAdmin', '__'))).toEqual([]);
+  });
+  it('phạm vi vẫn áp: từ khoá không dấu KHÔNG mở rộng tập được xem (Kinh doanh A không thấy cơ hội phòng khác; C chỉ thấy của mình)', async () => {
+    expect(ids(await find('salesA', 'hoa phat ' + T7))).toEqual(sorted(hp, held));
+    expect((await find('salesA', 'hoa phat ' + T7)).body.data.total).toBe(2);
+    expect(ids(await find('salesC', 'hoa phat ' + T7))).toEqual(sorted(hpOut));
+    expect(ids(await find('salesB', 'hoa phat ' + T7))).toEqual([]);
+    expect(ids(await find('techB', 'hoa phat ' + T7))).toEqual([]);
+    expect(ids(await find('deptA', 'hoa phat ' + T7))).toEqual([]);
+    for (const who of ['none', 'readonly']) expect((await find(who, 'hoa phat ' + T7)).status).toBe(403);
+  });
+  it('bảng kanban (status=OPEN + giai đoạn), tab cơ hội của khách và danh sách đã xoá dùng cùng điều kiện tìm', async () => {
+    expect(ids(await find('crmAdmin', 'hoa phat ' + T7, '&status=OPEN&stageId=' + fx.oppStage['T_APPROACH']))).toEqual(sorted(hp, hpOut));
+    expect(ids(await find('crmAdmin', 'hoa phat ' + T7, '&status=ON_HOLD'))).toEqual(sorted(held));
+    const bc = await a('salesA').get(C + cA.id + '/opportunities?pageSize=100&q=' + encodeURIComponent('hoa phat ' + T7));
+    expect(bc.status).toBe(200);
+    expect(ids(bc)).toEqual(sorted(hp, held));
+    const dl = await a('crmAdmin').get(O + '?deleted=only&pageSize=100&q=' + encodeURIComponent('bao tri hoa phat ' + T7));
+    expect(ids(dl)).toEqual(sorted(del7));
+    expect(ids(await find('salesA', 'bao tri hoa phat ' + T7, '&deleted=only'))).toEqual([]);
+  });
+  it('từ khoá < 2 ký tự sau trim => 400; từ khoá dài 100 ký tự vẫn chạy', async () => {
+    for (const q of [' đ ', 'a', '  ']) expect((await a().get(O + '?q=' + encodeURIComponent(q))).status).toBe(400);
+    expect((await find('crmAdmin', 'đ'.repeat(100))).status).toBe(200);
+  });
+  it('cột gập dấu do PostgreSQL tự tính khi đổi tiêu đề; ứng dụng (siscom_app) KHÔNG ghi trực tiếp được', async () => {
+    await prisma.opportunity.update({ where: { id: dd.id }, data: { title: 'Điều hoà ' + T7 + ' Đông Đô (sửa) Nguyễn Trãi' }, select: { id: true } });
+    expect(ids(await find('crmAdmin', T7 + ' dong do (sua) nguyen trai'))).toEqual(sorted(dd));
+    const row = await prisma.opportunity.findUniqueOrThrow({ where: { id: dd.id }, select: { titleFold: true, projectNameFold: true } });
+    expect(row).toEqual({ titleFold: 'dieu hoa ' + T7.toLowerCase() + ' dong do (sua) nguyen trai', projectNameFold: null });
+    await expect(prisma.opportunity.update({ where: { id: dd.id }, data: { titleFold: 'gia' }, select: { id: true } })).rejects.toThrow();
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: dd.id }, select: { titleFold: true } })).titleFold).toContain('nguyen trai');
   });
 });
 

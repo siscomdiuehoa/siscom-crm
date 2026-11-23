@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // Sales S6 + S7: ghim tập route của module Cơ hội và các ràng buộc tĩnh của đường ĐỌC / GHI (docs/SALES_DESIGN.md §5.1 "không có đường đọc nào bỏ qua").
@@ -45,7 +45,8 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     expect(s).not.toMatch(/opportunity\.(findUnique|findUniqueOrThrow|findFirstOrThrow)\(/);
     // `where` của danh sách được dựng với vị từ phạm vi ở phần tử ĐẦU.
     // L-01: vị từ phạm vi của danh sách chọn qua listReadWhere (có bộ lọc status / ownerId => chỉ đường đầy đủ), LUÔN đứng trước bộ lọc của người dùng.
-    expect(s).toMatch(/const scope = p\.deletedOnly \? deletedListWhere\(actor, scopeOf\) : listReadWhere\(actor, scopeOf, now, p\.fullOnly\);\s*\n\s*const where: Prisma\.OpportunityWhereInput = \{ AND: \[scope, \.\.\.p\.filters\] \};/);
+    // T-07: điều kiện tìm (đã gập dấu) đứng SAU vị từ phạm vi và bộ lọc — chỉ thu hẹp thêm.
+    expect(s).toMatch(/const scope = p\.deletedOnly \? deletedListWhere\(actor, scopeOf\) : listReadWhere\(actor, scopeOf, now, p\.fullOnly\);\s*\n\s*const where: Prisma\.OpportunityWhereInput = \{ AND: \[scope, \.\.\.p\.filters, \.\.\.text\] \};/);
     expect(s).toMatch(/fullOnly: q\.status !== undefined \|\| q\.ownerId !== undefined,/);
     const tp = readFileSync(join(__dirname, 'opportunities.task-path.ts'), 'utf8');
     expect(tp).toMatch(/export function listReadWhere\([^)]*fullOnly: boolean\): Prisma\.OpportunityWhereInput \{\s*\n\s*return fullOnly \? fullReadWhere\(actor, scopeOf\) : anyReadWhere\(actor, scopeOf, now\);/);
@@ -69,7 +70,9 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     // Vị từ: listReadWhere với fullOnly = true (= fullReadWhere); không anyReadWhere / taskPathWhere.
     expect(bs).toContain('const full = listReadWhere(actor, scopeOf, await dbNow(tx), true);');
     expect(bs).not.toMatch(/anyReadWhere\(|taskPathWhere\(|readsByTask\(|resolvePath\(/);
-    expect(bs).toContain("const where = (status: 'OPEN' | 'ON_HOLD'): Prisma.OpportunityWhereInput => ({ AND: [full, ...p.filters, { status }] });");
+    // T-07: từ khoá gập dấu như listIn, đứng SAU vị từ đầy đủ và bộ lọc (không để từ khoá bị bỏ qua khi plan() không còn đẩy nó vào filters).
+    expect(bs).toContain('const text = p.search === undefined ? [] : [foldedTextWhere(await this.folded(tx, p.search))];');
+    expect(bs).toContain("const where = (status: 'OPEN' | 'ON_HOLD'): Prisma.OpportunityWhereInput => ({ AND: [full, ...p.filters, ...text, { status }] });");
     expect(bs.indexOf('const full = ')).toBeLessThan(bs.indexOf('tx.opportunity.groupBy('));
     expect(bs.indexOf('const full = ')).toBeLessThan(bs.indexOf('tx.opportunity.count('));
     expect((bs.match(/tx\.opportunity\.(groupBy|count)\(\{ (by: \['stageId'\], )?where: where\('(OPEN|ON_HOLD)'\)/g) ?? []).length).toBe(2);
@@ -216,6 +219,25 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     // Một nguồn cho "lý do thua bắt buộc ghi chú".
     expect(l).toContain('lostReasonNeedsNote(why.code)');
     expect(ch).toContain('lostReasonNeedsNote(r.code)');
+  });
+
+  it('T-07 — tìm không dấu: chỉ lọc trên cột đã gập dấu; SQL thô duy nhất là hàm gập dấu (không đọc bảng); không code nào ghi cột sinh tự động', () => {
+    const se = text('opportunities.search.ts');
+    // SQL thô duy nhất của đường tìm: gập dấu từ khoá bằng tham số gắn kết (tagged template), không Unsafe, không bảng nào.
+    expect([...se.matchAll(/\$queryRaw|\$executeRaw/g)].length).toBe(1);
+    expect(se).toContain('tx.$queryRaw<{ t: string | null }[]>`SELECT public.f_vn_fold(btrim(${raw})) AS t`');
+    expect(se).not.toMatch(/Unsafe|\bFROM\b|Prisma\.raw/);
+    // Điều kiện: đúng hai cột gập dấu, giá trị đã thoát LIKE; không còn tìm trên cột thô với mode insensitive.
+    expect(se).toContain('return { OR: [{ titleFold: { contains: v } }, { projectNameFold: { contains: v } }] };');
+    expect(se).toContain('const v = escapeLike(folded);');
+    expect(s).not.toMatch(/title: \{ contains|projectName: \{ contains|mode: 'insensitive'/);
+    expect(s).toContain('const text = p.search === undefined ? [] : [foldedTextWhere(await this.folded(tx, p.search))];');
+    // Cột sinh tự động: chỉ opportunities.search.ts nhắc tới (để lọc); không service / DTO / mapper nào khác của module ghi hoặc trả ra.
+    const files = readdirSync(__dirname).filter((f) => f.endsWith('.ts') && !f.endsWith('.spec.ts') && f !== 'opportunities.search.ts');
+    const dtoDir = join(__dirname, 'dto');
+    const all = [...files.map((f) => text(f)), ...readdirSync(dtoDir).map((f) => readFileSync(join(dtoDir, f), 'utf8'))];
+    expect(all.length).toBeGreaterThan(10);
+    for (const src of all) expect(src).not.toMatch(/titleFold|projectNameFold|title_fold|project_name_fold/);
   });
 
   it('S8b — service VÒNG ĐỜI: năm thao tác đều qua inTx + loadForWrite của đường ghi, kiểm đúng mã, ghi theo version, có nhật ký và không mang số liệu', () => {
