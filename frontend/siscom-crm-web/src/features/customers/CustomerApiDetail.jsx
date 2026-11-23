@@ -219,7 +219,7 @@ export default function CustomerApiDetail({ ui, id }) {
       {canReadActivity || canOpps ? <Tabs variant="line" value={tab} onChange={setTab} items={[{ id: 'info', label: 'Thông tin', icon: 'building-2' }].concat(canReadActivity ? [{ id: 'activities', label: 'Hoạt động', icon: 'list-checks', count: actCount }] : [], canReadActivity && canReadContact ? [{ id: 'contacts', label: 'Người liên hệ', icon: 'contact' }] : [], canOpps ? [{ id: 'opps', label: 'Cơ hội', icon: 'target' }] : []).map((t) => (ui.mobile ? { ...t, icon: undefined, label: t.id === 'contacts' ? 'Liên hệ' : t.label } : t))} /> : null}
       {canReadActivity && tab === 'activities' ? <ActivitiesPanel ui={ui} customerId={id} /> : null}
       {canReadActivity && tab === 'contacts' && canReadContact ? <ContactsPanel ui={ui} id={id} canUpdate={canUpdateContact} canAdd={canUpdateContact && !!ui.can('contact.create', c)} /> : null}
-      {canOpps && tab === 'opps' ? <CustomerOpportunitiesPanel ui={ui} customer={{ id, code: customerDisplayCode(c), name: c.short || c.name }} /> : null}
+      {canOpps && tab === 'opps' ? <CustomerOpportunitiesPanel ui={ui} customer={{ id, code: customerDisplayCode(c), name: c.short || c.name, ownerId: c.ownerId || null }} /> : null}
       {(!canReadActivity && !canOpps) || tab === 'info' ? <section className="sg-card sg-solid" style={{ padding: '16px 20px 8px' }}>
         <h3 style={{ margin: '0 0 4px', font: 'var(--type-h4)' }}>Thông tin doanh nghiệp</h3>
         <InfoRow icon="hash" label="Mã số thuế">{c.taxId ? <span style={{ font: 'var(--type-mono)' }}>{c.taxId}</span> : null}</InfoRow>

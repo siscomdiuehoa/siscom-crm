@@ -71,7 +71,7 @@ export class OpportunityChoicesService {
       const anyDepartment = scopeOf('opportunity.assign') === 'ALL';
       const departmentId = owner ? owner.departmentId : null;
       // Người chuyển không có phạm vi ALL: chỉ chuyển trong phòng của người phụ trách hiện tại; phòng chưa xác định => không ai nhận được (§5.4).
-      if (!anyDepartment && departmentId === null) return { items: [] };
+      if (!anyDepartment && departmentId === null) return { items: [], truncated: false };
       const rows = await tx.employee.findMany({
         where: { status: 'ACTIVE', deletedAt: null, id: { not: row.ownerId }, ...(anyDepartment ? {} : { departmentId }) },
         select: { id: true, code: true, fullName: true, department: { select: { code: true } } },
@@ -79,9 +79,10 @@ export class OpportunityChoicesService {
       });
       const ids = rows.map((r) => r.id);
       const [acc, can] = await Promise.all([this.access.load(tx, ids), this.eligibility.canSignIn(ids)]);
-      const items = rows.filter((r) => assigneeRefusal(scopeOf, owner, acc.get(r.id), can.get(r.id) === true) === null).slice(0, OWNER_CANDIDATES_MAX)
-        .map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
-      return { items };
+      const ok = rows.filter((r) => assigneeRefusal(scopeOf, owner, acc.get(r.id), can.get(r.id) === true) === null);
+      const items = ok.slice(0, OWNER_CANDIDATES_MAX).map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
+      // T-09: bị cắt ở OWNER_CANDIDATES_MAX => truncated = true (không cắt âm thầm).
+      return { items, truncated: ok.length > OWNER_CANDIDATES_MAX };
     });
   }
 
@@ -91,7 +92,7 @@ export class OpportunityChoicesService {
     const scopeOf = this.scopeOf(actor);
     return this.snapshot(async (tx) => {
       const row = await this.writes.peekForWrite(tx, actor, scopeOf, id, 'opportunity.close');
-      return { items: await this.tasks.handoverCandidates(tx, { ownerId: row.customer.ownerId, ownerDepartmentId: row.customer.owner ? row.customer.owner.departmentId : null }) };
+      return this.tasks.handoverCandidates(tx, { ownerId: row.customer.ownerId, ownerDepartmentId: row.customer.owner ? row.customer.owner.departmentId : null });
     });
   }
 }

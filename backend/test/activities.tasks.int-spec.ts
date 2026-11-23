@@ -599,6 +599,7 @@ describe('ứng viên ngoài phạm vi (assignee-candidates?external=true)', () 
     expect(list).not.toContain(fx.empB);
     expect(list).not.toContain(fx.empA);
     expect(Object.keys(r.body.data.items[0]).sort()).toEqual(['code', 'departmentCode', 'fullName', 'id']);
+    expect(r.body.data.truncated).toBe(false); // T-09
     expect((await a('techB').get(A + 'assignee-candidates?customerId=' + cA.id + '&external=true')).status).toBe(403);
     expect((await a('salesNoExt').get(A + 'assignee-candidates?customerId=' + cA.id + '&external=true')).status).toBe(403);
     expect((await a('salesA').get(A + 'assignee-candidates?customerId=' + cC.id + '&external=true')).status).toBe(404);

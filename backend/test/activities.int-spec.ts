@@ -279,6 +279,8 @@ describe('GET assignee-candidates (nội bộ)', () => {
     expect(ids).toEqual(expect.arrayContaining([fx.empA, fx.empB]));
     expect(ids).not.toContain(fx.empC);
     expect(Object.keys(r.body.data.items[0]).sort()).toEqual(['code', 'departmentCode', 'fullName', 'id']);
+    expect(Object.keys(r.body.data).sort()).toEqual(['items', 'truncated']); // T-09
+    expect(r.body.data.truncated).toBe(false);
   });
   it('crm_admin (ALL): mọi phòng nhưng vẫn chỉ người đọc được khách (kỹ thuật phòng 2 không đọc được khách phòng 1)', async () => {
     const ids = (await a('all').get(CAND + cA.id)).body.data.items.map((i: { id: string }) => i.id);

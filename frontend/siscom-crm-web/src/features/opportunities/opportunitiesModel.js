@@ -143,6 +143,12 @@ export const ACTION_LABEL = { edit: 'Sửa', stage: 'Chuyển giai đoạn', hol
 export const ACTION_ICON = { edit: 'pencil', stage: 'arrow-right', hold: 'pause', holdEdit: 'calendar-clock', resume: 'play', win: 'trophy', lose: 'circle-x', assign: 'user-round-cog', reopen: 'rotate-ccw', delete: 'trash-2' };
 // Nút "Tạo cơ hội": có opportunity.create (máy chủ kiểm theo KHÁCH được chọn).
 export const canCreate = (scopeOf) => scopeOfSafe(scopeOf, 'opportunity.create') !== null;
+// T-08 (giữ nguyên quy tắc máy chủ): khách chưa có người phụ trách thì không tạo được cơ hội (409 OPPORTUNITY_CUSTOMER_NO_OWNER).
+export const OPP_CUSTOMER_NO_OWNER = 'OPPORTUNITY_CUSTOMER_NO_OWNER';
+export const CUSTOMER_NO_OWNER_TITLE = 'Khách hàng chưa có người phụ trách';
+export const CUSTOMER_NO_OWNER_MESSAGE = 'Khách hàng chưa có người phụ trách — hãy phân công người phụ trách trước khi tạo cơ hội.';
+// Chỉ coi là "chưa có người phụ trách" khi biết chắc (ownerId === null); không có thông tin (undefined) => không chặn, máy chủ quyết.
+export const customerLacksOwner = (customer) => !!customer && customer.ownerId === null;
 // Mục "Cơ hội kinh doanh" trên thanh bên: có ít nhất một mã đọc (đường đầy đủ hoặc theo việc).
 export const canSeeOpportunities = (scopeOf) => scopeOfSafe(scopeOf, 'opportunity.read') !== null || scopeOfSafe(scopeOf, 'opportunity.read_assigned') !== null;
 
@@ -217,6 +223,8 @@ export function unplacedErrors(kind, fieldErrors, extra) {
 // kind: stage | hold | holdEdit | resume | win | lose | assign | reopen | delete. Mọi thao tác gửi version đã tải (khoá lạc quan).
 export const ACTION_TITLE = { stage: 'Chuyển giai đoạn', hold: 'Tạm hoãn cơ hội', holdEdit: 'Đổi hạn tạm hoãn', resume: 'Tiếp tục cơ hội', win: 'Chốt Thắng', lose: 'Chốt Thua', assign: 'Chuyển người phụ trách', reopen: 'Mở lại cơ hội', delete: 'Xoá cơ hội' };
 export const ACTION_DONE = { stage: 'Đã chuyển giai đoạn', hold: 'Đã tạm hoãn', holdEdit: 'Đã đổi hạn tạm hoãn', resume: 'Đã tiếp tục cơ hội', win: 'Đã chốt Thắng', lose: 'Đã chốt Thua', assign: 'Đã chuyển người phụ trách', reopen: 'Đã mở lại cơ hội', delete: 'Đã xoá cơ hội' };
+// T-09: máy chủ cắt danh sách người nhận ở 500 người (truncated = true) => báo ngắn dưới ô chọn, không cắt âm thầm.
+export const CANDIDATES_TRUNCATED_HINT = 'Chỉ hiện 500 người đầu theo tên — danh sách còn người khác chưa hiện.';
 // Thao tác cần danh sách người nhận từ máy chủ (S10a): assign => owner-candidates; win => handover-candidates.
 export const ACTION_CANDIDATES = { assign: 'owner-candidates', win: 'handover-candidates' };
 const EMPTY_ACTION = { stageId: '', probability: 'KEEP', holdUntil: '', holdReason: '', reason: '', wonAmount: '', wonDocType: 'HOP_DONG', wonDocNo: '', wonDocDate: '', wonDocUrl: '', wonDocFileName: '', handoverToId: '', handoverDueDate: '', lostReasonId: '', lostNote: '', ownerId: '' };
@@ -226,6 +234,13 @@ export function initAction(kind, o) {
   if (kind === 'holdEdit' && o) { f.holdUntil = o.holdUntil || ''; f.holdReason = o.holdReason || ''; }
   if (kind === 'win' && o && o.expectedAmountVnd) f.wonAmount = groupAmountText(String(o.expectedAmountVnd));
   return f;
+}
+// T-10: khoá "bản gốc" của hộp thao tác — đổi khi máy chủ trả bản mới (409 rồi đọc lại) hoặc cờ xác suất nhập tay đổi.
+export const actionBaseKey = (o) => (o ? String(o.version) + ':' + (o.probabilityOverridden === true ? '1' : '0') : '');
+// T-10: sau khi đọc lại bản mới, lựa chọn KEEP / RESET cũ không còn đúng ngữ cảnh (phiên khác có thể vừa nhập tay hoặc bỏ nhập tay xác suất)
+// => đặt lại xác suất về mặc định của bản mới; các ô khác người dùng đã nhập giữ nguyên.
+export function rebaseAction(kind, latest, form) {
+  return { ...form, probability: initAction(kind, latest).probability };
 }
 const HTTPS = /^https:\/\/[^\s]+$/i;
 const need = (e, k, v, msg, max) => { const s = t(v); if (!s) e[k] = msg; else if (max && s.length > max) e[k] = 'Tối đa ' + max + ' ký tự'; };
@@ -320,13 +335,25 @@ export function toPatchBody(o, form, meta) {
 }
 
 // ───── S10c: Lịch sử thay đổi (GET /opportunities/:id/changes) ─────
+// T-02 (review Astra #259): danh sách phân trang có "Tải thêm". Đang tải lại trang 1 (version đổi) => đánh dấu reloading và CHẶN "Tải thêm",
+// để không nối trang N+1 của lượt cũ vào trang 1 mới (mất các trang ở giữa, nút "Tải thêm" biến mất dù chưa đủ). Kết quả tải lại thay toàn bộ state.
+export const pagedReloadStart = (x, idle) => (x && x.status === 'ready' ? { ...x, reloading: true } : idle);
+export const pagedCanLoadMore = (x) => !!x && x.status === 'ready' && !x.reloading && x.more !== 'loading' && x.page < x.totalPages;
 export const CHANGE_LABEL = { STAGE: 'Giai đoạn', STATUS: 'Trạng thái', HOLD: 'Ngày liên hệ lại', AMOUNT: 'Giá trị dự kiến', PROBABILITY: 'Xác suất', CLOSE_DATE: 'Dự kiến chốt', OWNER: 'Người phụ trách' };
 // Một dòng lịch sử => { label, text }. Giá trị trống của số tiền là "Chưa rõ" (không phải 0). Mã giai đoạn đổi sang tên theo danh mục (nếu có).
-// Người phụ trách lưu bằng id: chỉ hiện tên khi trùng người phụ trách hiện tại (API lịch sử không trả tên người cũ).
+// Người phụ trách lưu bằng id. T-03: API trả kèm oldOwner / newOwner (tên đọc cùng snapshot) => "Chuyển từ <cũ> sang <mới>". Thiếu tên (bản ghi cũ,
+// nhân viên không còn tìm thấy) => dùng người phụ trách hiện tại nếu trùng id, còn lại câu chung. KHÔNG bao giờ hiện id thô.
 export function describeChange(c, ctx = {}) {
   const stages = (ctx.meta && ctx.meta.stages) || []; const o = ctx.o || {};
   const label = CHANGE_LABEL[c.field] || String(c.field || '—');
-  if (c.field === 'OWNER') return { label, text: o.owner && o.owner.id === c.newValue ? 'Chuyển cho ' + o.owner.fullName : 'Đã chuyển người phụ trách' };
+  if (c.field === 'OWNER') {
+    const nameOf = (p, id) => (p && p.fullName ? p.fullName : o.owner && id && o.owner.id === id ? o.owner.fullName : null);
+    const from = nameOf(c.oldOwner, c.oldValue); const to = nameOf(c.newOwner, c.newValue);
+    if (from && to) return { label, text: 'Chuyển từ ' + from + ' sang ' + to };
+    if (to) return { label, text: 'Chuyển cho ' + to };
+    if (from) return { label, text: 'Chuyển từ ' + from + ' sang người khác' };
+    return { label, text: 'Đã chuyển người phụ trách' };
+  }
   const fmt = (v) => {
     if (v === null || v === undefined || v === '') return c.field === 'AMOUNT' ? AMOUNT_UNKNOWN : '—';
     if (c.field === 'AMOUNT') return moneyVN(v);
@@ -358,6 +385,8 @@ export function validateReason(reason, msg) { const e = {}; need(e, 'reason', re
 
 // ───── S11: kanban (§8.1) ─────
 export const BOARD_PAGE_SIZE = 100;
+// T-02: số dòng lịch sử thay đổi mỗi lần tải (máy chủ cho tối đa 100).
+export const CHANGES_PAGE_SIZE = 50;
 // Tổng giá trị dự kiến của các thẻ ĐÃ TẢI trong một cột, tách riêng số thẻ "chưa rõ giá trị" (không bao giờ cộng chúng như 0).
 // Chỉ tính thẻ đường đầy đủ; cộng bằng BigInt trên chuỗi chữ số. Không có thẻ nào có giá trị => sum = null (không phải "0").
 export function sumAmounts(items) {
@@ -389,6 +418,20 @@ export function columnTotalLabel(items) {
   if (t.sum !== null) parts.push(moneyShortVN(t.sum));
   if (t.unknown) parts.push(t.unknown + ' chưa rõ');
   return parts.join(' + ');
+}
+// T-04: dòng tổng của cột từ GET /opportunities/board-summary (tính trên MỌI cơ hội đang mở của cột, không chỉ thẻ đã tải). Cùng định dạng với
+// columnTotalLabel: tổng rút gọn + "n chưa rõ"; cột không có cơ hội nào (count 0) => ''. Dữ liệu lạ => '' (không đoán).
+export function summaryTotalLabel(s) {
+  if (!s || !Number.isInteger(s.count) || s.count <= 0) return '';
+  const parts = [];
+  if (s.sumExpectedAmountVnd !== null && s.sumExpectedAmountVnd !== undefined) parts.push(moneyShortVN(s.sumExpectedAmountVnd));
+  if (Number.isInteger(s.unknownAmountCount) && s.unknownAmountCount > 0) parts.push(s.unknownAmountCount + ' chưa rõ');
+  return parts.join(' + ');
+}
+// Tra cột theo stageId trong phản hồi board-summary; giai đoạn không có cơ hội nào không có dòng => cột rỗng (count 0).
+export function summaryOf(summary, stageId) {
+  const list = summary && Array.isArray(summary.stages) ? summary.stages : [];
+  return list.find((x) => x && x.stageId === stageId) || { stageId, count: 0, knownAmountCount: 0, unknownAmountCount: 0, sumExpectedAmountVnd: null };
 }
 // ───── S10c R2 (PR249-R1-01): lưu lại sau xung đột phiên bản (409) ─────
 // Vấn đề: sau 409, chi tiết được tải lại (version mới) nhưng biểu mẫu vẫn giữ MỌI giá trị cũ; so biểu mẫu cũ với bản mới sẽ coi cả những ô

@@ -64,6 +64,8 @@ export function handoverKind(acc: EmployeeAccess | undefined, customerOwner: Own
   return hasTechAuthority(acc) ? 'EXTERNAL' : null;
 }
 export interface HandoverCandidate { id: string; code: string; fullName: string; departmentCode: string | null }
+// T-09: danh sách bị cắt ở HANDOVER_CANDIDATES_MAX => truncated = true (giao diện báo "chỉ hiện 500 người đầu"), không cắt âm thầm.
+export interface HandoverCandidates { items: HandoverCandidate[]; truncated: boolean }
 export const HANDOVER_CANDIDATES_MAX = 500;
 
 @Injectable()
@@ -165,14 +167,15 @@ export class OpportunityAutoTasks {
 
   // S10a — danh sách người CÓ THỂ nhận việc bàn giao của một khách: đúng điều kiện handoverKind ở trên (chỉ đọc; nơi gọi — service Sales — đã kiểm
   // mã opportunity.close trên cơ hội). Chỉ trả id, mã, họ tên, mã phòng; không nói người đó thuộc nhánh nội bộ hay ngoài phạm vi.
-  async handoverCandidates(db: Pick<Tx, 'employee'>, customerOwner: OwnerInfo): Promise<HandoverCandidate[]> {
+  async handoverCandidates(db: Pick<Tx, 'employee'>, customerOwner: OwnerInfo): Promise<HandoverCandidates> {
     const rows = await db.employee.findMany({
       where: { status: 'ACTIVE', deletedAt: null },
       select: { id: true, code: true, fullName: true, department: { select: { code: true } } },
       orderBy: [{ fullName: 'asc' }, { code: 'asc' }],
     });
     const acc = await this.access.load(db, rows.map((r) => r.id));
-    return rows.filter((r) => handoverKind(acc.get(r.id), customerOwner) !== null).slice(0, HANDOVER_CANDIDATES_MAX)
-      .map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
+    const ok = rows.filter((r) => handoverKind(acc.get(r.id), customerOwner) !== null);
+    const items = ok.slice(0, HANDOVER_CANDIDATES_MAX).map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
+    return { items, truncated: ok.length > HANDOVER_CANDIDATES_MAX };
   }
 }

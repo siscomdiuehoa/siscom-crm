@@ -276,6 +276,65 @@ describe('deleted=only — danh sách cơ hội đã xoá mềm (§5.4, TC 9c(ii
   });
 });
 
+describe('GET /opportunities/board-summary — tổng theo cột kanban (T-04)', () => {
+  type Col = { stageId: string; count: number; knownAmountCount: number; unknownAmountCount: number; sumExpectedAmountVnd: string | null };
+  const summary = (who: string, qs = '') => a(who).get(O + '/board-summary?q=' + TOK + qs);
+  const col = (r: { body: { data: { stages: Col[] } } }, stage: string) => r.body.data.stages.find((x) => x.stageId === fx.oppStage[stage]);
+  it('Quản trị CRM / Kế toán: mỗi giai đoạn có số cơ hội ĐANG MỞ, tổng giá trị (chuỗi) và số chưa rõ giá trị (không cộng như 0); số Tạm hoãn; không tính cơ hội đã xoá / của khách đã xoá / đã đóng', async () => {
+    for (const who of ['crmAdmin', 'acctA']) {
+      const r = await summary(who);
+      expect({ who, s: r.status }).toEqual({ who, s: 200 });
+      expect(Object.keys(r.body.data).sort()).toEqual(['onHoldCount', 'stages']);
+      expect(r.body.data.stages.length).toBe(2);
+      expect(col(r, 'T_QUOTE')).toEqual({ stageId: fx.oppStage.T_QUOTE, count: 1, knownAmountCount: 1, unknownAmountCount: 0, sumExpectedAmountVnd: '7200000000' });
+      expect(col(r, 'T_APPROACH')).toEqual({ stageId: fx.oppStage.T_APPROACH, count: 1, knownAmountCount: 0, unknownAmountCount: 1, sumExpectedAmountVnd: null });
+      expect(r.body.data.onHoldCount).toBe(1); // oB1
+    }
+  });
+  it('khớp ĐÚNG số thẻ của cột kanban (GET /opportunities?status=OPEN&stageId=…) cho từng vai trò; cộng nhiều thẻ bằng số nguyên lớn, không làm tròn', async () => {
+    const extra = await makeOpportunity(prisma, fx, { customerId: cA.id, ownerId: fx.empA, title: 'S6 ' + TOK + ' them', stage: 'T_QUOTE', amount: 999_999_999_999_999n });
+    try {
+      for (const who of ['crmAdmin', 'salesA', 'salesB', 'salesC']) {
+        const r = await summary(who);
+        for (const stage of ['T_QUOTE', 'T_APPROACH']) {
+          const listed = await list(who, '&status=OPEN&stageId=' + fx.oppStage[stage]);
+          expect({ who, stage, n: col(r, stage)?.count ?? 0 }).toEqual({ who, stage, n: listed.body.data.total });
+        }
+        const held = await list(who, '&status=ON_HOLD');
+        expect({ who, held: r.body.data.onHoldCount }).toEqual({ who, held: held.body.data.total });
+      }
+      expect(col(await summary('crmAdmin'), 'T_QUOTE')).toMatchObject({ count: 2, knownAmountCount: 2, sumExpectedAmountVnd: '1000007199999999' });
+    } finally {
+      await prisma.opportunity.update({ where: { id: extra.id }, data: { deletedAt: new Date(), deletedById: fx.empA, deleteReason: 'dọn test T-04' } });
+    }
+  });
+  it('phạm vi: Kinh doanh A thấy oA1 + oA2 (khách mình), không Tạm hoãn của B; Kinh doanh B chỉ oA2 + Tạm hoãn oB1; Kinh doanh C (phòng khác) rỗng; DEPARTMENT => rỗng', async () => {
+    const sa = await summary('salesA');
+    expect([col(sa, 'T_QUOTE')?.sumExpectedAmountVnd, col(sa, 'T_APPROACH')?.count, sa.body.data.onHoldCount]).toEqual(['7200000000', 1, 0]);
+    const sb = await summary('salesB');
+    expect(sb.body.data).toEqual({ stages: [{ stageId: fx.oppStage.T_APPROACH, count: 1, knownAmountCount: 0, unknownAmountCount: 1, sumExpectedAmountVnd: null }], onHoldCount: 1 });
+    expect((await summary('salesC')).body.data).toEqual({ stages: [], onHoldCount: 0 });
+    expect((await summary('deptA')).body.data).toEqual({ stages: [], onHoldCount: 0 });
+  });
+  it('bộ lọc loại và từ khoá như danh sách: typeId => chỉ loại đó; từ khoá không khớp => rỗng', async () => {
+    const r = await summary('crmAdmin', '&typeId=' + fx.oppType.T_INSTALL);
+    expect(r.body.data).toEqual({ stages: [{ stageId: fx.oppStage.T_QUOTE, count: 1, knownAmountCount: 1, unknownAmountCount: 0, sumExpectedAmountVnd: '7200000000' }], onHoldCount: 0 });
+    expect((await a('crmAdmin').get(O + '/board-summary?q=' + TOK + 'khongkhop')).body.data).toEqual({ stages: [], onHoldCount: 0 });
+  });
+  it('BẢO MẬT: Kỹ thuật (chỉ read_assigned) => 403, không có số tiền; không mã => 403; chưa đăng nhập => 401; tham số sai / thừa => 400', async () => {
+    const tech = await summary('techB');
+    expect({ s: tech.status, code: tech.body.error?.code }).toEqual({ s: 403, code: 'FORBIDDEN' });
+    expect(JSON.stringify(tech.body)).not.toMatch(/7200000000|sumExpectedAmountVnd|stages/);
+    for (const who of ['none', 'readonly']) expect({ who, s: (await summary(who)).status }).toEqual({ who, s: 403 });
+    expect((await anon().get(O + '/board-summary')).status).toBe(401);
+    for (const bad of ['?q=a', '?typeId=abc', '?status=OPEN', '?stageId=' + fx.oppStage.T_QUOTE, '?page=1']) {
+      const r = await a('crmAdmin').get(O + '/board-summary' + bad);
+      expect({ bad, s: r.status }).toEqual({ bad, s: 400 });
+      expect(leaks(r.body)).toBe(false);
+    }
+  });
+});
+
 describe('ownerLostAccess — chỉ trả cho người có opportunity.assign (TC 9a(v), 9a(vii))', () => {
   const flagOf = async (who: string, o: Ref) => (await a(who).get(O + '/' + o.id)).body.data;
   afterEach(() => { t.access.scopes.set(fx.empA, SALES); t.eligibility.blocked.clear(); });

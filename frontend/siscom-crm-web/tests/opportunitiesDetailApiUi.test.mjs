@@ -39,10 +39,11 @@ const server = (h = {}) => {
     if (p === '/opportunities/meta') return res(200, { data: META });
     if (p === '/opportunities') return (h.list || (() => page([item(1)])))(u.searchParams, n);
     if (p === '/opportunities/o1/activities') return (h.activities || (() => actPage([])))(u.searchParams, n);
-    if (p === '/opportunities/o1/changes') return (h.changes || (() => res(200, { data: { items: [] } })))(n);
+    if (p === '/opportunities/o1/changes') return (h.changes || (() => res(200, { data: { items: [] } })))(n, u.searchParams);
     if (p === '/opportunities/o1/documents') return (h.documents || (() => res(200, { data: { items: [], access: 'FULL' } })))(n);
     if (p === '/customers/' + CID + '/contacts') return res(200, { data: { items: [{ id: 'k1', code: 'LH-1', fullName: 'Nguyễn An', isPrimary: true }, { id: 'k2', code: 'LH-2', fullName: 'Lê Bình', isPrimary: false }] } });
     if (p === '/opportunities/o1') return (h.get || (() => res(200, { data: detail() })))(n);
+    if (p === '/activities/assignee-candidates') return (h.cands || (() => res(200, { data: { items: [{ id: 'e2', code: 'NV-0002', fullName: 'Lê Thị Hai', departmentCode: 'KD' }] } })))(u.searchParams);
     return res(404, { error: { code: 'NOT_FOUND', message: 'x' } });
   };
   f.calls = calls;
@@ -344,6 +345,50 @@ test('Ghi nhận hoạt động cho cơ hội: thiếu nội dung / công việc
   } finally { await m.unmount(); }
 });
 
+// T-05 (a): giao Công việc cho người khác ngay trong cơ hội — ô "Người phụ trách" như drawer ở khách, chỉ khi có activity.assign.
+const SALES_ASSIGN = role({ ...SALES.me.permissions, 'activity.assign': 'OWN' });
+const ADMIN_EXT = role({ ...ADMIN.me.permissions, 'activity.assign': 'ALL', 'activity.assign_external': 'ALL' });
+test('T-05: có activity.assign => ô "Người phụ trách" lấy ứng viên theo KHÁCH của cơ hội; chọn người => POST /opportunities/:id/activities kèm performedById', async () => {
+  const f = server({ write: () => res(201, { data: activity(8, { type: 'TASK', content: 'Khảo sát mặt bằng' }) }) });
+  const m = await viewPage(f, SALES_ASSIGN);
+  try {
+    await press(m.container, /Ghi nhận hoạt động/); const d = modal(m.container); assert.ok(d);
+    const cg = f.gets('/activities/assignee-candidates'); assert.equal(cg.length, 1); assert.equal(cg[0].q.get('customerId'), CID); assert.equal(cg[0].q.get('external'), null);
+    assert.match(text(d), /người thực hiện mặc định là bạn/);
+    await doAct(() => click(findAll(d, (e) => e.attributes.role === 'radio' && text(e) === 'Công việc')[0]));
+    assert.match(text(d), /Để trống "Người phụ trách" thì công việc giao cho chính bạn/);
+    assert.equal(findAll(d, (e) => e.tagName === 'INPUT' && e.attributes.role === 'switch').length, 0); // không có assign_external
+    await pickField(d, /^Người phụ trách/, /Lê Thị Hai/);
+    await fill(d, /Nội dung/, 'Khảo sát mặt bằng'); await fill(d, /^Hạn/, '2026-12-01T09:00');
+    await press(d, /^Lưu$/);
+    const w = f.writes(); assert.equal(w.length, 1);
+    assert.deepEqual([w[0].p, w[0].body], ['/opportunities/o1/activities', { type: 'TASK', content: 'Khảo sát mặt bằng', dueAt: '2026-12-01T09:00:00+07:00', performedById: 'e2' }]);
+  } finally { await m.unmount(); }
+});
+
+test('T-05: có activity.assign_external => bật "Giao cho người phòng khác" gọi ứng viên external=true và gửi external:true; không có activity.assign => không có ô, không gọi ứng viên', async () => {
+  const f = server({ get: () => res(200, { data: detail({ owner: { id: 'e-other', code: 'NV-9', fullName: 'Người khác' } }) }), write: () => res(201, { data: activity(9, { type: 'TASK' }) }), cands: (q) => res(200, { data: { items: q.get('external') === 'true' ? [{ id: 'e7', code: 'NV-0007', fullName: 'Phạm Kỹ Thuật', departmentCode: 'KT' }] : [] } }) });
+  const m = await viewPage(f, ADMIN_EXT);
+  try {
+    await press(m.container, /Ghi nhận hoạt động/); const d = modal(m.container);
+    await doAct(() => click(findAll(d, (e) => e.attributes.role === 'radio' && text(e) === 'Công việc')[0]));
+    const sw = findAll(d, (e) => e.tagName === 'INPUT' && e.attributes.role === 'switch')[0]; assert.ok(sw, 'có công tắc phòng khác');
+    sw.checked = true; await doAct(() => click(sw));
+    assert.equal(f.gets('/activities/assignee-candidates').at(-1).q.get('external'), 'true');
+    await pickField(d, /^Người phụ trách/, /Phạm Kỹ Thuật/);
+    await fill(d, /Nội dung/, 'Lắp đặt FCU'); await fill(d, /^Hạn/, '2026-12-02T08:00');
+    await press(d, /^Lưu$/);
+    assert.deepEqual(f.writes()[0].body, { type: 'TASK', content: 'Lắp đặt FCU', dueAt: '2026-12-02T08:00:00+07:00', performedById: 'e7', external: true });
+  } finally { await m.unmount(); }
+  const g = server();
+  const s = await viewPage(g, SALES);
+  try {
+    await press(s.container, /Ghi nhận hoạt động/); const d = modal(s.container);
+    assert.equal(findAll(d, (e) => e.tagName === 'LABEL' && /^Người phụ trách/.test(text(e))).length, 0);
+    assert.equal(g.gets('/activities/assignee-candidates').length, 0);
+  } finally { await s.unmount(); }
+});
+
 test('Ghi nhận hoạt động: Kinh doanh không thấy nút trên cơ hội của người khác; Quản trị CRM thấy', async () => {
   const other = () => res(200, { data: detail({ owner: { id: 'e-other', code: 'NV-9', fullName: 'Người khác' } }) });
   const s = await viewPage(server({ get: other }), SALES);
@@ -372,6 +417,60 @@ test('tab Lịch sử: chỉ gọi API khi mở tab; giá trị trống hiện "
     assert.match(p, /Giai đoạn\s*Tiếp cận → Báo giá/); assert.match(p, /10% → 60%/); assert.match(p, /Lý do: Khách duyệt ngân sách/); assert.match(p, /Lê Thị Hai/);
     assert.match(p, /Đã chuyển người phụ trách/); assert.match(p, /Lý do: Đổi địa bàn/); assert.doesNotMatch(p, /uuid-/);
     assert.equal(byTag(panel(m.container), 'li').length, 5);
+  } finally { await m.unmount(); }
+});
+
+test('T-02 + T-03 tab Lịch sử: trang đầu + "Tải thêm" nối trang kế tiếp (không trùng dòng), hết trang thì không còn nút; người phụ trách hiện "Chuyển từ <cũ> sang <mới>"', async () => {
+  const by = { id: 'e2', code: 'NV-0002', fullName: 'Lê Thị Hai' };
+  const ch = (id, over = {}) => ({ id, field: 'PROBABILITY', oldValue: '10', newValue: '20', reason: null, changedAt: NOW, changedBy: by, ...over });
+  const owner = ch('c1', { field: 'OWNER', oldValue: 'uuid-cu', newValue: 'uuid-moi', oldOwner: { id: 'uuid-cu', code: 'NV-0007', fullName: 'Phạm Cũ' }, newOwner: { id: 'uuid-moi', code: 'NV-0008', fullName: 'Võ Mới' } });
+  const f = server({ changes: (n, q) => (q.get('page') === '2'
+    ? res(200, { data: { items: [ch('c2'), ch('c3')], page: 2, pageSize: 50, total: 3, totalPages: 2 } })
+    : res(200, { data: { items: [owner, ch('c2')], page: 1, pageSize: 50, total: 3, totalPages: 2 } })) });
+  const m = await viewPage(f, SALES);
+  try {
+    await openTab(m.container, /Lịch sử thay đổi/);
+    const first = f.gets('/opportunities/o1/changes'); assert.equal(first.length, 1);
+    assert.deepEqual([first[0].q.get('page'), first[0].q.get('pageSize')], ['1', '50']);
+    assert.equal(byTag(panel(m.container), 'li').length, 2);
+    const p = text(panel(m.container));
+    assert.match(p, /Chuyển từ Phạm Cũ sang Võ Mới/); assert.doesNotMatch(p, /uuid-/); assert.match(p, /2 \/ 3 thay đổi/);
+    await press(panel(m.container), /Tải thêm/);
+    const all = f.gets('/opportunities/o1/changes'); assert.equal(all.length, 2); assert.equal(all[1].q.get('page'), '2');
+    assert.equal(byTag(panel(m.container), 'li').length, 3, 'nối trang 2, bỏ dòng trùng c2');
+    assert.equal(buttonByText(panel(m.container), /Tải thêm/), undefined);
+  } finally { await m.unmount(); }
+});
+
+// Review Astra #259 (HIGH): đã tải trang 2/3; sửa cơ hội => version đổi => tải lại trang 1 (đang chờ). Bấm "Tải thêm" lúc này KHÔNG được xin trang 3
+// (nếu không: trang 1 mới + trang 3 cũ, mất trang 2, nút biến mất). Tải lại xong => danh sách là trang 1 mới, "Tải thêm" dùng lại được.
+test('T-02 tab Lịch sử: đang tải lại trang 1 sau khi sửa (version đổi) thì "Tải thêm" bị khoá, không xin trang kế của dữ liệu cũ', async () => {
+  const by = { id: 'e2', code: 'NV-0002', fullName: 'Lê Thị Hai' };
+  const ch = (id) => ({ id, field: 'PROBABILITY', oldValue: '10', newValue: '20', reason: null, changedAt: NOW, changedBy: by });
+  let release; let page1Calls = 0;
+  const f = server({
+    get: (n) => res(200, { data: detail(n === 1 ? {} : { version: 4, title: 'Bán 150 FCU' }) }),
+    changes: (n, q) => {
+      const pg = q.get('page');
+      if (pg === '1') { page1Calls += 1; if (page1Calls === 2) return new Promise((r) => { release = () => r(res(200, { data: { items: [ch('c0'), ch('c1')], page: 1, pageSize: 50, total: 7, totalPages: 4 } })); }); return res(200, { data: { items: [ch('c1'), ch('c2')], page: 1, pageSize: 50, total: 6, totalPages: 3 } }); }
+      if (pg === '2') return res(200, { data: { items: [ch('c3'), ch('c4')], page: 2, pageSize: 50, total: 6, totalPages: 3 } });
+      return res(200, { data: { items: [ch('c5'), ch('c6')], page: Number(pg), pageSize: 50, total: 6, totalPages: 3 } });
+    },
+  });
+  const m = await viewPage(f, SALES);
+  try {
+    await openTab(m.container, /Lịch sử thay đổi/);
+    await press(panel(m.container), /Tải thêm/);
+    assert.equal(byTag(panel(m.container), 'li').length, 4, 'đã tải trang 1 + 2');
+    await press(m.container, /^Sửa$/); await fill(modal(m.container), /Tiêu đề/, 'Bán 150 FCU'); await press(modal(m.container), /Lưu thay đổi/);
+    assert.equal(page1Calls, 2, 'version đổi => đọc lại trang 1 (đang chờ)');
+    const more = buttonByText(panel(m.container), /Tải thêm/); assert.ok(more, 'vẫn hiện nút trong lúc tải lại');
+    assert.equal(more.disabled, true, 'nút Tải thêm bị khoá khi đang tải lại');
+    await doAct(() => click(more));
+    assert.deepEqual(f.gets('/opportunities/o1/changes').map((c) => c.q.get('page')), ['1', '2', '1'], 'KHÔNG xin trang 3 của dữ liệu cũ');
+    await doAct(async () => { release(); });
+    assert.deepEqual(byTag(panel(m.container), 'li').length, 2, 'danh sách = trang 1 mới');
+    const again = buttonByText(panel(m.container), /Tải thêm/); assert.ok(again); assert.notEqual(again.disabled, true, 'tải lại xong => mở khoá');
   } finally { await m.unmount(); }
 });
 

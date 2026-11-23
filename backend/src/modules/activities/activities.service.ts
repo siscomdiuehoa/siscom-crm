@@ -250,10 +250,10 @@ export class ActivitiesService {
       orderBy: [{ fullName: 'asc' }, { code: 'asc' }],
     });
     const acc = await this.access.load(this.prisma, rows.map((r) => r.id));
-    const items = rows.filter((r) => { const a = acc.get(r.id); return !!a && a.active && readsCustomer(a, owner); })
-      .slice(0, CANDIDATES_MAX)
-      .map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
-    return { items };
+    const ok = rows.filter((r) => { const a = acc.get(r.id); return !!a && a.active && readsCustomer(a, owner); });
+    const items = ok.slice(0, CANDIDATES_MAX).map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
+    // T-09: bị cắt ở CANDIDATES_MAX => truncated = true (giao diện báo, không cắt âm thầm).
+    return { items, truncated: ok.length > CANDIDATES_MAX };
   }
 
   // A6 (§6, §5.4): ứng viên NGOÀI phạm vi (external=true) — ACTIVE, có thẩm quyền kỹ thuật (activity.update_own), mọi phòng, và KHÔNG đọc
@@ -275,9 +275,8 @@ export class ActivitiesService {
       orderBy: [{ fullName: 'asc' }, { code: 'asc' }],
     });
     const acc = await this.access.load(this.prisma, rows.map((r) => r.id));
-    const items = rows.filter((r) => { const a = acc.get(r.id); return hasTechAuthority(a) && !readsCustomer(a!, owner); })
-      .slice(0, CANDIDATES_MAX)
-      .map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
-    return { items };
+    const ok = rows.filter((r) => { const a = acc.get(r.id); return hasTechAuthority(a) && !readsCustomer(a!, owner); });
+    const items = ok.slice(0, CANDIDATES_MAX).map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
+    return { items, truncated: ok.length > CANDIDATES_MAX };
   }
 }

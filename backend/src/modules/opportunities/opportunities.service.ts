@@ -17,12 +17,16 @@ import {
 } from './opportunities.mapper';
 import { foldedTextWhere, foldSearch } from './opportunities.search';
 import type { QueryOpportunitiesDto } from './dto/query-opportunities.dto';
+import type { QueryBoardSummaryDto } from './dto/query-board-summary.dto';
+import type { QueryOpportunityChangesDto } from './dto/query-opportunity-changes.dto';
 
 type Tx = Prisma.TransactionClient;
 const MAX_OFFSET_WINDOW = 100000;
 const MIN_YEAR = 2000;
 const MAX_YEAR = 2100;
-const CHANGES_MAX = 500;
+// T-02: lịch sử thay đổi phân trang (mới nhất trước) — mặc định 50, tối đa 100 dòng / trang (DTO kiểm), cùng giới hạn cửa sổ offset với danh sách.
+const CHANGES_PAGE_SIZE = 50;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Ngày kiểu YYYY-MM-DD cho cột DATE (không múi giờ). Ngày không có thật (2026-02-30) hoặc ngoài khoảng năm => null.
 function parseYmd(v: string): Date | null {
   const d = new Date(v + 'T00:00:00.000Z');
@@ -49,7 +53,7 @@ interface ListPlan { page: number; pageSize: number; deletedOnly: boolean; fullO
 // auth (không thể chung snapshot) — chỉ ảnh hưởng cờ ownerLostAccess, không ảnh hưởng quyền đọc hay dữ liệu trả về.
 // Kiểm bằng hai kết nối có đồng bộ rõ ràng: test/opportunities.consistency.int-spec.ts.
 //
-// CHƯA có (có chủ đích): tổng giá trị theo cột kanban (S11 — chỉ tính trên đường đầy đủ). Lịch sử /changes: chỉ đường đầy đủ (bên dưới).
+// Tổng theo cột kanban (T-04, boardSummary bên dưới): CHỈ tính trên đường đầy đủ. Lịch sử /changes: chỉ đường đầy đủ (bên dưới).
 @Injectable()
 export class OpportunitiesService {
   constructor(
@@ -212,22 +216,66 @@ export class OpportunitiesService {
 
   // ───── GET /opportunities/:id/changes (S7) ─────
   // Lịch sử thay đổi (giai đoạn, giá trị, xác suất, ngày dự kiến chốt…): CHỈ đường đọc đầy đủ (§5.4 — đường theo việc không bao giờ nhận).
-  // Cùng snapshot với bước kiểm quyền. Mới nhất trước; tối đa CHANGES_MAX dòng.
-  async changes(ctx: RequestCtx, id: string) {
+  // Cùng snapshot với bước kiểm quyền. Mới nhất trước (changedAt, id).
+  // T-02: phân trang offset (page, pageSize ≤ 100; mặc định 50) kèm total / totalPages — count và trang đọc trong CÙNG snapshot nên luôn khớp.
+  // T-03: dòng OWNER lưu id nhân viên => kèm oldOwner / newOwner { id, code, fullName } đọc trong CÙNG snapshot (null khi không tìm thấy). Chỉ
+  // đường đầy đủ nhận lịch sử, nên tên người phụ trách cũ không mở thêm gì cho bản kỹ thuật.
+  async changes(ctx: RequestCtx, id: string, q: QueryOpportunityChangesDto = {}) {
     const { actor } = ctx;
     const scopeOf = this.scopeOf(actor);
     this.needAnyRead(scopeOf);
+    const page = q.page ?? 1;
+    const pageSize = q.pageSize ?? CHANGES_PAGE_SIZE;
+    if (page * pageSize > MAX_OFFSET_WINDOW) throw opportunityErrors.validation(['page × pageSize vượt quá ' + MAX_OFFSET_WINDOW + '.']);
     return this.snapshot(async (tx) => {
       const row = await tx.opportunity.findFirst({ where: { AND: [{ id }, anyReadWhere(actor, scopeOf, await dbNow(tx))] }, select: { id: true, ownerId: true, deletedAt: true, customer: { select: { ownerId: true, deletedAt: true } } } });
       if (!row) throw opportunityErrors.notFound();
       // Thấy được cơ hội nhưng chỉ qua đường theo việc => 403 (không bao giờ nhận lịch sử giá trị / xác suất).
       if (!readsFull(actor, scopeOf, row)) throw opportunityErrors.forbidden('Lịch sử thay đổi chỉ dành cho người xem đầy đủ cơ hội.');
-      const rows = await tx.opportunityChange.findMany({
-        where: { opportunityId: id }, orderBy: [{ changedAt: 'desc' }, { id: 'desc' }], take: CHANGES_MAX,
+      const total = await tx.opportunityChange.count({ where: { opportunityId: id } });
+      const rows = total === 0 ? [] : await tx.opportunityChange.findMany({
+        where: { opportunityId: id }, orderBy: [{ changedAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize,
         select: { id: true, field: true, oldValue: true, newValue: true, reason: true, changedAt: true, changedBy: { select: { id: true, code: true, fullName: true } } },
       });
-      return { items: rows.map((r) => ({ id: r.id, field: r.field, oldValue: r.oldValue, newValue: r.newValue, reason: r.reason, changedAt: r.changedAt.toISOString(),
-        changedBy: { id: r.changedBy.id, code: r.changedBy.code, fullName: r.changedBy.fullName } })) };
+      const ownerIds = [...new Set(rows.filter((r) => r.field === 'OWNER').flatMap((r) => [r.oldValue, r.newValue]).filter((v): v is string => v !== null && UUID_RE.test(v)))];
+      const people = ownerIds.length ? await tx.employee.findMany({ where: { id: { in: ownerIds } }, select: { id: true, code: true, fullName: true } }) : [];
+      const person = (v: string | null) => { const e = v === null ? undefined : people.find((p) => p.id === v); return e ? { id: e.id, code: e.code, fullName: e.fullName } : null; };
+      return {
+        items: rows.map((r) => ({
+          id: r.id, field: r.field, oldValue: r.oldValue, newValue: r.newValue, reason: r.reason, changedAt: r.changedAt.toISOString(),
+          changedBy: { id: r.changedBy.id, code: r.changedBy.code, fullName: r.changedBy.fullName },
+          ...(r.field === 'OWNER' ? { oldOwner: person(r.oldValue), newOwner: person(r.newValue) } : {}),
+        })),
+        page, pageSize, total, totalPages: Math.ceil(total / pageSize),
+      };
+    });
+  }
+
+  // ───── GET /opportunities/board-summary (T-04) ─────
+  // Tổng CHÍNH XÁC theo cột kanban (không chỉ trên thẻ đã tải): mỗi giai đoạn — số cơ hội ĐANG MỞ, tổng giá trị dự kiến (chuỗi số nguyên VNĐ,
+  // null khi không có cơ hội nào có giá trị), số cơ hội có / chưa có giá trị — kèm số cơ hội TẠM HOÃN (nút "Tạm hoãn" dưới kanban).
+  // Bộ lọc loại / từ khoá dựng bằng CHÍNH plan() của danh sách => khớp đúng các cột (GET /opportunities?status=OPEN&stageId=…).
+  // BẢO MẬT: CHỈ đường đọc ĐẦY ĐỦ (listReadWhere(..., true) = vị từ đầy đủ). Dòng chỉ đạt đường theo việc bị loại khỏi CẢ số đếm LẪN tổng tiền —
+  // giống cột kanban (có bộ lọc status => danh sách cũng chỉ xét đường đầy đủ, L-01). Người không có opportunity.read (Kỹ thuật chỉ có
+  // read_assigned) => 403: không bao giờ nhận số tiền.
+  async boardSummary(ctx: RequestCtx, q: QueryBoardSummaryDto) {
+    const { actor } = ctx;
+    const scopeOf = this.scopeOf(actor);
+    this.needAnyRead(scopeOf);
+    if (scopeOf('opportunity.read') === null) throw opportunityErrors.forbidden('Tổng theo giai đoạn chỉ dành cho người xem đầy đủ cơ hội.');
+    const p = this.plan({ typeId: q.typeId, q: q.q });
+    return this.snapshot(async (tx) => {
+      const full = listReadWhere(actor, scopeOf, await dbNow(tx), true);
+      // Vị từ đường đầy đủ LUÔN đứng đầu; bộ lọc của người dùng và trạng thái chỉ thu hẹp thêm.
+      const where = (status: 'OPEN' | 'ON_HOLD'): Prisma.OpportunityWhereInput => ({ AND: [full, ...p.filters, { status }] });
+      const groups = await tx.opportunity.groupBy({ by: ['stageId'], where: where('OPEN'), _count: { _all: true, expectedAmountVnd: true }, _sum: { expectedAmountVnd: true } });
+      const onHoldCount = await tx.opportunity.count({ where: where('ON_HOLD') });
+      const stages = groups.map((g) => {
+        const known = g._count.expectedAmountVnd;
+        const sum = g._sum.expectedAmountVnd;
+        return { stageId: g.stageId, count: g._count._all, knownAmountCount: known, unknownAmountCount: g._count._all - known, sumExpectedAmountVnd: known > 0 && sum !== null ? sum.toString() : null };
+      }).sort((a, b) => (a.stageId < b.stageId ? -1 : a.stageId > b.stageId ? 1 : 0));
+      return { stages, onHoldCount };
     });
   }
 }

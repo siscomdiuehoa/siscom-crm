@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   opportunityActions, holdsUpdate, canRestore, initEdit, validateEdit, toPatchBody, probabilityChanged, describeChange, CHANGE_LABEL,
-  DOC_KINDS, EMPTY_DOC, validateDocument, toDocumentBody, safeHttps, validateReason, buildListQuery, rebaseEdit, editTouched,
+  DOC_KINDS, EMPTY_DOC, validateDocument, toDocumentBody, safeHttps, validateReason, buildListQuery, rebaseEdit, editTouched, pagedReloadStart, pagedCanLoadMore,
 } from '../src/features/opportunities/opportunitiesModel.js';
 import { createOpportunitiesController } from '../src/features/opportunities/opportunitiesUi.js';
 import { describeRepoError } from '../src/features/customers/customerApiUi.js';
@@ -151,6 +151,19 @@ test('describeChange — người phụ trách: KHÔNG bao giờ hiện id thô;
   assert.equal(other.text, 'Đã chuyển người phụ trách'); assert.doesNotMatch(other.text, /uuid/);
 });
 
+test('T-03 describeChange — API trả oldOwner / newOwner => "Chuyển từ <cũ> sang <mới>"; thiếu một bên => câu ngắn; không bao giờ hiện id thô', () => {
+  const o = opp();
+  const A = { id: 'e-a', code: 'NV-0001', fullName: 'Nguyễn An' }; const B = { id: 'e-b', code: 'NV-0002', fullName: 'Lê Bình' };
+  assert.deepEqual(describeChange({ field: 'OWNER', oldValue: A.id, newValue: B.id, oldOwner: A, newOwner: B }, { o }), { label: 'Người phụ trách', text: 'Chuyển từ Nguyễn An sang Lê Bình' });
+  // Người mới là người phụ trách hiện tại nhưng API không có tên (bản ghi cũ) => vẫn lấy được tên từ cơ hội.
+  assert.equal(describeChange({ field: 'OWNER', oldValue: A.id, newValue: ME, oldOwner: A, newOwner: null }, { o }).text, 'Chuyển từ Nguyễn An sang Trần Bình');
+  assert.equal(describeChange({ field: 'OWNER', oldValue: 'x-uuid', newValue: B.id, oldOwner: null, newOwner: B }, { o }).text, 'Chuyển cho Lê Bình');
+  const onlyOld = describeChange({ field: 'OWNER', oldValue: A.id, newValue: 'y-uuid', oldOwner: A, newOwner: null }, { o });
+  assert.equal(onlyOld.text, 'Chuyển từ Nguyễn An sang người khác'); assert.doesNotMatch(onlyOld.text, /uuid/);
+  assert.equal(describeChange({ field: 'OWNER', oldValue: 'x-uuid', newValue: 'y-uuid', oldOwner: null, newOwner: null }, { o }).text, 'Đã chuyển người phụ trách');
+  assert.equal(describeChange({ field: 'OWNER', oldValue: A.id, newValue: B.id, oldOwner: { id: A.id, fullName: '' }, newOwner: B }, {}).text, 'Chuyển cho Lê Bình'); // tên rỗng coi như thiếu
+});
+
 // ───── Tài liệu ─────
 test('tài liệu: chỉ https không khoảng trắng; tên tệp bắt buộc ≤ 255; nhóm TECHNICAL / COMMERCIAL; thân yêu cầu đã cắt khoảng trắng', () => {
   assert.deepEqual(DOC_KINDS.map((x) => x.value), ['TECHNICAL', 'COMMERCIAL']); assert.equal(EMPTY_DOC.kind, 'TECHNICAL');
@@ -265,12 +278,20 @@ test('createActivity: thiếu nội dung / công việc thiếu hạn => không 
 });
 
 test('changes / documents: đọc đúng đường dẫn; lỗi 403 được trả về (không ném)', async () => {
-  const repo = repoOf((m, path) => { if (path.endsWith('/changes')) throw new CustomerRepoError('forbidden', 'Lịch sử thay đổi chỉ dành cho người xem đầy đủ cơ hội.', { status: 403, code: 'FORBIDDEN' }); return { items: [], access: 'TASK' }; });
+  const repo = repoOf((m, path) => { if (path.includes('/changes')) throw new CustomerRepoError('forbidden', 'Lịch sử thay đổi chỉ dành cho người xem đầy đủ cơ hội.', { status: 403, code: 'FORBIDDEN' }); return { items: [], access: 'TASK' }; });
   const ctl = createOpportunitiesController(repo, describeRepoError);
   const h = await ctl.changes('o/1');
-  assert.deepEqual([h.ok, h.error.kind], [false, 'forbidden']); assert.equal(repo.calls[0].path, '/opportunities/o%2F1/changes');
+  assert.deepEqual([h.ok, h.error.kind], [false, 'forbidden']); assert.equal(repo.calls[0].path, '/opportunities/o%2F1/changes?page=1&pageSize=50');
   const d = await ctl.documents('o/1');
   assert.deepEqual([d.ok, d.data.access], [true, 'TASK']); assert.equal(repo.calls[1].path, '/opportunities/o%2F1/documents');
+});
+
+test('T-02 changes: phân trang — trang mặc định 1, mỗi trang 50 dòng; trang 3 gửi page=3', async () => {
+  const repo = repoOf(() => ({ items: [], page: 3, pageSize: 50, total: 120, totalPages: 3 }));
+  const ctl = createOpportunitiesController(repo, describeRepoError);
+  const r = await ctl.changes('o1', 3);
+  assert.deepEqual([r.ok, r.data.total], [true, 120]);
+  assert.equal(repo.calls[0].path, '/opportunities/o1/changes?page=3&pageSize=50');
 });
 
 test('addDocument / removeDocument: kiểm tại chỗ trước (không gọi mạng); thân yêu cầu đúng; không đọc lại danh sách cơ hội, không gọi hook', async () => {
@@ -374,4 +395,22 @@ test('PR249-R1-01 — các trường khác: loại, gắn dự án, ngày, ngư�
   assert.deepEqual(r.conflicts, []); assert.deepEqual(toPatchBody(latest, r.form, META), { title: 'Mới' });
   const c = rebaseEdit(base, latest, { ...initEdit(base), expectedCloseDate: '2026-12-31', contactId: '' });
   assert.deepEqual(c.conflicts.map((x) => x.k), ['expectedCloseDate', 'contactId']);
+});
+
+// Review Astra #259 (HIGH): đã tải trang 2/3, version đổi => tải lại trang 1; trong lúc chờ KHÔNG được "Tải thêm" (nếu không sẽ xin trang 3
+// rồi nối vào trang 1 mới => mất trang 2, nút "Tải thêm" biến mất). Kết quả tải lại thay toàn bộ state => mở lại "Tải thêm".
+test('T-02 lịch sử: đang tải lại trang 1 thì chặn "Tải thêm"; tải lại xong mới cho tải tiếp', () => {
+  const IDLE = { status: 'loading', items: [], page: 0, total: 0, totalPages: 0, error: null, more: 'idle', moreError: null };
+  const loaded = { ...IDLE, status: 'ready', items: [{ id: 'c1' }, { id: 'c2' }], page: 2, total: 150, totalPages: 3 };
+  assert.equal(pagedCanLoadMore(loaded), true);
+  const reloading = pagedReloadStart(loaded, IDLE);
+  assert.deepEqual([reloading.reloading, reloading.items.length, reloading.page], [true, 2, 2], 'giữ dữ liệu đang hiện trong lúc tải lại');
+  assert.equal(pagedCanLoadMore(reloading), false, 'đang tải lại => không cho Tải thêm');
+  const fresh = { ...IDLE, status: 'ready', items: [{ id: 'c0' }], page: 1, total: 151, totalPages: 4 };
+  assert.equal(pagedCanLoadMore(fresh), true, 'tải lại xong (state mới, không còn reloading) => Tải thêm trang 2');
+  assert.equal(pagedReloadStart(IDLE, IDLE), IDLE, 'chưa có dữ liệu => về trạng thái đang tải');
+  assert.equal(pagedCanLoadMore({ ...fresh, more: 'loading' }), false);
+  assert.equal(pagedCanLoadMore({ ...fresh, page: 4 }), false);
+  assert.equal(pagedCanLoadMore({ ...IDLE, status: 'error' }), false);
+  assert.equal(pagedCanLoadMore(null), false);
 });

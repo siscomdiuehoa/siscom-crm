@@ -320,4 +320,43 @@ describe('GET /opportunities/:id/changes — lịch sử', () => {
     expect((await as(t.app).get(O + '/' + o.id + '/changes')).status).toBe(401);
     expect((await a('crmAdmin').get(O + '/' + GHOST + '/changes')).status).toBe(404);
   });
+
+  it('T-02: phân trang — mặc định 50 dòng, có total / totalPages; trang 2 nối tiếp không trùng, không sót; pageSize > 100, page 0, cửa sổ offset quá lớn => 400', async () => {
+    const o = await fresh();
+    const base = Date.parse('2026-01-01T00:00:00.000Z');
+    await prisma.opportunityChange.createMany({ data: Array.from({ length: 57 }, (_, i) => ({ opportunityId: o.id, field: 'PROBABILITY' as const, oldValue: String(i), newValue: String(i + 1), changedById: fx.empA, changedAt: new Date(base + i * 60000) })) });
+    const p1 = await a('crmAdmin').get(O + '/' + o.id + '/changes');
+    expect(p1.status).toBe(200);
+    expect(p1.body.data).toMatchObject({ page: 1, pageSize: 50, total: 57, totalPages: 2 });
+    expect(p1.body.data.items.length).toBe(50);
+    expect(p1.body.data.items[0].newValue).toBe('57'); // mới nhất trước
+    const p2 = await a('crmAdmin').get(O + '/' + o.id + '/changes?page=2');
+    expect(p2.body.data).toMatchObject({ page: 2, pageSize: 50, total: 57, totalPages: 2 });
+    const all = [...p1.body.data.items, ...p2.body.data.items].map((x: { id: string }) => x.id);
+    expect(all.length).toBe(57); expect(new Set(all).size).toBe(57);
+    expect(p2.body.data.items[p2.body.data.items.length - 1].newValue).toBe('1');
+    const small = await a('crmAdmin').get(O + '/' + o.id + '/changes?page=3&pageSize=20');
+    expect(small.body.data).toMatchObject({ page: 3, pageSize: 20, total: 57, totalPages: 3 });
+    expect(small.body.data.items.length).toBe(17);
+    expect((await a('crmAdmin').get(O + '/' + o.id + '/changes?page=9')).body.data).toMatchObject({ items: [], total: 57 });
+    for (const bad of ['pageSize=101', 'pageSize=0', 'page=0', 'page=abc', 'page=1001&pageSize=100']) expect({ bad, s: (await a('crmAdmin').get(O + '/' + o.id + '/changes?' + bad)).status }).toEqual({ bad, s: 400 });
+    // Ngoài phạm vi / Kỹ thuật vẫn không nhận gì dù có tham số trang.
+    for (const who of ['salesC', 'techB']) expect({ who, s: (await a(who).get(O + '/' + o.id + '/changes?page=1&pageSize=5')).status }).toEqual({ who, s: 404 });
+  });
+
+  it('T-03: dòng OWNER kèm tên người phụ trách cũ / mới (oldOwner, newOwner); id không tìm thấy => null; dòng khác không có hai khoá này', async () => {
+    const o = await fresh();
+    expect((await a('salesA').post(O + '/' + o.id + '/assign', { version: 1, ownerId: fx.empB, reason: 'Bàn giao' })).status).toBe(201);
+    await prisma.opportunityChange.create({ data: { opportunityId: o.id, field: 'OWNER', oldValue: GHOST, newValue: fx.empB, reason: 'dòng cũ', changedById: fx.empC, changedAt: new Date('2025-01-01T00:00:00.000Z') } });
+    const items = (await a('crmAdmin').get(O + '/' + o.id + '/changes')).body.data.items as Array<Record<string, unknown>>;
+    const owners = items.filter((x) => x.field === 'OWNER');
+    expect(owners.length).toBe(2);
+    expect(owners[0]).toMatchObject({ oldValue: fx.empA, newValue: fx.empB, oldOwner: { id: fx.empA, fullName: 'TEST NV A' }, newOwner: { id: fx.empB, fullName: 'TEST NV B' } });
+    expect(Object.keys(owners[0].oldOwner as object).sort()).toEqual(['code', 'fullName', 'id']);
+    expect(owners[1]).toMatchObject({ oldValue: GHOST, oldOwner: null, newOwner: { id: fx.empB } });
+    expect((await a('salesB').patch(O + '/' + o.id, { version: 2, expectedAmountVnd: '5' })).status).toBe(200);
+    const amount = ((await a('crmAdmin').get(O + '/' + o.id + '/changes')).body.data.items as Array<Record<string, unknown>>).find((x) => x.field === 'AMOUNT');
+    expect(amount).toBeDefined();
+    expect(['oldOwner' in (amount as object), 'newOwner' in (amount as object)]).toEqual([false, false]);
+  });
 });

@@ -342,6 +342,30 @@ test('chuyển giai đoạn: gửi POST /stage với version đã tải, đọc 
   } finally { await m.unmount(); }
 });
 
+// T-10: sau 409, chi tiết được đọc lại (version mới) nhưng hộp KHÔNG tạo lại (giữ hộp báo lỗi) — lựa chọn xác suất cũ phải về mặc định của bản mới.
+test('T-10 chuyển giai đoạn: chọn "Về xác suất mặc định" rồi 409 => hộp vẫn báo xung đột, lựa chọn xác suất về "Giữ"; lưu lại gửi version mới + KEEP', async () => {
+  let saved = 0;
+  const f = server({
+    get: (p, n) => res(200, { data: detail({ probabilityOverridden: true, probability: 33, version: n === 1 ? 3 : 5 }) }),
+    write: () => { saved += 1; return saved === 1 ? fail(409, 'OPPORTUNITY_VERSION_CONFLICT', 'Cơ hội đã được người khác thay đổi.') : res(201, { data: detail({ version: 6 }) }); },
+  });
+  const m = await viewPage(f, SALES);
+  try {
+    await press(m.container, /^Chuyển giai đoạn$/); let d = modal(m.container);
+    await pickField(d, /Giai đoạn mới/, /Khảo sát/);
+    await pickField(d, /Xác suất đang được nhập tay/, /Về xác suất mặc định/);
+    await press(d, /^Chuyển giai đoạn$/);
+    assert.deepEqual(f.writes()[0].body, { version: 3, stageId: 's2', probability: 'RESET' });
+    d = modal(m.container); assert.ok(d, 'hộp còn mở sau 409');
+    assert.equal(f.count('/opportunities/o1'), 2, 'đã đọc lại chi tiết');
+    assert.ok(alerts(d).some((t) => /Xung đột dữ liệu/.test(t)), 'hộp báo lỗi vẫn còn');
+    const field = findAll(d, (e) => e.attributes.class === 'sg-field' && findAll(e, (l) => l.tagName === 'LABEL' && /Xác suất đang được nhập tay/.test(text(l))).length)[0];
+    assert.match(text(field), /Giữ xác suất đang nhập tay/); assert.doesNotMatch(text(field), /Về xác suất mặc định/);
+    await press(d, /^Chuyển giai đoạn$/);
+    assert.deepEqual(f.writes()[1].body, { version: 5, stageId: 's2', probability: 'KEEP' });
+  } finally { await m.unmount(); }
+});
+
 // Lỗi nghiệm thu staging 19/11/2026: rời Tiếp cận khi chưa ghi nhu cầu => máy chủ 400 gắn lỗi vào needSummary (ô KHÔNG có trong hộp Chuyển giai đoạn).
 // Trước sửa: hộp chỉ hiện câu chung "Sửa các trường được đánh dấu" mà không trường nào được đánh dấu. Sau sửa: hiện đúng câu lý do của máy chủ.
 test('chuyển giai đoạn bị máy chủ từ chối vì ô không có trong hộp (nhu cầu của khách) => hiện đúng lý do, chỉ cách sửa; không báo thành công', async () => {

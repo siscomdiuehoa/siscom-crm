@@ -340,6 +340,28 @@ describe('restore', () => {
     expect((await err(n.svc.restore(ctx, ID))).code).toBe('CUSTOMER_NOT_FOUND');
     expect((await err(ready(deleted(), [], { 'customer.read': 'ALL' }).svc.restore(ctx, ID))).code).toBe('FORBIDDEN');
   });
+  it('T-01: có customer.restore nhưng KHÔNG có customer.read => vẫn khôi phục (ghi, nhật ký) và trả bản tối thiểu, không dữ liệu khách', async () => {
+    const e = ready(deleted(), [], { 'customer.restore': 'ALL' });
+    const r = await e.svc.restore(ctx, ID);
+    expect(r).toEqual({ id: ID, code: 'KH-00001', version: 2, restored: true });
+    expect(e.customer.updateMany).toHaveBeenCalledTimes(1);
+    expect(e.audit.record.mock.calls[0][1].action).toBe('customer.restore');
+    expect(e.customer.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(JSON.stringify(r)).not.toMatch(/0903123456|ABC/);
+    // Phạm vi đọc hẹp (OWN, không phụ trách) nhưng khôi phục ALL => cũng bản tối thiểu.
+    const own = ready(deleted(), [], { 'customer.restore': 'ALL', 'customer.read': 'OWN' });
+    expect(await own.svc.restore(ctx, ID)).toEqual({ id: ID, code: 'KH-00001', version: 2, restored: true });
+    // Đọc được => chi tiết như cũ.
+    expect(((await ready().svc.restore(ctx, ID)) as { name?: string }).name).toBe('Công ty ABC');
+  });
+  it('T-01: ngoài phạm vi khôi phục — không đọc được => 404 (không lộ tồn tại); đọc được => 403; không ghi gì', async () => {
+    const hidden = ready(deleted(), [], { 'customer.restore': 'OWN' });
+    expect((await err(hidden.svc.restore(ctx, ID))).code).toBe('CUSTOMER_NOT_FOUND');
+    expect(hidden.customer.updateMany).not.toHaveBeenCalled();
+    const seen = ready(deleted(), [], { 'customer.restore': 'OWN', 'customer.read': 'ALL' });
+    expect((await err(seen.svc.restore(ctx, ID))).code).toBe('FORBIDDEN');
+    expect(seen.customer.updateMany).not.toHaveBeenCalled();
+  });
   it('xung đột MST: chỉ liệt kê khách mà người thao tác được xem', async () => {
     const conflicts = [{ conflict_code: 'KH-00002', conflict_name: 'Cty X' }];
     const a = ready(deleted(), conflicts);

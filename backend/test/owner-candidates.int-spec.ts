@@ -23,6 +23,9 @@ describe('Ứng viên chủ sở hữu', () => {
     const r = await as(t.app, 'all').get(U);
     expect(r.status).toBe(200);
     expect(r.body.data.scope).toBe('ALL');
+    // T-09: luôn có cờ truncated; DB thử dùng chung có thể tích luỹ nhân viên qua nhiều lần chạy => chỉ chắc chắn false khi chưa chạm 500.
+    expect(typeof r.body.data.truncated).toBe('boolean');
+    if (r.body.data.items.length < 500) expect(r.body.data.truncated).toBe(false);
     expect(ids(r)).toEqual(expect.arrayContaining([fx.empA, fx.empB, fx.empC]));
     expect(ids(r)).not.toContain(resigned.id);
     for (const it of r.body.data.items as Record<string, unknown>[]) expect(Object.keys(it).sort()).toEqual(['code', 'departmentCode', 'fullName', 'id']);

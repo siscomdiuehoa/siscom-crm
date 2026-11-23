@@ -368,6 +368,8 @@ export class OpportunityWritesService {
   // mã nhận 404 dù id có tồn tại hay không. Chỉ sau đó mới phân biệt: không tồn tại => 404; chưa xoá => 409 OPPORTUNITY_STATE; khách còn bị xoá
   // mềm => 409 OPPORTUNITY_CUSTOMER_DELETED (phải khôi phục khách trước; không tự khôi phục khách). Trạng thái, giai đoạn, người phụ trách, hold_* /
   // won_* / lost_*, giá trị giữ nguyên như lúc xoá; không tạo / đổi công việc nào. Dấu vết ở nhật ký.
+  // T-01: quyền khôi phục KHÔNG kéo theo quyền đọc. Sau khi khôi phục, người gọi chỉ nhận chi tiết khi đạt đường đọc ĐẦY ĐỦ (cùng mẫu assign);
+  // không đạt (có restore nhưng không có opportunity.read / ngoài phạm vi đọc) => bản tối thiểu, KHÔNG ném 404 (trước đây 404 làm rollback cả thao tác).
   async restore(ctx: RequestCtx, id: string, dto: RestoreOpportunityDto) {
     const { actor } = ctx;
     const scopeOf = this.scopeOf(actor);
@@ -376,7 +378,7 @@ export class OpportunityWritesService {
       const head = await tx.opportunity.findFirst({ where: { id }, select: { customerId: true } });
       if (head) await this.lockCustomer(tx, head.customerId);
       const locked = head ? await tx.$queryRaw<{ id: string }[]>`SELECT id FROM opportunity WHERE id = ${id}::uuid FOR UPDATE` : [];
-      const row = locked.length ? await tx.opportunity.findFirst({ where: { id }, select: { code: true, version: true, deletedAt: true, customer: { select: { deletedAt: true } } } }) : null;
+      const row = locked.length ? await tx.opportunity.findFirst({ where: { id }, select: { code: true, version: true, ownerId: true, deletedAt: true, customer: { select: { ownerId: true, deletedAt: true } } } }) : null;
       assertRestorable(scopeOf, row);
       if (!row) throw opportunityErrors.notFound(); // assertRestorable đã ném; dòng này để TypeScript thu hẹp kiểu
       if (row.version !== dto.version) throw opportunityErrors.versionConflict(row.version);
@@ -389,7 +391,9 @@ export class OpportunityWritesService {
         action: 'opportunity.restore', entityType: 'opportunity', entityId: id, entityCode: row.code, summary: 'Khôi phục cơ hội ' + row.code,
         actorEmployeeId: actor.employeeId, requestId: ctx.requestId,
       });
-      return this.reads.detailIn(tx, actor, scopeOf, id);
+      const after: OppRef = { ownerId: row.ownerId, deletedAt: null, customer: { ownerId: row.customer.ownerId, deletedAt: row.customer.deletedAt } };
+      if (readsFull(actor, scopeOf, after)) return this.reads.detailIn(tx, actor, scopeOf, id);
+      return { id, code: row.code, version: row.version + 1, restored: true as const };
     });
   }
 }

@@ -4,7 +4,7 @@ import type { Actor, Scope } from '../../common/auth/actor';
 // PR 7 (D15): danh sách ứng viên chủ sở hữu cho ô "Nhân viên phụ trách" của biểu mẫu khách hàng. KHÔNG dùng quyền hệ thống employee.read
 // (ma trận V2 chỉ crm_admin có); dùng phạm vi RỘNG NHẤT của customer.create / customer.update: ALL => mọi nhân viên; DEPARTMENT => cùng
 // phòng ban; OWN => chỉ chính mình. Chỉ nhân viên ACTIVE chưa xoá mềm; chỉ trả id/code/fullName/departmentCode (không email/điện thoại).
-// Không phân trang (số nhân viên nhỏ), chặn 500 dòng để không bao giờ trả quá lớn.
+// Không phân trang (số nhân viên nhỏ), chặn 500 dòng để không bao giờ trả quá lớn. T-09: đọc thêm MỘT dòng để biết có bị cắt không => truncated.
 
 export const OWNER_CANDIDATES_MAX = 500;
 const RANK: Record<Scope, number> = { OWN: 1, DEPARTMENT: 2, ALL: 3 };
@@ -30,7 +30,7 @@ export function candidateWhere(actor: Actor, scope: Scope): Prisma.EmployeeWhere
 }
 
 export interface OwnerCandidate { id: string; code: string; fullName: string; departmentCode: string | null }
-export interface OwnerCandidatesResult { scope: Scope; items: OwnerCandidate[] }
+export interface OwnerCandidatesResult { scope: Scope; items: OwnerCandidate[]; truncated: boolean }
 
 export async function listOwnerCandidates(db: Pick<Prisma.TransactionClient, 'employee'>, actor: Actor, scope: Scope): Promise<OwnerCandidatesResult> {
   const eff = effectiveCandidateScope(actor, scope);
@@ -38,7 +38,8 @@ export async function listOwnerCandidates(db: Pick<Prisma.TransactionClient, 'em
     where: candidateWhere(actor, scope),
     select: { id: true, code: true, fullName: true, department: { select: { code: true } } },
     orderBy: [{ fullName: 'asc' }, { code: 'asc' }],
-    take: OWNER_CANDIDATES_MAX,
+    take: OWNER_CANDIDATES_MAX + 1,
   });
-  return { scope: eff, items: rows.map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null })) };
+  const items = rows.slice(0, OWNER_CANDIDATES_MAX).map((r) => ({ id: r.id, code: r.code, fullName: r.fullName, departmentCode: r.department ? r.department.code : null }));
+  return { scope: eff, items, truncated: rows.length > OWNER_CANDIDATES_MAX };
 }

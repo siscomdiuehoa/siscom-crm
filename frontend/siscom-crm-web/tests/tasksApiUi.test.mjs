@@ -219,6 +219,17 @@ test('thẻ việc (quyền theo việc): đọc /work-card, không link hồ s�
   } finally { await m.unmount(); }
 });
 
+// T-06: hộp thoại (Modal không portal) KHÔNG được nằm trong thẻ .sg-glass — backdrop-filter làm lớp phủ position:fixed bị bó trong thẻ, lệch chỗ.
+test('T-06 chi tiết việc: hộp "Hoàn thành" mở từ trang chi tiết không nằm trong thẻ kính mờ (.sg-glass)', async () => {
+  const f = server(); const m = await mount(f, SALES, (ui) => React.createElement(TaskView, { ui, id: 't1' }));
+  try {
+    assert.ok(findAll(m.container, (e) => /(^|\s)sg-glass(\s|$)/.test(e.attributes.class || '')).length, 'trang vẫn có thẻ tiêu đề kính mờ');
+    await doAct(() => click(buttonByText(m.container, /^Hoàn thành$/)));
+    const d = modal(m.container); assert.ok(d, 'hộp thoại mở');
+    for (let x = d; x; x = x.parentNode) assert.doesNotMatch(String((x.attributes && x.attributes.class) || ''), /(^|\s)sg-glass(\s|$)/, 'tổ tiên của hộp thoại không được là .sg-glass');
+  } finally { await m.unmount(); }
+});
+
 test('tab Hoạt động của khách: mục Công việc có nút Hoàn thành; xong => dòng thời gian đọc lại', async () => {
   const f = server(); const m = await mount(f, { ...SALES, can: (p) => p === 'contact.read' ? false : SALES.can(p) }, (ui) => React.createElement(CustomerApiDetail, { ui, id: CID }));
   try {

@@ -6,6 +6,7 @@ import {
   moneyVN, parseAmountInput, AMOUNT_UNKNOWN, dateVN, isValidYmd, todayVN, isCloseOverdue, buildListQuery, parseOpportunitiesRoute, opportunityActions,
   canCreate, canSeeOpportunities, typeRequiresProject, projectLinked, validateCreate, toCreateBody, serverFieldErrors, statusLabel, EMPTY_CREATE, TYPE_HINT,
   initAction, validateAction, toActionRequest, ACTION_TITLE, ACTION_LABEL, ACTION_CANDIDATES, ACTION_FIELDS, unplacedErrors, groupAmountText, amountTyping,
+  actionBaseKey, rebaseAction, customerLacksOwner, CUSTOMER_NO_OWNER_MESSAGE,
 } from '../src/features/opportunities/opportunitiesModel.js';
 
 test('unplacedErrors: lỗi theo trường của máy chủ cho ô KHÔNG có trong hộp thao tác => thành câu hiển thị; ô có trong hộp thì để ô tự báo', () => {
@@ -214,6 +215,25 @@ test('chuyển giai đoạn: bắt buộc chọn, không chọn lại giai đo�
   assert.deepEqual(toActionRequest('stage', { stageId: 's2', probability: 'RESET' }, O), { method: 'POST', suffix: '/stage', body: { version: 5, stageId: 's2' } });
   assert.deepEqual(toActionRequest('stage', { stageId: 's2', probability: 'RESET' }, { ...O, probabilityOverridden: true }).body, { version: 5, stageId: 's2', probability: 'RESET' });
   assert.deepEqual(toActionRequest('stage', { stageId: 's2', probability: 'lạ' }, { ...O, probabilityOverridden: true }).body.probability, 'KEEP');
+});
+
+test('T-10 rebaseAction / actionBaseKey: bản mới (version hoặc cờ nhập tay đổi) => xác suất về mặc định, các ô khác giữ nguyên', () => {
+  assert.equal(actionBaseKey(O), '5:0');
+  assert.equal(actionBaseKey({ ...O, probabilityOverridden: true }), '5:1');
+  assert.notEqual(actionBaseKey({ ...O, version: 6 }), actionBaseKey(O));
+  assert.equal(actionBaseKey(null), '');
+  const form = { ...initAction('stage', O), stageId: 's2', probability: 'RESET' };
+  assert.deepEqual(rebaseAction('stage', { ...O, version: 6, probabilityOverridden: true }, form), { ...form, probability: 'KEEP' });
+  const hold = { ...initAction('holdEdit', O), holdUntil: '2026-12-20', holdReason: 'Khách đi công tác' };
+  assert.deepEqual(rebaseAction('holdEdit', { ...O, version: 6, holdUntil: '2027-01-05' }, hold), hold); // không ghi đè ô người dùng đã nhập
+});
+
+test('T-08 customerLacksOwner: chỉ chặn khi biết chắc khách chưa có người phụ trách (ownerId === null)', () => {
+  assert.equal(customerLacksOwner({ id: 'c1', ownerId: null }), true);
+  assert.equal(customerLacksOwner({ id: 'c1', ownerId: 'e1' }), false);
+  assert.equal(customerLacksOwner({ id: 'c1' }), false); // không có thông tin => không chặn, máy chủ quyết
+  assert.equal(customerLacksOwner(null), false);
+  assert.match(CUSTOMER_NO_OWNER_MESSAGE, /^Khách hàng chưa có người phụ trách — hãy phân công người phụ trách trước khi tạo cơ hội\.$/);
 });
 
 test('tạm hoãn / tiếp tục / mở lại / xoá / chuyển người: lý do bắt buộc đúng chỗ (chỉ khoảng trắng vẫn bị chặn), giới hạn 500 ký tự, thân yêu cầu đúng', () => {

@@ -94,7 +94,8 @@ const item = (n, over = {}) => ({ id: 'o' + n, code: 'CH-' + String(n).padStart(
   holdUntil: null, wonAmountVnd: null, closedAt: null, deletedAt: null, version: 3, createdAt: NOW, updatedAt: NOW, ...over });
 const detailOf = (o, over = {}) => ({ ...o, customerReadable: true, contact: null, needSummary: 'Cần 2 chiller', offerScope: null, probabilityOverridden: false, holdReason: null, wonDocType: null, wonDocNo: null, wonDocDate: null, wonDocUrl: null, wonDocFileName: null, lostReason: null, lostNote: null, ...over });
 const page = (items, over = {}) => res(200, { data: { items, page: 1, pageSize: 20, total: items.length, totalPages: items.length ? 1 : 0, ...over } });
-const apiCust = () => ({ id: CID, code: 'KH-00478', name: 'Công ty A', short: 'Cty A', phone: '028 3822 1234', version: 2 });
+// Khách có người phụ trách (như thực tế: khách chưa có người phụ trách thì máy chủ từ chối tạo cơ hội — T-08).
+const apiCust = (over = {}) => ({ id: CID, code: 'KH-00478', name: 'Công ty A', short: 'Cty A', phone: '028 3822 1234', owner: { id: ME, code: 'NV-0003', fullName: 'Trần Bình' }, version: 2, ...over });
 
 // board: { stageId: [items] } cho các truy vấn kanban (status=OPEN&stageId=…); list: truy vấn danh sách thường.
 const server = (h = {}) => {
@@ -105,6 +106,7 @@ const server = (h = {}) => {
     const n = calls.filter((c) => c.method === method && c.p === p).length;
     if (method !== 'GET') return (h.write && h.write(p, body, method, n)) || res(200, { data: detailOf(item(1), { version: 4 }) });
     if (p === '/opportunities/meta') return res(200, { data: META });
+    if (p === '/opportunities/board-summary') return h.summary ? h.summary(q, n) : res(404, { error: { code: 'NOT_FOUND', message: 'x' } });
     if (p === '/opportunities') {
       if (q.get('pageSize') === '100') return h.board ? h.board(q, n) : page([]);
       return (h.list || (() => page([item(1)])))(q, n);
@@ -116,13 +118,14 @@ const server = (h = {}) => {
     if (/\/activities$/.test(p)) return page([]);
     if (/\/contacts$/.test(p)) return res(200, { data: { items: [] } });
     if (p === '/customers') return res(200, { data: { items: [apiCust()], page: 1, pageSize: 8, total: 1, totalPages: 1 } });
-    if (p === '/customers/' + CID) return res(200, { data: apiCust() });
+    if (p === '/customers/' + CID) return res(200, { data: apiCust(h.cust || {}) });
     return res(404, { error: { code: 'NOT_FOUND', message: 'x' } });
   };
   f.calls = calls;
   f.boards = () => calls.filter((c) => c.method === 'GET' && c.p === '/opportunities' && c.q.get('pageSize') === '100');
   f.lists = () => calls.filter((c) => c.method === 'GET' && c.p === '/opportunities' && c.q.get('pageSize') !== '100');
   f.gets = (p) => calls.filter((c) => c.method === 'GET' && c.p === p);
+  f.summaries = () => calls.filter((c) => c.method === 'GET' && c.p === '/opportunities/board-summary');
   f.writes = () => calls.filter((c) => c.method !== 'GET');
   return f;
 };
@@ -265,6 +268,55 @@ test('kanban — lỗi và dữ liệu lớn: một cột lỗi 500 chỉ báo �
   } finally { await m.unmount(); }
 });
 
+// ───── T-04: tổng chính xác theo cột + số Tạm hoãn (GET /opportunities/board-summary) ─────
+const SUMMARY = { stages: [
+  { stageId: 's1', count: 230, knownAmountCount: 225, unknownAmountCount: 5, sumExpectedAmountVnd: '230000000000' },
+  { stageId: 's3', count: 1, knownAmountCount: 1, unknownAmountCount: 0, sumExpectedAmountVnd: '7200000000' },
+], onHoldCount: 4 };
+test('T-04 summaryTotalLabel / summaryOf: cùng định dạng với tổng theo thẻ; cột không có cơ hội => ""; chưa rõ tách riêng, KHÔNG cộng như 0; dữ liệu lạ => ""', async () => {
+  const { summaryTotalLabel, summaryOf } = await import('../src/features/opportunities/opportunitiesModel.js');
+  assert.equal(summaryTotalLabel(summaryOf(SUMMARY, 's1')), '230 tỷ + 5 chưa rõ');
+  assert.equal(summaryTotalLabel(summaryOf(SUMMARY, 's3')), '7,2 tỷ');
+  assert.equal(summaryTotalLabel(summaryOf(SUMMARY, 's4')), ''); // giai đoạn không có dòng => cột rỗng
+  assert.equal(summaryTotalLabel({ count: 2, knownAmountCount: 0, unknownAmountCount: 2, sumExpectedAmountVnd: null }), '2 chưa rõ');
+  assert.equal(summaryTotalLabel({ count: 1, knownAmountCount: 1, unknownAmountCount: 0, sumExpectedAmountVnd: '1999999999999998' }), '1.999.999,9 tỷ');
+  for (const bad of [null, undefined, {}, { count: '3' }, { count: -1 }]) assert.equal(summaryTotalLabel(bad), '', JSON.stringify(bad));
+  assert.deepEqual(summaryOf(null, 's1'), { stageId: 's1', count: 0, knownAmountCount: 0, unknownAmountCount: 0, sumExpectedAmountVnd: null });
+});
+
+test('T-04 kanban: tổng của cột lấy từ board-summary (đúng trên MỌI thẻ, không ghi "tính trên x / y"); nút "Tạm hoãn" có số; đổi loại => đọc lại tổng với typeId', async () => {
+  const big = Array.from({ length: 100 }, (_, i) => item(100 + i, { expectedAmountVnd: '1000000000' }));
+  const f = server({
+    board: (q) => (q.get('stageId') === 's1' ? page(big, { page: 1, pageSize: 100, total: 230, totalPages: 3 }) : q.get('stageId') === 's3' ? page([item(5, { stage: stageOf('s3'), expectedAmountVnd: '7200000000' })], { pageSize: 100 }) : page([])),
+    summary: () => res(200, { data: SUMMARY }),
+  });
+  const m = await listPage(f, SALES);
+  try {
+    assert.equal(f.summaries().length, 0, 'bảng không gọi tổng kanban');
+    await toKanban(m);
+    assert.equal(f.summaries().length, 1);
+    const cols = columns(m.container);
+    assert.deepEqual(headOf(cols[0]), ['Tiếp cận· 230', '230 tỷ + 5 chưa rõ']);
+    assert.deepEqual(headOf(cols[2]), ['Báo giá· 1', '7,2 tỷ']);
+    assert.deepEqual(headOf(cols[1]), ['Khảo sát· 0', '']);
+    assert.doesNotMatch(text(m.container), /tính trên/);
+    const hold = buttonByText(m.container, /^Tạm hoãn/); assert.ok(hold); assert.match(text(hold), /Tạm hoãn\s*4/); assert.equal(hold.attributes['aria-label'], 'Tạm hoãn (4 cơ hội)');
+    await pickIn(findAll(m.container, (e) => e.attributes['aria-label'] === 'Lọc theo loại')[0], /Thi công/);
+    const s = f.summaries(); assert.equal(s.at(-1).q.get('typeId'), 't-install'); assert.equal(s.at(-1).q.get('status'), null);
+  } finally { await m.unmount(); }
+});
+
+test('T-04 kanban: không đọc được tổng (lỗi 500 / 403) => quay về tổng trên thẻ đã tải kèm "tính trên x / y"; nút Tạm hoãn không có số', async () => {
+  const big = Array.from({ length: 100 }, (_, i) => item(100 + i, { expectedAmountVnd: '1000000000' }));
+  const f = server({ board: (q) => (q.get('stageId') === 's1' ? page(big, { page: 1, pageSize: 100, total: 230, totalPages: 3 }) : page([])), summary: () => fail(500, 'INTERNAL', 'Máy chủ lỗi') });
+  const m = await listPage(f, SALES);
+  try {
+    await toKanban(m);
+    assert.deepEqual(headOf(columns(m.container)[0]), ['Tiếp cận· 230', '100 tỷ · tính trên 100 / 230 thẻ đã tải']);
+    assert.equal(text(buttonByText(m.container, /^Tạm hoãn/)).trim(), 'Tạm hoãn');
+  } finally { await m.unmount(); }
+});
+
 test('kanban — bộ lọc loại áp cho mọi cột; nút "Tạm hoãn" đưa về Bảng với lọc trạng thái ON_HOLD', async () => {
   const f = server({ board: boardOf(BOARD) });
   const m = await listPage(f, SALES);
@@ -325,6 +377,35 @@ test('chi tiết khách — tab Cơ hội: Tạo cơ hội mở biểu mẫu v�
   } finally { await m.unmount(); }
   const a = await custPage(server(), ACCT);
   try { await doAct(() => click(tabBtn(a.container, /^Cơ hội$/))); assert.equal(buttonByText(a.container, /Tạo cơ hội/), undefined); assert.match(text(a.container), /trong phạm vi của bạn/); } finally { await a.unmount(); }
+});
+
+test('T-08: khách CHƯA có người phụ trách => nút "Tạo cơ hội" bị khoá + câu hướng dẫn phân công; bấm không mở hộp, không gọi ghi', async () => {
+  const f = server({ cust: { owner: null } });
+  const m = await custPage(f, SALES);
+  try {
+    await doAct(() => click(tabBtn(m.container, /^Cơ hội$/)));
+    const b = buttonByText(m.container, /Tạo cơ hội/); assert.ok(b); assert.equal(b.disabled, true);
+    assert.match(text(m.container), /Khách hàng chưa có người phụ trách — hãy phân công người phụ trách trước khi tạo cơ hội\./);
+    assert.doesNotMatch(text(m.container), /Bấm "Tạo cơ hội"/);
+    await doAct(() => click(b));
+    assert.equal(modal(m.container), undefined); assert.equal(f.writes().length, 0);
+  } finally { await m.unmount(); }
+});
+
+test('T-08: máy chủ trả 409 OPPORTUNITY_CUSTOMER_NO_OWNER khi tạo => hộp báo đúng câu "chưa có người phụ trách", KHÔNG có tiền tố "Xung đột dữ liệu (bản ghi trùng…)"; giữ hộp', async () => {
+  const f = server({ write: () => fail(409, 'OPPORTUNITY_CUSTOMER_NO_OWNER', 'Khách hàng chưa có người phụ trách. Hãy phân công người phụ trách khách trước khi tạo cơ hội.') });
+  const m = await custPage(f, SALES);
+  try {
+    await doAct(() => click(tabBtn(m.container, /^Cơ hội$/)));
+    await press(m.container, /Tạo cơ hội/); const d = modal(m.container); assert.ok(d);
+    await doAct(() => type(inputByLabel(d, /Tiêu đề/), 'Bán 50 FCU'));
+    const radio = byTag(d, 'input').find((i) => i.attributes.type === 'radio'); radio.checked = true; await doAct(() => click(radio));
+    await press(d, /^Tạo cơ hội$/);
+    assert.equal(f.writes().length, 1); assert.ok(modal(m.container), 'hộp còn mở');
+    const al = findAll(modal(m.container), (e) => e.attributes.role === 'alert').map((e) => text(e)).join(' | ');
+    assert.match(al, /Khách hàng chưa có người phụ trách — hãy phân công người phụ trách trước khi tạo cơ hội\./);
+    assert.doesNotMatch(al, /Xung đột dữ liệu|bản ghi trùng/);
+  } finally { await m.unmount(); }
 });
 
 test('chi tiết khách — không có opportunity.read: KHÔNG có tab Cơ hội, không gọi API cơ hội, trang như trước; lỗi API ở tab => báo lỗi + Thử lại', async () => {
