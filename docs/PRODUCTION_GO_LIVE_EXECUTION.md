@@ -5,7 +5,7 @@
 - **Mã triển khai:** `main` = `2de465c` (kiểm lại trước bước 1 và bước 3).
 - **Trạng thái (21/11/2026 15:55 giờ Việt Nam):** bước 0–8 xong. Owner ghi **GO** lúc 21/11 13:39 (06:39:38 UTC) sau khi bảng GO/NO-GO đủ 10 dòng đạt (mục 3); CRM mở cho nhân viên trên `https://crm.siscom.io.vn`.
 - **KẾT LUẬN GO/NO-GO: GO** (Owner quyết). G4, G9, G10 đạt theo **xác nhận của Owner**, Claude không tự kiểm được (mục 3, mục 6).
-- **Sau GO (mục 7):** triển khai `main` = `fd2a8a4` (#257 + #259, không migration) lúc 21/11 15:42, Owner duyệt riêng; lịch kiểm chỉ đọc mỗi sáng.
+- **Sau GO (mục 7):** triển khai `main` = `fd2a8a4` (#257 + #259, không migration) lúc 21/11 15:42; triển khai `main` = `5d9dbf5` (#258, **migration #17**) lúc 23/11 09:53 sau `OWNER_APPROVED_MIGRATION siscom_crm_prod`; mỗi lần Owner duyệt riêng. Lịch kiểm chỉ đọc mỗi sáng, từ 23/11 kèm đưa bộ sao lưu ra máy Owner và Google Drive của Owner.
 - **Sửa sau review R1 của PR #256 (20/11/2026):** kịch bản bước 5 (tệp nhật ký 600 từ đầu, lọc đầu ra theo danh sách cho phép, dò mật khẩu trong đầu ra); kịch bản bước 7 (chỉ huỷ hẹn giờ sau khi xác nhận khoá đã xoá; `pull` dừng khi thiếu tệp bắt buộc; điều kiện G7); bộ thử nhánh lỗi bằng dữ liệu giả; mốc giờ các lần duyệt (mục 1.1); bảng GO/NO-GO có dòng kết luận; đối chiếu bằng chứng G5 trên staging (mục 2.6).
 - **Sửa sau review R2 của PR #256 (20/11/2026, mục 5.2):** `g5-api-flows.sh` không còn báo "đạt" khi Kỹ thuật không mở được cơ hội hoặc việc nhắc Tạm hoãn không chuyển `CANCELLED`, hoặc giá trị chốt / chứng từ khi Thắng không lưu đúng; `step7.sh pull` dừng khi lỗi SSH lúc kiểm dấu khôi phục thử, không xoá dấu đã lưu; `step7.sh backup` dừng khi không khởi chạy được sao lưu và chỉ nhận bộ của lần chạy này; `golive-check.sh` bắt buộc 4 tệp cấu hình để lùi cho G8; bộ thử nhóm REAL và `selftest-cleanup` chỉ dùng hẹn giờ thử tên riêng, không đụng hẹn giờ vận hành `siscom-key-cleanup`; mục 6 thống nhất với trạng thái G5.
 - Tài liệu và bằng chứng không chứa mật khẩu, khoá hay tên người dùng thật.
@@ -48,6 +48,11 @@ Owner duyệt trong phiên chat với Claude, **ngoài repo**. Mốc giờ dư�
 | 7 (xoá DB thử) | "Duyệt xoá" | 21/11 06:37:12 | 06:37:30 |
 | 8 | "GO" | 21/11 06:39:38 | — |
 | Sau GO: triển khai `fd2a8a4` | "cả A và B" | 21/11 08:39:54 | 08:40:12 (chép gói), 08:41:41 (triển khai) |
+| Sau GO: #258 gộp `main`, đẩy | "Làm bước 1 #258" | 23/11 01:32:14 | — (chỉ nhánh PR) |
+| Sau GO: merge #258 | "Merge #258" | 23/11 02:33:01 | — (GitHub) |
+| Sau GO: chuẩn bị triển khai #258 | "anh đồng ý cho em chuẩn bị triển khai PR #258 và migration #17 lên production … Chưa được chạy migration, deploy hoặc thay đổi database production khi chưa có lệnh phê duyệt riêng" | 23/11 02:46:56 | chỉ đọc + chép gói + `--dry-run` |
+| Sau GO: triển khai #258 + migration #17 | "Duyệt triển khai", rồi "OWNER_APPROVED_MIGRATION siscom_crm_prod" | 23/11 02:51:24 và 02:51:44 | 02:53:09 (`deploy.sh --migrate`) |
+| Sau GO: tự động đưa sao lưu ra ngoài VPS | "Thêm bước chép"; "mọi việc sao lưu hãy làm tự động hết … sao lưu dữ liệu … vào drive tài khoản của anh" | 23/11 03:00:58 và 03:06:56 | 03:09:32 (lần chạy thật đầu; VPS chỉ đọc) |
 
 Điều kiện ngày chạy của kế hoạch (mục 2.2: "`main` vẫn là `2de465c`, khác ⇒ dừng"): kiểm bằng `git fetch` + `git rev-parse origin/main` trước bước 1 và trước bước 3, đều ra `2de465c` (dòng đầu của `step1-…-pre` và `step3-…-pre`).
 
@@ -151,6 +156,15 @@ Hai kịch bản sửa sau R1 đã chép lên VPS thay bản cũ (`/root/golive-
   - bản R1 (`3ff0498e…`) giữ ở `step7.sh.bak-r1-20261120`;
   - chưa chạy chế độ nào của bản mới trên VPS.
 
+### 5.3 Sửa sau review R3 của PR #256 (Astra, 23/11/2026)
+
+Review phần mới (bước 5–8, mục 7, ba kịch bản mới). Vòng 1: 1 HIGH; vòng 2: 3 HIGH + 1 MEDIUM; vòng 3: 1 HIGH; đều là nhánh lỗi có thể bị báo thành ĐẠT. Đã sửa và thử từng nhánh:
+
+- `pull-latest-backup.sh`: không đặt được khoá công khai kiểm chữ ký lên Drive ⇒ KHÔNG ĐẠT (trước: bỏ qua lỗi); liệt kê bộ sao lưu trên VPS chạy với `set -o pipefail` + `test -d`, lỗi liệt kê hoặc danh sách rỗng ⇒ KHÔNG ĐẠT (trước: `find` lỗi vẫn ra danh sách rỗng và có thể kết luận ĐẠT nhờ bộ cũ trên máy). Thử: giả lập `mv` khoá thất bại; đổi thư mục nguồn thành thư mục không tồn tại. Vòng 3 (1 HIGH): không ghi được bộ mới vào thư mục trên máy ⇒ KHÔNG ĐẠT, và mỗi bộ còn trên VPS phải có bản hợp lệ trên máy, thiếu ⇒ KHÔNG ĐẠT (trước: `mv` lỗi vẫn in "da chep" và có thể kết luận ĐẠT nhờ bộ cũ). Thử: máy đã có bộ mới nhất hợp lệ, giả lập từ chối ghi bộ 22/11 ⇒ KHÔNG ĐẠT, mã thoát 1. **Bản sửa vòng 3 này chưa được review lại** (đã hết 3 vòng).
+- `t07-precheck.sh`: mọi thông tin lấy từ database đi qua `iq` — truy vấn lỗi ⇒ KHÔNG ĐẠT (trước: dòng thông tin in rỗng, vẫn ĐẠT); không lấy được mốc số dòng ⇒ KHÔNG ĐẠT; `SRC_DIR` sai ⇒ KHÔNG ĐẠT (trước: âm thầm bỏ qua); so danh sách migration trong bộ nhớ, **không còn tệp tạm** trên VPS. Thử trên VPS sau triển khai (chỉ đọc): các mục "16 migration / chưa áp / chưa có cột" báo KHÔNG ĐẠT đúng như phải thế; `SRC_DIR` sai ⇒ KHÔNG ĐẠT; thay `q` bằng hàm luôn lỗi ⇒ 28 dòng KHÔNG ĐẠT.
+- `daily-check.sh`: không đọc được journal ⇒ KHÔNG ĐẠT (trước: đếm thành 0 dòng lỗi). Thử: chạy thường trên VPS đạt; giả lập `journalctl` lỗi ⇒ 3 dòng KHÔNG ĐẠT.
+- Các lần chạy ghi ở mục 7.1–7.3 dùng bản trước khi sửa; các nhánh lỗi nói trên không xảy ra trong những lần đó (đầu ra đầy đủ nằm trong bằng chứng). `SHA256SUMS.txt` ghi bản sau sửa.
+
 ## 6. NOT_VERIFIED
 
 - G4, G9, G10: dựa trên **lời Owner**, Claude không tự kiểm được. G4 không có ảnh chụp hệ thống thật.
@@ -161,7 +175,10 @@ Hai kịch bản sửa sau R1 đã chép lên VPS thay bản cũ (`/root/golive-
   3. **bản sao ngoài VPS** của bộ đó qua kiểm chữ ký + SHA-256 + dấu khôi phục.
 
   Bộ sơ bộ `siscom_crm_prod_20261120_103421` (`employee` = 0) không dùng để kết luận G7.
-- Rollback thật trên VPS: chưa thử (kể cả `deploy.sh --rollback` cho bản `fd2a8a4`, mục 7).
+- Rollback thật trên VPS: chưa thử (kể cả `deploy.sh --rollback` cho bản `fd2a8a4` và `5d9dbf5`, mục 7).
+- T-07 trên hệ thống thật: chưa tìm thử không dấu bằng tài khoản thật trên giao diện (lúc triển khai `opportunity` = 0 dòng); mới có test tự động, CI và kiểm cấu trúc chỉ đọc (mục 7.3).
+- Các bộ sao lưu sau 21/11 (kể cả bộ trước migration #17): mới kiểm chữ ký + SHA-256, **chưa khôi phục thử**. Owner chọn (23/11) chỉ khôi phục khi cần; lần khôi phục thử gần nhất là 21/11 (G7).
+- Bản sao trên Google Drive: Claude kiểm tên tệp, kích thước và chế độ riêng tư qua kết nối Drive của Owner; không tải lại từ Drive để so SHA-256.
 - Sao lưu đêm tự động đầu tiên trên `siscom_crm_prod` (02:02 ngày 21/11) đã chạy: bộ `siscom_crm_prod_20261120_190358`; từ 21/11 có kiểm mỗi sáng (mục 7).
 - Tờ hướng dẫn nhân viên (ngoài repo) soạn từ mã nguồn giao diện, chưa đối chiếu trên màn hình thật.
 - P4 (chuyển khoá giải mã sao lưu khỏi Dropbox): theo lời Owner, Claude không kiểm được.
@@ -184,3 +201,18 @@ Hai kịch bản sửa sau R1 đã chép lên VPS thay bản cũ (`/root/golive-
 
 - `daily-check.sh` (chỉ đọc, chạy qua `ssh 'bash -s'`): HTTPS + số ngày chứng chỉ; 3 dịch vụ; sức khoẻ database; bộ sao lưu đêm mới nhất ≤ 26 giờ, chữ ký + SHA-256; đĩa / RAM; dòng lỗi journal 24 giờ. Không ghi gì lên VPS.
 - Lịch tự động trên máy Owner mỗi sáng khoảng 07:30 (chỉ chạy khi ứng dụng Claude đang mở), kết quả lưu ngoài repo; chỉ báo, không tự sửa.
+
+### 7.3 Triển khai `main` = `5d9dbf5` (#258, T-07 tìm cơ hội không dấu) kèm migration #17
+
+- **Trước đó trên GitHub:** gộp `main` (`fd2a8a4`) vào nhánh #258 (`4854c0f`) làm CI hỏng 5 ca int-spec của `board-summary` (T-04): T-07 đã chuyển từ khoá ra khỏi `plan().filters` nên `boardSummary` bỏ qua `?q=`. Sửa `e398ac6` (`boardSummary` gập dấu từ khoá như `listIn`, thêm kiểm tĩnh); CI 6/6; Astra review lại toàn bộ #258 so với `main`: PASS, 0 phát hiện. Owner duyệt merge ⇒ `5d9dbf5`, CI `main` 6/6.
+- **Phạm vi `fd2a8a4..5d9dbf5`:** 13 tệp; không đổi giao diện (0 tệp `frontend/`), không đổi `backend/scripts/linux`. Migration `20261121000000_sales_opportunity_search_fold`: 2 cột sinh tự động `opportunity.title_fold` / `project_name_fold` = `public.f_vn_fold(...)` STORED + 2 chỉ mục GIN `gin_trgm_ops`; không GRANT/REVOKE.
+- **Chuẩn bị (chỉ đọc + chép gói):** gói nguồn `git archive 5d9dbf5 backend` (SHA-256 `83057dc3…`) ⇒ `/root/s12-src-5d9dbf5`, 17 migration; giao diện dùng lại `/root/s12-web-dist-fd2a8a4` (17/17 tệp trùng bản đã ghi). `t07-precheck.sh` (mọi truy vấn chạy với `default_transaction_read_only=on`; `t07-precheck-…`, `t07-precheck-truoc-deploy-…`; bản chạy hôm đó là bản **trước** khi sửa theo mục 5.3 — database chỉ đọc, nhưng script có tạo rồi xoá 2 tệp tạm `/tmp/t07-*.<pid>` trên VPS để so danh sách migration): 16 migration, 0 lỗi, đúng 1 migration chờ; `pg_trgm` + `unaccent`, `gin_trgm_ops`, `f_vn_fold` IMMUTABLE; chủ bảng `siscom_migrator`; **`opportunity` = 0 dòng** (64 kB) ⇒ thời gian khoá ACCESS EXCLUSIVE không đáng kể; không transaction treo, không khoá trên bảng; ghi số dòng 24 bảng làm mốc. `daily-check.sh` đạt (`t07-daily-check-…`). `deploy.sh … --migrate --auto-rollback --dry-run` rc = 0 (`t07-dryrun-…`).
+- **Triển khai** (`t07-deploy-apply-…`): `deploy.sh --src /root/s12-src-5d9dbf5 --frontend /root/s12-web-dist-fd2a8a4 --migrate --auto-rollback`. Sao lưu bắt buộc trước migration: `siscom_crm_prod_20261123_025352` (manifest đã ký, tự kiểm đạt); `prisma migrate deploy` áp đúng 1 migration; `APP_GRANTS_V5` 2 lần; `PASS|75` + `PASS|33`; sức khoẻ đạt; bản mới `src-20261123025309`, `previous` = `src-20261121084141`; `deploy.sh` tự dọn `src-20261119093630` theo retention.
+- **Kiểm sau** (`t07-postcheck-…`, chỉ đọc): 17 / 0 migration; 2 cột `is_generated = ALWAYS` với biểu thức `f_vn_fold(...)`; 2 chỉ mục GIN `indisvalid`; `siscom_app` đọc được 2 cột, `siscom_auth` không đọc được bảng; số dòng 24 bảng trùng mốc, chỉ `_prisma_migrations` 16 → 17; `GET /api/v1/opportunities?q=…` không đăng nhập = 401; 0 dòng lỗi backend, `NRestarts` = 0. Bộ sao lưu trước triển khai đã chép ra máy Owner, chữ ký + SHA-256 hợp lệ (`t07-backup-ngoai-vps…`; dòng "G7 CHUA DAT" trong tệp đó chỉ nói bộ này chưa khôi phục thử).
+- **Lùi:** mã — `deploy.sh --rollback` về `src-20261121084141` (`fd2a8a4`); mã cũ chạy được khi database đã có 2 cột mới (không trigger nào chép cả dòng `opportunity`; SQL thô của mã cũ chỉ đọc `id`). Database — `SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt` **tự từ chối** trên `siscom_crm_prod` (chỉ chạy trên bản sao thử); gỡ cột trên production cần phê duyệt riêng, hoặc khôi phục bộ `…20261123_025352`. Chưa thử đường lùi nào.
+
+### 7.4 Tự động đưa sao lưu ra ngoài VPS (từ 23/11)
+
+- `pull-latest-backup.sh` chạy trên máy Owner ngay sau `daily-check.sh` trong lịch mỗi sáng: (1) kéo mọi bộ `siscom_crm_prod_*` còn trên VPS mà máy chưa có (`find` + `scp`, VPS chỉ đọc); (2) kiểm chữ ký manifest + SHA-256 từng bộ bằng `step7.sh verify-local`; (3) chép bộ hợp lệ vào thư mục đồng bộ Google Drive của Owner (`My Drive/SISCOM-CRM-Backup/prod`), không xoá, không ghi đè, không giải mã. Bộ kiểm không đạt không được đưa lên Drive.
+- Đã thử: thư mục trống (kéo đủ 7 bộ), chạy lại (không chép trùng), một bộ bị sửa 1 byte (báo KHÔNG ĐẠT, không lên Drive, mã thoát 1), giả lập không đặt được khoá công khai kiểm chữ ký lên Drive và giả lập thư mục sao lưu trên VPS không tồn tại (đều báo KHÔNG ĐẠT, mã thoát 1 — sửa theo mục 5.3). Lần chạy thật đầu 23/11 03:09 UTC: 7 bộ hợp lệ trên máy, 7 bộ trên Drive (`sao-luu-tu-dong-lan-dau-…`).
+- Giới hạn: dùng khoá SSH root của máy Owner (PR #235 thay bằng tài khoản chỉ đọc `backup-pull` vẫn Draft); chỉ chạy khi máy Owner bật, ứng dụng Claude và Google Drive đang mở; máy tắt thì lần sau kéo bù trong phạm vi retention của VPS. Khoá giải mã không nằm trên Drive.

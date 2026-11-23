@@ -43,8 +43,9 @@ echo "      RAM: $(free -m | awk '/^Mem:/{print $3 " / " $2 " MB dang dung"}')"
 
 echo "5. Loi dich vu trong 24 gio"
 for s in siscom-crm-backend caddy siscom-crm-backup; do
-  n="$(journalctl -u "$s" --since '24 hours ago' -p err --no-pager -q -o cat 2>/dev/null | wc -l)"
-  if [ "$n" = 0 ]; then ok "$s: 0 dong loi"; else note "$s: $n dong loi"; journalctl -u "$s" --since '24 hours ago' -p err --no-pager -q -o cat | tail -n3 | cut -c1-200 | sed 's/^/      /'; fi
+  if ! jo="$(journalctl -u "$s" --since '24 hours ago' -p err --no-pager -q -o cat 2>/dev/null)"; then bad "$s: khong doc duoc journal (khong kiem duoc loi)"; continue; fi
+  n="$(printf '%s' "$jo" | grep -c . || true)"
+  if [ "$n" = 0 ]; then ok "$s: 0 dong loi"; else note "$s: $n dong loi"; printf '%s\n' "$jo" | tail -n3 | cut -c1-200 | sed 's/^/      /'; fi
 done
 
 echo
