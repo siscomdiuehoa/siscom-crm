@@ -124,6 +124,8 @@ jobs:
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          # P1: pool quan ly tai khoan siscom_acct (split da chay ACCT_ROLE + ACCT_GRANTS x2) - duoc dung 12 ham + doc 4 bang / 5 cot, khong hon
+          bash scripts/ci/pg-sql-check.sh docs/B1.5_VERIFY_ACCT.sql.txt res su
           # B3 A3 (ra soat doc lap): quyen mac dinh cap SELECT bang moi cho app => chot FAIL-CLOSED: app chi doc bang trong danh sach cho phep
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt res app
           # RED mong doi: bang nhay cam mo phong (migrator tao) => ALLOWLIST FAIL dung ten bang; REVOKE tuong minh => PASS; ROLLBACK, khong de lai
@@ -162,10 +164,14 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/SALES_S2_STRUCTURE_TESTS.sql.txt res migrator
           # Sales T-07: cot sinh tu dong tim khong dau - cau truc, gia tri (co dau / d gach / NULL), ghi truc tiep bi tu choi, ap lai CHINH migration tren bang co du lieu (backfill); tu ROLLBACK
           bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_TESTS.sql.txt ok migrator
+          # P1 quan ly tai khoan (20261124000000_p1_account_admin): 4 ham SECURITY DEFINER - cau truc, quyen PUBLIC, tung nhanh tu choi theo ma loi, khong lo bi mat vao nhat ky; cung tien de M1.2 (RBAC rong); tu ROLLBACK
+          bash scripts/ci/pg-sql-check.sh docs/P1_ACCOUNT_ADMIN_TESTS.sql.txt res migrator
       - name: Dien tap rollback day du (S1 -> M1.3 -> M1.2 -> M1.1 -> M1), migrate deploy lai (siscom_app), tach role lai, verify
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh unsplit
+          # P1 (20261124000000_p1_account_admin) moi nhat => rollback DAU chuoi, truoc Sales T-07. Chi go 5 ham, khong tu choi theo du lieu
+          bash scripts/ci/pg-sql-check.sh docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt run app
           # Sales T-07 (20261121000000_sales_opportunity_search_fold) moi nhat => rollback DAU chuoi, truoc Sales S9b. Khong tu choi theo du lieu (2 cot chi la gia tri suy ra tu title / project_name)
           bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt run app
           # Sales S9b (20261120000000_sales_opportunity_document) => rollback ngay sau T-07, truoc Sales S8b. PHAI TU CHOI khi con tai lieu (RED mong doi) + 9 kiem cau truc; transaction ngoai huy => khong de lai du lieu thu
@@ -220,6 +226,8 @@ jobs:
           bash scripts/ci/pg-temp-db.sh split
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          # P1: sau rollback day du + migrate deploy lai, split cap lai quyen cho siscom_acct
+          bash scripts/ci/pg-sql-check.sh docs/B1.5_VERIFY_ACCT.sql.txt res su
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Sau S1 - prisma migrate deploy bang siscom_migrator (MIGRATE_DATABASE_URL; khong con migration cho => thoat 0) + status
@@ -235,6 +243,8 @@ jobs:
       - name: B1.4 Remember Me - rollback (migrator) => V3 => VERIFY PASS; migrate deploy (migrator) => VERIFY FAIL B1f (quyen mac dinh) => V3 => PASS app + auth + cau truc
         run: |
           set -euo pipefail
+          # P1: moi nhat => rollback DAU chuoi, truoc Sales T-07 (bang chu so huu sau tach role)
+          bash scripts/ci/pg-sql-check.sh docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt run migrator
           # Sales T-07: moi nhat => rollback DAU chuoi, truoc Sales S9b (bang chu so huu sau tach role)
           bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt run migrator
           # Sales S9b: rollback TRUOC Sales S8b (bang chu so huu sau tach role). PHAI TU CHOI khi con tai lieu (RED mong doi) + 9 kiem cau truc
@@ -288,6 +298,10 @@ jobs:
           bash scripts/ci/pg-temp-db.sh grants v5
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          # P1: 4 ham P1 vua bi DROP (rollback) va tao lai (migrate deploy) => siscom_acct MAT EXECUTE tren chung: VERIFY_ACCT phai bat duoc (RED), cap lai (acct) => PASS
+          bash scripts/ci/pg-sql-check.sh docs/B1.5_VERIFY_ACCT.sql.txt fail su
+          bash scripts/ci/pg-temp-db.sh acct
+          bash scripts/ci/pg-sql-check.sh docs/B1.5_VERIFY_ACCT.sql.txt res su
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_APP_SELECT_ALLOWLIST.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.4_REMEMBER_ME_STRUCTURE_TESTS.sql.txt res migrator
           # B3 A2: dong cu sau migrate (DONE/version 1/cot moi NULL, khong UPDATE hang loat) + cau truc sau ap lai
@@ -381,6 +395,12 @@ jobs:
           bash scripts/ci/pg-temp-db.sh grants v2
           bash scripts/ci/pg-temp-db.sh unauth
           bash scripts/ci/pg-temp-db.sh auth
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
+          bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
+          # P1: dien tap rollback role acct (ACCT_ROLE_ROLLBACK voi canary4 cung cluster => giu role; lan 2 => DROP) roi cap lai => PASS acct; app + auth khong doi
+          bash scripts/ci/pg-temp-db.sh unacct
+          bash scripts/ci/pg-temp-db.sh acct
+          bash scripts/ci/pg-sql-check.sh docs/B1.5_VERIFY_ACCT.sql.txt res su
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY.sql.txt res app
           bash scripts/ci/pg-sql-check.sh docs/B1.3_S1_VERIFY_AUTH.sql.txt res su
       - name: Don DB tam (container cung bi huy sau job)

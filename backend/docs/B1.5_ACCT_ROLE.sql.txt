@@ -1,0 +1,71 @@
+-- SISCOM CRM - P1: TAO ROLE QUAN LY TAI KHOAN siscom_acct (pool thu ba, CHI cho module accounts cua backend).
+-- VIET SAN. Chay bang psql -f voi SUPERUSER (postgres) tren DATABASE DICH (-d <ten db>), SAU B1.3_S1_ROLE_SPLIT.sql.txt (DB da thuoc
+--   siscom_migrator). Chi tao role + quyen CAP CLUSTER/DATABASE (CONNECT, SET ON PARAMETER). Quyen tren bang/ham cap o
+--   B1.5_ACCT_GRANTS.sql.txt (chay bang siscom_migrator) - chua chay thi siscom_acct KHONG doc/goi duoc gi (fail-closed).
+-- Cung khuon voi B1.3_S1_AUTH_ROLE.sql.txt (role siscom_auth). Thiet ke: docs/P1_ACCOUNT_ADMIN_DESIGN.md muc 6.4.
+-- Pham vi: CHI ban sao thu (siscom_crm_test_* / siscom_crm_restore_*) hoac khi chu du an phe duyet RIENG bang van ban cho DB that.
+-- Mat khau: -v acct_pw='...' (>= 32 ky tu ngau nhien, sinh tren may chu, KHONG qua chat/log). Role da ton tai => KHONG doi mat khau.
+-- Rollback: (1) trien khai lai backend ban TRUOC P1 (hoac bo ACCT_DATABASE_URL), (2) B1.5_ACCT_ROLE_ROLLBACK.sql.txt (superuser).
+-- Luu y: CREATE ROLE ... PASSWORD dang ro co the vao log server neu log_statement = ddl/all - giu log_statement = none khi chay.
+\set ON_ERROR_STOP on
+\pset pager off
+\if :{?acct_pw}
+\else
+\set acct_pw ''
+\endif
+\if :{?target_db}
+\else
+\set target_db ''
+\endif
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dich, current_user AS chay_bang;
+SELECT CASE WHEN :'target_db' = '' THEN 'SELECT s1_fail_thieu_target_db_can_psql_v_target_db_bang_ten_db_dich()'
+            WHEN :'target_db' <> current_database() THEN 'SELECT s1_fail_target_db_khac_current_database()'
+            ELSE 'SELECT ''target_db khop: ' || current_database() || '''' END \gexec
+
+DO $$ BEGIN
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'Phai chay bang superuser (CREATE ROLE). Dang la %.', current_user;
+  END IF;
+  IF current_setting('server_version_num')::int < 150000 THEN
+    RAISE EXCEPTION 'Can PostgreSQL >= 15 (GRANT SET ON PARAMETER).';
+  END IF;
+  IF current_database() = 'siscom_crm_dev' AND coalesce(current_setting('s1.allow_dev', true), '') <> 'yes' THEN
+    RAISE EXCEPTION 'TU CHOI: siscom_crm_dev. Can phe duyet rieng (SET s1.allow_dev = yes trong cung phien).';
+  END IF;
+  IF current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % la baseline da khoa, khong duoc thay doi.', current_database();
+  END IF;
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> 'siscom_migrator' THEN
+    RAISE EXCEPTION 'Database chua tach role (chu so huu khong phai siscom_migrator). Chay B1.3_S1_ROLE_SPLIT.sql.txt truoc.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app') THEN
+    RAISE EXCEPTION 'Chua co role siscom_app.';
+  END IF;
+END $$;
+
+-- 1. Role quan ly tai khoan (siscom_acct): LOGIN, khong superuser, khong tao DB/role, khong ke thua nhom. Mat khau chi dat khi TAO MOI (\gexec vi DO khong thay :'acct_pw').
+SELECT CASE
+  WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_acct') THEN 'SELECT ''role siscom_acct da ton tai, giu nguyen mat khau'''
+  WHEN :'acct_pw' = '' OR length(:'acct_pw') < 32 THEN 'SELECT s1_fail_missing_or_short_acct_pw()'
+  ELSE format('CREATE ROLE siscom_acct LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L', :'acct_pw')
+END \gexec
+
+-- 1b. Role da ton tai (chay lai): EP LAI thuoc tinh an toan (khong doi mat khau) - QA M-7.
+ALTER ROLE siscom_acct NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+
+-- 2. Quyen cap database/cluster. KHONG cap TEMP (M-c): pool quan ly tai khoan khong can bang tam (thu tuong minh phong khi PUBLIC/role tung duoc cap).
+SELECT format('REVOKE TEMP ON DATABASE %I FROM siscom_acct', current_database()) \gexec
+SELECT format('GRANT CONNECT ON DATABASE %I TO siscom_acct', current_database()) \gexec
+-- Ham M1.2 (SECURITY DEFINER, "SET app.actor_employee_id = ''") doi nguoi goi co SET tren tham so tuy bien (PostgreSQL >= 15).
+GRANT SET ON PARAMETER app.actor_employee_id TO siscom_acct;
+GRANT SET ON PARAMETER app.priv_request_id TO siscom_acct;
+
+-- 3. Tu kiem (khong bi mat)
+SELECT 'siscom_acct' AS role, rolsuper AS super, rolcreaterole AS createrole, rolcreatedb AS createdb, rolinherit AS inherit,
+       has_database_privilege('siscom_acct', current_database(), 'CONNECT') AS connect_db,
+       has_database_privilege('siscom_acct', current_database(), 'TEMP') AS temp_db,
+       has_parameter_privilege('siscom_acct', 'app.actor_employee_id', 'SET') AS set_actor
+  FROM pg_roles WHERE rolname = 'siscom_acct';
+-- Ky vong: super=f createrole=f createdb=f inherit=f connect_db=t temp_db=f set_actor=t.
+-- Tiep theo (sau khi migration P1 da ap): B1.5_ACCT_GRANTS.sql.txt (bang siscom_migrator, 2 lan), roi B1.5_VERIFY_ACCT.sql.txt (superuser).

@@ -9,8 +9,12 @@
 #   env      Ghi $SISCOM_ETC/backend.env (DATABASE_URL=siscom_app, AUTH_DATABASE_URL=siscom_auth, CORS..., 600) va
 #            $SISCOM_ETC/migrate.env (MIGRATE_DATABASE_URL=siscom_migrator, 600, KHONG nam trong env cua dich vu). Can SISCOM_HOST (ten mien hoac IPv4) => CORS/AUTH_ALLOWED_ORIGINS = https://<host>.
 #            Tu choi ghi de file da co tro DB KHAC (dung --force-env de thay, sau khi dung dich vu).
+#   acct     (P1) Bat pool QUAN LY TAI KHOAN cho DB DA CO: sinh SISCOM_ACCT_PW (neu chua co) vao db-roles.env, tao role siscom_acct,
+#            chay B1.5_ACCT_ROLE (CONNECT + SET ON PARAMETER), them DUNG dong ACCT_DATABASE_URL vao backend.env (moi dong khac giu nguyen).
+#            Chay lai duoc (khong doi mat khau, khong cham du lieu). Quyen tren bang/ham cap o lenh grants (sau migrate).
 #   grants   SAU `prisma migrate deploy`: chay B1.3_S1_APP_GRANTS_V5 (siscom_migrator, 2 lan - idempotent), roi
 #            B1.3_S1_VERIFY (siscom_app, phai PASS|n, khong FAIL) va B1.3_S1_VERIFY_AUTH (superuser). Thieu PASS => thoat 1.
+#            Co role siscom_acct + migration P1: them B1.5_ACCT_GRANTS (2 lan) va B1.5_VERIFY_ACCT (superuser).
 #   drop     Xoa DB (de lam lai khi CHUA co du lieu that). Can: --yes-drop <db>; prod con can SISCOM_ALLOW_DROP_PROD=<db>.
 #            Tu choi neu backend.env dang tro DB nay va dich vu dang chay. KHONG xoa role.
 # Chua tung chay tren VPS that. Dien tap tren PostgreSQL tam: SISCOM_REHEARSAL=1 (xem lib.sh va docs/VPS_RUNBOOK.md).
@@ -25,7 +29,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 docs="$(cd "$here/../../docs" && pwd)"
 
 db="${1:-}"; cmd="${2:-}"
-[ -n "$db" ] && [ -n "$cmd" ] || die "Dung: create-db.sh <siscom_crm_staging|siscom_crm_prod> <create|env|grants|drop> [...]"
+[ -n "$db" ] && [ -n "$cmd" ] || die "Dung: create-db.sh <siscom_crm_staging|siscom_crm_prod> <create|env|acct|grants|drop> [...]"
 shift 2
 require_ops_db "$db"
 require_cmd psql openssl
@@ -43,6 +47,9 @@ load_role_passwords() { # dat PW_APP PW_MIGRATOR PW_AUTH tu db-roles.env (khong 
   PW_APP="$(env_get "$roles_env" SISCOM_APP_PW)" && PW_MIGRATOR="$(env_get "$roles_env" SISCOM_MIGRATOR_PW)" && PW_AUTH="$(env_get "$roles_env" SISCOM_AUTH_PW)" \
     || die "$roles_env thieu SISCOM_APP_PW/SISCOM_MIGRATOR_PW/SISCOM_AUTH_PW."
   local p; for p in "$PW_APP" "$PW_MIGRATOR" "$PW_AUTH"; do [[ "$p" =~ ^[0-9a-f]{48}$ ]] || die "Mat khau trong $roles_env sai dinh dang (mong doi 48 ky tu hex do script sinh)."; done
+  # P1: mat khau role siscom_acct la TUY CHON (chi co sau lenh acct). Co thi phai dung dinh dang.
+  PW_ACCT="$(env_get "$roles_env" SISCOM_ACCT_PW 2>/dev/null || true)"
+  [ -z "$PW_ACCT" ] || [[ "$PW_ACCT" =~ ^[0-9a-f]{48}$ ]] || die "SISCOM_ACCT_PW trong $roles_env sai dinh dang (mong doi 48 ky tu hex do script sinh)."
 }
 
 # Tao/giu role: chi tao moi khi chua co; da co thi KHONG doi mat khau (khop cach cua cac file SQL S1). Mat khau di qua STDIN.
@@ -124,9 +131,32 @@ EOF
 # Sinh boi create-db.sh. root:root 600. CHI deploy.sh/backup-db.sh/run-cli.sh doc; KHONG dua vao env cua dich vu.
 MIGRATE_DATABASE_URL=postgresql://${ROLE_MIGRATOR}:${PW_MIGRATOR}@${base}
 EOF
+      # P1: da bat pool quan ly tai khoan (lenh acct) => giu dong ACCT_DATABASE_URL khi ghi lai env.
+      [ -z "$PW_ACCT" ] || printf 'ACCT_DATABASE_URL=postgresql://%s:%s@%s\n' "$ROLE_ACCT" "$PW_ACCT" "$base" >> "$backend_env.new"
       chmod 600 "$backend_env.new" "$migrate_env.new"
       mv -f "$backend_env.new" "$backend_env"; mv -f "$migrate_env.new" "$migrate_env" )
     info "Da ghi $backend_env va $migrate_env (600) tro DB $db, domain $domain."
+    ;;
+
+  acct)
+    db_exists "$db" || die "Database $db chua ton tai (chay create truoc)."
+    load_role_passwords
+    assert_private_file "$backend_env"
+    [ "$(url_dbname "$(env_get "$backend_env" DATABASE_URL 2>/dev/null || true)")" = "$db" ] || die "TU CHOI: $backend_env khong tro DB $db (chay lenh env cho DB nay truoc)."
+    if [ -z "$PW_ACCT" ]; then
+      role_exists "$ROLE_ACCT" && die "Role $ROLE_ACCT da ton tai nhung $roles_env khong co SISCOM_ACCT_PW: khong the biet mat khau. Xu ly thu cong roi chay lai."
+      PW_ACCT="$(openssl rand -hex 24)"
+      env_append_line "$roles_env" "SISCOM_ACCT_PW=$PW_ACCT" || die "Khong ghi duoc $roles_env: DUNG (chua tao role, chua doi gi)."
+      info "Da sinh mat khau role $ROLE_ACCT -> $roles_env (600). KHONG in ra man hinh."
+    fi
+    ensure_role "$ROLE_ACCT" "$PW_ACCT"
+    run_sql_file_su "$db" "$docs/B1.5_ACCT_ROLE.sql.txt" "target_db=$db"
+    chk="$(psql_su -d postgres -tA -c "SELECT has_database_privilege('$ROLE_ACCT','$db','CONNECT') || '|' || has_database_privilege('$ROLE_ACCT','$db','TEMP') || '|' || (SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolinherit FROM pg_roles WHERE rolname = '$ROLE_ACCT')")"
+    [ "$chk" = "true|false|false" ] || die "Kiem sau tao role $ROLE_ACCT KHONG DAT: '$chk'"
+    # backend.env: thay/them DUNG mot dong ACCT_DATABASE_URL; moi dong khac giu nguyen tung byte.
+    env_replace_key "$backend_env" ACCT_DATABASE_URL "$(printf 'ACCT_DATABASE_URL=postgresql://%s:%s@127.0.0.1:%s/%s' "$ROLE_ACCT" "$PW_ACCT" "$SISCOM_PG_PORT" "$db")" \
+      || die "Khong ghi duoc $backend_env: DUNG. Tep goc giu nguyen; role $ROLE_ACCT da tao nhung CHUA duoc dung (xu ly roi chay lai lenh acct)."
+    info "Da bat pool quan ly tai khoan: role $ROLE_ACCT (CONNECT $db), ACCT_DATABASE_URL trong $backend_env. Tiep: migrate (migration P1) roi lenh grants."
     ;;
 
   grants)
@@ -163,6 +193,18 @@ EOF
     }
     verify_one "$docs/B1.3_S1_VERIFY.sql.txt" app
     verify_one "$docs/B1.3_S1_VERIFY_AUTH.sql.txt" su
+    # P1: pool quan ly tai khoan - CHI khi da bat (role ton tai) VA migration P1 da ap. Thieu mot trong hai => bo qua, noi ro.
+    if ! role_exists "$ROLE_ACCT"; then
+      info "Chua co role $ROLE_ACCT: bo qua quyen quan ly tai khoan (P1). Bat bang: create-db.sh $db acct, roi chay lai grants."
+    elif [ "$(psql_su -d "$db" -tA -c "SELECT to_regprocedure('public.fn_acct_api_account_audit(uuid, text, uuid, jsonb)') IS NOT NULL")" != t ]; then
+      warn "Co role $ROLE_ACCT nhung chua ap migration P1 (20261124000000_p1_account_admin): chua cap quyen quan ly tai khoan."
+    else
+      for i in 1 2; do
+        echo "--- ACCT_GRANTS (siscom_migrator) lan $i ---"
+        mig_psql -v "target_db=$db" -f "$docs/B1.5_ACCT_GRANTS.sql.txt"
+      done
+      verify_one "$docs/B1.5_VERIFY_ACCT.sql.txt" su
+    fi
     info "GRANTS + VERIFY DAT tren $db."
     ;;
 
@@ -177,5 +219,5 @@ EOF
     info "Da xoa database $db (role giu nguyen)."
     ;;
 
-  *) die "Lenh la: $cmd (create|env|grants|drop)" ;;
+  *) die "Lenh la: $cmd (create|env|acct|grants|drop)" ;;
 esac
