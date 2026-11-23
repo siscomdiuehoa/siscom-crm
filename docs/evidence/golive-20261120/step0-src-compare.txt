@@ -1,0 +1,4 @@
+So khop ma nguon backend: git archive 2de465c (may Owner) vs /root/s12-src-2de465c (VPS), 20/11/2026 05:4x UTC
+local  files=546 sha256(list)=db71596c0379d261d734107a6e5ea38c263606f472e475654f61b285c1971740
+remote files=546 sha256(list)=db71596c0379d261d734107a6e5ea38c263606f472e475654f61b285c1971740
+diff_lines=0
