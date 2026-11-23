@@ -114,7 +114,9 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
   it('P3b M-5: câu SQL thật của fetchDbRoleFacts — kết nối app => đặc quyền tối thiểu; kết nối migrator => chủ sở hữu, sở hữu đối tượng, thành viên migrator', async () => {
     const appFacts = await fetchDbRoleFacts(prisma);
     expect(appFacts).toEqual({ user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
-      ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true });
+      ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true,
+      // P1: ba sự kiện của pool quản lý tài khoản — kết nối app KHÔNG có bộ quyền của siscom_acct và (đúng vai trò của nó) ghi được bảng.
+      acctHasCore: false, acctSecdefExtra: false, canWriteAnyTable: true });
     expect(assessDbRole(appFacts, 'production').leastPrivilege).toBe(true);
     const m = createAdminTestPrisma();
     try {

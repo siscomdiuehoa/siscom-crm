@@ -35,6 +35,9 @@ const PREFIX: ReadonlyArray<readonly [string, () => DomainException]> = [
   ['VERSION_CONFLICT', accountErrors.versionConflict],
   ['APPROVAL_REQUIRED', accountErrors.forbidden],
   ['BOOTSTRAP_OPEN', accountErrors.unavailable],
+  // INVALID_STATE: database từ chối dữ liệu / trạng thái mà service lẽ ra đã kiểm trước (đua giữa hai thao tác, phòng ban vừa bị đóng…).
+  // Trả 400 với câu chung — không chuyển nguyên văn thông báo của database ra ngoài.
+  ['INVALID_STATE', () => accountErrors.validation(['Dữ liệu hoặc trạng thái tài khoản không hợp lệ cho thao tác này. Hãy tải lại rồi thử lại.'])],
 ];
 
 // Lấy các chuỗi có thể chứa thông báo của PostgreSQL (Prisma 7 + adapter-pg gắn ở nhiều chỗ). Chỉ dùng để so khớp nội bộ, KHÔNG trả ra ngoài.
