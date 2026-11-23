@@ -169,6 +169,25 @@ test('bàn phím — mũi tên xuống trên nút "⋯" mở menu; mục bị t�
   } finally { await m.unmount(); }
 });
 
+test('bàn phím — mũi tên LÊN trên nút "⋯" mở menu và focus vào mục CUỐI; lần mở sau bằng bấm chuột / mũi tên xuống lại focus mục đầu', async () => {
+  const f = server(); const m = await mount(f);
+  try {
+    const k = kebab(m.container, EMP.fullName);
+    k.focus();
+    let ev; await doAct(() => { ev = keydown(k, 'ArrowUp'); });
+    assert.equal(ev.defaultPrevented, true, 'mũi tên không cuộn trang');
+    let list = items(m.container); assert.equal(list.length, 4, 'ArrowUp mở menu');
+    assert.equal(dom.doc.activeElement, list[3], 'ArrowUp => mục cuối');
+    await doAct(() => keydown(dom.doc.activeElement, 'Escape'));
+    assert.equal(dom.doc.activeElement, k);
+    await doAct(() => click(k)); // hướng mở lần trước không được dính sang lần này
+    list = items(m.container); assert.equal(dom.doc.activeElement, list[0], 'bấm chuột => mục đầu');
+    await doAct(() => keydown(dom.doc.activeElement, 'Escape'));
+    await doAct(() => keydown(k, 'ArrowDown'));
+    list = items(m.container); assert.equal(dom.doc.activeElement, list[0], 'ArrowDown => mục đầu');
+  } finally { await m.unmount(); }
+});
+
 test('bàn phím — chọn một mục rồi đóng hộp thoại: focus trở về nút "⋯" của đúng dòng đó', async () => {
   const f = server(); const m = await mount(f);
   try {

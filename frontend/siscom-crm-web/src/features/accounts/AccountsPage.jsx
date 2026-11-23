@@ -24,17 +24,18 @@ const Who = ({ r, avatar = true }) => (
 );
 
 // Nút "⋯" + menu của MỘT dòng. Dòng hệ thống: chỉ ghi chú, không có nút. Mục bị tắt hiện kèm lý do (không ẩn) để người dùng hiểu vì sao.
-// Bàn phím (WAI-ARIA menu button): mũi tên xuống trên nút "⋯" mở menu; mở => focus mục đầu; mũi tên lên / xuống đi vòng, Home / End;
+// Bàn phím (WAI-ARIA menu button): mũi tên xuống trên nút "⋯" mở menu và focus mục đầu, mũi tên lên mở và focus mục CUỐI; bấm chuột => mục đầu; mũi tên lên / xuống đi vòng, Home / End;
 // Escape đóng và trả focus về nút; Tab đóng. Mục bị tắt dùng aria-disabled (vẫn nhận focus để đọc được lý do), bấm / Enter không làm gì.
 function RowMenu({ r, open, onToggle, onPick }) {
   const ref = React.useRef(null);
   const trigger = React.useRef(null); // khung bọc nút "⋯" (IconButton không chuyển tiếp ref)
   const itemEls = React.useRef([]);
+  const openAtLast = React.useRef(false); // lần mở này do mũi tên LÊN => focus mục cuối (đặt lại sau mỗi lần mở)
   const focusTrigger = () => { const b = trigger.current && trigger.current.firstChild; if (b && typeof b.focus === 'function') b.focus(); };
   const close = (back) => { onToggle(false); if (back) focusTrigger(); };
   React.useEffect(() => {
     if (!open) return undefined;
-    const first = itemEls.current.filter(Boolean)[0]; if (first) first.focus();
+    const els = itemEls.current.filter(Boolean); const target = openAtLast.current ? els[els.length - 1] : els[0]; openAtLast.current = false; if (target) target.focus();
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) onToggle(false); };
     document.addEventListener('mousedown', h);
     return () => { document.removeEventListener('mousedown', h); };
@@ -60,7 +61,7 @@ function RowMenu({ r, open, onToggle, onPick }) {
     <span style={{ display: 'inline-flex', position: 'relative' }} ref={ref}>
       <span ref={trigger} style={{ display: 'inline-flex' }}>
         <IconButton icon="ellipsis" label={'Thao tác với ' + r.fullName} size="sm" aria-haspopup="menu" aria-expanded={open} onClick={() => onToggle(!open)}
-          onKeyDown={(e) => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); onToggle(true); } }} />
+          onKeyDown={(e) => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); openAtLast.current = e.key === 'ArrowUp'; onToggle(true); } }} />
       </span>
       {open ? (
         <div className="sg-menu sg-glass-strong" role="menu" aria-label={'Thao tác với ' + r.fullName} onKeyDown={onMenuKey} style={{ right: 0, left: 'auto', top: '100%', minWidth: 220, zIndex: 30, textAlign: 'left', whiteSpace: 'normal' }}>
