@@ -60,6 +60,32 @@ one="$(printf 'siscom_crm_prod_20261110_190000.dump.age\n' | retention_keep 14 8
 check "danh sach 1 phan tu duoc giu" test "$one" = "siscom_crm_prod_20261110_190000.dump.age"
 check "danh sach rong khong loi" bash -c ". '$lin/lib.sh'; printf '' | retention_keep 14 8"
 
+echo "== 2b. Ghi tep env an toan (lib.sh: env_append_line / env_replace_key - dung boi create-db.sh acct) =="
+ef="$tmp/envsafe"; mkdir -p "$ef"
+# (a) tep KHONG co xuong dong cuoi: dong moi khong duoc dinh vao dong cuoi cu.
+printf 'SISCOM_APP_PW=aaa\nSISCOM_AUTH_PW=bbb' > "$ef/roles.env"
+check "env_append_line: thanh cong" bash -c ". '$lin/lib.sh'; env_append_line '$ef/roles.env' 'SISCOM_ACCT_PW=ccc'"
+if [ "$(cat "$ef/roles.env")" = "$(printf 'SISCOM_APP_PW=aaa\nSISCOM_AUTH_PW=bbb\nSISCOM_ACCT_PW=ccc')" ]; then ok "env_append_line: tep thieu xuong dong cuoi => 3 dong rieng, dong cu nguyen ven"; else bad "env_append_line: dong moi dinh vao dong cu"; fi
+# Quyen tep chi co nghia tren Linux (NTFS / Git Bash khong giu bit quyen POSIX).
+if [ "$(uname -s)" = Linux ]; then [ "$(stat -c '%a' "$ef/roles.env")" = 600 ] && ok "env_append_line: quyen 600" || bad "env_append_line: quyen khong phai 600"; fi
+# (b) thay khoa: dung MOT dong khoa do, moi dong khac giu nguyen tung byte (ke ca khi tep thieu xuong dong cuoi).
+printf 'A=1\nACCT_DATABASE_URL=cu1\nB=2\nACCT_DATABASE_URL=cu2\nC=3' > "$ef/backend.env"
+check "env_replace_key: thanh cong" bash -c ". '$lin/lib.sh'; env_replace_key '$ef/backend.env' ACCT_DATABASE_URL 'ACCT_DATABASE_URL=moi'"
+if [ "$(cat "$ef/backend.env")" = "$(printf 'A=1\nB=2\nC=3\nACCT_DATABASE_URL=moi')" ]; then ok "env_replace_key: dung 1 dong khoa, dong khac nguyen ven"; else bad "env_replace_key: noi dung sai"; fi
+# (c) tep CHI co dong khoa do (grep -v tra 1, khong phai loi): van ghi dung.
+printf 'ACCT_DATABASE_URL=cu\n' > "$ef/only.env"
+check "env_replace_key: tep chi co khoa do" bash -c ". '$lin/lib.sh'; env_replace_key '$ef/only.env' ACCT_DATABASE_URL 'ACCT_DATABASE_URL=moi'"
+[ "$(cat "$ef/only.env")" = "ACCT_DATABASE_URL=moi" ] && ok "env_replace_key: grep khong con dong nao (rc 1) khong bi coi la loi" || bad "env_replace_key: tep chi co khoa bi ghi sai"
+# (d) KHONG doc duoc nguon (grep rc >= 2): dung, tep goc KHONG bi thay bang tep chi con mot dong, khong de lai tep .new.
+mkdir -p "$ef/la-thu-muc.env"
+check_not "env_replace_key: nguon khong doc duoc => that bai" bash -c ". '$lin/lib.sh'; env_replace_key '$ef/la-thu-muc.env' ACCT_DATABASE_URL 'ACCT_DATABASE_URL=moi'"
+if [ -d "$ef/la-thu-muc.env" ] && [ ! -e "$ef/la-thu-muc.env.new" ]; then ok "env_replace_key: loi doc => nguon giu nguyen, khong sot .new"; else bad "env_replace_key: loi doc van thay tep / sot .new"; fi
+check_not "env_append_line: nguon khong doc duoc => that bai" bash -c ". '$lin/lib.sh'; env_append_line '$ef/khong-ton-tai.env' 'X=1'"
+[ ! -e "$ef/khong-ton-tai.env" ] && [ ! -e "$ef/khong-ton-tai.env.new" ] && ok "env_append_line: loi doc => khong tao tep" || bad "env_append_line: loi doc van tao tep"
+# create-db.sh acct phai dung hai ham nay (khong tu noi tep bang printf >> / grep -v ... || true).
+check "create-db.sh acct dung env_append_line + env_replace_key" bash -c "grep -q 'env_append_line \"\$roles_env\"' '$lin/create-db.sh' && grep -q 'env_replace_key \"\$backend_env\" ACCT_DATABASE_URL' '$lin/create-db.sh'"
+check_not "create-db.sh khong con 'grep -v ... || true' tren backend.env" grep -qE "grep -v '\^ACCT_DATABASE_URL=' .*\|\| true" "$lin/create-db.sh"
+
 echo "== 3. create-db.sh tu choi ten/lenh la (khong can PostgreSQL) =="
 for n in siscom_crm_dev siscom_crm_test_20261029_062004 siscom_crm_restore_20261014_214105 postgres 'siscom_crm_prod;x' ''; do
   out="$(SISCOM_ETC="$tmp/etc" bash "$lin/create-db.sh" "$n" create 2>&1)"; rc=$?
