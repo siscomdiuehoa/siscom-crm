@@ -4,7 +4,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import React from 'react';
-import { installDom, text, findAll, buttonByText, inputByLabel, click, type } from './helpers/miniDom.mjs';
+import { installDom, text, findAll, buttonByText, inputByLabel, click, type, keydown } from './helpers/miniDom.mjs';
 
 const BASE = 'http://127.0.0.1:3000/api/v1';
 const ON = { VITE_CRM_API_ENABLED: 'true', VITE_CRM_API_BASE: BASE };
@@ -75,6 +75,8 @@ async function pick(root, labelRe, optionRe) {
 }
 const fill = async (root, labelRe, value) => { const el = inputByLabel(root, labelRe); assert.ok(el, 'có ô ' + labelRe); await doAct(() => type(el, value)); };
 const press = async (root, re) => { const b = buttonByText(root, re); assert.ok(b, 'có nút ' + re); await doAct(() => click(b)); };
+// Mục menu bị tắt dùng aria-disabled (vẫn nhận focus để người dùng bàn phím / trình đọc màn hình nghe được lý do), không dùng thuộc tính disabled.
+const isOff = (e) => e.attributes['aria-disabled'] === 'true';
 const holdsSecret = () => findAll(dom.doc.body, (e) => e.value === TEMP || text(e).includes(TEMP)).length;
 
 test('mở trang: GET /accounts (pageSize=100) + vai trò + phòng ban; bảng 6 cột; dòng hệ thống không có nút; dòng của mình có nhãn "bạn"', async () => {
@@ -104,9 +106,9 @@ test('menu của chính mình: sửa bật; đổi vai trò / cấp lại mật 
   try {
     const list = await openMenu(m.container, ME.fullName);
     const by = (re) => list.find((e) => re.test(text(e)));
-    assert.equal(by(/Sửa thông tin/).disabled, false);
+    assert.equal(isOff(by(/Sửa thông tin/)), false);
     for (const [re, why] of [[/Đổi vai trò/, /Không tự đổi vai trò của mình/], [/Cấp lại mật khẩu/, /Dùng "Đổi mật khẩu" của bạn/], [/Khoá tài khoản/, /Không tự khoá chính mình/]]) {
-      assert.equal(by(re).disabled, true, String(re)); assert.match(text(by(re)), why);
+      assert.equal(isOff(by(re)), true, String(re)); assert.equal(by(re).disabled, false, 'vẫn nhận focus'); assert.match(text(by(re)), why);
       await doAct(() => click(by(re)));
       assert.equal(modal(dom.doc.body), undefined);
     }
@@ -119,10 +121,66 @@ test('menu theo trạng thái: tài khoản đã khoá có "Mở lại tài kho�
   try {
     let list = await openMenu(m.container, OFF.fullName);
     assert.ok(list.some((e) => /Mở lại tài khoản/.test(text(e)))); assert.ok(!list.some((e) => /Khoá tài khoản/.test(text(e))));
-    assert.equal(list.find((e) => /Cấp lại mật khẩu/.test(text(e))).disabled, true);
+    assert.equal(isOff(list.find((e) => /Cấp lại mật khẩu/.test(text(e)))), true);
     await doAct(() => click(kebab(m.container, OFF.fullName))); // đóng
     list = await openMenu(m.container, EMP.fullName);
     assert.ok(list.some((e) => /Khoá tài khoản/.test(text(e)))); assert.ok(!list.some((e) => /Mở lại tài khoản/.test(text(e))));
+  } finally { await m.unmount(); }
+});
+
+test('bàn phím — menu thao tác: mở thì focus vào mục đầu; mũi tên xuống / lên đi vòng; Home / End; Escape đóng và trả focus về nút "⋯"', async () => {
+  const f = server(); const m = await mount(f);
+  try {
+    const k = kebab(m.container, EMP.fullName);
+    await doAct(() => click(k));
+    const list = items(m.container); assert.equal(list.length, 4);
+    const at = () => list.indexOf(dom.doc.activeElement);
+    assert.equal(at(), 0, 'mở menu => focus mục đầu (Sửa thông tin)');
+    await doAct(() => keydown(dom.doc.activeElement, 'ArrowDown')); assert.equal(at(), 1);
+    await doAct(() => keydown(dom.doc.activeElement, 'ArrowDown')); assert.equal(at(), 2);
+    await doAct(() => keydown(dom.doc.activeElement, 'End')); assert.equal(at(), 3);
+    await doAct(() => keydown(dom.doc.activeElement, 'ArrowDown')); assert.equal(at(), 0, 'cuối danh sách => vòng về đầu');
+    await doAct(() => keydown(dom.doc.activeElement, 'ArrowUp')); assert.equal(at(), 3, 'đầu danh sách => vòng về cuối');
+    await doAct(() => keydown(dom.doc.activeElement, 'Home')); assert.equal(at(), 0);
+    const ev = keydown(dom.doc.activeElement, 'ArrowDown'); await flush();
+    assert.equal(ev.defaultPrevented, true, 'mũi tên không cuộn trang');
+    await doAct(() => keydown(dom.doc.activeElement, 'Escape'));
+    assert.equal(items(m.container).length, 0, 'Escape đóng menu');
+    assert.equal(dom.doc.activeElement, k, 'focus trở về nút đã mở menu');
+    assert.equal(k.attributes['aria-expanded'], 'false');
+  } finally { await m.unmount(); }
+});
+
+test('bàn phím — mũi tên xuống trên nút "⋯" mở menu; mục bị tắt vẫn tới được bằng mũi tên nhưng Enter / bấm không mở hộp thoại; Tab đóng menu', async () => {
+  const f = server(); const m = await mount(f);
+  try {
+    const k = kebab(m.container, ME.fullName);
+    k.focus();
+    await doAct(() => keydown(k, 'ArrowDown'));
+    let list = items(m.container); assert.equal(list.length, 4, 'ArrowDown mở menu');
+    assert.equal(dom.doc.activeElement, list[0]);
+    await doAct(() => keydown(dom.doc.activeElement, 'ArrowDown'));
+    assert.equal(dom.doc.activeElement, list[1]); assert.equal(isOff(list[1]), true); assert.match(text(list[1]), /Không tự đổi vai trò của mình/);
+    await doAct(() => click(list[1]));
+    assert.equal(modal(dom.doc.body), undefined, 'mục bị tắt không mở hộp thoại');
+    assert.equal(items(m.container).length, 4, 'menu vẫn mở để đọc lý do');
+    await doAct(() => keydown(dom.doc.activeElement, 'Tab'));
+    assert.equal(items(m.container).length, 0, 'Tab đóng menu');
+  } finally { await m.unmount(); }
+});
+
+test('bàn phím — chọn một mục rồi đóng hộp thoại: focus trở về nút "⋯" của đúng dòng đó', async () => {
+  const f = server(); const m = await mount(f);
+  try {
+    const k = kebab(m.container, EMP.fullName);
+    k.focus();
+    await doAct(() => keydown(k, 'ArrowDown'));
+    await doAct(() => click(dom.doc.activeElement)); // Sửa thông tin
+    assert.ok(modal(dom.doc.body));
+    await press(modal(dom.doc.body), /Huỷ/);
+    await flush();
+    assert.equal(modal(dom.doc.body), undefined);
+    assert.equal(dom.doc.activeElement, kebab(m.container, EMP.fullName));
   } finally { await m.unmount(); }
 });
 
@@ -257,6 +315,48 @@ test('sửa thông tin sau 409 — cùng sửa MỘT ô: giữ nội dung của 
     assert.equal(inputByLabel(open, /Họ tên/).value, 'Trần Thị Mẫu (B sửa)');
     assert.match(text(open), /Người khác vừa đổi Họ tên thành “Trần Thị Mẫu \(A sửa\)”/);
     assert.match(text(open), /lưu sẽ ghi đè/i);
+  } finally { await m.unmount(); }
+});
+
+test('sửa thông tin — xung đột HAI LẦN liên tiếp (người kia lưu tiếp trong lúc mình xem lại): lần 2 vẫn 409, "Tải lại" lần nữa nạp tiếp bản mới, lưu lần 3 gửi mốc mới nhất', async () => {
+  let n = 0; const T2 = '2026-11-23T04:30:00.000Z';
+  const f = server({ write: (p, method, body, db) => {
+    if (method !== 'PATCH') return undefined; n += 1;
+    if (n === 1) { db[2] = { ...db[2], updatedAt: T1, email: 'lan1@thu.local' }; return fail(409, 'VERSION_CONFLICT', 'x'); }
+    if (n === 2) { db[2] = { ...db[2], updatedAt: T2, email: 'lan2@thu.local' }; return fail(409, 'VERSION_CONFLICT', 'x'); }
+    db[2] = { ...db[2], ...body, updatedAt: '2026-11-23T05:00:00.000Z' }; return res(200, { data: db[2] });
+  } });
+  const m = await mount(f);
+  try {
+    const d = await choose(m.container, EMP.fullName, /Sửa thông tin/);
+    await fill(d, /Chức danh/, 'Trưởng nhóm');
+    await press(d, /^Lưu$/);
+    await press(modal(dom.doc.body), /Tải lại/);
+    assert.equal(inputByLabel(modal(dom.doc.body), /Email đăng nhập/).value, 'lan1@thu.local');
+    await press(modal(dom.doc.body), /^Lưu$/);
+    assert.equal(f.writes()[1].body.updatedAt, T1);
+    assert.ok(modal(dom.doc.body), 'lần 2 vẫn xung đột => hộp thoại còn mở');
+    assert.match(alertText(modal(dom.doc.body)), /Thông tin vừa được người khác sửa/);
+    await press(modal(dom.doc.body), /Tải lại/);
+    assert.equal(inputByLabel(modal(dom.doc.body), /Email đăng nhập/).value, 'lan2@thu.local');
+    assert.equal(inputByLabel(modal(dom.doc.body), /Chức danh/).value, 'Trưởng nhóm');
+    await press(modal(dom.doc.body), /^Lưu$/);
+    assert.deepEqual(f.writes()[2].body, { updatedAt: T2, fullName: 'Trần Thị Mẫu', email: 'lan2@thu.local', departmentId: 'd-kd', positionTitle: 'Trưởng nhóm' });
+    assert.equal(modal(dom.doc.body), undefined);
+  } finally { await m.unmount(); }
+});
+
+test('sửa thông tin — tài khoản bị người khác xoá / lọc mất trong lúc đang sửa: "Tải lại" báo rõ, không gửi thêm gì', async () => {
+  let n = 0;
+  const f = server({ write: (p, method, body, db) => { if (method !== 'PATCH') return undefined; n += 1; db.splice(2, 1); return fail(409, 'VERSION_CONFLICT', 'x'); } });
+  const m = await mount(f);
+  try {
+    const d = await choose(m.container, EMP.fullName, /Sửa thông tin/);
+    await fill(d, /Chức danh/, 'X');
+    await press(d, /^Lưu$/);
+    await press(modal(dom.doc.body), /Tải lại/);
+    assert.match(alertText(modal(dom.doc.body)), /Không còn thấy tài khoản này trong danh sách/);
+    assert.equal(f.writes().length, 1);
   } finally { await m.unmount(); }
 });
 

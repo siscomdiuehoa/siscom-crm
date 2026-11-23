@@ -24,25 +24,48 @@ const Who = ({ r, avatar = true }) => (
 );
 
 // Nút "⋯" + menu của MỘT dòng. Dòng hệ thống: chỉ ghi chú, không có nút. Mục bị tắt hiện kèm lý do (không ẩn) để người dùng hiểu vì sao.
+// Bàn phím (WAI-ARIA menu button): mũi tên xuống trên nút "⋯" mở menu; mở => focus mục đầu; mũi tên lên / xuống đi vòng, Home / End;
+// Escape đóng và trả focus về nút; Tab đóng. Mục bị tắt dùng aria-disabled (vẫn nhận focus để đọc được lý do), bấm / Enter không làm gì.
 function RowMenu({ r, open, onToggle, onPick }) {
   const ref = React.useRef(null);
+  const trigger = React.useRef(null); // khung bọc nút "⋯" (IconButton không chuyển tiếp ref)
+  const itemEls = React.useRef([]);
+  const focusTrigger = () => { const b = trigger.current && trigger.current.firstChild; if (b && typeof b.focus === 'function') b.focus(); };
+  const close = (back) => { onToggle(false); if (back) focusTrigger(); };
   React.useEffect(() => {
     if (!open) return undefined;
+    const first = itemEls.current.filter(Boolean)[0]; if (first) first.focus();
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) onToggle(false); };
-    const k = (e) => { if (e.key === 'Escape') onToggle(false); };
-    document.addEventListener('mousedown', h); document.addEventListener('keydown', k);
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k); };
+    document.addEventListener('mousedown', h);
+    return () => { document.removeEventListener('mousedown', h); };
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   if (r.isSystem) return <span style={sub}>Tài khoản hệ thống</span>;
   const a = rowActions(r);
   const kinds = ['edit', 'role', 'resetPassword', a.enable.enabled ? 'enable' : 'disable'];
+  const onMenuKey = (e) => {
+    const els = itemEls.current.filter(Boolean); if (!els.length) return;
+    const i = els.indexOf(document.activeElement);
+    const go = (j) => { e.preventDefault(); els[(j + els.length) % els.length].focus(); };
+    if (e.key === 'ArrowDown') go(i + 1);
+    else if (e.key === 'ArrowUp') go(i < 0 ? els.length - 1 : i - 1);
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(els.length - 1);
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
+    else if (e.key === 'Tab') close(false);
+  };
+  // Chọn mục: trả focus về nút "⋯" TRƯỚC khi mở hộp thoại, để khi hộp thoại đóng focus quay lại đúng dòng này.
+  const choose = (k) => { if (!a[k].enabled) return; focusTrigger(); onPick(k); };
+  itemEls.current = [];
   return (
     <span style={{ display: 'inline-flex', position: 'relative' }} ref={ref}>
-      <IconButton icon="ellipsis" label={'Thao tác với ' + r.fullName} size="sm" aria-haspopup="menu" aria-expanded={open} onClick={() => onToggle(!open)} />
+      <span ref={trigger} style={{ display: 'inline-flex' }}>
+        <IconButton icon="ellipsis" label={'Thao tác với ' + r.fullName} size="sm" aria-haspopup="menu" aria-expanded={open} onClick={() => onToggle(!open)}
+          onKeyDown={(e) => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); onToggle(true); } }} />
+      </span>
       {open ? (
-        <div className="sg-menu sg-glass-strong" role="menu" style={{ right: 0, left: 'auto', top: '100%', minWidth: 220, zIndex: 30, textAlign: 'left', whiteSpace: 'normal' }}>
-          {kinds.map((k) => (
-            <button key={k} type="button" role="menuitem" className="sg-menu__item" disabled={!a[k].enabled} onClick={() => onPick(k)}
+        <div className="sg-menu sg-glass-strong" role="menu" aria-label={'Thao tác với ' + r.fullName} onKeyDown={onMenuKey} style={{ right: 0, left: 'auto', top: '100%', minWidth: 220, zIndex: 30, textAlign: 'left', whiteSpace: 'normal' }}>
+          {kinds.map((k, i) => (
+            <button key={k} type="button" role="menuitem" className="sg-menu__item" aria-disabled={a[k].enabled ? undefined : 'true'} tabIndex={-1} ref={(el) => { itemEls.current[i] = el; }} onClick={() => choose(k)}
               style={{ width: '100%', border: 0, background: 'transparent', font: 'inherit', textAlign: 'left', cursor: a[k].enabled ? 'pointer' : 'not-allowed', opacity: a[k].enabled ? 1 : 0.6, color: k === 'disable' && a[k].enabled ? 'var(--error-text)' : 'inherit', borderTop: k === 'enable' || k === 'disable' ? '1px solid var(--border-subtle)' : 0 }}>
               <Icon name={ACTION_ICON[k]} size={15} />
               <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}><span>{ACTION_LABEL[k]}</span>{a[k].reason ? <small style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>{a[k].reason}</small> : null}</span>
