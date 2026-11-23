@@ -1395,6 +1395,10 @@ describe('P1 — quản lý tài khoản (/accounts, pool siscom_acct)', () => {
   type S = { cookie: string; csrf: string };
   let admin: S; let adminId = ''; let sysId = '';
   const on = () => acctPrisma.available;
+  // Các ca bên dưới tự bỏ qua khi không có pool acct (máy lập trình chưa dựng role). Trên CI pool PHẢI có: thiếu => đỏ, không được xanh rỗng.
+  it('P1-CI. trên CI bắt buộc có TEST_ACCT_DATABASE_URL (các ca P1 không được bỏ qua âm thầm)', () => {
+    if (process.env.GITHUB_ACTIONS || process.env.CI) expect({ acctPoolConfigured: on() }).toEqual({ acctPoolConfigured: true });
+  });
   const post = (path: string, body: object, s: S = admin) => srv().post(A + path).set(hdr(s)).send(body);
   const patch = (path: string, body: object, s: S = admin) => srv().patch(A + path).set(hdr(s)).send(body);
   const get = (path: string, s: S = admin) => srv().get(A + path).set('Cookie', s.cookie);
@@ -1508,6 +1512,20 @@ describe('P1 — quản lý tài khoản (/accounts, pool siscom_acct)', () => {
       expect(JSON.stringify(res.body)).not.toMatch(/Tam#MatKhau|Matkhauchuaemail#1|Ngan#12345a/);
     }
     expect(await counts()).toEqual(before);
+  });
+
+  it('P1-6b. lỗi GIỮA CHỪNG (sau khi đã có dòng nhân viên): mật khẩu tạm chứa đúng mã nhân viên vừa sinh => 400 và rollback toàn bộ, không sót nhân viên / credential / vai trò / yêu cầu', async () => {
+    if (!on()) return;
+    const prev = await create('truoc-6b'); // mã vừa cấp NV-000k => lần tạo kế tiếp nhận NV-000(k+1)
+    const next = 'NV-' + String(Number(prev.code.slice(3)) + 1).padStart(4, '0');
+    const before = await counts();
+    const res = await post('', { fullName: 'P1 giua chung', email: mail('giua-chung'), role: 'sales', tempPassword: 'Xy9#' + next.toLowerCase() + '-Zz' });
+    expect({ s: res.status, c: res.body?.error?.code }).toEqual({ s: 400, c: 'VALIDATION_FAILED' });
+    expect(await counts()).toEqual(before);
+    expect(await adminPrisma.employee.count({ where: { email: mail('giua-chung') } })).toBe(0);
+    // Không phải do mật khẩu yếu: cùng dạng mật khẩu nhưng không chứa mã => tạo được (và nhận đúng mã đã đoán hoặc mã sau nó).
+    const ok = await post('', { fullName: 'P1 sau giua chung', email: mail('sau-giua-chung'), role: 'sales', tempPassword: 'Xy9#khong-chua-ma-Zz' });
+    expect(ok.status).toBe(201);
   });
 
   it('P1-7. sửa thông tin: đúng updatedAt => lưu, mã giữ nguyên; updatedAt cũ => 409 VERSION_CONFLICT, không ghi đè; tự sửa mình được; tài khoản hệ thống 403', async () => {
