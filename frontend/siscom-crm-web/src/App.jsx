@@ -17,6 +17,8 @@ import TasksPage, { TaskView } from './features/activities/TasksPage.jsx';
 import { parseTasksRoute, bellCount } from './features/activities/tasksModel.js';
 import OpportunitiesPage, { OpportunityView } from './features/opportunities/OpportunitiesPage.jsx';
 import { parseOpportunitiesRoute, canSeeOpportunities } from './features/opportunities/opportunitiesModel.js';
+import { AccountsRoute } from './features/accounts/AccountsPage.jsx';
+import { canManageAccounts, accountsNav } from './features/accounts/accountsModel.js';
 import ApiModeUnsupported, { API_UNSUPPORTED_NOTE } from './features/apiMode/ApiModeUnsupported.jsx';
 import ChangePasswordDialog from './features/auth/ChangePasswordDialog.jsx';
 import { CHANGE_PASSWORD_UI_TEXT } from './auth/changePasswordModel.js';
@@ -109,7 +111,9 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
   const API_CAN = React.useMemo(() => grantsFromSession(session), [session, sessionState]);
   // B3 A8: mục "Công việc" (Kinh doanh) chỉ khi máy chủ cấp activity.read; chuông = quá hạn + hôm nay + chờ duyệt (đọc lại mỗi 5 phút và sau mỗi thao tác).
   const TASKS = API_ON && CUSTOMER_API.tasks && API_CAN('activity.read') ? CUSTOMER_API.tasks : null;
-  const NAV = React.useMemo(() => { if (!TASKS) return NAV0; const i = NAV0.findIndex((n) => n.id === 'customers'); return [...NAV0.slice(0, i + 1), { id: 'activities', label: 'Công việc', icon: 'list-checks' }, ...NAV0.slice(i + 1)]; }, [NAV0, TASKS]);
+  // P1: trang Tài khoản chỉ cho người được máy chủ cấp access.approve (Quản trị CRM). Có quyền => mục "Tài khoản" thay chỗ "Nhân sự"; không => thanh bên như cũ.
+  const ACCOUNTS = API_ON && CUSTOMER_API.accounts && canManageAccounts((p) => (me && me.permissions ? me.permissions[p] : null)) ? CUSTOMER_API.accounts : null;
+  const NAV = React.useMemo(() => { const base = accountsNav(NAV0, !!ACCOUNTS); if (!TASKS) return base; const i = base.findIndex((n) => n.id === 'customers'); return [...base.slice(0, i + 1), { id: 'activities', label: 'Công việc', icon: 'list-checks' }, ...base.slice(i + 1)]; }, [NAV0, TASKS, ACCOUNTS]);
   // Sales S10: mục "Cơ hội kinh doanh" mở màn hình thật CHỈ khi máy chủ cấp mã đọc cơ hội (đầy đủ hoặc theo việc); không có => giữ trạng thái "chưa vận hành" như cũ.
   const OPPS = API_ON && CUSTOMER_API.opportunities && canSeeOpportunities((p) => (me && me.permissions ? me.permissions[p] : null)) ? CUSTOMER_API.opportunities : null;
   const tasksState = useCustomerApiState(TASKS);
@@ -185,6 +189,8 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
   else if (route.page === 'activities' && TASKS) { title = 'Công việc của tôi'; crumbs = ['SISCOM CRM', 'Kinh doanh', 'Công việc']; body = <TasksPage ui={ui} filter={route.filter} />; }
   else if (route.page === 'pipeline' && OPPS && route.id) { title = 'Cơ hội kinh doanh'; crumbs = ['SISCOM CRM', 'Cơ hội kinh doanh', 'Chi tiết']; body = <OpportunityView ui={ui} id={route.id} />; }
   else if (route.page === 'pipeline' && OPPS) { title = 'Cơ hội kinh doanh'; crumbs = ['SISCOM CRM', 'Kinh doanh', 'Cơ hội kinh doanh']; body = <OpportunitiesPage ui={ui} />; }
+  // P1: #/accounts ở chế độ API — có quyền => trang thật; không quyền (gõ thẳng địa chỉ) => trang "không có quyền", không gọi máy chủ.
+  else if (route.page === 'accounts' && API_ON) { title = 'Tài khoản'; crumbs = ['SISCOM CRM', 'Vận hành', 'Tài khoản']; body = <AccountsRoute ui={ui} allowed={!!ACCOUNTS} />; }
   else if (route.page === 'customers' && route.id && CUSTOMER_API) { title = 'Chi tiết khách hàng'; crumbs = ['SISCOM CRM', 'Khách hàng', 'Chi tiết']; body = <CustomerApiDetail ui={ui} id={route.id} />; }
   else if (route.page === 'customers' && route.id) { title = cust ? cust.short : 'Không tìm thấy'; crumbs = ['SISCOM CRM', 'Khách hàng', route.id]; body = cust ? <CustomerProfilePage ui={ui} c={cust} /> : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description={'Mã ' + route.id + ' không tồn tại hoặc đã bị xoá.'} action={<Button onClick={() => navigate('/customers')}>Về danh sách</Button>} /></div>; }
   else if (route.page === 'customers') { title = 'Quản lý khách hàng'; crumbs = ['SISCOM CRM', 'Kinh doanh']; body = <CustomerListPage ui={ui} />; }
