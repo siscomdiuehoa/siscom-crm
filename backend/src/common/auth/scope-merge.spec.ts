@@ -26,7 +26,11 @@ describe('mergeScopes', () => {
     expect(r.scopes).toEqual({ 'activity.read': 'OWN' });
   });
   it('KNOWN gồm 8 quyền B1 + 9 quyền activity.* (A4) + customer.export (FV-4A) + 10 quyền opportunity.* (Sales S5)', () => {
-    expect(KNOWN.size).toBe(28);
+    expect(KNOWN.size).toBe(29);
+    // P1: access.approve (Quản trị CRM) phải tới được ứng dụng để gác trang Tài khoản; các mã quản trị khác vẫn KHÔNG lộ ra ứng dụng.
+    expect(KNOWN.has('access.approve')).toBe(true);
+    expect(KNOWN.has('access.request')).toBe(false);
+    expect(KNOWN.has('role.manage')).toBe(false);
     expect(KNOWN.has('opportunity.read_assigned')).toBe(true);
     expect(KNOWN.has('opportunity.export')).toBe(false);
     expect(KNOWN.has('activity.assign_external')).toBe(true);
@@ -61,5 +65,18 @@ describe('effectiveAccessOf (người khác, qua pool nghiệp vụ)', () => {
     db.employee.findMany.mockClear();
     expect((await effectiveAccessOf(db as never, [])).size).toBe(0);
     expect(db.employee.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('mergeScopes — access.approve (P1)', () => {
+  it('giữ access.approve của vai trò đã xác nhận; bỏ mã quản trị khác', () => {
+    const rows = [{ role: { code: 'crm_admin', isConfirmed: true, permissions: [
+      { scope: 'ALL', permission: { code: 'access.approve' } }, { scope: 'ALL', permission: { code: 'audit.read' } }, { scope: 'ALL', permission: { code: 'employee.read' } },
+    ] } }];
+    expect(mergeScopes(rows).scopes).toEqual({ 'access.approve': 'ALL' });
+  });
+  it('vai trò chưa xác nhận không cấp access.approve', () => {
+    const rows = [{ role: { code: 'crm_admin', isConfirmed: false, permissions: [{ scope: 'ALL', permission: { code: 'access.approve' } }] } }];
+    expect(mergeScopes(rows).scopes).toEqual({});
   });
 });

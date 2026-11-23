@@ -11,7 +11,10 @@ export type Permission =
   | 'customer.export'
   // Sales S5 (docs/SALES_DESIGN.md §5.2, §5.4): MỖI mã cấp riêng — service kiểm đúng mã của thao tác, không suy move_stage/close/assign từ update.
   | 'opportunity.read' | 'opportunity.read_assigned' | 'opportunity.create' | 'opportunity.update' | 'opportunity.move_stage'
-  | 'opportunity.close' | 'opportunity.assign' | 'opportunity.reopen' | 'opportunity.delete' | 'opportunity.restore';
+  | 'opportunity.close' | 'opportunity.assign' | 'opportunity.reopen' | 'opportunity.delete' | 'opportunity.restore'
+  // P1 (docs/P1_ACCOUNT_ADMIN_DESIGN.md §6.1): quyền DUYỆT của Quản trị CRM — gác trang và API quản lý tài khoản. Mã quản trị khác
+  // (access.request, role.manage, employee.manage…) KHÔNG đưa vào ứng dụng: chỉ tài khoản hệ thống giữ, không ai thao tác qua giao diện.
+  | 'access.approve';
 // B3 A4: 9 mã quyền hoạt động (dùng cho kiểm nhất quán KNOWN / ALL_PERMS / BIZ / script cấp quyền 2 người).
 export const ACTIVITY_PERMISSIONS: readonly Permission[] = ['activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request'];
 // Sales S5: 10 mã quyền cơ hội (kiểm nhất quán Permission / KNOWN / BIZ / script cấp quyền 2 người). opportunity.export KHÔNG tồn tại ở đợt này (§5.2).

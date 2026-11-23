@@ -7,6 +7,13 @@ import { AUTH_CONFIG, AuthConfig } from '../src/common/auth/auth.config';
 import { ASSIGNEE_ELIGIBILITY, AssigneeEligibility, AuthPoolAssigneeEligibility } from '../src/common/auth/assignee-eligibility';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
 import { requestContext } from '../src/common/middleware/request-context.middleware';
+import { AccountsModule } from '../src/modules/accounts/accounts.module';
+import { ACCOUNTS_WRITE_LIMITER } from '../src/modules/accounts/accounts.write.service';
+import { LoginLimiter } from '../src/modules/auth/login-limiter';
+import { inAcctTx } from '../src/modules/accounts/accounts.flow';
+import { DomainException } from '../src/common/errors/domain.exception';
+import { AcctPrismaService } from '../src/prisma/acct-prisma.service';
+import { assessDbRole, fetchDbRoleFacts } from '../src/prisma/db-role-check';
 import { AuthApiModule } from '../src/modules/auth/auth-api.module';
 import { bootstrapAuth, BootstrapUser } from '../src/modules/auth/bootstrap';
 import { AccountAdmin, markMustChange, parseArgs } from '../src/modules/auth/account-admin';
@@ -15,7 +22,7 @@ import { CustomersModule } from '../src/modules/customers/customers.module';
 import { LookupsModule } from '../src/modules/lookups/lookups.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { leaks } from './helpers/test-app';
-import { assertTestConnection, createAdminTestPrisma, createAuthTestPrisma, createTestPrisma, setDatabaseDefaultTimeZone } from './helpers/test-db';
+import { assertTestConnection, createAcctTestPrisma, createAdminTestPrisma, createAuthTestPrisma, createTestPrisma, setDatabaseDefaultTimeZone } from './helpers/test-db';
 import { AuthPrismaService } from '../src/prisma/auth-prisma.service';
 import { ensureFixtures, Fixtures, makeCustomer } from './helpers/fixtures';
 
@@ -39,6 +46,8 @@ let prisma: PrismaService; let app: INestApplication; let codes: Record<string, 
 let adminPrisma: PrismaService;
 // B1.4 P3c: pool xác thực (siscom_auth qua TEST_AUTH_DATABASE_URL; rơi về app khi chưa tách) — AuthService/SessionActorProvider dùng pool này.
 let authPrisma: AuthPrismaService;
+// P1: pool quản lý tài khoản (siscom_acct qua TEST_ACCT_DATABASE_URL); không có biến => available = false (API /accounts trả 503).
+let acctPrisma: AcctPrismaService;
 // P3c: các truy vấn KIỂM CHỨNG trên auth_session / employee_credential dùng adminPrisma (chủ sở hữu) — pool app (prisma) không còn quyền đọc.
 const srv = () => request(app.getHttpServer());
 const cookieOf = (res: request.Response): string => { const sc = res.headers['set-cookie']; const list = Array.isArray(sc) ? sc : [String(sc ?? '')]; return list.find((c) => c.startsWith('siscom_sid='))!.split(';')[0]; };
@@ -68,8 +77,10 @@ beforeAll(async () => {
   try { await assertTestConnection(admin.prisma, dbName); r = await bootstrapAuth(admin.prisma, USERS); } finally { await admin.prisma.$disconnect(); }
   expect(r.closed).toBe(true);
   codes = Object.fromEntries(r.employees.map((e) => [e.key, e.code]));
-  const mod = await Test.createTestingModule({ imports: [AuthApiModule, CustomersModule, LookupsModule, ActivitiesModule] })
-    .overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue((authPrisma = createAuthTestPrisma().prisma)).overrideProvider(AUTH_CONFIG).useValue(cfg).compile();
+  const mod = await Test.createTestingModule({ imports: [AuthApiModule, CustomersModule, LookupsModule, ActivitiesModule, AccountsModule] })
+    .overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue((authPrisma = createAuthTestPrisma().prisma)).overrideProvider(AUTH_CONFIG).useValue(cfg).overrideProvider(AcctPrismaService).useValue((acctPrisma = createAcctTestPrisma()))
+    // P1: bộ kiểm thử làm hàng chục thao tác ghi liên tiếp bằng một tài khoản => nới hạn mức (hạn mức thật 30/phút kiểm ở accounts.write.service.spec.ts).
+    .overrideProvider(ACCOUNTS_WRITE_LIMITER).useValue(new LoginLimiter({ windowMs: 60_000, maxPerSource: 10_000, maxPerIdentifier: 10_000 })).compile();
   app = mod.createNestApplication();
   app.useLogger(false); app.setGlobalPrefix('api/v1'); app.use(requestContext);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
@@ -81,7 +92,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   // Trả múi giờ mặc định của DB thử về như cũ kể cả khi beforeAll lỗi giữa chừng; luôn đóng kết nối.
-  try { if (dbName) await setDatabaseDefaultTimeZone(dbName, null); } finally { await prisma?.$disconnect(); await adminPrisma?.$disconnect(); await authPrisma?.$disconnect(); }
+  try { if (dbName) await setDatabaseDefaultTimeZone(dbName, null); } finally { await prisma?.$disconnect(); await adminPrisma?.$disconnect(); await authPrisma?.$disconnect(); await acctPrisma?.onModuleDestroy(); }
 });
 
 describe('bootstrap (chế độ khởi tạo M1) và ràng buộc', () => {
@@ -1369,5 +1380,307 @@ describe('Sales S5 — mã quyền opportunity.* và cổng AssigneeEligibility 
     const viaApp = new AuthPoolAssigneeEligibility(prisma as unknown as AuthPrismaService);
     expect((await viaApp.canSignIn([empId])).get(empId)).toBe(false);
     expect((await port.canSignIn([empId])).get(empId)).toBe(true); // cùng thời điểm, pool auth vẫn trả true
+  });
+});
+
+// P1 (docs/P1_ACCOUNT_ADMIN_DESIGN.md) — quản lý tài khoản qua API thật: phiên thật của Quản trị CRM, pool siscom_acct thật (TEST_ACCT_DATABASE_URL),
+// hàm đặc quyền thật. Mỗi thao tác là MỘT lần bấm: máy chủ tạo yêu cầu dưới tên tài khoản hệ thống, người bấm duyệt, thực thi, ghi nhật ký người bấm.
+// Không có TEST_ACCT_DATABASE_URL (máy chưa tách role): chỉ kiểm nhánh "chưa bật" (503), các ca còn lại bỏ qua.
+describe('P1 — quản lý tài khoản (/accounts, pool siscom_acct)', () => {
+  const A = '/api/v1/accounts';
+  const hdr = (s: { cookie: string; csrf: string }) => ({ Cookie: s.cookie, Origin: ORIGIN, 'X-CSRF-Token': s.csrf });
+  const TEMP = 'Tam#MatKhau-2026x';
+  const TEMP2 = 'Tam#MatKhau-2026y';
+  const mail = (k: string) => 'p1.' + k + '@' + DOMAIN;
+  type S = { cookie: string; csrf: string };
+  let admin: S; let adminId = ''; let sysId = '';
+  const on = () => acctPrisma.available;
+  // Các ca bên dưới tự bỏ qua khi không có pool acct (máy lập trình chưa dựng role). Trên CI pool PHẢI có: thiếu => đỏ, không được xanh rỗng.
+  it('P1-CI. trên CI bắt buộc có TEST_ACCT_DATABASE_URL (các ca P1 không được bỏ qua âm thầm)', () => {
+    if (process.env.GITHUB_ACTIONS || process.env.CI) expect({ acctPoolConfigured: on() }).toEqual({ acctPoolConfigured: true });
+  });
+  const post = (path: string, body: object, s: S = admin) => srv().post(A + path).set(hdr(s)).send(body);
+  const patch = (path: string, body: object, s: S = admin) => srv().patch(A + path).set(hdr(s)).send(body);
+  const get = (path: string, s: S = admin) => srv().get(A + path).set('Cookie', s.cookie);
+  const counts = async () => ({
+    employee: await adminPrisma.employee.count(), credential: await adminPrisma.employeeCredential.count(), role: await adminPrisma.employeeRole.count(),
+    pcr: await adminPrisma.privilegedChangeRequest.count(), openPcr: await adminPrisma.privilegedChangeRequest.count({ where: { status: { in: ['PENDING', 'APPROVED'] } } }),
+  });
+  const create = async (k: string, role = 'sales', extra: object = {}) => {
+    const res = await post('', { fullName: 'P1 ' + k, email: mail(k), role, tempPassword: TEMP, ...extra });
+    expect({ k, s: res.status, c: res.body?.error?.code }).toEqual({ k, s: 201, c: undefined });
+    return res.body.data as { id: string; code: string; updatedAt: string; roles: string[]; login: string };
+  };
+  const signIn = async (email: string, password: string): Promise<S & { me: Record<string, unknown>; status: number }> => {
+    const res = await login(email, password);
+    return res.status === 200 ? { cookie: cookieOf(res), csrf: res.body.data.csrfToken, me: res.body.data.me, status: 200 } : { cookie: '', csrf: '', me: {}, status: res.status };
+  };
+
+  beforeAll(async () => {
+    const a = await session('admin'); admin = a; adminId = String(a.me.employeeId);
+    sysId = (await adminPrisma.employee.findFirstOrThrow({ where: { code: codes.sysadmin }, select: { id: true } })).id;
+  });
+
+  it('P1-0. /auth/me trả access.approve cho Quản trị CRM; vai trò khác không có', async () => {
+    expect(((await session('admin')).me.permissions as Record<string, string>)['access.approve']).toBe('ALL');
+    for (const k of ['sale', 'technician', 'accountant', 'sysadmin']) expect(((await session(k)).me.permissions as Record<string, string>)['access.approve']).toBeUndefined();
+  });
+
+  it('P1-1. quyền: 4 vai trò còn lại nhận 403 ở mọi API; chưa đăng nhập 401', async () => {
+    for (const k of ['sale', 'technician', 'accountant', 'sysadmin']) {
+      const s = await session(k);
+      expect({ k, s: (await get('', s)).status }).toEqual({ k, s: 403 });
+      expect({ k, s: (await get('/roles', s)).status }).toEqual({ k, s: 403 });
+      expect({ k, s: (await post('', { fullName: 'X', email: mail('x-' + k), role: 'sales', tempPassword: TEMP }, s)).status }).toEqual({ k, s: 403 });
+      expect({ k, s: (await post('/' + adminId + '/disable', { reason: 'thu' }, s)).status }).toEqual({ k, s: 403 });
+      // R1 #262: ĐỦ 9 route (không chỉ 4) — mỗi route tự đi qua cổng access.approve, kể cả khi thân yêu cầu hợp lệ.
+      const before = await counts();
+      const rest: [string, () => Promise<request.Response>][] = [
+        ['GET /departments', () => get('/departments', s)],
+        ['PATCH /:id', () => patch('/' + adminId, { updatedAt: new Date().toISOString(), fullName: 'X', email: mail('x2-' + k) }, s)],
+        ['POST /:id/role', () => post('/' + adminId + '/role', { role: 'sales' }, s)],
+        ['POST /:id/reset-password', () => post('/' + adminId + '/reset-password', { tempPassword: TEMP }, s)],
+        ['POST /:id/enable', () => post('/' + adminId + '/enable', { tempPassword: TEMP }, s)],
+      ];
+      for (const [name, call] of rest) { const r = await call(); expect({ k, name, s: r.status, c: r.body?.error?.code }).toEqual({ k, name, s: 403, c: 'FORBIDDEN' }); }
+      expect(await counts()).toEqual(before);
+    }
+    expect((await srv().get(A)).status).toBe(401);
+  });
+
+  it('P1-2. chưa bật (không có ACCT_DATABASE_URL): API tài khoản 503 ACCOUNT_ADMIN_UNAVAILABLE với mã + câu riêng', async () => {
+    if (on()) return; // CI có pool acct: nhánh này kiểm ở unit (accounts.read.service.spec) + bộ lọc lỗi
+    const res = await get('');
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('ACCOUNT_ADMIN_UNAVAILABLE');
+  });
+
+  it('P1-3. pool siscom_acct đạt kiểm role lúc khởi động (đúng 12 hàm, không ghi bảng); pool app không đổi kết quả', async () => {
+    if (!on()) return;
+    const f = await fetchDbRoleFacts(acctPrisma.client());
+    expect(f).toMatchObject({ user: 'siscom_acct', acctHasCore: true, acctSecdefExtra: false, canWriteAnyTable: false, hasAuthGrants: false });
+    expect(assessDbRole(f, 'production', { pool: 'acct', authSeparate: true })).toEqual({ leastPrivilege: true, problems: [], enforce: true });
+    const app2 = await fetchDbRoleFacts(prisma);
+    expect(app2).toMatchObject({ acctHasCore: false, canWriteAnyTable: true });
+    expect(assessDbRole(app2, 'production', { pool: 'app', authSeparate: true }).leastPrivilege).toBe(true);
+  });
+
+  it('P1-4. danh sách: 5 tài khoản khởi tạo, tài khoản hệ thống được đánh dấu, chính mình được đánh dấu; vai trò + phòng ban cho ô chọn', async () => {
+    if (!on()) return;
+    const res = await get('?pageSize=100');
+    expect(res.status).toBe(200);
+    const items = res.body.data.items as { code: string; isSystem: boolean; isSelf: boolean; roles: string[]; login: string }[];
+    expect(items.find((x) => x.code === codes.sysadmin)).toMatchObject({ isSystem: true, isSelf: false, roles: ['admin'] });
+    expect(items.find((x) => x.code === codes.admin)).toMatchObject({ isSystem: false, isSelf: true, roles: ['crm_admin'], login: 'ACTIVE' });
+    expect(JSON.stringify(res.body)).not.toMatch(/passwordHash|password_hash|\$argon2/);
+    const roles = (await get('/roles')).body.data as { code: string; grantable: boolean }[];
+    expect(roles.map((r) => r.code + ':' + r.grantable)).toEqual(['admin:false', 'crm_admin:true', 'sales:true', 'technician:true', 'accountant:true']);
+    expect(((await get('/departments')).body.data as unknown[]).length).toBeGreaterThan(0);
+    expect((await get('?q=a')).status).toBe(400);
+    expect((await get('?role=director')).status).toBe(400);
+  });
+
+  let emp: { id: string; code: string; updatedAt: string };
+  it('P1-5. thêm nhân viên (sales): 201, chờ đổi mật khẩu; đăng nhập bằng mật khẩu tạm => buộc đổi; nhật ký mang tên người bấm; không còn yêu cầu treo', async () => {
+    if (!on()) return;
+    const before = await counts();
+    emp = await create('moi');
+    expect(emp).toMatchObject({ roles: ['sales'], login: 'MUST_CHANGE' });
+    expect(emp.code).toMatch(/^NV-[0-9]{4,}$/);
+    const after = await counts();
+    expect({ employee: after.employee - before.employee, credential: after.credential - before.credential, role: after.role - before.role, openPcr: after.openPcr })
+      .toEqual({ employee: 1, credential: 1, role: 1, openPcr: before.openPcr });
+    const u = await signIn(mail('moi'), TEMP);
+    expect(u.status).toBe(200);
+    expect(u.me).toMatchObject({ code: emp.code, roles: ['sales'], mustChangePassword: true });
+    const audit = await adminPrisma.auditLog.findMany({ where: { entityId: emp.id }, select: { action: true, actorId: true, summary: true, changes: true } });
+    expect(audit.find((x) => x.action === 'ACCOUNT_CREATE')).toMatchObject({ actorId: adminId });
+    expect(audit.find((x) => x.action === 'EMPLOYEE_CREATE')).toMatchObject({ actorId: adminId });
+    expect(audit.find((x) => x.action === 'ROLE_GRANT')).toMatchObject({ actorId: sysId });
+    expect(JSON.stringify(audit)).not.toContain(TEMP);
+    const pcr = await adminPrisma.privilegedChangeRequest.findMany({ where: { subjectEmployeeId: emp.id }, select: { type: true, status: true, requestedById: true, approvedById: true } });
+    expect(pcr.map((x) => x.type + ':' + x.status).sort()).toEqual(['PASSWORD_RESET:EXECUTED', 'ROLE_GRANT:EXECUTED']);
+    expect(pcr.every((x) => x.requestedById === sysId && x.approvedById === adminId)).toBe(true);
+  });
+
+  it('P1-6. thêm lỗi KHÔNG để lại gì: email trùng (khác hoa thường + khoảng trắng) 409; mật khẩu tạm yếu / trùng email / toàn khoảng trắng 400; vai trò admin 400', async () => {
+    if (!on()) return;
+    const before = await counts();
+    const bad: [object, number, string][] = [
+      [{ fullName: 'P1 trùng', email: '  ' + mail('moi').toUpperCase() + ' ', role: 'sales', tempPassword: TEMP }, 409, 'EMAIL_TAKEN'],
+      [{ fullName: 'P1 y', email: mail('y1'), role: 'sales', tempPassword: 'Ngan#12345a' }, 400, 'VALIDATION_FAILED'],
+      [{ fullName: 'P1 y', email: 'matkhauchuaemail@' + DOMAIN, role: 'sales', tempPassword: 'Matkhauchuaemail#1' }, 400, 'VALIDATION_FAILED'],
+      [{ fullName: 'P1 y', email: mail('y3'), role: 'sales', tempPassword: '               ' }, 400, 'VALIDATION_FAILED'],
+      [{ fullName: 'P1 y', email: mail('y4'), role: 'admin', tempPassword: TEMP }, 400, 'VALIDATION_FAILED'],
+      [{ fullName: '   ', email: mail('y5'), role: 'sales', tempPassword: TEMP }, 400, 'VALIDATION_FAILED'],
+      [{ fullName: 'P1 y', email: 'khong-phai-email', role: 'sales', tempPassword: TEMP }, 400, 'VALIDATION_FAILED'],
+      [{ fullName: 'P1 y', email: mail('y7'), role: 'sales', tempPassword: TEMP, departmentId: randomUUID() }, 400, 'VALIDATION_FAILED'],
+      [{ fullName: 'P1 y', email: mail('y8'), role: 'sales', tempPassword: TEMP, isDemo: true }, 400, 'VALIDATION_FAILED'],
+    ];
+    for (const [body, status, code] of bad) {
+      const res = await post('', body);
+      expect({ body: JSON.stringify(body).slice(0, 60), s: res.status, c: res.body?.error?.code }).toEqual({ body: JSON.stringify(body).slice(0, 60), s: status, c: code });
+      expect(JSON.stringify(res.body)).not.toMatch(/Tam#MatKhau|Matkhauchuaemail#1|Ngan#12345a/);
+    }
+    expect(await counts()).toEqual(before);
+  });
+
+  it('P1-6b. lỗi GIỮA CHỪNG (sau khi đã có dòng nhân viên): mật khẩu tạm chứa đúng mã nhân viên vừa sinh => 400 và rollback toàn bộ, không sót nhân viên / credential / vai trò / yêu cầu', async () => {
+    if (!on()) return;
+    const prev = await create('truoc-6b'); // mã vừa cấp NV-000k => lần tạo kế tiếp nhận NV-000(k+1)
+    const next = 'NV-' + String(Number(prev.code.slice(3)) + 1).padStart(4, '0');
+    const before = await counts();
+    const res = await post('', { fullName: 'P1 giua chung', email: mail('giua-chung'), role: 'sales', tempPassword: 'Xy9#' + next.toLowerCase() + '-Zz' });
+    expect({ s: res.status, c: res.body?.error?.code }).toEqual({ s: 400, c: 'VALIDATION_FAILED' });
+    expect(await counts()).toEqual(before);
+    expect(await adminPrisma.employee.count({ where: { email: mail('giua-chung') } })).toBe(0);
+    // Không phải do mật khẩu yếu: cùng dạng mật khẩu nhưng không chứa mã => tạo được (và nhận đúng mã đã đoán hoặc mã sau nó).
+    const ok = await post('', { fullName: 'P1 sau giua chung', email: mail('sau-giua-chung'), role: 'sales', tempPassword: 'Xy9#khong-chua-ma-Zz' });
+    expect(ok.status).toBe(201);
+  });
+
+  it('P1-7. sửa thông tin: đúng updatedAt => lưu, mã giữ nguyên; updatedAt cũ => 409 VERSION_CONFLICT, không ghi đè; tự sửa mình được; tài khoản hệ thống 403', async () => {
+    if (!on()) return;
+    const ok = await patch('/' + emp.id, { updatedAt: emp.updatedAt, fullName: '  P1 Tên mới ', email: mail('moi2'), positionTitle: 'Nhân viên kinh doanh' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data).toMatchObject({ id: emp.id, code: emp.code, fullName: 'P1 Tên mới', email: mail('moi2'), positionTitle: 'Nhân viên kinh doanh' });
+    expect(new Date(ok.body.data.updatedAt).getTime()).toBeGreaterThan(new Date(emp.updatedAt).getTime());
+    const stale = await patch('/' + emp.id, { updatedAt: emp.updatedAt, fullName: 'P1 Ghi đè', email: mail('moi2') });
+    expect({ s: stale.status, c: stale.body.error.code }).toEqual({ s: 409, c: 'VERSION_CONFLICT' });
+    expect((await adminPrisma.employee.findUniqueOrThrow({ where: { id: emp.id }, select: { fullName: true } })).fullName).toBe('P1 Tên mới');
+    emp.updatedAt = ok.body.data.updatedAt;
+    expect((await signIn(mail('moi2'), TEMP)).status).toBe(200); // đổi email => đăng nhập bằng email mới
+    const dup = await patch('/' + emp.id, { updatedAt: emp.updatedAt, fullName: 'P1 Tên mới', email: USERS[2].email.toUpperCase() });
+    expect({ s: dup.status, c: dup.body.error.code }).toEqual({ s: 409, c: 'EMAIL_TAKEN' });
+    // Tự sửa họ tên của chính mình rồi trả lại như cũ (các bộ test khác dùng tài khoản này).
+    const me0 = await adminPrisma.employee.findUniqueOrThrow({ where: { id: adminId }, select: { fullName: true, email: true, updatedAt: true, departmentId: true, positionTitle: true } });
+    const self = await patch('/' + adminId, { updatedAt: me0.updatedAt.toISOString(), fullName: 'CRM Admin P1', email: me0.email, departmentId: me0.departmentId });
+    expect(self.status).toBe(200);
+    const back = await patch('/' + adminId, { updatedAt: self.body.data.updatedAt, fullName: me0.fullName, email: me0.email, departmentId: me0.departmentId });
+    expect(back.status).toBe(200);
+    const sys0 = await adminPrisma.employee.findUniqueOrThrow({ where: { id: sysId }, select: { fullName: true, email: true, updatedAt: true } });
+    const sys = await patch('/' + sysId, { updatedAt: sys0.updatedAt.toISOString(), fullName: 'Đổi tên hệ thống', email: sys0.email });
+    expect({ s: sys.status, c: sys.body.error.code }).toEqual({ s: 403, c: 'SYSTEM_ACCOUNT' });
+    expect((await patch('/' + randomUUID(), { updatedAt: new Date().toISOString(), fullName: 'X', email: mail('x404') })).status).toBe(404);
+  });
+
+  it('P1-8. đổi vai trò: sales -> accountant; -> crm_admin; crm_admin -> sales (gỡ vai trò trọng yếu qua yêu cầu riêng); tự đổi mình / tài khoản hệ thống / nhiều vai trò bị chặn', async () => {
+    if (!on()) return;
+    const r1 = await post('/' + emp.id + '/role', { role: 'accountant' });
+    expect(r1.status).toBe(200); expect(r1.body.data.roles).toEqual(['accountant']);
+    const same = await post('/' + emp.id + '/role', { role: 'accountant' });
+    expect(same.status).toBe(400);
+    const r2 = await post('/' + emp.id + '/role', { role: 'crm_admin' });
+    expect(r2.status).toBe(200); expect(r2.body.data.roles).toEqual(['crm_admin']);
+    const r3 = await post('/' + emp.id + '/role', { role: 'sales' });
+    expect({ s: r3.status, c: r3.body?.error?.code }).toEqual({ s: 200, c: undefined });
+    expect(r3.body.data.roles).toEqual(['sales']);
+    const pcr = await adminPrisma.privilegedChangeRequest.findMany({ where: { subjectEmployeeId: emp.id, type: 'ROLE_REVOKE_CRITICAL' }, select: { status: true, requestedById: true, approvedById: true } });
+    expect(pcr).toEqual([{ status: 'EXECUTED', requestedById: sysId, approvedById: adminId }]);
+    expect((await counts()).openPcr).toBe(0);
+    const self = await post('/' + adminId + '/role', { role: 'sales' });
+    expect({ s: self.status, c: self.body.error.code }).toEqual({ s: 403, c: 'SELF_MODIFICATION' });
+    const sys = await post('/' + sysId + '/role', { role: 'sales' });
+    expect({ s: sys.status, c: sys.body.error.code }).toEqual({ s: 403, c: 'SYSTEM_ACCOUNT' });
+    expect((await post('/' + emp.id + '/role', { role: 'admin' })).status).toBe(400);
+    // Nhân viên có 2 vai trò (gán bằng chủ sở hữu qua đúng luồng hai người) => giao diện không đổi được, báo rõ.
+    const multi = await create('haivaitro', 'sales');
+    const roleId = (await adminPrisma.role.findFirstOrThrow({ where: { code: 'accountant' }, select: { id: true } })).id;
+    await adminPrisma.$transaction(async (tx) => {
+      const q = await tx.$queryRaw<{ id: string }[]>`SELECT public.fn_auth_api_request_create(${sysId}::uuid, 'ROLE_GRANT'::public.privileged_change_type, ${multi.id}::uuid, ${roleId}::uuid, '{"t":"p1-multi"}'::jsonb, 5) AS id`;
+      await tx.$queryRaw`SELECT public.fn_auth_api_request_decide(${adminId}::uuid, ${q[0].id}::uuid, true)::text`;
+      await tx.$executeRaw`SELECT public.fn_auth_api_role_grant(${sysId}::uuid, ${q[0].id}::uuid)`;
+    });
+    const m = await post('/' + multi.id + '/role', { role: 'technician' });
+    expect({ s: m.status, c: m.body.error.code }).toEqual({ s: 409, c: 'MULTI_ROLE_UNSUPPORTED' });
+    expect((await counts()).openPcr).toBe(0);
+  });
+
+  it('P1-9. cấp lại mật khẩu: phiên cũ chết, mật khẩu cũ không dùng được, mật khẩu tạm mới buộc đổi; tự cấp cho mình / tài khoản hệ thống bị chặn', async () => {
+    if (!on()) return;
+    const old = await signIn(mail('moi2'), TEMP);
+    expect(old.status).toBe(200);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', old.cookie)).status).toBe(200);
+    const res = await post('/' + emp.id + '/reset-password', { tempPassword: TEMP2 });
+    expect({ s: res.status, c: res.body?.error?.code }).toEqual({ s: 200, c: undefined });
+    expect(res.body.data.login).toBe('MUST_CHANGE');
+    expect(JSON.stringify(res.body)).not.toContain(TEMP2);
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', old.cookie)).status).toBe(401);
+    expect((await signIn(mail('moi2'), TEMP)).status).toBe(401);
+    const neu = await signIn(mail('moi2'), TEMP2);
+    expect(neu.status).toBe(200); expect(neu.me).toMatchObject({ mustChangePassword: true });
+    const weak = await post('/' + emp.id + '/reset-password', { tempPassword: 'P1-Moi2-' + emp.code + '-x' });
+    expect(weak.status).toBe(400); // chứa mã nhân viên
+    const self = await post('/' + adminId + '/reset-password', { tempPassword: TEMP2 });
+    expect({ s: self.status, c: self.body.error.code }).toEqual({ s: 403, c: 'SELF_MODIFICATION' });
+    const sys = await post('/' + sysId + '/reset-password', { tempPassword: TEMP2 });
+    expect({ s: sys.status, c: sys.body.error.code }).toEqual({ s: 403, c: 'SYSTEM_ACCOUNT' });
+    const audit = await adminPrisma.auditLog.findMany({ where: { entityId: emp.id }, select: { action: true, actorId: true, summary: true, changes: true } });
+    expect(audit.find((x) => x.action === 'ACCOUNT_PASSWORD_RESET')).toMatchObject({ actorId: adminId });
+    expect(JSON.stringify(audit)).not.toMatch(/Tam#MatKhau/);
+    expect((await counts()).openPcr).toBe(0);
+  });
+
+  it('P1-10. khoá: bị đăng xuất ngay, không đăng nhập được, bản ghi nhân viên giữ nguyên; mở lại: mật khẩu tạm mới, buộc đổi; sai trạng thái 409; tự khoá / tài khoản hệ thống bị chặn', async () => {
+    if (!on()) return;
+    const live = await signIn(mail('moi2'), TEMP2);
+    expect(live.status).toBe(200);
+    const off = await post('/' + emp.id + '/disable', { reason: 'Nghỉ việc (thử P1)' });
+    expect({ s: off.status, c: off.body?.error?.code }).toEqual({ s: 200, c: undefined });
+    expect(off.body.data.login).toBe('DISABLED');
+    expect((await srv().get('/api/v1/auth/me').set('Cookie', live.cookie)).status).toBe(401);
+    expect((await signIn(mail('moi2'), TEMP2)).status).toBe(401);
+    expect(await adminPrisma.employee.findUniqueOrThrow({ where: { id: emp.id }, select: { status: true, deletedAt: true } })).toEqual({ status: 'ACTIVE', deletedAt: null });
+    expect((await post('/' + emp.id + '/disable', { reason: 'lần hai' })).status).toBe(409);
+    expect((await post('/' + emp.id + '/reset-password', { tempPassword: TEMP })).status).toBe(409);
+    expect((await post('/' + emp.id + '/disable', { reason: '' })).status).toBe(400);
+    const onAgain = await post('/' + emp.id + '/enable', { tempPassword: TEMP });
+    expect({ s: onAgain.status, c: onAgain.body?.error?.code }).toEqual({ s: 200, c: undefined });
+    expect(onAgain.body.data.login).toBe('MUST_CHANGE');
+    const back = await signIn(mail('moi2'), TEMP);
+    expect(back.status).toBe(200); expect(back.me).toMatchObject({ mustChangePassword: true });
+    expect((await post('/' + emp.id + '/enable', { tempPassword: TEMP2 })).status).toBe(409);
+    const self = await post('/' + adminId + '/disable', { reason: 'tự khoá' });
+    expect({ s: self.status, c: self.body.error.code }).toEqual({ s: 403, c: 'SELF_MODIFICATION' });
+    const sys = await post('/' + sysId + '/disable', { reason: 'khoá hệ thống' });
+    expect({ s: sys.status, c: sys.body.error.code }).toEqual({ s: 403, c: 'SYSTEM_ACCOUNT' });
+    expect((await session('admin')).me).toMatchObject({ code: codes.admin }); // người bấm và tài khoản hệ thống vẫn nguyên
+    expect((await session('sysadmin')).me).toMatchObject({ code: codes.sysadmin });
+    const audit = await adminPrisma.auditLog.findMany({ where: { entityId: emp.id, action: { in: ['ACCOUNT_DISABLE', 'ACCOUNT_ENABLE'] } }, select: { action: true, actorId: true } });
+    expect(audit.map((x) => x.action + ':' + (x.actorId === adminId)).sort()).toEqual(['ACCOUNT_DISABLE:true', 'ACCOUNT_ENABLE:true']);
+    expect((await counts()).openPcr).toBe(0);
+  });
+
+  it('P1-10b. quyền bị GỠ giữa phiên: người vừa bị hạ từ Quản trị CRM xuống Kinh doanh không dùng được phiên cũ để quản lý tài khoản (không tin quyền lúc đăng nhập)', async () => {
+    if (!on()) return;
+    const sale = await session('sale'); const saleId = String(sale.me.employeeId);
+    expect((await get('', sale)).status).toBe(403);
+    const up = await post('/' + saleId + '/role', { role: 'crm_admin' });
+    expect({ s: up.status, c: up.body?.error?.code }).toEqual({ s: 200, c: undefined });
+    const promoted = await session('sale'); // phiên MỚI sau khi được cấp quyền
+    expect((await get('', promoted)).status).toBe(200);
+    const down = await post('/' + saleId + '/role', { role: 'sales' });
+    expect({ s: down.status, c: down.body?.error?.code }).toEqual({ s: 200, c: undefined });
+    const before = await counts();
+    // Phiên lấy lúc CÒN quyền: mọi lời gọi giờ phải bị từ chối (403, hoặc 401 nếu phiên đã bị thu hồi) và không ghi gì.
+    const tries = [await get('', promoted), await post('', { fullName: 'P1 leo quyen', email: mail('leo-quyen'), role: 'crm_admin', tempPassword: TEMP }, promoted),
+      await post('/' + adminId + '/disable', { reason: 'leo quyen' }, promoted), await post('/' + saleId + '/role', { role: 'crm_admin' }, promoted)];
+    for (const r of tries) expect([401, 403]).toContain(r.status);
+    expect(await counts()).toEqual(before);
+    expect(await adminPrisma.employee.count({ where: { email: mail('leo-quyen') } })).toBe(0);
+    expect((await session('admin')).me).toMatchObject({ code: codes.admin });
+    expect(((await session('sale')).me.roles as string[])).toEqual(['sales']);
+  });
+
+  it('P1-11. người duyệt cuối cùng: lỗi LAST_APPROVER của database ra đúng 409 LAST_APPROVER (không phải 409 chung)', async () => {
+    if (!on()) return;
+    // Đường này không tới được qua HTTP (tự khoá bị chặn trước); gọi thẳng hàm bằng pool acct để ghim phần ánh xạ lỗi.
+    const approvers = await adminPrisma.employeeRole.count({ where: { role: { code: 'crm_admin' }, employee: { status: 'ACTIVE', deletedAt: null, credential: { status: 'ACTIVE' } } } });
+    expect(approvers).toBe(1);
+    let err: unknown;
+    try { await inAcctTx(acctPrisma, async (tx) => { await tx.$queryRaw`SELECT public.fn_auth_api_credential_disable(${sysId}::uuid, ${adminId}::uuid, 'thu P1')`; }); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(DomainException);
+    expect({ s: (err as DomainException).getStatus(), c: (err as DomainException).code }).toEqual({ s: 409, c: 'LAST_APPROVER' });
+    expect((await session('admin')).me).toMatchObject({ code: codes.admin });
   });
 });

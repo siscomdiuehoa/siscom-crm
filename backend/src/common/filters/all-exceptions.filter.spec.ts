@@ -52,4 +52,22 @@ describe('AllExceptionsFilter (B1.2.3, cộng thêm vào B1.1)', () => {
     expect(body.error.code).toBe('CUSTOMER_DUPLICATE_TAX_ID');
     expect(JSON.stringify(body)).not.toMatch(/uq_customer|constraint failed/i);
   });
+  // P1: hai mã 503 của module accounts phải tới được giao diện (để hiện "chưa được bật"), mọi 5xx khác vẫn bị che như cũ.
+  it('503 ACCOUNT_ADMIN_UNAVAILABLE / SYSTEM_REQUESTER_UNAVAILABLE giữ mã và thông điệp riêng', () => {
+    for (const code of ['ACCOUNT_ADMIN_UNAVAILABLE', 'SYSTEM_REQUESTER_UNAVAILABLE']) {
+      const { status, body } = run(new DomainException(503, code, 'Chưa bật.'));
+      expect(status).toBe(503);
+      expect(body.error).toEqual({ code, message: 'Chưa bật.' });
+      expect(body.message).toBe('Chưa bật.');
+    }
+  });
+  it('503 với mã khác và mọi 5xx khác vẫn là INTERNAL_ERROR, thông điệp chung', () => {
+    const a = run(new DomainException(503, 'MA_KHAC', 'noi dung noi bo'));
+    expect(a.status).toBe(503);
+    expect(a.body.error.code).toBe('INTERNAL_ERROR');
+    expect(JSON.stringify(a.body)).not.toContain('noi dung noi bo');
+    const b = run(new DomainException(500, 'ACCOUNT_ADMIN_UNAVAILABLE', 'noi dung noi bo'));
+    expect(b.body.error.code).toBe('INTERNAL_ERROR');
+    expect(JSON.stringify(b.body)).not.toContain('noi dung noi bo');
+  });
 });

@@ -41,7 +41,7 @@ export const TECH: Partial<Record<Permission, Scope>> = { 'customer.read': 'DEPA
   'opportunity.read_assigned': 'OWN' };
 export const ACCT: Partial<Record<Permission, Scope>> = { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL', 'activity.read': 'ALL', 'opportunity.read': 'ALL' };
 // Sales S6: Quản trị CRM theo ma trận thật (mọi mã BIZ phạm vi ALL trừ các mã chỉ của Kỹ thuật).
-export const CRM_ADMIN: Partial<Record<Permission, Scope>> = Object.fromEntries(ALL_PERMS.filter((p) => !['activity.create_tech', 'activity.update_own', 'activity.transfer_request', 'opportunity.read_assigned'].includes(p)).map((p) => [p, 'ALL' as Scope]));
+export const CRM_ADMIN: Partial<Record<Permission, Scope>> = Object.fromEntries(ALL_PERMS.filter((p) => !['activity.create_tech', 'activity.update_own', 'activity.transfer_request', 'opportunity.read_assigned'].includes(p)).map((p) => [p, 'ALL' as Scope]).concat([['access.approve', 'ALL' as Scope]]));
 
 export class TestActorProvider implements ActorProvider {
   readonly presets: Record<string, { actor: Actor; scopes: Partial<Record<Permission, Scope>> }>;

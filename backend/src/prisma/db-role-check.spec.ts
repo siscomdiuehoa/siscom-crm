@@ -3,7 +3,7 @@ import { assessDbRole, DbRoleFacts, dbRoleFactsFromRow, enforceDbRoleAtStartup }
 // B1.4 P3b (M-d): backend KHÔNG được chạy bằng role chủ sở hữu DB / superuser / role có CREATE trên schema public (mất tác dụng tách role S1).
 // NODE_ENV=production: từ chối khởi động khi có bằng chứng sai cấu hình; môi trường khác (Windows chưa tách role): chỉ cảnh báo.
 const ok: DbRoleFacts = { user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
-  ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true };
+  ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true, acctHasCore: false, acctSecdefExtra: false, canWriteAnyTable: false };
 
 describe('assessDbRole', () => {
   it('siscom_app không superuser, không chủ sở hữu, không CREATE public, không thành viên migrator => đặc quyền tối thiểu, không vấn đề', () => {
@@ -12,7 +12,7 @@ describe('assessDbRole', () => {
   });
   it('liệt kê đủ từng vấn đề: chủ sở hữu DB, superuser, CREATE trên public, thành viên siscom_migrator, tên tài khoản là migrator/postgres', () => {
     const r = assessDbRole({ user: 'siscom_migrator', isSuperuser: true, isDbOwner: true, canCreateInPublic: true, isMigratorMember: true,
-      ownsObjectsInPublic: true, hasAdminAttributes: true, hasBroadGrants: true, isMemberOfOtherRoles: true, hasAuthGrants: true, canWriteBusiness: true }, 'production');
+      ownsObjectsInPublic: true, hasAdminAttributes: true, hasBroadGrants: true, isMemberOfOtherRoles: true, hasAuthGrants: true, canWriteBusiness: true, acctHasCore: false, acctSecdefExtra: false, canWriteAnyTable: false }, 'production');
     expect(r.leastPrivilege).toBe(false);
     expect(r.problems).toEqual(expect.arrayContaining([
       expect.stringContaining('chủ sở hữu'), expect.stringContaining('superuser'), expect.stringContaining('CREATE'),
@@ -128,7 +128,7 @@ describe('enforceDbRoleAtStartup', () => {
 // quyền xác thực và KHÔNG được ghi bảng nghiệp vụ. Khi chưa tách (authSeparate=false, máy dev) thì pool app vẫn được giữ quyền xác thực.
 describe('assessDbRole — hai pool (P3c)', () => {
   const base: DbRoleFacts = { user: 'siscom_app', isSuperuser: false, isDbOwner: false, canCreateInPublic: false, isMigratorMember: false,
-    ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true };
+    ownsObjectsInPublic: false, hasAdminAttributes: false, hasBroadGrants: false, isMemberOfOtherRoles: false, hasAuthGrants: false, canWriteBusiness: true, acctHasCore: false, acctSecdefExtra: false, canWriteAnyTable: false };
   it('pool app, đã tách pool auth: còn quyền xác thực (auth_session / password_hash / chpw) => vi phạm (V4 chưa áp)', () => {
     const r = assessDbRole({ ...base, hasAuthGrants: true }, 'production', { pool: 'app', authSeparate: true });
     expect(r.leastPrivilege).toBe(false);
@@ -156,5 +156,52 @@ describe('assessDbRole — hai pool (P3c)', () => {
   it('dbRoleFactsFromRow đọc has_auth_grants / can_write_business; thiếu => false', () => {
     expect(dbRoleFactsFromRow({ user: 'x', has_auth_grants: true, can_write_business: true })).toMatchObject({ hasAuthGrants: true, canWriteBusiness: true });
     expect(dbRoleFactsFromRow({ user: 'x' })).toMatchObject({ hasAuthGrants: false, canWriteBusiness: false });
+  });
+});
+
+// P1: pool QUẢN LÝ TÀI KHOẢN (siscom_acct, ACCT_DATABASE_URL). Role này ĐƯỢC gọi 12 hàm SECURITY DEFINER (nên hasBroadGrants = true là đúng),
+// nhưng không được gọi hàm nào khác, không được ghi bảng nào, không có quyền xác thực.
+describe('assessDbRole — pool acct (P1)', () => {
+  const acct: DbRoleFacts = { ...ok, user: 'siscom_acct', hasBroadGrants: true, canWriteBusiness: false, acctHasCore: true, acctSecdefExtra: false, canWriteAnyTable: false };
+  const P = { pool: 'acct', authSeparate: true } as const;
+  it('đúng 12 hàm, không ghi bảng, không quyền xác thực => tối thiểu (hasBroadGrants không tính là vi phạm ở pool acct)', () => {
+    expect(assessDbRole(acct, 'production', P)).toEqual({ leastPrivilege: true, problems: [], enforce: true });
+  });
+  it('gọi được hàm SECURITY DEFINER ngoài danh sách 12 hàm => vi phạm', () => {
+    const r = assessDbRole({ ...acct, acctSecdefExtra: true }, 'production', P);
+    expect(r.leastPrivilege).toBe(false);
+    expect(r.problems.join(' ')).toContain('ngoài danh sách');
+  });
+  it('ghi được bảng nào đó => vi phạm', () => {
+    const r = assessDbRole({ ...acct, canWriteAnyTable: true }, 'production', P);
+    expect(r.leastPrivilege).toBe(false);
+    expect(r.problems.join(' ')).toContain('ghi');
+  });
+  it('không gọi được hàm P1 (ACCT_DATABASE_URL trỏ nhầm tài khoản / chưa chạy ACCT_GRANTS) => vi phạm', () => {
+    const r = assessDbRole({ ...acct, acctHasCore: false }, 'production', P);
+    expect(r.leastPrivilege).toBe(false);
+    expect(r.problems.join(' ')).toContain('ACCT_DATABASE_URL');
+  });
+  it('có quyền xác thực (đọc password_hash / auth_session) => vi phạm', () => {
+    expect(assessDbRole({ ...acct, hasAuthGrants: true }, 'production', P).leastPrivilege).toBe(false);
+  });
+  it('các vi phạm chung vẫn áp dụng: chủ sở hữu, superuser, CREATE, migrator, thành viên role khác', () => {
+    for (const bad of [{ isDbOwner: true }, { isSuperuser: true }, { canCreateInPublic: true }, { isMigratorMember: true }, { ownsObjectsInPublic: true }, { hasAdminAttributes: true }, { isMemberOfOtherRoles: true }]) {
+      expect(assessDbRole({ ...acct, ...bad }, 'production', P).leastPrivilege).toBe(false);
+    }
+  });
+  it('hai pool cũ không đổi: app có hasBroadGrants vẫn vi phạm; ba trường mới không ảnh hưởng app / auth', () => {
+    expect(assessDbRole({ ...ok, hasBroadGrants: true }, 'production').leastPrivilege).toBe(false);
+    expect(assessDbRole({ ...ok, acctHasCore: true, acctSecdefExtra: true, canWriteAnyTable: true }, 'production').leastPrivilege).toBe(true);
+    expect(assessDbRole({ ...ok, user: 'siscom_auth', hasAuthGrants: true, canWriteBusiness: false, canWriteAnyTable: true }, 'production', { pool: 'auth', authSeparate: true }).leastPrivilege).toBe(true);
+  });
+  it('dbRoleFactsFromRow đọc acct_has_core / acct_secdef_extra / can_write_any_table; thiếu => false', () => {
+    expect(dbRoleFactsFromRow({ user: 'x', acct_has_core: true, acct_secdef_extra: true, can_write_any_table: true })).toMatchObject({ acctHasCore: true, acctSecdefExtra: true, canWriteAnyTable: true });
+    expect(dbRoleFactsFromRow({ user: 'x' })).toMatchObject({ acctHasCore: false, acctSecdefExtra: false, canWriteAnyTable: false });
+  });
+  it('enforceDbRoleAtStartup với pool acct: vi phạm ở production => ném lỗi', async () => {
+    const log = { warn: jest.fn(), error: jest.fn() };
+    await expect(enforceDbRoleAtStartup(async () => ({ ...acct, acctSecdefExtra: true }), 'production', log, undefined, P)).rejects.toThrow(/đặc quyền tối thiểu/);
+    await expect(enforceDbRoleAtStartup(async () => acct, 'production', log, undefined, P)).resolves.toEqual({ checked: true, leastPrivilege: true });
   });
 });
