@@ -266,8 +266,10 @@ export class OpportunitiesService {
     const p = this.plan({ typeId: q.typeId, q: q.q });
     return this.snapshot(async (tx) => {
       const full = listReadWhere(actor, scopeOf, await dbNow(tx), true);
-      // Vị từ đường đầy đủ LUÔN đứng đầu; bộ lọc của người dùng và trạng thái chỉ thu hẹp thêm.
-      const where = (status: 'OPEN' | 'ON_HOLD'): Prisma.OpportunityWhereInput => ({ AND: [full, ...p.filters, { status }] });
+      // T-07: từ khoá gập dấu ĐÚNG như listIn (cùng snapshot) => tổng theo cột khớp số thẻ của danh sách có cùng từ khoá.
+      const text = p.search === undefined ? [] : [foldedTextWhere(await this.folded(tx, p.search))];
+      // Vị từ đường đầy đủ LUÔN đứng đầu; bộ lọc của người dùng, từ khoá và trạng thái chỉ thu hẹp thêm.
+      const where = (status: 'OPEN' | 'ON_HOLD'): Prisma.OpportunityWhereInput => ({ AND: [full, ...p.filters, ...text, { status }] });
       const groups = await tx.opportunity.groupBy({ by: ['stageId'], where: where('OPEN'), _count: { _all: true, expectedAmountVnd: true }, _sum: { expectedAmountVnd: true } });
       const onHoldCount = await tx.opportunity.count({ where: where('ON_HOLD') });
       const stages = groups.map((g) => {

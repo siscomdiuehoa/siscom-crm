@@ -70,7 +70,9 @@ describe('kiểm tra tĩnh module opportunities (S6 đọc + S7 ghi)', () => {
     // Vị từ: listReadWhere với fullOnly = true (= fullReadWhere); không anyReadWhere / taskPathWhere.
     expect(bs).toContain('const full = listReadWhere(actor, scopeOf, await dbNow(tx), true);');
     expect(bs).not.toMatch(/anyReadWhere\(|taskPathWhere\(|readsByTask\(|resolvePath\(/);
-    expect(bs).toContain("const where = (status: 'OPEN' | 'ON_HOLD'): Prisma.OpportunityWhereInput => ({ AND: [full, ...p.filters, { status }] });");
+    // T-07: từ khoá gập dấu như listIn, đứng SAU vị từ đầy đủ và bộ lọc (không để từ khoá bị bỏ qua khi plan() không còn đẩy nó vào filters).
+    expect(bs).toContain('const text = p.search === undefined ? [] : [foldedTextWhere(await this.folded(tx, p.search))];');
+    expect(bs).toContain("const where = (status: 'OPEN' | 'ON_HOLD'): Prisma.OpportunityWhereInput => ({ AND: [full, ...p.filters, ...text, { status }] });");
     expect(bs.indexOf('const full = ')).toBeLessThan(bs.indexOf('tx.opportunity.groupBy('));
     expect(bs.indexOf('const full = ')).toBeLessThan(bs.indexOf('tx.opportunity.count('));
     expect((bs.match(/tx\.opportunity\.(groupBy|count)\(\{ (by: \['stageId'\], )?where: where\('(OPEN|ON_HOLD)'\)/g) ?? []).length).toBe(2);
