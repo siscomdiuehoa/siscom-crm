@@ -2,10 +2,10 @@
 --   Khong bang moi, khong cot moi, khong CHECK / trigger moi, khong sua ham fn_auth_* hien co, khong ma quyen moi, khong dung role_permission.
 -- Thiet ke: docs/P1_ACCOUNT_ADMIN_DESIGN.md (Owner duyet 23/11/2026: mot nguoi thao tac = Quan tri CRM, nhom APPROVE).
 -- Bon ham nay la phan database CHUA co cho P1 (cac buoc con lai dung san fn_auth_api_* cua M1.2):
---   fn_auth_api_employee_create  - tao ban ghi nhan vien (truoc day chi chu so huu INSERT duoc)
---   fn_auth_api_employee_update  - sua ho ten / email / phong ban / chuc danh, khoa lac quan theo updated_at
---   fn_auth_api_must_change_set  - bat "buoc doi mat khau" sau khi dat mat khau tam (thay cau UPDATE truc tiep cua FV-5)
---   fn_auth_api_account_audit    - ghi mot dong nhat ky mang ten NGUOI BAM cho thao tac P1 (cac ham M1.2 ghi duoi ten tai khoan he thong)
+--   fn_acct_api_employee_create  - tao ban ghi nhan vien (truoc day chi chu so huu INSERT duoc)
+--   fn_acct_api_employee_update  - sua ho ten / email / phong ban / chuc danh, khoa lac quan theo updated_at
+--   fn_acct_api_must_change_set  - bat "buoc doi mat khau" sau khi dat mat khau tam (thay cau UPDATE truc tiep cua FV-5)
+--   fn_acct_api_account_audit    - ghi mot dong nhat ky mang ten NGUOI BAM cho thao tac P1 (cac ham M1.2 ghi duoi ten tai khoan he thong)
 -- Ca bon: nguoi goi phai hoat dong, co credential ACTIVE va thuoc nhom APPROVE (fn_auth_api_actor) - tuc Quan tri CRM.
 -- Ma loi = TIEN TO thong bao (ung dung doc tien to, nhu LAST_ADMIN / SELF_MODIFICATION cua M1):
 --   EMAIL_TAKEN (23505) | VERSION_CONFLICT (40001) | SYSTEM_ACCOUNT, SELF_MODIFICATION, INVALID_STATE (23514) | APPROVAL_REQUIRED, BOOTSTRAP_OPEN (42501)
@@ -13,7 +13,7 @@
 -- Rollback viet san (KHONG tu chay): backend/docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt. Bai kiem: backend/docs/P1_ACCOUNT_ADMIN_TESTS.sql.txt.
 
 -- Chuan hoa + kiem ho ten / email / phong ban dung chung cho create va update. Tra ve gia tri da cat khoang trang.
-CREATE FUNCTION public.fn_auth_api_employee_fields(p_full_name text, p_email text, p_department uuid, p_position text, p_exclude uuid,
+CREATE FUNCTION public.fn_acct_api_employee_fields(p_full_name text, p_email text, p_department uuid, p_position text, p_exclude uuid,
                                                    OUT o_full_name text, OUT o_email text, OUT o_position text)
   LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $$
 BEGIN
@@ -38,13 +38,13 @@ BEGIN
   END IF;
 END $$;
 
-CREATE FUNCTION public.fn_auth_api_employee_create(p_actor uuid, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS uuid
+CREATE FUNCTION public.fn_acct_api_employee_create(p_actor uuid, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS uuid
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET app.actor_employee_id = '' SET app.priv_request_id = '' AS $$
 DECLARE f record; v_id uuid;
 BEGIN
   PERFORM public.fn_auth_api_actor(p_actor, 'APPROVE');
   PERFORM set_config('app.actor_employee_id', p_actor::text, true);
-  SELECT * INTO f FROM public.fn_auth_api_employee_fields(p_full_name, p_email, p_department, p_position, NULL);
+  SELECT * INTO f FROM public.fn_acct_api_employee_fields(p_full_name, p_email, p_department, p_position, NULL);
   BEGIN
     INSERT INTO public.employee (full_name, email, department_id, position_title, status)
     VALUES (f.o_full_name, f.o_email, p_department, f.o_position, 'ACTIVE')
@@ -58,7 +58,7 @@ BEGIN
   RETURN v_id;
 END $$;
 
-CREATE FUNCTION public.fn_auth_api_employee_update(p_actor uuid, p_employee uuid, p_expected_updated_at timestamptz, p_full_name text, p_email text,
+CREATE FUNCTION public.fn_acct_api_employee_update(p_actor uuid, p_employee uuid, p_expected_updated_at timestamptz, p_full_name text, p_email text,
                                                    p_department uuid, p_position text) RETURNS timestamptz
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET app.actor_employee_id = '' SET app.priv_request_id = '' AS $$
 DECLARE e public.employee%ROWTYPE; f record; v_changes jsonb := '{}'::jsonb; v_new timestamptz;
@@ -75,7 +75,7 @@ BEGIN
   IF p_expected_updated_at IS NULL OR e.updated_at <> p_expected_updated_at THEN
     RAISE EXCEPTION 'VERSION_CONFLICT: thong tin nhan vien vua duoc nguoi khac sua.' USING ERRCODE = 'serialization_failure';
   END IF;
-  SELECT * INTO f FROM public.fn_auth_api_employee_fields(p_full_name, p_email, p_department, p_position, p_employee);
+  SELECT * INTO f FROM public.fn_acct_api_employee_fields(p_full_name, p_email, p_department, p_position, p_employee);
   IF e.full_name IS DISTINCT FROM f.o_full_name THEN v_changes := v_changes || jsonb_build_object('full_name', jsonb_build_object('old', e.full_name, 'new', f.o_full_name)); END IF;
   IF e.email IS DISTINCT FROM f.o_email THEN v_changes := v_changes || jsonb_build_object('email', jsonb_build_object('old', e.email, 'new', f.o_email)); END IF;
   IF e.department_id IS DISTINCT FROM p_department THEN v_changes := v_changes || jsonb_build_object('department_id', jsonb_build_object('old', e.department_id, 'new', p_department)); END IF;
@@ -93,7 +93,7 @@ BEGIN
   RETURN v_new;
 END $$;
 
-CREATE FUNCTION public.fn_auth_api_must_change_set(p_actor uuid, p_employee uuid, p_expected_token_version integer) RETURNS void
+CREATE FUNCTION public.fn_acct_api_must_change_set(p_actor uuid, p_employee uuid, p_expected_token_version integer) RETURNS void
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET app.actor_employee_id = '' SET app.priv_request_id = '' AS $$
 DECLARE n integer;
 BEGIN
@@ -111,7 +111,7 @@ BEGIN
   PERFORM public.fn_auth_api_audit('USER', p_actor, 'PASSWORD_MUST_CHANGE_SET', 'employee', p_employee, 'P1 account-admin', NULL);
 END $$;
 
-CREATE FUNCTION public.fn_auth_api_account_audit(p_actor uuid, p_action text, p_employee uuid, p_changes jsonb) RETURNS void
+CREATE FUNCTION public.fn_acct_api_account_audit(p_actor uuid, p_action text, p_employee uuid, p_changes jsonb) RETURNS void
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp SET app.actor_employee_id = '' SET app.priv_request_id = '' AS $$
 BEGIN
   PERFORM public.fn_auth_api_actor(p_actor, 'APPROVE');
@@ -131,14 +131,14 @@ BEGIN
 END $$;
 
 -- Khong ai duoc goi mac dinh; ham noi bo employee_fields chi duoc goi tu ben trong hai ham SECURITY DEFINER o tren (chay bang chu so huu).
-REVOKE ALL ON FUNCTION public.fn_auth_api_employee_fields(text, text, uuid, text, uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fn_auth_api_employee_create(uuid, text, text, uuid, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fn_auth_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fn_auth_api_must_change_set(uuid, uuid, integer) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fn_auth_api_account_audit(uuid, text, uuid, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_acct_api_employee_fields(text, text, uuid, text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_acct_api_employee_create(uuid, text, text, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_acct_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_acct_api_must_change_set(uuid, uuid, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_acct_api_account_audit(uuid, text, uuid, jsonb) FROM PUBLIC;
 
-COMMENT ON FUNCTION public.fn_auth_api_employee_fields(text, text, uuid, text, uuid) IS 'P1: (noi bo) chuan hoa + kiem ho ten / email / phong ban / chuc danh; EMAIL_TAKEN khi trung nhan vien chua xoa.';
-COMMENT ON FUNCTION public.fn_auth_api_employee_create(uuid, text, text, uuid, text) IS 'P1: tao nhan vien ACTIVE (nguoi goi nhom APPROVE). Khong tao credential, khong cap vai tro.';
-COMMENT ON FUNCTION public.fn_auth_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text) IS 'P1: sua ho ten / email / phong ban / chuc danh theo khoa lac quan updated_at; tu choi tai khoan he thong (vai tro admin).';
-COMMENT ON FUNCTION public.fn_auth_api_must_change_set(uuid, uuid, integer) IS 'P1: bat must_change_password cho credential ACTIVE dung token_version vua dat lai; khong tu dat cho chinh minh.';
-COMMENT ON FUNCTION public.fn_auth_api_account_audit(uuid, text, uuid, jsonb) IS 'P1: ghi nhat ky ACCOUNT_* mang ten nguoi bam; tu choi noi dung co khoa goi y bi mat.';
+COMMENT ON FUNCTION public.fn_acct_api_employee_fields(text, text, uuid, text, uuid) IS 'P1: (noi bo) chuan hoa + kiem ho ten / email / phong ban / chuc danh; EMAIL_TAKEN khi trung nhan vien chua xoa.';
+COMMENT ON FUNCTION public.fn_acct_api_employee_create(uuid, text, text, uuid, text) IS 'P1: tao nhan vien ACTIVE (nguoi goi nhom APPROVE). Khong tao credential, khong cap vai tro.';
+COMMENT ON FUNCTION public.fn_acct_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text) IS 'P1: sua ho ten / email / phong ban / chuc danh theo khoa lac quan updated_at; tu choi tai khoan he thong (vai tro admin).';
+COMMENT ON FUNCTION public.fn_acct_api_must_change_set(uuid, uuid, integer) IS 'P1: bat must_change_password cho credential ACTIVE dung token_version vua dat lai; khong tu dat cho chinh minh.';
+COMMENT ON FUNCTION public.fn_acct_api_account_audit(uuid, text, uuid, jsonb) IS 'P1: ghi nhat ky ACCOUNT_* mang ten nguoi bam; tu choi noi dung co khoa goi y bi mat.';

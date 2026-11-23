@@ -54,10 +54,10 @@ DO $$ BEGIN
      OR to_regprocedure('public.fn_auth_api_credential_disable(uuid, uuid, text)') IS NULL THEN
     RAISE EXCEPTION 'Thieu ham M1.2 (migration 20261020180000_b1_3_auth_m1_2_priv_api chua ap).';
   END IF;
-  IF to_regprocedure('public.fn_auth_api_employee_create(uuid, text, text, uuid, text)') IS NULL
-     OR to_regprocedure('public.fn_auth_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text)') IS NULL
-     OR to_regprocedure('public.fn_auth_api_must_change_set(uuid, uuid, integer)') IS NULL
-     OR to_regprocedure('public.fn_auth_api_account_audit(uuid, text, uuid, jsonb)') IS NULL THEN
+  IF to_regprocedure('public.fn_acct_api_employee_create(uuid, text, text, uuid, text)') IS NULL
+     OR to_regprocedure('public.fn_acct_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text)') IS NULL
+     OR to_regprocedure('public.fn_acct_api_must_change_set(uuid, uuid, integer)') IS NULL
+     OR to_regprocedure('public.fn_acct_api_account_audit(uuid, text, uuid, jsonb)') IS NULL THEN
     RAISE EXCEPTION 'Thieu ham P1 (migration 20261124000000_p1_account_admin chua ap).';
   END IF;
 END $$;
@@ -87,10 +87,10 @@ GRANT EXECUTE ON FUNCTION public.fn_auth_api_reset_token_issue(uuid, uuid, text,
 GRANT EXECUTE ON FUNCTION public.fn_auth_api_reset_password(uuid, text, text, text, jsonb) TO siscom_acct;
 GRANT EXECUTE ON FUNCTION public.fn_auth_api_credential_create(uuid, uuid) TO siscom_acct;
 GRANT EXECUTE ON FUNCTION public.fn_auth_api_credential_disable(uuid, uuid, text) TO siscom_acct;
-GRANT EXECUTE ON FUNCTION public.fn_auth_api_employee_create(uuid, text, text, uuid, text) TO siscom_acct;
-GRANT EXECUTE ON FUNCTION public.fn_auth_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text) TO siscom_acct;
-GRANT EXECUTE ON FUNCTION public.fn_auth_api_must_change_set(uuid, uuid, integer) TO siscom_acct;
-GRANT EXECUTE ON FUNCTION public.fn_auth_api_account_audit(uuid, text, uuid, jsonb) TO siscom_acct;
+GRANT EXECUTE ON FUNCTION public.fn_acct_api_employee_create(uuid, text, text, uuid, text) TO siscom_acct;
+GRANT EXECUTE ON FUNCTION public.fn_acct_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text) TO siscom_acct;
+GRANT EXECUTE ON FUNCTION public.fn_acct_api_must_change_set(uuid, uuid, integer) TO siscom_acct;
+GRANT EXECUTE ON FUNCTION public.fn_acct_api_account_audit(uuid, text, uuid, jsonb) TO siscom_acct;
 -- 3. KHONG quyen mac dinh: bang / sequence migrator tao sau nay phai duoc them tuong minh vao ma tran nay.
 ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE ALL ON TABLES FROM siscom_acct;
 ALTER DEFAULT PRIVILEGES FOR ROLE siscom_migrator IN SCHEMA public REVOKE ALL ON SEQUENCES FROM siscom_acct;

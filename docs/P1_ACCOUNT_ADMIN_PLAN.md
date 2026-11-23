@@ -63,10 +63,10 @@
 - Modify: `.github/workflows/ci.yml` (ba chỗ đang gọi `SALES_T07_SEARCH_FOLD_*`: thêm dòng P1 theo cùng mẫu; rollback P1 đứng **trước** T07 trong chuỗi lùi vì mới hơn), `backend/docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt` (từ chối khi migration P1 còn — theo mẫu `SALES_S2_ROLLBACK` từ chối khi T-07 còn)
 
 **Interfaces — Produces:**
-- `fn_auth_api_employee_create(p_actor uuid, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS uuid`
-- `fn_auth_api_employee_update(p_actor uuid, p_employee uuid, p_expected_updated_at timestamptz, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS timestamptz`
-- `fn_auth_api_must_change_set(p_actor uuid, p_employee uuid, p_expected_token_version integer) RETURNS void`
-- `fn_auth_api_account_audit(p_actor uuid, p_action text, p_employee uuid, p_changes jsonb) RETURNS void`
+- `fn_acct_api_employee_create(p_actor uuid, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS uuid`
+- `fn_acct_api_employee_update(p_actor uuid, p_employee uuid, p_expected_updated_at timestamptz, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS timestamptz`
+- `fn_acct_api_must_change_set(p_actor uuid, p_employee uuid, p_expected_token_version integer) RETURNS void`
+- `fn_acct_api_account_audit(p_actor uuid, p_action text, p_employee uuid, p_changes jsonb) RETURNS void`
 - Mã lỗi (tiền tố thông báo, cùng kiểu M1): `EMAIL_TAKEN:` (ERRCODE `unique_violation`), `VERSION_CONFLICT:` (`serialization_failure`), `SYSTEM_ACCOUNT:` và `SELF_MODIFICATION:` (`check_violation`), `INVALID_STATE:` (`check_violation`), `APPROVAL_REQUIRED:` (`insufficient_privilege`, do `fn_auth_api_actor`).
 
 Quy tắc trong hàm:
@@ -182,9 +182,9 @@ Quyền của `siscom_acct` (đúng và đủ):
 - `accounts.flow.ts` (hàm trên `tx`, không biết HTTP):
   - `findSystemRequester(tx): Promise<string>` — 0 hoặc > 1 ⇒ `noSystemRequester()`.
   - `approved(tx, sys: string, clicker: string, type: 'ROLE_GRANT' | 'ROLE_REVOKE_CRITICAL' | 'PASSWORD_RESET', employeeId: string, roleId: string | null): Promise<string>` — `request_create(sys, …, payload {source:'p1-account-admin', clickedBy}, ttl 5)` rồi `request_decide(clicker, req, true)`; kết quả khác `'APPROVED'` ⇒ ném.
-  - `setTempPassword(tx, sys, clicker, employeeId, secret: {hash, algo, params}): Promise<void>` — khoá dòng credential `FOR UPDATE` (chỉ cột được phép); `approved(PASSWORD_RESET)`; `reset_token_issue(sys, req, sha256(token), 5)` với `token = randomBytes(32).toString('base64url')` không rời hàm; `reset_password(employee, token, …)` phải trả `'OK'` (khác ⇒ ném `validation(['Không đặt được mật khẩu cho tài khoản này.'])`); `fn_auth_api_must_change_set(clicker, employee, <token_version mới>)`.
+  - `setTempPassword(tx, sys, clicker, employeeId, secret: {hash, algo, params}): Promise<void>` — khoá dòng credential `FOR UPDATE` (chỉ cột được phép); `approved(PASSWORD_RESET)`; `reset_token_issue(sys, req, sha256(token), 5)` với `token = randomBytes(32).toString('base64url')` không rời hàm; `reset_password(employee, token, …)` phải trả `'OK'` (khác ⇒ ném `validation(['Không đặt được mật khẩu cho tài khoản này.'])`); `fn_acct_api_must_change_set(clicker, employee, <token_version mới>)`.
   - `inAcctTx<T>(acct: AcctPrismaService, fn: (tx) => Promise<T>): Promise<T>` — transaction với `SET LOCAL lock_timeout = '5s'`, `statement_timeout = '15s'`; bắt lỗi ⇒ `throw mapAccountDbError(e) ?? e`.
-- Thứ tự từng thao tác: đúng bảng mục 6.3 của Spec; bước cuối gọi `fn_auth_api_account_audit(clicker, <ACCOUNT_*>, employee, changes)` (riêng "sửa thông tin" không gọi — `employee_update` đã ghi). Máy chủ tự chặn trước khi vào các hàm đặc quyền: đích là chính mình (trừ PATCH) ⇒ `selfModification()`; đích `isSystem` ⇒ `systemAccount()`; đích có ≠ 1 vai trò khi đổi vai trò ⇒ `multiRole()`; vai trò mới = cũ ⇒ 400; `enable` trên tài khoản không DISABLED / `disable` trên tài khoản không ACTIVE ⇒ 400.
+- Thứ tự từng thao tác: đúng bảng mục 6.3 của Spec; bước cuối gọi `fn_acct_api_account_audit(clicker, <ACCOUNT_*>, employee, changes)` (riêng "sửa thông tin" không gọi — `employee_update` đã ghi). Máy chủ tự chặn trước khi vào các hàm đặc quyền: đích là chính mình (trừ PATCH) ⇒ `selfModification()`; đích `isSystem` ⇒ `systemAccount()`; đích có ≠ 1 vai trò khi đổi vai trò ⇒ `multiRole()`; vai trò mới = cũ ⇒ 400; `enable` trên tài khoản không DISABLED / `disable` trên tài khoản không ACTIVE ⇒ 400.
 - Giới hạn tần suất: `new LoginLimiter({ windowMs: 60_000, maxPerSource: 30, maxPerIdentifier: 30 })`, khoá theo người bấm; vượt ⇒ `rateLimited()`.
 
 - [ ] **Step 1: Test tích hợp đỏ** — DB thử đã tách role + `TEST_ACCT_DATABASE_URL`, đăng nhập thật bằng tài khoản `crm_admin` của bootstrap (gọi là A). Các ca (tên test tiếng Việt như các int-spec khác):

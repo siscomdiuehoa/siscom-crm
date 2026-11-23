@@ -11,7 +11,7 @@ SELECT CASE WHEN current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9
             WHEN current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN 'SELECT s1_fail_baseline_da_khoa()'
             WHEN NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN 'SELECT s1_fail_phai_chay_bang_superuser()'
             WHEN NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_acct') THEN 'SELECT s1_fail_chua_co_role_siscom_acct()'
-            WHEN to_regprocedure('public.fn_auth_api_account_audit(uuid, text, uuid, jsonb)') IS NULL THEN 'SELECT s1_fail_chua_ap_migration_20261124000000_p1_account_admin()'
+            WHEN to_regprocedure('public.fn_acct_api_account_audit(uuid, text, uuid, jsonb)') IS NULL THEN 'SELECT s1_fail_chua_ap_migration_20261124000000_p1_account_admin()'
             ELSE 'SELECT ''db thu: ' || current_database() || ' / ' || current_user || ' -> SET ROLE siscom_acct''' END \gexec
 
 BEGIN;
@@ -41,7 +41,7 @@ END $$;
 CREATE FUNCTION pg_temp.probe_call() RETURNS boolean LANGUAGE plpgsql AS $$
 BEGIN
   BEGIN
-    PERFORM public.fn_auth_api_employee_create(NULL, 's1-probe', 's1-probe@example.invalid', NULL, NULL);
+    PERFORM public.fn_acct_api_employee_create(NULL, 's1-probe', 's1-probe@example.invalid', NULL, NULL);
     RETURN false;
   EXCEPTION WHEN insufficient_privilege THEN RETURN SQLERRM LIKE 'APPROVAL_REQUIRED:%' OR SQLERRM LIKE 'BOOTSTRAP_OPEN:%';
             WHEN OTHERS THEN RETURN false;
@@ -63,11 +63,11 @@ INSERT INTO s1_result SELECT 'L3 acct EXECUTE du 12 ham (8 ham M1.2 + 4 ham P1)'
     'public.fn_auth_api_role_grant(uuid, uuid)', 'public.fn_auth_api_role_revoke(uuid, uuid, uuid, uuid)',
     'public.fn_auth_api_reset_token_issue(uuid, uuid, text, integer)', 'public.fn_auth_api_reset_password(uuid, text, text, text, jsonb)',
     'public.fn_auth_api_credential_create(uuid, uuid)', 'public.fn_auth_api_credential_disable(uuid, uuid, text)',
-    'public.fn_auth_api_employee_create(uuid, text, text, uuid, text)', 'public.fn_auth_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text)',
-    'public.fn_auth_api_must_change_set(uuid, uuid, integer)', 'public.fn_auth_api_account_audit(uuid, text, uuid, jsonb)']) AS f;
+    'public.fn_acct_api_employee_create(uuid, text, text, uuid, text)', 'public.fn_acct_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text)',
+    'public.fn_acct_api_must_change_set(uuid, uuid, integer)', 'public.fn_acct_api_account_audit(uuid, text, uuid, jsonb)']) AS f;
 INSERT INTO s1_result SELECT 'L4 acct co SET app.actor_employee_id / app.priv_request_id (ham SECURITY DEFINER can)',
   has_parameter_privilege('siscom_acct', 'app.actor_employee_id', 'SET') AND has_parameter_privilege('siscom_acct', 'app.priv_request_id', 'SET');
-INSERT INTO s1_result SELECT 'L5 acct goi duoc fn_auth_api_employee_create (bi chinh ham tu choi vi nguoi goi NULL, khong phai thieu EXECUTE)', pg_temp.probe_call();
+INSERT INTO s1_result SELECT 'L5 acct goi duoc fn_acct_api_employee_create (bi chinh ham tu choi vi nguoi goi NULL, khong phai thieu EXECUTE)', pg_temp.probe_call();
 
 -- M. PHAI BI TU CHOI
 SELECT pg_temp.expect_denied('M1 acct khong SELECT password_hash', 'SELECT password_hash FROM public.employee_credential WHERE false');
@@ -94,7 +94,7 @@ SELECT pg_temp.expect_denied('M11 acct khong fn_auth_api_change_own_password', '
 SELECT pg_temp.expect_denied('M12 acct khong fn_auth_api_role_permission_change', 'SELECT public.fn_auth_api_role_permission_change(NULL, NULL)');
 SELECT pg_temp.expect_denied('M13 acct khong fn_auth_bootstrap_close', 'SELECT public.fn_auth_bootstrap_close(''s1-probe'')');
 SELECT pg_temp.expect_denied('M14 acct khong fn_auth_api_audit (ham noi bo)', 'SELECT public.fn_auth_api_audit(''USER'', NULL, ''X'', ''employee'', NULL, NULL, NULL)');
-SELECT pg_temp.expect_denied('M15 acct khong fn_auth_api_employee_fields (ham noi bo P1)', 'SELECT * FROM public.fn_auth_api_employee_fields(''a'', ''a@b.c'', NULL, NULL, NULL)');
+SELECT pg_temp.expect_denied('M15 acct khong fn_acct_api_employee_fields (ham noi bo P1)', 'SELECT * FROM public.fn_acct_api_employee_fields(''a'', ''a@b.c'', NULL, NULL, NULL)');
 INSERT INTO s1_result SELECT 'M16 acct EXECUTE dung 12 ham SECURITY DEFINER, khong hon (' || count(*) || ' ham)', count(*) = 12
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('siscom_acct', p.oid, 'EXECUTE');
 SELECT pg_temp.expect_denied('M17 acct khong DDL', 'ALTER TABLE public.employee DISABLE TRIGGER ALL');

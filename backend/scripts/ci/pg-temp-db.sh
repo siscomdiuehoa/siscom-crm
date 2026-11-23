@@ -128,7 +128,7 @@ case "$cmd" in
     psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V5.sql.txt"
     assert_canary "sau APP_GRANTS_V5"
     # P1: pool quan ly tai khoan - CHI khi migration P1 da ap (chuoi rollback co luc tach role khi chua co 4 ham P1 => bo qua; buoc "acct" chay sau).
-    if [ "$(psql_su -tA -d "$name" -c "SELECT to_regprocedure('public.fn_auth_api_account_audit(uuid, text, uuid, jsonb)') IS NOT NULL")" = t ]; then
+    if [ "$(psql_su -tA -d "$name" -c "SELECT to_regprocedure('public.fn_acct_api_account_audit(uuid, text, uuid, jsonb)') IS NOT NULL")" = t ]; then
       acct_apply "$name"; assert_canary "sau ACCT_ROLE + ACCT_GRANTS"
     fi
     ;;

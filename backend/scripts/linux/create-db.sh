@@ -204,7 +204,7 @@ EOF
     # P1: pool quan ly tai khoan - CHI khi da bat (role ton tai) VA migration P1 da ap. Thieu mot trong hai => bo qua, noi ro.
     if ! role_exists "$ROLE_ACCT"; then
       info "Chua co role $ROLE_ACCT: bo qua quyen quan ly tai khoan (P1). Bat bang: create-db.sh $db acct, roi chay lai grants."
-    elif [ "$(psql_su -d "$db" -tA -c "SELECT to_regprocedure('public.fn_auth_api_account_audit(uuid, text, uuid, jsonb)') IS NOT NULL")" != t ]; then
+    elif [ "$(psql_su -d "$db" -tA -c "SELECT to_regprocedure('public.fn_acct_api_account_audit(uuid, text, uuid, jsonb)') IS NOT NULL")" != t ]; then
       warn "Co role $ROLE_ACCT nhung chua ap migration P1 (20261124000000_p1_account_admin): chua cap quyen quan ly tai khoan."
     else
       for i in 1 2; do
