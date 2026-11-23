@@ -10,6 +10,24 @@
 
 **Spec:** `docs/P1_ACCOUNT_ADMIN_DESIGN.md` (Owner duyệt 23/11/2026). Người làm đọc cả hai.
 
+## Đã hiện thực khác kế hoạch (cập nhật 23/11/2026 — đọc trước khi làm theo các bước bên dưới)
+
+Kế hoạch này đã thực hiện xong ở #261–#263. Tên hàm và tên tệp quyền trong tài liệu đã được sửa cho khớp mã. Các bước còn lại giữ nguyên văn để đối chiếu; chỗ nào lệch với bảng dưới thì **bảng dưới và mã nguồn là đúng**. Người vận hành làm theo `docs/VPS_RUNBOOK.md` mục 13, không làm theo các bước của kế hoạch này.
+
+| Kế hoạch ban đầu | Thực tế trong mã | Lý do |
+|---|---|---|
+| 4 hàm `fn_auth_api_*` | 5 hàm `fn_acct_api_*` (4 SECURITY DEFINER + 1 hàm nội bộ `fn_acct_api_employee_fields`) | Bài kiểm M1.2 đếm hàm theo mẫu `fn_auth_api_%`; hàm nội bộ gom quy tắc chuẩn hoá dùng chung |
+| `B1.3_S1_APP_GRANTS_V6` | `B1.5_ACCT_GRANTS.sql.txt` riêng cho `siscom_acct`; V5 không đổi | Không đụng đường lùi V1–V4 của hai role cũ |
+| `setTempPassword` khoá dòng credential `FOR UPDATE` | Khoá tư vấn `pg_advisory_xact_lock` theo nhân viên | `siscom_acct` không có quyền ghi nên không khoá dòng được |
+| Sai trạng thái (khoá tài khoản đã khoá, mở lại tài khoản đang dùng…) ⇒ 400 | 409 `ACCOUNT_STATE` | Không phải lỗi nhập liệu |
+| `enable` chỉ cho tài khoản DISABLED | Nhận cả tài khoản chưa có credential (tạo credential rồi đặt mật khẩu tạm) | Không có đường nào khác cấp mật khẩu qua trang |
+| `AcctPrismaService` đăng ký trong `PrismaModule` toàn cục | Là provider của riêng `AccountsModule` | Module / bộ test khác không phải biết tới pool này |
+| Pool `acct` không qua kiểm đặc quyền ⇒ từ chối khởi động | Chỉ tắt riêng `/accounts` (503) + dòng lỗi trong log | Bật dở dang không được làm sập cả ứng dụng |
+| 5 tệp DTO ghi; tệp test `accounts.int-spec.ts` | Một tệp `dto/write-account.dto.ts`; ca P1 nằm trong `auth.int-spec.ts` | Bootstrap chỉ chạy một lần mỗi DB thử |
+| Sửa `SISCOM_NAV` trong `ds/navigation/Sidebar.jsx` | `accountsNav()` trong `App.jsx` | Không sửa tệp design system dùng chung |
+| Runbook ghi `PASS|75` + `PASS|33` | "`PASS|n`, không có `FAIL`"; riêng `VERIFY_ACCT` = `PASS|26` | Số của hai bài cũ đổi theo phiên bản |
+| `create-db.sh acct` chạy **trước** migrate | Vẫn vậy; nếu mã P1 đã chạy sẵn thì sau `acct` phải chạy `grants` (runbook mục 13) | Thứ tự `deploy.sh`: migrate → grants |
+
 ## Global Constraints
 
 - Không sửa bảng, CHECK, trigger hay hàm `fn_auth_*` hiện có. Không thêm mã quyền, không đụng `role_permission`, không sửa `fn_auth_perm_class`.
@@ -41,7 +59,7 @@
 | `backend/prisma/migrations/20261124000000_p1_account_admin/migration.sql` | 4 hàm mới + REVOKE + COMMENT |
 | `backend/docs/P1_ACCOUNT_ADMIN_TESTS.sql.txt`, `…_ROLLBACK.sql.txt` | Bài kiểm SQL và rollback của migration |
 | `backend/docs/B1.5_ACCT_ROLE.sql.txt` | Quyền nền cho role `siscom_acct` (CONNECT, USAGE, SET ON PARAMETER) — chạy bằng superuser |
-| `backend/docs/B1.3_S1_APP_GRANTS_V6.sql.txt` | V5 + mục 7 cho `siscom_acct`; bước 0 thu hồi cả ba role |
+| `backend/docs/B1.5_ACCT_GRANTS.sql.txt` | Quyền của RIÊNG `siscom_acct` (tự thu hồi rồi cấp lại; chạy 2 lần). `APP_GRANTS_V5` không đổi — **không có bản V6** |
 | `backend/docs/B1.5_VERIFY_ACCT.sql.txt` | Kiểm `siscom_acct` được đúng và đủ (nhóm L* được, M* bị từ chối) |
 | `backend/scripts/ci/pg-temp-db.sh`, `pg-sql-check.sh`, `.github/workflows/ci.yml` | Role thứ ba trong CI |
 | `backend/scripts/linux/create-db.sh`, `lib.sh`, `env/backend.env.example`, `tests/*` | Role thứ ba trên máy chủ |
@@ -63,10 +81,10 @@
 - Modify: `.github/workflows/ci.yml` (ba chỗ đang gọi `SALES_T07_SEARCH_FOLD_*`: thêm dòng P1 theo cùng mẫu; rollback P1 đứng **trước** T07 trong chuỗi lùi vì mới hơn), `backend/docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt` (từ chối khi migration P1 còn — theo mẫu `SALES_S2_ROLLBACK` từ chối khi T-07 còn)
 
 **Interfaces — Produces:**
-- `fn_auth_api_employee_create(p_actor uuid, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS uuid`
-- `fn_auth_api_employee_update(p_actor uuid, p_employee uuid, p_expected_updated_at timestamptz, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS timestamptz`
-- `fn_auth_api_must_change_set(p_actor uuid, p_employee uuid, p_expected_token_version integer) RETURNS void`
-- `fn_auth_api_account_audit(p_actor uuid, p_action text, p_employee uuid, p_changes jsonb) RETURNS void`
+- `fn_acct_api_employee_create(p_actor uuid, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS uuid`
+- `fn_acct_api_employee_update(p_actor uuid, p_employee uuid, p_expected_updated_at timestamptz, p_full_name text, p_email text, p_department uuid, p_position text) RETURNS timestamptz`
+- `fn_acct_api_must_change_set(p_actor uuid, p_employee uuid, p_expected_token_version integer) RETURNS void`
+- `fn_acct_api_account_audit(p_actor uuid, p_action text, p_employee uuid, p_changes jsonb) RETURNS void`
 - Mã lỗi (tiền tố thông báo, cùng kiểu M1): `EMAIL_TAKEN:` (ERRCODE `unique_violation`), `VERSION_CONFLICT:` (`serialization_failure`), `SYSTEM_ACCOUNT:` và `SELF_MODIFICATION:` (`check_violation`), `INVALID_STATE:` (`check_violation`), `APPROVAL_REQUIRED:` (`insufficient_privilege`, do `fn_auth_api_actor`).
 
 Quy tắc trong hàm:
@@ -91,10 +109,10 @@ Quy tắc trong hàm:
 - [ ] **Step 6: Nối CI** — thêm các dòng P1 vào đúng ba bước của `ci.yml` (kiểm ràng buộc; diễn tập rollback đầy đủ; rollback bằng migrator). Chạy `bash backend/scripts/linux/tests/test-guards.sh` nếu nó đếm số migration.
 - [ ] **Step 7: Commit** — `git add backend/prisma/migrations/20261124000000_p1_account_admin backend/docs/P1_ACCOUNT_ADMIN_* backend/docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt .github/workflows/ci.yml && git commit -m "feat(accounts): P1 migration #18 — 4 ham tai khoan (employee_create/update, must_change_set, account_audit)"`
 
-### Task 2: Role `siscom_acct`, GRANTS V6, VERIFY_ACCT
+### Task 2: Role `siscom_acct`, ACCT_GRANTS, VERIFY_ACCT
 
 **Files:**
-- Create: `backend/docs/B1.5_ACCT_ROLE.sql.txt`, `backend/docs/B1.3_S1_APP_GRANTS_V6.sql.txt`, `backend/docs/B1.5_VERIFY_ACCT.sql.txt`
+- Create: `backend/docs/B1.5_ACCT_ROLE.sql.txt`, `backend/docs/B1.5_ACCT_ROLE_ROLLBACK.sql.txt`, `backend/docs/B1.5_ACCT_GRANTS.sql.txt`, `backend/docs/B1.5_VERIFY_ACCT.sql.txt`
 - Modify: `backend/scripts/ci/pg-temp-db.sh`, `backend/scripts/ci/pg-sql-check.sh`, `.github/workflows/ci.yml`, `backend/scripts/linux/create-db.sh`, `backend/scripts/linux/lib.sh`, `backend/scripts/linux/env/backend.env.example`, `backend/scripts/linux/tests/rehearse-pg.sh`, `backend/scripts/linux/tests/test-guards.sh`
 
 **Interfaces:**
@@ -109,10 +127,10 @@ Quyền của `siscom_acct` (đúng và đủ):
 
 - [ ] **Step 1: Viết `B1.5_VERIFY_ACCT.sql.txt` (đỏ)** — cùng khung `B1.3_S1_VERIFY_AUTH.sql.txt` (chạy superuser, `SET ROLE siscom_acct`, bảng tạm `s1_result`, `pg_temp.expect_ok` / `expect_denied`, in `PASS|n`, đúng một dòng guard `'^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'`). Nhóm `L*` (được): L0 chạy bằng `siscom_acct` không superuser; L1 SELECT 4 bảng; L2 SELECT 5 cột credential; L3 EXECUTE đủ 12 hàm (`has_function_privilege`); L4 SET hai tham số. Nhóm `M*` (bị từ chối): M1 SELECT `password_hash`; M2 SELECT `customer`, `opportunity`, `audit_log`, `auth_session`, `password_reset_token`, `privileged_change_request`; M3 INSERT / UPDATE / DELETE `employee`, `employee_role`, `employee_credential`; M4 EXECUTE `fn_auth_api_change_own_password`, `fn_auth_api_role_permission_change`, `fn_auth_bootstrap_close`, `fn_auth_api_audit`; M5 DDL, TEMP, `nextval`; M6 thuộc tính role và không là thành viên role nào; M7 số hàm SECURITY DEFINER mà `siscom_acct` EXECUTE được = đúng 12.
 - [ ] **Step 2: Chạy đỏ** — `bash scripts/ci/pg-sql-check.sh docs/B1.5_VERIFY_ACCT.sql.txt res su`. Kỳ vọng: FAIL (role chưa có).
-- [ ] **Step 3: `B1.5_ACCT_ROLE.sql.txt`** theo mẫu `B1.3_S1_AUTH_ROLE.sql.txt` (guard `target_db`, kiểm role đã tồn tại và đúng thuộc tính, REVOKE mặc định, CONNECT, USAGE, SET ON PARAMETER); **`B1.3_S1_APP_GRANTS_V6.sql.txt`** = V5 với: bước 0 thu hồi cả `siscom_acct`; mục 7 mới cấp quyền ở trên; khối kiểm đầu tệp đòi `siscom_acct` có CONNECT; dòng tổng kết thêm đếm của `siscom_acct`.
+- [ ] **Step 3: `B1.5_ACCT_ROLE.sql.txt`** theo mẫu `B1.3_S1_AUTH_ROLE.sql.txt` (guard `target_db`, kiểm role đã tồn tại và đúng thuộc tính, REVOKE mặc định, CONNECT, USAGE, SET ON PARAMETER); **`B1.3_S1_`B1.5_ACCT_GRANTS`.sql.txt`** = V5 với: bước 0 thu hồi cả `siscom_acct`; mục 7 mới cấp quyền ở trên; khối kiểm đầu tệp đòi `siscom_acct` có CONNECT; dòng tổng kết thêm đếm của `siscom_acct`.
 - [ ] **Step 4: CI và script** — `pg-temp-db.sh`: mật khẩu + URL thứ ba, ghi `TEST_ACCT_DATABASE_URL` / `TEST_ACCT_PW` vào `$GITHUB_ENV`, `split` chạy `B1.5_ACCT_ROLE`, `grants v6`; `pg-sql-check.sh`: nhánh `acct`; `ci.yml`: cạnh mỗi dòng `B1.3_S1_VERIFY_AUTH.sql.txt res su` thêm `B1.5_VERIFY_ACCT.sql.txt res su`, mọi `grants v5` hiện hành ⇒ `v6`, thêm diễn tập gỡ role `unacct` theo mẫu `unauth`. `create-db.sh`: `SISCOM_ACCT_PW` trong `db-roles.env` (48 hex, `load_role_passwords`), `ensure_role`, chạy `B1.5_ACCT_ROLE`, `env` ghi thêm `ACCT_DATABASE_URL`, `grants` dùng V6 + `verify_one` thứ ba; lệnh con `acct` (idempotent) cho DB đã có sẵn: chỉ thêm role + mật khẩu + biến, **không** đổi mật khẩu hai role kia, không chạm dữ liệu. `lib.sh`: hằng `ROLE_ACCT`. `backend.env.example`: dòng `ACCT_DATABASE_URL=`. Cập nhật `rehearse-pg.sh`, `test-guards.sh` cho role mới.
 - [ ] **Step 5: Chạy xanh** — trên DB tạm: `split` + `grants v6` hai lần, rồi `… B1.3_S1_VERIFY.sql.txt res app` ⇒ `PASS|75`; `… B1.3_S1_VERIFY_AUTH.sql.txt res su` ⇒ `PASS|33`; `… B1.5_VERIFY_ACCT.sql.txt res su` ⇒ `PASS|<n>` (ghi n vào đầu tệp). `shellcheck` các script đã sửa; `test-guards.sh` và `rehearse-pg.sh` xanh.
-- [ ] **Step 6: Commit** — `git commit -m "feat(accounts): role siscom_acct, APP_GRANTS_V6, VERIFY_ACCT; CI va create-db cho role thu ba"`
+- [ ] **Step 6: Commit** — `git commit -m "feat(accounts): role siscom_acct, ACCT_GRANTS, VERIFY_ACCT; CI va create-db cho role thu ba"`
 
 ### Task 3: Nền backend — kết nối thứ ba, `access.approve`, mã lỗi
 
@@ -182,9 +200,9 @@ Quyền của `siscom_acct` (đúng và đủ):
 - `accounts.flow.ts` (hàm trên `tx`, không biết HTTP):
   - `findSystemRequester(tx): Promise<string>` — 0 hoặc > 1 ⇒ `noSystemRequester()`.
   - `approved(tx, sys: string, clicker: string, type: 'ROLE_GRANT' | 'ROLE_REVOKE_CRITICAL' | 'PASSWORD_RESET', employeeId: string, roleId: string | null): Promise<string>` — `request_create(sys, …, payload {source:'p1-account-admin', clickedBy}, ttl 5)` rồi `request_decide(clicker, req, true)`; kết quả khác `'APPROVED'` ⇒ ném.
-  - `setTempPassword(tx, sys, clicker, employeeId, secret: {hash, algo, params}): Promise<void>` — khoá dòng credential `FOR UPDATE` (chỉ cột được phép); `approved(PASSWORD_RESET)`; `reset_token_issue(sys, req, sha256(token), 5)` với `token = randomBytes(32).toString('base64url')` không rời hàm; `reset_password(employee, token, …)` phải trả `'OK'` (khác ⇒ ném `validation(['Không đặt được mật khẩu cho tài khoản này.'])`); `fn_auth_api_must_change_set(clicker, employee, <token_version mới>)`.
+  - `setTempPassword(tx, sys, clicker, employeeId, secret: {hash, algo, params}): Promise<void>` — khoá dòng credential `FOR UPDATE` (chỉ cột được phép); `approved(PASSWORD_RESET)`; `reset_token_issue(sys, req, sha256(token), 5)` với `token = randomBytes(32).toString('base64url')` không rời hàm; `reset_password(employee, token, …)` phải trả `'OK'` (khác ⇒ ném `validation(['Không đặt được mật khẩu cho tài khoản này.'])`); `fn_acct_api_must_change_set(clicker, employee, <token_version mới>)`.
   - `inAcctTx<T>(acct: AcctPrismaService, fn: (tx) => Promise<T>): Promise<T>` — transaction với `SET LOCAL lock_timeout = '5s'`, `statement_timeout = '15s'`; bắt lỗi ⇒ `throw mapAccountDbError(e) ?? e`.
-- Thứ tự từng thao tác: đúng bảng mục 6.3 của Spec; bước cuối gọi `fn_auth_api_account_audit(clicker, <ACCOUNT_*>, employee, changes)` (riêng "sửa thông tin" không gọi — `employee_update` đã ghi). Máy chủ tự chặn trước khi vào các hàm đặc quyền: đích là chính mình (trừ PATCH) ⇒ `selfModification()`; đích `isSystem` ⇒ `systemAccount()`; đích có ≠ 1 vai trò khi đổi vai trò ⇒ `multiRole()`; vai trò mới = cũ ⇒ 400; `enable` trên tài khoản không DISABLED / `disable` trên tài khoản không ACTIVE ⇒ 400.
+- Thứ tự từng thao tác: đúng bảng mục 6.3 của Spec; bước cuối gọi `fn_acct_api_account_audit(clicker, <ACCOUNT_*>, employee, changes)` (riêng "sửa thông tin" không gọi — `employee_update` đã ghi). Máy chủ tự chặn trước khi vào các hàm đặc quyền: đích là chính mình (trừ PATCH) ⇒ `selfModification()`; đích `isSystem` ⇒ `systemAccount()`; đích có ≠ 1 vai trò khi đổi vai trò ⇒ `multiRole()`; vai trò mới = cũ ⇒ 400; `enable` trên tài khoản không DISABLED / `disable` trên tài khoản không ACTIVE ⇒ 400.
 - Giới hạn tần suất: `new LoginLimiter({ windowMs: 60_000, maxPerSource: 30, maxPerIdentifier: 30 })`, khoá theo người bấm; vượt ⇒ `rateLimited()`.
 
 - [ ] **Step 1: Test tích hợp đỏ** — DB thử đã tách role + `TEST_ACCT_DATABASE_URL`, đăng nhập thật bằng tài khoản `crm_admin` của bootstrap (gọi là A). Các ca (tên test tiếng Việt như các int-spec khác):
@@ -237,7 +255,7 @@ Quyền của `siscom_acct` (đúng và đủ):
 
 **Interfaces — Consumes:** `create-db.sh <db> acct` (Task 2), `deploy.sh --migrate`.
 
-- [ ] **Step 1: Runbook** — thứ tự: (1) sao lưu (`deploy.sh` tự làm); (2) `create-db.sh siscom_crm_prod acct` — tạo role, thêm `SISCOM_ACCT_PW`, ghi `ACCT_DATABASE_URL` vào `backend.env`, giữ nguyên mật khẩu các role khác; (3) `deploy.sh --src … --frontend … --migrate --auto-rollback` (migration #18, GRANTS V6, 3 VERIFY); (4) kiểm chỉ đọc: 18 migration, `PASS|75` + `PASS|33` + `PASS|<n>`, `GET /api/v1/accounts` chưa đăng nhập ⇒ 401; (5) lùi: `deploy.sh --rollback` (mã cũ không dùng role mới; role và 4 hàm để lại vô hại), gỡ hẳn theo `P1_ACCOUNT_ADMIN_ROLLBACK` + `unacct` cần duyệt riêng. Ghi rõ ba lời duyệt cần có: `OWNER_APPROVED_MIGRATION siscom_crm_prod`, duyệt đổi cấu hình VPS (role + biến môi trường), duyệt triển khai.
+- [ ] **Step 1: Runbook** — thứ tự: (1) sao lưu (`deploy.sh` tự làm); (2) `create-db.sh siscom_crm_prod acct` — tạo role, thêm `SISCOM_ACCT_PW`, ghi `ACCT_DATABASE_URL` vào `backend.env`, giữ nguyên mật khẩu các role khác; (3) `deploy.sh --src … --frontend … --migrate --auto-rollback` (migration #18, `B1.5_ACCT_GRANTS`, 3 VERIFY); (4) kiểm chỉ đọc: 18 migration, `PASS|75` + `PASS|33` + `PASS|<n>`, `GET /api/v1/accounts` chưa đăng nhập ⇒ 401; (5) lùi: `deploy.sh --rollback` (mã cũ không dùng role mới; role và 4 hàm để lại vô hại), gỡ hẳn theo `P1_ACCOUNT_ADMIN_ROLLBACK` + `unacct` cần duyệt riêng. Ghi rõ ba lời duyệt cần có: `OWNER_APPROVED_MIGRATION siscom_crm_prod`, duyệt đổi cấu hình VPS (role + biến môi trường), duyệt triển khai.
 - [ ] **Step 2: `daily-check.sh` mục 6** — truy vấn chỉ đọc `audit_log` 24 giờ với `action IN ('ACCOUNT_CREATE','ACCOUNT_ROLE_CHANGE','ACCOUNT_PASSWORD_RESET','ACCOUNT_DISABLE','ACCOUNT_ENABLE','EMPLOYEE_UPDATE')`: in số dòng và từng dòng `giờ | action | mã NV bị tác động | mã NV người bấm`; truy vấn lỗi ⇒ KHÔNG ĐẠT. Thử: chạy trên VPS trước khi bật P1 ⇒ "0 thay đổi", `KET QUA` không đổi; giả lập truy vấn lỗi ⇒ KHÔNG ĐẠT.
 - [ ] **Step 3: Commit** — `git commit -m "docs(accounts): runbook bat P1 tren may chu"`
 
