@@ -21,6 +21,22 @@ Vì sao bây giờ: CRM đã mở từ 21/11 với đúng 5 tài khoản; chưa 
 
 Owner đã được báo cái giá: nếu `admin@` bị lộ mật khẩu hoặc bấm nhầm thì một mình tài khoản đó tạo được tài khoản và cấp được vai trò. Bù lại: mọi thao tác ghi nhật ký, và bản kiểm mỗi sáng liệt kê thay đổi tài khoản trong 24 giờ (mục 7).
 
+### 2.1 Chấp nhận rủi ro mô hình tin cậy (Owner xác nhận 23/11/2026, sau review R1)
+
+Review độc lập R1 (`PR260-R1-DOC-02`, `PR262-R1-SEC-01`) đề nghị Owner xác nhận riêng rủi ro nêu ở mục 6.4: nếu máy chủ ứng dụng hoặc kết nối `siscom_acct` bị chiếm thì kẻ đó tạo và cấp quyền tài khoản được mà không cần người thứ hai; cơ chế hai người trong database khi đó chỉ còn giá trị ghi vết.
+
+**Owner trả lời: chấp nhận.** Lý do được ghi nhận:
+
+- Quy mô hiện tại (vài tài khoản, một – hai người quản trị): bắt buộc hai người có mặt cho mỗi thao tác dễ dẫn tới dùng chung tài khoản hoặc duyệt cho có.
+- Hai người duyệt không chặn được đúng kịch bản này: kẻ đã chiếm máy chủ ứng dụng đứng sau lớp kiểm tra và tự đóng được cả hai vai.
+- Các lớp chặn của database giữ nguyên: không tự thao tác lên chính mình, không khoá / gỡ quản trị viên cuối cùng hay người duyệt cuối cùng, không đụng tài khoản hệ thống, mọi thao tác ghi nhật ký.
+- Kiểm tra bù: bản kiểm mỗi sáng liệt kê thay đổi tài khoản trong 24 giờ (mục 7).
+- Khôi phục: dữ liệu và cấu trúc phần mềm được sao lưu; nếu bị chiếm quyền thì dựng máy mới từ bản sao lưu và đổi toàn bộ mật khẩu, khoá.
+
+Giới hạn Owner đã được báo: sao lưu không thay cho việc phát hiện (phải có người đọc bản kiểm mỗi sáng) và không lấy lại được dữ liệu đã bị xem. Mật khẩu Quản trị CRM phải mạnh và không dùng chung.
+
+Xem lại quyết định này khi có nhiều quản trị viên hơn: khi đó có thể thêm bước hai người duyệt cho riêng thao tác cấp vai trò Quản trị CRM. Việc chấp nhận này **không** phải là duyệt merge, duyệt chạy migration #18 hay duyệt bật P1 trên production — ba việc đó vẫn cần duyệt riêng (mục 9).
+
 ## 3. Mục tiêu, ngoài phạm vi, điều phải tránh
 
 **Mục tiêu**
