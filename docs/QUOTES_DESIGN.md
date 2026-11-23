@@ -21,10 +21,14 @@ Nhãn nguồn: **[Owner]** = Owner đã chốt; **[Đề xuất]** = tác giả 
 | QB1 | **Kinh doanh tự gửi giá cho khách, không cần ai duyệt trong CRM** (mỗi người đã có khung giá). Thay câu "không gửi khách khi chưa duyệt" của D11 | Owner, 24/11/2026 |
 | QB2 | Tên tệp theo mẫu `YYYYMMDD_MaBG_TenKhachHang_HangMuc` (`.pdf` hoặc tệp Excel) | Owner, 24/11/2026 |
 | QB3 | **Báo giá được lập ngay trên CRM**; bố cục theo tệp mẫu Owner cung cấp. Thay câu "đợt đầu giữ mẫu Excel" của D11 | Owner, 24/11/2026 |
+| QB4 (QO10) | Khi "Đánh dấu đã gửi": đóng băng **toàn bộ** nội dung in, gồm cả mã bố cục / logo. Đổi logo hay mẫu sau này ⇒ bản cũ in lại vẫn theo mẫu cũ | Owner, 24/11/2026 |
+| QB5 (QO11) | Đã có báo giá đang theo đuổi vẫn **được sửa tay** giá trị cơ hội; hiện nhãn "theo báo giá …" / "đã sửa tay, khác báo giá"; lần gửi / đổi báo giá kế tiếp ghi đè và để lại lịch sử | Owner, 24/11/2026 |
+| QB6 (QO12) | Phiên bản được chấp nhận ⇒ báo giá đó thành "đang theo đuổi" và **cố định**; không đổi sang báo giá khác, không tạo bản mới cho báo giá đó; cần sửa thì lập báo giá mới | Owner, 24/11/2026 |
+| QB7 (QO13) | Mỗi cơ hội **tối đa một** báo giá được chấp nhận; giá trị cơ hội = báo giá đó; muốn gộp nhiều hạng mục thì lập một báo giá chung | Owner, 24/11/2026 |
 
 ## 2. Quyết định còn chờ Owner
 
-Tác giả không tự ghi APPROVED / ACCEPTED. Cột "Đề xuất" là phương án đang dùng trong tài liệu để review; Owner đổi thì sửa mục liên quan.
+Tác giả không tự ghi APPROVED / ACCEPTED. Cột "Đề xuất" là phương án đang dùng trong tài liệu để review; Owner đổi thì sửa mục liên quan. **QO1–QO9 còn chờ. QO10–QO13 Owner đã chốt ngày 24/11/2026 (đồng ý cả bốn đề xuất) ⇒ thành QB4–QB7 ở mục 1; các dòng dưới đây giữ lại để đối chiếu.**
 
 | Mã | Câu hỏi | Đề xuất | Ảnh hưởng nếu đổi |
 |---|---|---|---|
@@ -37,10 +41,10 @@ Tác giả không tự ghi APPROVED / ACCEPTED. Cột "Đề xuất" là phươn
 | QO7 | Xuất PDF | In của trình duyệt, không thêm thư viện | Thêm thư viện = PR riêng |
 | QO8 | Điều khoản, thông tin thanh toán | Quản trị CRM soạn mẫu mặc định; mỗi báo giá sửa được phần ghi chú | Bảng `quote_setting` |
 | QO9 | Cột giá vốn | Không lưu đợt này | — |
-| **QO10** | **Đóng băng bản in tới mức nào** | Khi "Đánh dấu đã gửi": đóng băng **toàn bộ** nội dung in, gồm cả mã bố cục / logo đang dùng. Công ty đổi logo hay mẫu sau này ⇒ bản cũ in lại **vẫn theo mẫu cũ** | Mục 4, 5.3 |
-| **QO11** | **Sửa tay giá trị cơ hội khi đã có báo giá đang theo đuổi** | Vẫn cho sửa tay; cạnh ô giá trị hiện nhãn "theo báo giá BG-… v…" hoặc "đã sửa tay, khác báo giá"; lần gửi / đổi báo giá kế tiếp ghi đè và để lại lịch sử. Phương án chặt hơn: khoá ô giá trị khi đã có báo giá đang theo đuổi | Mục 8 |
-| **QO12** | **Đổi báo giá đang theo đuổi sau khi khách đã chấp nhận** | Phiên bản được chấp nhận ⇒ báo giá đó tự thành "đang theo đuổi" và **cố định**: không đổi sang báo giá khác, không tạo bản mới cho báo giá đó. Cần sửa sau đó ⇒ lập báo giá mới | Mục 8, R-Q7 |
-| **QO13** | **Một cơ hội có nhiều báo giá khác hạng mục cùng được chấp nhận** | Đợt 1: mỗi cơ hội **tối đa một** báo giá được chấp nhận; giá trị cơ hội = báo giá đó. Muốn gộp nhiều hạng mục ⇒ lập một báo giá chung. Phương án khác: cho nhiều báo giá được chấp nhận và cộng giá trị (đổi quy tắc D7, cần duyệt riêng) | R-Q7, mục 8 |
+| ~~QO10~~ (đã chốt) | **Đóng băng bản in tới mức nào** | Khi "Đánh dấu đã gửi": đóng băng **toàn bộ** nội dung in, gồm cả mã bố cục / logo đang dùng. Công ty đổi logo hay mẫu sau này ⇒ bản cũ in lại **vẫn theo mẫu cũ** | Mục 4, 5.3 |
+| ~~QO11~~ (đã chốt) | **Sửa tay giá trị cơ hội khi đã có báo giá đang theo đuổi** | Vẫn cho sửa tay; cạnh ô giá trị hiện nhãn "theo báo giá BG-… v…" hoặc "đã sửa tay, khác báo giá"; lần gửi / đổi báo giá kế tiếp ghi đè và để lại lịch sử. Phương án chặt hơn: khoá ô giá trị khi đã có báo giá đang theo đuổi | Mục 8 |
+| ~~QO12~~ (đã chốt) | **Đổi báo giá đang theo đuổi sau khi khách đã chấp nhận** | Phiên bản được chấp nhận ⇒ báo giá đó tự thành "đang theo đuổi" và **cố định**: không đổi sang báo giá khác, không tạo bản mới cho báo giá đó. Cần sửa sau đó ⇒ lập báo giá mới | Mục 8, R-Q7 |
+| ~~QO13~~ (đã chốt) | **Một cơ hội có nhiều báo giá khác hạng mục cùng được chấp nhận** | Đợt 1: mỗi cơ hội **tối đa một** báo giá được chấp nhận; giá trị cơ hội = báo giá đó. Muốn gộp nhiều hạng mục ⇒ lập một báo giá chung. Phương án khác: cho nhiều báo giá được chấp nhận và cộng giá trị (đổi quy tắc D7, cần duyệt riêng) | R-Q7, mục 8 |
 
 ## 3. Phạm vi
 
@@ -349,7 +353,7 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng (tên test hoặc ảnh chụp). Ca
 
 | PR | Nội dung | Phụ thuộc | PASS khi | Đụng DB? |
 |---|---|---|---|---|
-| **Q1** | Tài liệu này + chú thích đồng bộ trong `SALES_DESIGN.md` | — | Review không còn điểm chặn; Owner chốt QO1–QO13 | không |
+| **Q1** | Tài liệu này + chú thích đồng bộ trong `SALES_DESIGN.md` | — | Review không còn điểm chặn; Owner chốt QO1–QO9 (QO10–QO13 đã chốt) | không |
 | Q2 | Migration: 4 bảng, kiểu enum, hàm mã, CHECK, trigger, `fn_auth_perm_class`; rollback; bài kiểm cấu trúc | Q1 | Nhóm B, F1, F2 | chỉ PostgreSQL tạm của CI |
 | Q3 | Grants + VERIFY; mã quyền `quote.*`, script hai người / gỡ / kiểm; ma trận `bootstrap.ts` | Q2 | B8, F4; VERIFY hiện có không đổi kết quả | chỉ CI |
 | Q4 | Backend đọc + tên tệp gợi ý + cài đặt (đọc) | Q3 | C1, C3, C5–C9 (phần đọc), E7 (hàm tên tệp) | không |
@@ -379,7 +383,7 @@ Mỗi PR tự đứng được: Q2, Q3 không đổi hành vi ứng dụng; Q4, 
 | `PR266-R1-DB-01` | Hoàn thiện mô hình DB: trigger chống sửa sau gửi kể cả khi cập nhật đồng thời; không gửi được báo giá rỗng hoặc lệch tổng; khoá các trường ảnh hưởng bản in; unique, khoá ngoại, tranh chấp | **FIXED** | 5.1, 5.2, 5.3, 4.2 | B1–B9 |
 | `PR266-R1-MONEY-01` | Chốt công thức, làm tròn 0,5 đồng, số lượng lẻ, giới hạn; số học chính xác; CHECK; bảng ví dụ và test | **FIXED** | 6, 6.1, C-1…C-3 | A1–A11 |
 | `PR266-R1-SEC-01` | Kỹ thuật và Quản trị hệ thống không đọc được báo giá ở mọi đường, kể cả gián tiếp; dùng lại RBAC và phạm vi cơ hội | **FIXED** | 7.1, 7.2 | C1–C10, B8 |
-| `PR266-R1-SYNC-01` | Chống hai người gửi / đổi đang theo đuổi cùng lúc; khoá, optimistic version, 409, lịch sử; không cộng dồn; sửa tay giá trị cơ hội | **FIXED** (phần sửa tay và sau chấp nhận chờ QO11–QO13) | 8 (quy tắc 7, 8), 8.1 | D1–D9 |
-| `PR266-R1-PRINT-01` | Lưu cố định dữ liệu in theo phiên bản; in lại không đổi; phân trang A4, bản dài, tên tệp | **FIXED** (mức đóng băng chờ QO10) | 4.2, 4.3 | E1–E8 |
+| `PR266-R1-SYNC-01` | Chống hai người gửi / đổi đang theo đuổi cùng lúc; khoá, optimistic version, 409, lịch sử; không cộng dồn; sửa tay giá trị cơ hội | **FIXED** (sửa tay và sau chấp nhận: Owner đã chốt QB5–QB7) | 8 (quy tắc 7, 8), 8.1 | D1–D9 |
+| `PR266-R1-PRINT-01` | Lưu cố định dữ liệu in theo phiên bản; in lại không đổi; phân trang A4, bản dài, tên tệp | **FIXED** (mức đóng băng: Owner đã chốt QB4) | 4.2, 4.3 | E1–E8 |
 | `PR266-R1-TEST-01` | Bổ sung test bảo mật, đồng thời, tiền, trigger, rollback, bản in; PR Q2–Q8 nhỏ, độc lập, có PASS/FAIL; đồng bộ `SALES_DESIGN.md` | **FIXED** | 11, 12; chú thích trong `SALES_DESIGN.md` | A–F |
 | `PR266-R1-OWNER-01` | Giữ QO1–QO9 chờ Owner; đề xuất rõ quyết định mới về đóng băng bản in, sửa tay giá trị cơ hội, đổi đang theo đuổi sau khi chấp nhận; không tự ghi APPROVED / ACCEPTED | **FIXED** | 2 (QO10–QO13) | — |
