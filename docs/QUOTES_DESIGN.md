@@ -1,8 +1,8 @@
-# Báo giá đợt 1 — lập báo giá ngay trên CRM: đặc tả v6 (PR Q1, 24/11/2026)
+# Báo giá đợt 1 — lập báo giá ngay trên CRM: đặc tả v7 (PR Q1, 24/11/2026)
 
-Trạng thái: **Draft, chờ review R3 và Owner duyệt.** Chưa có mã, chưa có migration. Nối tiếp `docs/SALES_DESIGN.md` (D10, D11, C11).
+Trạng thái: **Draft; đã qua ba vòng review, chờ Owner duyệt.** Chưa có mã, chưa có migration. Nối tiếp `docs/SALES_DESIGN.md` (D10, D11, C11).
 Nhãn nguồn: **[Owner]** = Owner đã chốt; **[Đề xuất]** = tác giả đề xuất, cần duyệt; **[Mã hiện có]** = đã đối chiếu mã trên `main` @ `15a60be`.
-**Lịch sử:** v1 sổ báo giá. v2 lập báo giá trên CRM (QB3). v3 xử lý review R1 (mục 14). **v4: Owner trả lời QO1–QO9 và yêu cầu thêm** — nhiều loại báo giá (mỗi loại vật tư một mẫu), có màn hình điều chỉnh các loại báo giá, xuất PDF một chạm và Excel, VAT 8 / 10 %, bỏ chiết khấu, mỗi nhân viên tự soạn điều khoản (mục 15). **v5: Owner chốt nốt QO9, QO14–QO18** — VAT một mức cho cả báo giá theo mặc định, loại báo giá nào cần thì bật VAT theo từng dòng; Kế toán được tải tệp; Excel có công thức; lưu giá vốn từng dòng với quyền xem riêng (mục 16). **v6: xử lý review R2** — điểm khoá chung cho R-Q7 / R-Q8 và chỉ mục duy nhất U-4, bảo vệ `created_by`, đường nhập tiền không qua số thực, thêm ca nghiệm thu, đồng bộ `SALES_DESIGN.md` với QB23 (mục 17). Tác giả đã đọc bố cục năm tệp mẫu của công ty để thiết kế; dữ liệu thật của các tệp đó không nằm trong kho mã.
+**Lịch sử:** v1 sổ báo giá. v2 lập báo giá trên CRM (QB3). v3 xử lý review R1 (mục 14). **v4: Owner trả lời QO1–QO9 và yêu cầu thêm** — nhiều loại báo giá (mỗi loại vật tư một mẫu), có màn hình điều chỉnh các loại báo giá, xuất PDF một chạm và Excel, VAT 8 / 10 %, bỏ chiết khấu, mỗi nhân viên tự soạn điều khoản (mục 15). **v5: Owner chốt nốt QO9, QO14–QO18** — VAT một mức cho cả báo giá theo mặc định, loại báo giá nào cần thì bật VAT theo từng dòng; Kế toán được tải tệp; Excel có công thức; lưu giá vốn từng dòng với quyền xem riêng (mục 16). **v6: xử lý review R2** — điểm khoá chung cho R-Q7 / R-Q8 và chỉ mục duy nhất U-4, bảo vệ `created_by`, đường nhập tiền không qua số thực, thêm ca nghiệm thu, đồng bộ `SALES_DESIGN.md` với QB23 (mục 17). **v7: xử lý review R3** — `accepted_opportunity_id` do DB tự xác lập và bất biến (R-Q14, R-Q15, ca B16); bỏ các câu khẳng định tuyệt đối về khoá chéo (mục 18). Tác giả đã đọc bố cục năm tệp mẫu của công ty để thiết kế; dữ liệu thật của các tệp đó không nằm trong kho mã.
 
 ## 0. Tóm tắt cho người không chuyên
 
@@ -212,6 +212,8 @@ quote_line
 
 ### 5.3 Trigger (tên dự kiến; đều `SECURITY INVOKER`, `search_path` cố định)
 
+Mọi quy tắc trên `quote_version` (R-Q1, R-Q2a, R-Q3, R-Q7, R-Q13, R-Q14, R-Q15) nằm trong **một hàm trigger duy nhất** `BEFORE INSERT OR UPDATE` của bảng này, chạy theo đúng thứ tự viết trong hàm ⇒ kết quả không phụ thuộc thứ tự PostgreSQL gọi các trigger khác nhau. Bảng dưới tách từng quy tắc để dễ đối chiếu với ca nghiệm thu.
+
 | Mã | Trigger | Hành vi |
 |---|---|---|
 | R-Q2a | `quote_version` BEFORE UPDATE | `OLD.status ≠ 'DRAFT'` ⇒ **chỉ** cho đổi `status`, `decided_by`, `decided_at`, `reject_reason`, `accepted_opportunity_id`, `updated_at`; cột khác đổi ⇒ lỗi `QUOTE_VERSION_LOCKED`. So sánh `IS DISTINCT FROM` trên **toàn bộ** cột còn lại, liệt kê tường minh (test chốt: thêm cột mà quên đưa vào danh sách thì test đỏ) |
@@ -222,14 +224,16 @@ quote_line
 | R-Q3 | `quote_version` BEFORE UPDATE | Chuyển trạng thái hợp lệ: `DRAFT → SENT`; `SENT → ACCEPTED \| REJECTED`. Mọi chuyển khác ⇒ lỗi |
 | R-Q1 | `quote_version` BEFORE UPDATE khi `NEW.status = 'SENT'` | Khoá mọi dòng của phiên bản `FOR UPDATE`; yêu cầu **≥ 1 dòng kiểu `ITEM`**; tính lại tổng `amount_vnd` theo từng mức VAT và so với `NEW.base8_vnd`, `NEW.base10_vnd`; lệch ⇒ lỗi `QUOTE_TOTAL_MISMATCH`. `vat_mode = 'QUOTE'` mà các dòng hàng không cùng một mức VAT ⇒ lỗi `QUOTE_VAT_MIXED` [QB18]. (C-2, C-3 bảo đảm phần còn lại của chuỗi tổng) |
 | R-Q4 | `quote` BEFORE UPDATE | `code`, `opportunity_id`, `customer_id`, `template_id`, `created_by`, `created_at` bất biến |
+| R-Q14 | `quote_version` BEFORE INSERT / UPDATE — **`accepted_opportunity_id` chỉ do DB xác lập** | Ở **mọi** lần INSERT và UPDATE, hàm trigger **tự tính lại** cột này và ghi đè giá trị người gọi truyền vào: `NEW.status = 'ACCEPTED'` ⇒ `NEW.accepted_opportunity_id := (SELECT opportunity_id FROM quote WHERE id = NEW.quote_id)`; trạng thái khác ⇒ `:= NULL`. Trước khi ghi đè, nếu người gọi đã truyền một giá trị **khác** giá trị tính được (đặt giá trị trên bản chưa được chấp nhận; đổi sang cơ hội khác; xoá về NULL trên bản đã chấp nhận) ⇒ **lỗi `QUOTE_ACCEPTED_REF_FORBIDDEN`**, không âm thầm sửa. Ngoại lệ duy nhất không báo lỗi: chính câu lệnh chuyển `SENT → ACCEPTED` không truyền cột này (để NULL) — trigger điền giá trị đúng. Vì `quote_id` bất biến (R-Q13) và `quote.opportunity_id` bất biến (R-Q4), giá trị đã xác lập **không bao giờ lệch** khỏi cơ hội thật của báo giá. C-8 và khoá ngoại tới `opportunity` là lưới chặn thứ hai |
+| R-Q15 | `quote_version` BEFORE INSERT | Dòng mới **bắt buộc** `status = 'DRAFT'`; `sent_by`, `sent_at`, `decided_by`, `decided_at`, `reject_reason`, `accepted_opportunity_id` phải NULL ⇒ không thể chèn thẳng một phiên bản đã gửi / đã chấp nhận để vượt R-Q1, R-Q3, R-Q7 |
 | R-Q13 | `quote_version` BEFORE UPDATE | `vat_mode`, `created_by`, `quote_id`, `version_no`, `created_at` bất biến ngay cả khi còn là nháp (cách tính VAT cố định từ lúc tạo phiên bản; `created_by` quyết định ai thấy giá vốn — không ai, kể cả ghi thẳng SQL bằng `siscom_app`, đổi được sau khi dòng đã tạo) |
 | R-Q5 | `quote` BEFORE UPDATE khi bật `is_primary` | Phải có ít nhất một phiên bản không phải nháp |
-| R-Q7 | `quote_version` BEFORE UPDATE khi `NEW.status = 'ACCEPTED'` [QB6, QB7] | (1) Lấy **điểm khoá chung** (5.4): `SELECT 1 FROM opportunity WHERE id = <cơ hội của báo giá> FOR UPDATE`. (2) Đặt `NEW.accepted_opportunity_id` = cơ hội đó — bỏ qua mọi giá trị người gọi truyền vào. (3) Báo giá này phải đang là `is_primary`; nếu không ⇒ lỗi `QUOTE_NOT_PRIMARY`. (4) Cơ hội đã có phiên bản khác được chấp nhận ⇒ lỗi `QUOTE_ALREADY_ACCEPTED` (đọc sau khi đã giữ khoá chung); U-4 là lưới chặn cuối. **Không** khoá thêm dòng `quote` hay `quote_version` nào khác |
+| R-Q7 | `quote_version` BEFORE UPDATE khi `NEW.status = 'ACCEPTED'` [QB6, QB7] | (1) Lấy **điểm khoá chung** (5.4): `SELECT 1 FROM opportunity WHERE id = <cơ hội của báo giá> FOR UPDATE`. (2) Giá trị `accepted_opportunity_id` do R-Q14 xác lập (không lấy từ người gọi). (3) Báo giá này phải đang là `is_primary`; nếu không ⇒ lỗi `QUOTE_NOT_PRIMARY`. (4) Cơ hội đã có phiên bản khác được chấp nhận ⇒ lỗi `QUOTE_ALREADY_ACCEPTED` (đọc sau khi đã giữ khoá chung); U-4 là lưới chặn cuối. **Không** khoá thêm dòng `quote` hay `quote_version` nào khác |
 | R-Q8 | `quote` BEFORE UPDATE khi đổi `is_primary` (bật hoặc tắt) | (1) Lấy **điểm khoá chung** (5.4) trên dòng cơ hội. (2) Cơ hội đã có phiên bản được chấp nhận (`accepted_opportunity_id` = cơ hội này) ⇒ lỗi `QUOTE_PRIMARY_FIXED` [QB6]. Không khoá thêm dòng nào khác |
 | R-Q9 | `quote` xoá mềm | Chỉ khi không có phiên bản nào khác `DRAFT`; app không có quyền DELETE cứng |
 | R-Q12 | `quote_template` BEFORE DELETE | Luôn từ chối (ngừng dùng bằng `is_active`) |
 
-**Vì sao không còn khe hở khi chạy đồng thời.** Lệnh gửi là một câu `UPDATE quote_version SET status = 'SENT' …`, giữ khoá ghi trên dòng phiên bản tới hết transaction:
+**Hành vi khi chạy đồng thời.** Lệnh gửi là một câu `UPDATE quote_version SET status = 'SENT' …`, giữ khoá ghi trên dòng phiên bản tới hết transaction:
 - Một người đang **thêm / sửa / xoá dòng** giữ khoá `FOR SHARE` trên dòng phiên bản (R-Q2c) ⇒ lệnh gửi phải chờ; khi được chạy, R-Q1 đếm và cộng lại trên dữ liệu đã chốt ⇒ thiếu dòng hoặc lệch tổng thì từ chối.
 - Ngược lại, lệnh gửi chạy trước ⇒ lệnh sửa dòng chờ, rồi đọc thấy `SENT` ⇒ bị từ chối.
 - Hai lệnh đổi trạng thái cùng lúc trên một phiên bản: lệnh sau chờ, rồi R-Q3 xét trên trạng thái mới ⇒ từ chối.
@@ -248,11 +252,15 @@ Hai ràng buộc "mỗi cơ hội tối đa một báo giá được chấp nh�
 
 | Đường ghi | Thứ tự lấy khoá | Kết luận |
 |---|---|---|
-| Qua ứng dụng (mọi thao tác ghi báo giá) | khách `FOR SHARE` → **cơ hội `FOR UPDATE`** → `quote` → `quote_version` → `quote_line` | Khi trigger R-Q7 / R-Q8 chạy, transaction **đã giữ** khoá dòng cơ hội ⇒ lần lấy khoá trong trigger không phải chờ. Mọi transaction của ứng dụng cùng một thứ tự ⇒ **không có chu trình chờ** giữa chúng |
-| SQL trực tiếp ↔ SQL trực tiếp, hai báo giá khác nhau của một cơ hội | mỗi bên: dòng `quote_version` (hoặc `quote`) của mình → cơ hội (trong trigger) | Bên sau chờ ở dòng cơ hội; bên trước không cần dòng nào của bên sau ⇒ **không khoá chéo**; bên sau chạy tiếp và bị R-Q7 / U-4 từ chối |
+| Qua ứng dụng (mọi thao tác ghi báo giá) | khách `FOR SHARE` → **cơ hội `FOR UPDATE`** → `quote` → `quote_version` → `quote_line` | Khi trigger R-Q7 / R-Q8 chạy, transaction **đã giữ** khoá dòng cơ hội ⇒ lần lấy khoá trong trigger không phải chờ. Mọi đường ghi của ứng dụng tuân theo cùng một thứ tự khoá ⇒ **không dự kiến** khoá chéo giữa chúng (ca D10 theo dõi điều này; nếu vẫn xảy ra thì PostgreSQL huỷ một bên như dòng cuối bảng) |
+| SQL trực tiếp ↔ SQL trực tiếp, hai báo giá khác nhau của một cơ hội | mỗi bên: dòng `quote_version` (hoặc `quote`) của mình → cơ hội (trong trigger) | Bên sau chờ ở dòng cơ hội; bên trước không cần dòng nào của bên sau ⇒ không dự kiến khoá chéo trong kịch bản này; bên sau chạy tiếp và bị R-Q7 / U-4 từ chối. SQL trực tiếp khoá thêm các dòng khác theo thứ tự tuỳ ý thì **vẫn có thể** khoá chéo |
 | SQL trực tiếp ↔ ứng dụng, **cùng** một dòng báo giá | trực tiếp: `quote_version` → cơ hội; ứng dụng: cơ hội → `quote_version` | Có thể thành chu trình chờ. PostgreSQL phát hiện và **huỷ một bên** (lỗi `deadlock_detected`); không bên nào ghi được trạng thái sai. Ứng dụng đổi lỗi này thành 409 để người dùng thử lại. Ghi thẳng SQL không phải đường vận hành được hỗ trợ |
 
-Điều được bảo đảm trong **mọi** trường hợp, kể cả ghi thẳng SQL: không có hai phiên bản được chấp nhận trên một cơ hội; không đổi được báo giá đang theo đuổi sau khi đã chấp nhận; trường hợp xấu nhất là một transaction bị huỷ và phải thử lại. Các ca B12–B15 kiểm bằng **hai kết nối PostgreSQL thật**.
+**Phạm vi của cam kết** (không khẳng định "không bao giờ khoá chéo"):
+- **Khoá chéo vẫn có thể xảy ra** khi có SQL ghi trực tiếp không theo thứ tự khoá của ứng dụng. Đây là rủi ro đã nhận diện, **không phải đã loại bỏ**; cách xử lý là để PostgreSQL phát hiện và huỷ trọn một transaction (không có trạng thái ghi dở), bên bị huỷ thử lại.
+- **Tính đúng của dữ liệu không dựa vào khoá**: "tối đa một phiên bản được chấp nhận trên một cơ hội" do chỉ mục U-4 bảo đảm, và U-4 có nghĩa vì `accepted_opportunity_id` **chỉ do trigger R-Q14 xác lập** từ cơ hội thật của báo giá, không nhận từ người gọi, không sửa hay xoá được; "tối đa một báo giá đang theo đuổi" do U-3 bảo đảm. Khoá chung trên dòng cơ hội chỉ để hai thao tác chạy lần lượt và thao tác sau nhận **thông báo lỗi nghiệp vụ rõ ràng** thay vì lỗi trùng chỉ mục.
+- Quy tắc "đã chấp nhận thì không đổi báo giá đang theo đuổi" (R-Q8) và "báo giá được chấp nhận phải đang được theo đuổi" (R-Q7 bước 3) được xét **sau khi giữ khoá chung**, nên đúng với mọi cặp thao tác cùng lấy khoá đó — tức mọi UPDATE làm đổi `is_primary` hoặc chuyển sang `ACCEPTED`, dù qua ứng dụng hay SQL trực tiếp (trigger tự lấy khoá).
+- Các ca B12–B16 kiểm bằng **hai kết nối PostgreSQL thật** và SQL trực tiếp.
 
 Bản nháp cho phép tổng tạm lệch dòng hàng **bên trong** một transaction lưu; điểm chốt bắt buộc là R-Q1 lúc gửi. Ứng dụng luôn tính lại tổng ở mỗi lần lưu (mục 6).
 
@@ -430,6 +438,7 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 - B13 (thứ tự khoá thực tế): một transaction chấp nhận báo giá X trong lúc transaction khác đổi báo giá đang theo đuổi sang Y — chạy theo cả hai thứ tự xen kẽ và cả kiểu "ứng dụng ↔ SQL trực tiếp" ⇒ kết quả chỉ có thể là: một bên bị từ chối bởi R-Q7 / R-Q8, hoặc một bên bị `deadlock_detected`; **không bao giờ** ra trạng thái "đã chấp nhận X nhưng đang theo đuổi Y". Kiểm `pg_locks` trong lúc chờ để xác nhận điểm chờ là dòng cơ hội.
 - B14: SQL trực tiếp bằng `siscom_app` đổi `quote_version.created_by`, `quote.created_by`, `vat_mode`, `quote_id`, `version_no` ⇒ từ chối, kể cả trên bản nháp.
 - B15 (hai kết nối thật): transaction A đang thêm / sửa / xoá dòng hàng chưa commit, transaction B gửi chính phiên bản đó ⇒ B chờ; A commit ⇒ B chạy và bị từ chối nếu tổng lệch; đảo thứ tự ⇒ A bị `QUOTE_VERSION_LOCKED`.
+- B16 (**bảo vệ `accepted_opportunity_id`, SQL trực tiếp bằng `siscom_app`**): (a) INSERT phiên bản với `status` khác `DRAFT`, hoặc với `accepted_opportunity_id` / `sent_at` / `decided_at` có giá trị ⇒ từ chối; (b) UPDATE đặt `accepted_opportunity_id` trên bản `DRAFT`, `SENT`, `REJECTED` ⇒ từ chối; (c) chuyển `SENT → ACCEPTED` kèm `accepted_opportunity_id` của **cơ hội khác** ⇒ từ chối; không truyền cột này ⇒ thành công và giá trị = cơ hội của báo giá; (d) trên bản đã `ACCEPTED`: đổi sang cơ hội khác, đặt về NULL, đổi `status`, DELETE ⇒ đều từ chối; (e) sau toàn bộ các ca B và D, truy vấn bất biến trả 0 dòng: phiên bản `ACCEPTED` có `accepted_opportunity_id` khác `quote.opportunity_id`, hoặc phiên bản không `ACCEPTED` có giá trị khác NULL; (f) danh sách cột được phép đổi sau khi gửi (R-Q2a) không cho người gọi tự đổi cột này — chỉ giá trị do trigger tính mới qua được.
 - B11: `vat_mode = QUOTE` mà gửi với hai mức VAT ⇒ từ chối; đổi `vat_mode` hoặc `created_by` của phiên bản (kể cả nháp) ⇒ từ chối; giá vốn âm hoặc vượt giới hạn ⇒ từ chối; sửa giá vốn của phiên bản đã gửi ⇒ từ chối.
 
 **C. Bảo mật** (Q4–Q6, Q9, Q10; ma trận 5 vai trò)
@@ -475,7 +484,7 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 | PR | Nội dung | Phụ thuộc | PASS khi | Đụng DB? |
 |---|---|---|---|---|
 | **Q1** | Tài liệu này + chú thích đồng bộ trong `SALES_DESIGN.md` | — | Review không còn điểm chặn; Owner duyệt đặc tả (các điểm QO đã chốt hết) | không |
-| Q2 | Migration: 5 bảng, kiểu enum, hàm mã, hàm kiểm JSON, CHECK, chỉ mục duy nhất (gồm U-4), trigger, `fn_auth_perm_class`; nạp "Báo giá chung"; rollback; bài kiểm cấu trúc và bài kiểm hai kết nối | Q1 | Nhóm B (gồm B12–B15), F1, F2, F7(b) | chỉ PostgreSQL tạm của CI |
+| Q2 | Migration: 5 bảng, kiểu enum, hàm mã, hàm kiểm JSON, CHECK, chỉ mục duy nhất (gồm U-4), trigger, `fn_auth_perm_class`; nạp "Báo giá chung"; rollback; bài kiểm cấu trúc và bài kiểm hai kết nối | Q1 | Nhóm B (gồm B12–B16), F1, F2, F7(b) | chỉ PostgreSQL tạm của CI |
 | Q3 | Grants + VERIFY; mã quyền `quote.*`, script hai người / gỡ / kiểm; ma trận `bootstrap.ts` | Q2 | B8, F4; VERIFY hiện có không đổi kết quả | chỉ CI |
 | Q4 | Backend đọc: báo giá, loại báo giá, mặc định cá nhân, giá trị điền sẵn, hàm tên tệp | Q3 | C1, C3, C5–C9 (phần đọc), C12, E7 | không |
 | Q5 | Backend ghi báo giá + tính tiền + giá vốn + đồng bộ giá trị cơ hội | Q4 | Nhóm A (gồm A14), C2, C10, C14 (API), C15, nhóm D | không |
@@ -508,7 +517,7 @@ Mỗi PR tự đứng được: Q2, Q3 không đổi hành vi ứng dụng; Q4�
 
 | Mã | Nhận xét R1 | Trạng thái | Mục sửa | Ca |
 |---|---|---|---|---|
-| `PR266-R1-DB-01` | Hoàn thiện mô hình DB: trigger chống sửa sau gửi kể cả khi cập nhật đồng thời; không gửi được báo giá rỗng hoặc lệch tổng; khoá các trường ảnh hưởng bản in; unique, khoá ngoại, tranh chấp | **FIXED** (R2 nêu thiếu ở R-Q7; sửa ở v6, xem `PR266-R2-LOCK-01`) | 5.1–5.4, 4.3 | B1–B15 |
+| `PR266-R1-DB-01` | Hoàn thiện mô hình DB: trigger chống sửa sau gửi kể cả khi cập nhật đồng thời; không gửi được báo giá rỗng hoặc lệch tổng; khoá các trường ảnh hưởng bản in; unique, khoá ngoại, tranh chấp | **FIXED** (R2 nêu thiếu ở R-Q7, sửa ở v6; R3 nêu thiếu bảo vệ `accepted_opportunity_id`, sửa ở v7) | 5.1–5.4, 4.3 | B1–B16 |
 | `PR266-R1-MONEY-01` | Chốt công thức, làm tròn 0,5 đồng, số lượng lẻ, giới hạn; số học chính xác; CHECK; bảng ví dụ và test | **FIXED** | 6, 6.1, C-1…C-3 | A1–A12 |
 | `PR266-R1-SEC-01` | Kỹ thuật và Quản trị hệ thống không đọc được báo giá ở mọi đường, kể cả gián tiếp; dùng lại RBAC và phạm vi cơ hội | **FIXED** | 7.1, 7.2 | C1–C13, B8 |
 | `PR266-R1-SYNC-01` | Chống hai người gửi / đổi đang theo đuổi cùng lúc; khoá, optimistic version, 409, lịch sử; không cộng dồn; sửa tay giá trị cơ hội | **FIXED** (Owner đã chốt QB5–QB7; R2 nêu thiếu phân tích khoá chéo, sửa ở v6) | 5.4, 8 (quy tắc 7, 8), 8.1 | D1–D11 |
@@ -556,3 +565,15 @@ Kết luận R2 của reviewer: CẦN BỔ SUNG, hai điều kiện chặn (kho�
 | `PR266-R2-DOC-01` (**chặn**) | `SALES_DESIGN.md` còn câu "giá vốn để sau", mâu thuẫn QB23 | **FIXED** | Sửa hai chú thích: giá vốn từng dòng thuộc Báo giá đợt 1 (QB23); phần còn để sau là **báo cáo lợi nhuận tổng hợp** | `docs/SALES_DESIGN.md` | — |
 
 Ngoài ra v6 ghi nhận Owner đã xác nhận hai chỗ diễn giải ở mục 2 (bình luận `[OWNER-DECISION]` trên PR, 24/11/2026).
+
+## 18. Đối chiếu review R3 (24/11/2026, tại `d22b1a1`) → mục sửa → ca nghiệm thu
+
+Kết luận R3 của reviewer: CẦN BỔ SUNG, **một** điều kiện chặn hẹp; COST-01, DOC-01, MONEY-01, XLSX-01, LEAK-01, TEST-01 được reviewer đóng ở mức review tài liệu (PASS — nghĩa là đặc tả đã có yêu cầu, chưa phải các ca đã chạy). Không có điểm nào buộc Owner quyết lại.
+
+| Mã | Nhận xét R3 | Trạng thái | Đã làm | Mục | Ca |
+|---|---|---|---|---|---|
+| `PR266-R3-ACC-01` (**chặn**) | U-4 chỉ bảo đảm tính duy nhất, không tự bảo đảm `accepted_opportunity_id` đúng với cơ hội của báo giá; cần ràng buộc bất biến ở DB: chỉ trigger chuyển trạng thái hợp lệ được đặt giá trị, không có đường SQL trực tiếp (INSERT / UPDATE / xoá giá trị) làm sai, kể cả sau khi đã chấp nhận | **FIXED** | **R-Q14**: ở mọi INSERT / UPDATE, DB tự tính lại cột từ `quote.opportunity_id` theo `status`; người gọi truyền giá trị khác ⇒ lỗi. **R-Q15**: dòng mới bắt buộc là nháp, không chèn thẳng được bản đã gửi / đã chấp nhận. Mọi quy tắc của `quote_version` gom vào một hàm trigger để không phụ thuộc thứ tự gọi. Kết hợp `quote_id` và `quote.opportunity_id` bất biến ⇒ giá trị không thể lệch | 5.3 (R-Q14, R-Q15, câu mở đầu), 5.4 | **B16** (a)–(f) |
+| `PR266-R3-WORD-01` | Mục 5.4 không nên khẳng định tuyệt đối "không có deadlock"; SQL trực tiếp vẫn có thể gây deadlock | **FIXED** | Đổi thành "không dự kiến khoá chéo giữa các đường ghi của ứng dụng tuân theo cùng thứ tự khoá"; thêm đoạn "Phạm vi của cam kết": khoá chéo là rủi ro đã nhận diện, không phải đã loại bỏ; tính đúng của dữ liệu dựa vào U-3, U-4 và R-Q14, không dựa vào khoá. Đổi tiêu đề "Vì sao không còn khe hở…" thành "Hành vi khi chạy đồng thời" | 5.3, 5.4 | B12, B13, D10 |
+| `PR266-R3-TEST-01` | Bổ sung ca bảo vệ `accepted_opportunity_id` | **FIXED** | Ca B16; Q2 phải đạt B12–B16 | 11, 12 | B16 |
+
+Đây là vòng review thứ ba (tối đa theo quy trình). Sau bản v7, việc duyệt đặc tả và cho bắt đầu Q2 là quyết định của Owner.
