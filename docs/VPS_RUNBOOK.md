@@ -382,3 +382,33 @@ Các bước VPS chạy bằng script ở SHA ghi trong ngoặc, **không phải
 | R3-SEC01-01: preflight không đọc được `ufw show added` ⇒ dừng trước apt và mọi thay đổi | PASS ở mức test (`ufw` giả trả lỗi) | Claude chạy; ChatGPT chưa kiểm bản sửa | NOT_VERIFIED |
 
 **Trạng thái VPS:** VPS 42.96.15.235 **vẫn chạy mã `4c33ba6`** (Owner giữ nguyên để tiếp tục thử nghiệm). Mã sửa R2 và R3 **chưa lên VPS**.
+
+## 13. Bật quản lý tài khoản P1 (trang Tài khoản)
+
+Thiết kế: `docs/P1_ACCOUNT_ADMIN_DESIGN.md`. Mã đã merge **không** tự bật gì: thiếu `ACCT_DATABASE_URL` thì `/api/v1/accounts*` trả 503 `ACCOUNT_ADMIN_UNAVAILABLE`, mọi chức năng khác chạy như cũ.
+
+**Ba lời duyệt riêng của Owner phải có trước khi chạy trên production** (lịch triển khai không phải là quyền thực hiện):
+
+1. `OWNER_APPROVED_MIGRATION siscom_crm_prod` — cho migration #18 `20261124000000_p1_account_admin` (thêm 5 hàm `fn_acct_api_*`, không đổi bảng, không đổi dữ liệu).
+2. Duyệt **đổi cấu hình VPS**: tạo role PostgreSQL `siscom_acct` và thêm một dòng `ACCT_DATABASE_URL` vào `backend.env`.
+3. Duyệt **triển khai** bản mã có P1.
+
+**Thứ tự** (làm liền nhau trong một cửa sổ bảo trì; dịch vụ dừng vài chục giây ở bước 3):
+
+| Bước | Lệnh (root) | Kết quả mong đợi |
+|---|---|---|
+| 1. Sao lưu | `deploy.sh` tự sao lưu trước migrate; muốn chắc thì chạy thêm `backup.sh` và `restore-test.sh` như G6 | Bộ sao lưu mới, khôi phục thử ĐẠT |
+| 2. Tạo role + biến môi trường | `create-db.sh siscom_crm_prod acct` | Sinh `SISCOM_ACCT_PW` vào `db-roles.env` (600, không in ra màn hình); tạo role `siscom_acct` (chỉ CONNECT); thêm đúng một dòng `ACCT_DATABASE_URL` vào `backend.env`, mọi dòng khác giữ nguyên từng byte; mật khẩu các role khác **không đổi**. Chạy lại được |
+| 3. Triển khai | `deploy.sh --src <DIR> --frontend <DIR> --migrate --auto-rollback` | Migration #18 được áp; `create-db.sh grants` chạy `APP_GRANTS_V5`, `B1.5_ACCT_GRANTS` (2 lần) và ba bài kiểm: `B1.3_S1_VERIFY`, `B1.3_S1_VERIFY_AUTH`, `B1.5_VERIFY_ACCT` — mỗi bài dòng cuối `PASS|n`, không có `FAIL` (VERIFY_ACCT hiện là `PASS|26`); dịch vụ khởi động lại, health `migrated:true` |
+| 4. Kiểm chỉ đọc | `SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL` (bằng `siscom_migrator`) ; `curl -s -o /dev/null -w '%{http_code}' https://<host>/api/v1/accounts` | 18 migration; chưa đăng nhập ⇒ `401` (không phải 404 / 503) |
+| 5. Nghiệm thu | Owner đăng nhập bằng tài khoản Quản trị CRM, mở **Vận hành → Tài khoản** | Thấy danh sách tài khoản; tài khoản hệ thống không có nút thao tác; thử thêm một nhân viên rồi khoá lại |
+
+**Điều kiện để dùng được:** phải có **đúng một** tài khoản hệ thống (vai trò `admin`, nhân viên ACTIVE, credential ACTIVE) — nó đứng tên các yêu cầu; không có hoặc có hơn một ⇒ mọi thao tác ghi trả 503 `SYSTEM_REQUESTER_UNAVAILABLE`. Người bấm là Quản trị CRM (`access.approve`); không ai tự đổi vai trò / tự khoá / tự cấp lại mật khẩu cho chính mình, và không thao tác được trên tài khoản hệ thống.
+
+**Lùi:**
+
+- Bản mới không khoẻ: `deploy.sh --rollback` (hoặc `--auto-rollback` ở bước 3). Mã cũ không dùng role mới; role `siscom_acct`, dòng `ACCT_DATABASE_URL` và 5 hàm `fn_acct_api_*` để lại là **vô hại** (không ai gọi tới).
+- Tắt riêng P1 mà giữ bản mã mới: xoá dòng `ACCT_DATABASE_URL` khỏi `backend.env` rồi `systemctl restart siscom-crm-backend` ⇒ trang Tài khoản báo "chưa được bật", phần còn lại không đổi. Đây là thay đổi cấu hình VPS — cần Owner duyệt.
+- Gỡ hẳn (hiếm khi cần, **cần duyệt riêng**): thu hồi quyền + xoá role bằng `backend/docs/B1.5_ACCT_ROLE_ROLLBACK.sql.txt`, rồi gỡ 5 hàm bằng `backend/docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt`. Không đụng dữ liệu nhân viên đã tạo qua trang.
+
+**Theo dõi:** mọi thao tác ghi để lại dòng `audit_log` (`ACCOUNT_CREATE`, `ACCOUNT_ROLE_CHANGE`, `ACCOUNT_PASSWORD_RESET`, `ACCOUNT_DISABLE`, `ACCOUNT_ENABLE`, `EMPLOYEE_UPDATE`) mang tên người bấm; không dòng nào chứa mật khẩu. Kiểm hằng ngày của Owner (ngoài kho) liệt kê các dòng này trong 24 giờ.
