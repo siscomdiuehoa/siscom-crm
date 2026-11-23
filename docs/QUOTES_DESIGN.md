@@ -1,8 +1,8 @@
-# Báo giá đợt 1 — lập báo giá ngay trên CRM: đặc tả v5 (PR Q1, 24/11/2026)
+# Báo giá đợt 1 — lập báo giá ngay trên CRM: đặc tả v6 (PR Q1, 24/11/2026)
 
-Trạng thái: **Draft, chờ review và Owner duyệt.** Chưa có mã, chưa có migration. Nối tiếp `docs/SALES_DESIGN.md` (D10, D11, C11).
+Trạng thái: **Draft, chờ review R3 và Owner duyệt.** Chưa có mã, chưa có migration. Nối tiếp `docs/SALES_DESIGN.md` (D10, D11, C11).
 Nhãn nguồn: **[Owner]** = Owner đã chốt; **[Đề xuất]** = tác giả đề xuất, cần duyệt; **[Mã hiện có]** = đã đối chiếu mã trên `main` @ `15a60be`.
-**Lịch sử:** v1 sổ báo giá. v2 lập báo giá trên CRM (QB3). v3 xử lý review R1 (mục 14). **v4: Owner trả lời QO1–QO9 và yêu cầu thêm** — nhiều loại báo giá (mỗi loại vật tư một mẫu), có màn hình điều chỉnh các loại báo giá, xuất PDF một chạm và Excel, VAT 8 / 10 %, bỏ chiết khấu, mỗi nhân viên tự soạn điều khoản (mục 15). **v5: Owner chốt nốt QO9, QO14–QO18** — VAT một mức cho cả báo giá theo mặc định, loại báo giá nào cần thì bật VAT theo từng dòng; Kế toán được tải tệp; Excel có công thức; lưu giá vốn từng dòng với quyền xem riêng (mục 16). Tác giả đã đọc bố cục năm tệp mẫu của công ty để thiết kế; dữ liệu thật của các tệp đó không nằm trong kho mã.
+**Lịch sử:** v1 sổ báo giá. v2 lập báo giá trên CRM (QB3). v3 xử lý review R1 (mục 14). **v4: Owner trả lời QO1–QO9 và yêu cầu thêm** — nhiều loại báo giá (mỗi loại vật tư một mẫu), có màn hình điều chỉnh các loại báo giá, xuất PDF một chạm và Excel, VAT 8 / 10 %, bỏ chiết khấu, mỗi nhân viên tự soạn điều khoản (mục 15). **v5: Owner chốt nốt QO9, QO14–QO18** — VAT một mức cho cả báo giá theo mặc định, loại báo giá nào cần thì bật VAT theo từng dòng; Kế toán được tải tệp; Excel có công thức; lưu giá vốn từng dòng với quyền xem riêng (mục 16). **v6: xử lý review R2** — điểm khoá chung cho R-Q7 / R-Q8 và chỉ mục duy nhất U-4, bảo vệ `created_by`, đường nhập tiền không qua số thực, thêm ca nghiệm thu, đồng bộ `SALES_DESIGN.md` với QB23 (mục 17). Tác giả đã đọc bố cục năm tệp mẫu của công ty để thiết kế; dữ liệu thật của các tệp đó không nằm trong kho mã.
 
 ## 0. Tóm tắt cho người không chuyên
 
@@ -48,8 +48,8 @@ Nhãn nguồn: **[Owner]** = Owner đã chốt; **[Đề xuất]** = tác giả 
 
 **Không còn điểm nào chờ.** QO1–QO18 đã được Owner trả lời ngày 24/11/2026 và ghi thành QB4–QB23 ở mục 1. Tác giả không tự ghi APPROVED / ACCEPTED cho đặc tả; việc duyệt đặc tả để bắt đầu viết mã vẫn là quyết định riêng của Owner sau review.
 
-Hai chỗ tác giả phải **diễn giải** câu trả lời, nêu ra để Owner và reviewer bác nếu sai:
-- QB23 "người lập": hiểu là **người tạo phiên bản báo giá đó** (`quote_version.created_by`). Người khác tiếp quản cơ hội rồi tạo bản mới thì không thấy giá vốn của bản cũ (mục 7.3).
+Hai chỗ tác giả đã phải diễn giải câu trả lời; **Owner đã xác nhận cả hai ngày 24/11/2026** (bình luận `[OWNER-DECISION]` trên PR #266):
+- QB23 "người lập" = người tạo ra bản báo giá gửi cho khách, tức **người tạo phiên bản báo giá đó** (`quote_version.created_by`). Người khác tiếp quản cơ hội rồi tạo bản mới thì không thấy giá vốn của bản cũ (mục 7.3).
 - QB22 "có công thức": công thức chỉ ở các ô **do CRM sinh ra** (thành tiền, các dòng tổng); nội dung người dùng nhập vẫn luôn là chữ thuần (mục 4.4).
 
 ## 3. Phạm vi
@@ -177,6 +177,7 @@ quote_version
   intro varchar(300) NOT NULL DEFAULT '', terms varchar(4000) NOT NULL DEFAULT '', payment_info varchar(2000) NOT NULL DEFAULT ''
   subtotal_vnd, base8_vnd, base10_vnd, vat8_vnd, vat10_vnd, total_vnd   bigint NOT NULL DEFAULT 0
   note varchar(2000) NULL (nội bộ, không in), reject_reason varchar(500) NULL
+  accepted_opportunity_id uuid NULL → opportunity        -- chỉ có giá trị khi ACCEPTED; do trigger R-Q7 đặt = cơ hội của báo giá (U-4)
   created_by NOT NULL, created_at, updated_at, sent_by, sent_at, decided_by, decided_at
 
 quote_line
@@ -206,12 +207,14 @@ quote_line
 | U-1 | Mỗi báo giá tối đa một nháp: `UNIQUE (quote_id) WHERE status = 'DRAFT'` |
 | U-2 | Mỗi báo giá tối đa một bản được chấp nhận: `UNIQUE (quote_id) WHERE status = 'ACCEPTED'` |
 | U-3 | Mỗi cơ hội tối đa một báo giá đang theo đuổi: `UNIQUE (opportunity_id) WHERE is_primary AND deleted_at IS NULL` |
+| U-4 | Mỗi **cơ hội** tối đa một phiên bản được chấp nhận [QB7]: `UNIQUE (accepted_opportunity_id) WHERE accepted_opportunity_id IS NOT NULL`. Đây là ràng buộc cứng của chỉ mục, **không phụ thuộc** thứ tự khoá hay việc có đi qua ứng dụng hay không |
+| C-8 | `quote_version`: `accepted_opportunity_id IS NOT NULL` ⇔ `status = 'ACCEPTED'` |
 
 ### 5.3 Trigger (tên dự kiến; đều `SECURITY INVOKER`, `search_path` cố định)
 
 | Mã | Trigger | Hành vi |
 |---|---|---|
-| R-Q2a | `quote_version` BEFORE UPDATE | `OLD.status ≠ 'DRAFT'` ⇒ **chỉ** cho đổi `status`, `decided_by`, `decided_at`, `reject_reason`, `updated_at`; cột khác đổi ⇒ lỗi `QUOTE_VERSION_LOCKED`. So sánh `IS DISTINCT FROM` trên **toàn bộ** cột còn lại, liệt kê tường minh (test chốt: thêm cột mà quên đưa vào danh sách thì test đỏ) |
+| R-Q2a | `quote_version` BEFORE UPDATE | `OLD.status ≠ 'DRAFT'` ⇒ **chỉ** cho đổi `status`, `decided_by`, `decided_at`, `reject_reason`, `accepted_opportunity_id`, `updated_at`; cột khác đổi ⇒ lỗi `QUOTE_VERSION_LOCKED`. So sánh `IS DISTINCT FROM` trên **toàn bộ** cột còn lại, liệt kê tường minh (test chốt: thêm cột mà quên đưa vào danh sách thì test đỏ) |
 | R-Q2b | `quote_version` BEFORE DELETE | Chỉ xoá được nháp |
 | R-Q2c | `quote_line` BEFORE INSERT / UPDATE / DELETE | `SELECT status, columns FROM quote_version WHERE id = … FOR SHARE` (khoá dòng cha) ⇒ khác `DRAFT` thì lỗi `QUOTE_VERSION_LOCKED`. `quote_version_id` bất biến |
 | R-Q10 | `quote_line` BEFORE INSERT / UPDATE (cùng hàm với R-Q2c) | Mọi khoá của `extra` phải nằm trong `columns` của phiên bản cha |
@@ -219,10 +222,10 @@ quote_line
 | R-Q3 | `quote_version` BEFORE UPDATE | Chuyển trạng thái hợp lệ: `DRAFT → SENT`; `SENT → ACCEPTED \| REJECTED`. Mọi chuyển khác ⇒ lỗi |
 | R-Q1 | `quote_version` BEFORE UPDATE khi `NEW.status = 'SENT'` | Khoá mọi dòng của phiên bản `FOR UPDATE`; yêu cầu **≥ 1 dòng kiểu `ITEM`**; tính lại tổng `amount_vnd` theo từng mức VAT và so với `NEW.base8_vnd`, `NEW.base10_vnd`; lệch ⇒ lỗi `QUOTE_TOTAL_MISMATCH`. `vat_mode = 'QUOTE'` mà các dòng hàng không cùng một mức VAT ⇒ lỗi `QUOTE_VAT_MIXED` [QB18]. (C-2, C-3 bảo đảm phần còn lại của chuỗi tổng) |
 | R-Q4 | `quote` BEFORE UPDATE | `code`, `opportunity_id`, `customer_id`, `template_id`, `created_by`, `created_at` bất biến |
-| R-Q13 | `quote_version` BEFORE UPDATE | `vat_mode`, `created_by` bất biến ngay cả khi còn là nháp (cách tính VAT cố định từ lúc tạo phiên bản; `created_by` quyết định ai thấy giá vốn) |
+| R-Q13 | `quote_version` BEFORE UPDATE | `vat_mode`, `created_by`, `quote_id`, `version_no`, `created_at` bất biến ngay cả khi còn là nháp (cách tính VAT cố định từ lúc tạo phiên bản; `created_by` quyết định ai thấy giá vốn — không ai, kể cả ghi thẳng SQL bằng `siscom_app`, đổi được sau khi dòng đã tạo) |
 | R-Q5 | `quote` BEFORE UPDATE khi bật `is_primary` | Phải có ít nhất một phiên bản không phải nháp |
-| R-Q7 | `quote_version` BEFORE UPDATE khi `NEW.status = 'ACCEPTED'` [QB6, QB7] | Cơ hội đã có báo giá khác được chấp nhận ⇒ lỗi `QUOTE_ALREADY_ACCEPTED`; báo giá này phải đang là `is_primary` (ứng dụng đặt trong cùng transaction) |
-| R-Q8 | `quote` BEFORE UPDATE khi đổi `is_primary` | Cơ hội đã có báo giá được chấp nhận ⇒ không đổi được [QB6] |
+| R-Q7 | `quote_version` BEFORE UPDATE khi `NEW.status = 'ACCEPTED'` [QB6, QB7] | (1) Lấy **điểm khoá chung** (5.4): `SELECT 1 FROM opportunity WHERE id = <cơ hội của báo giá> FOR UPDATE`. (2) Đặt `NEW.accepted_opportunity_id` = cơ hội đó — bỏ qua mọi giá trị người gọi truyền vào. (3) Báo giá này phải đang là `is_primary`; nếu không ⇒ lỗi `QUOTE_NOT_PRIMARY`. (4) Cơ hội đã có phiên bản khác được chấp nhận ⇒ lỗi `QUOTE_ALREADY_ACCEPTED` (đọc sau khi đã giữ khoá chung); U-4 là lưới chặn cuối. **Không** khoá thêm dòng `quote` hay `quote_version` nào khác |
+| R-Q8 | `quote` BEFORE UPDATE khi đổi `is_primary` (bật hoặc tắt) | (1) Lấy **điểm khoá chung** (5.4) trên dòng cơ hội. (2) Cơ hội đã có phiên bản được chấp nhận (`accepted_opportunity_id` = cơ hội này) ⇒ lỗi `QUOTE_PRIMARY_FIXED` [QB6]. Không khoá thêm dòng nào khác |
 | R-Q9 | `quote` xoá mềm | Chỉ khi không có phiên bản nào khác `DRAFT`; app không có quyền DELETE cứng |
 | R-Q12 | `quote_template` BEFORE DELETE | Luôn từ chối (ngừng dùng bằng `is_active`) |
 
@@ -231,8 +234,25 @@ quote_line
 - Ngược lại, lệnh gửi chạy trước ⇒ lệnh sửa dòng chờ, rồi đọc thấy `SENT` ⇒ bị từ chối.
 - Hai lệnh đổi trạng thái cùng lúc trên một phiên bản: lệnh sau chờ, rồi R-Q3 xét trên trạng thái mới ⇒ từ chối.
 - Hai người cùng tạo nháp cho một báo giá: U-1 từ chối người sau (409 `QUOTE_DRAFT_EXISTS`).
-- R-Q7 không tự khoá thêm dòng nào theo thứ tự mới: nó dựa vào khoá `FOR UPDATE` trên **dòng cơ hội** mà mọi thao tác ghi báo giá đã giữ từ đầu transaction (mục 8.1). Lưới chặn cuối ở DB cho trường hợp ghi thẳng không qua ứng dụng: R-Q7 đọc lại bằng `FOR SHARE` trên các `quote` của cơ hội theo thứ tự `id` tăng dần.
+- Hai người cùng chấp nhận hai báo giá khác nhau của một cơ hội, hoặc một người chấp nhận trong lúc người khác đổi báo giá đang theo đuổi: xem 5.4.
 - Số phiên bản: ứng dụng khoá dòng `quote` `FOR UPDATE` rồi lấy `max(version_no) + 1`; `UNIQUE (quote_id, version_no)` là lưới chặn cuối.
+
+### 5.4 Điểm khoá chung cho ràng buộc theo cơ hội (R-Q7, R-Q8) và phân tích khoá chéo
+
+Hai ràng buộc "mỗi cơ hội tối đa một báo giá được chấp nhận" và "đã chấp nhận thì không đổi báo giá đang theo đuổi" trải trên **nhiều dòng** của `quote` / `quote_version`. Chúng được cưỡng chế ở DB bằng hai lớp, **không dựa vào việc người gọi có đi qua ứng dụng hay không**:
+
+1. **Chỉ mục duy nhất** U-3 và U-4: dù khoá thế nào, không thể tồn tại hai báo giá đang theo đuổi hay hai phiên bản được chấp nhận trên cùng một cơ hội. Hai transaction ghi thẳng SQL cùng chấp nhận hai báo giá khác nhau ⇒ transaction thứ hai chờ ở chỉ mục rồi nhận lỗi trùng khoá.
+2. **Một điểm khoá chung duy nhất = dòng `opportunity`** (`FOR UPDATE`). Trigger R-Q7 và R-Q8 tự lấy khoá này trước khi đọc trạng thái của các dòng khác, nên hai thao tác có thể làm lệch nhau (chấp nhận ↔ chấp nhận, chấp nhận ↔ đổi đang theo đuổi) luôn chạy **lần lượt**, và thao tác chạy sau đọc thấy kết quả đã chốt của thao tác trước. Trigger **không** khoá dòng `quote` hay `quote_version` nào ngoài dòng mà chính câu lệnh đang ghi.
+
+**Thứ tự khoá và khả năng khoá chéo (deadlock):**
+
+| Đường ghi | Thứ tự lấy khoá | Kết luận |
+|---|---|---|
+| Qua ứng dụng (mọi thao tác ghi báo giá) | khách `FOR SHARE` → **cơ hội `FOR UPDATE`** → `quote` → `quote_version` → `quote_line` | Khi trigger R-Q7 / R-Q8 chạy, transaction **đã giữ** khoá dòng cơ hội ⇒ lần lấy khoá trong trigger không phải chờ. Mọi transaction của ứng dụng cùng một thứ tự ⇒ **không có chu trình chờ** giữa chúng |
+| SQL trực tiếp ↔ SQL trực tiếp, hai báo giá khác nhau của một cơ hội | mỗi bên: dòng `quote_version` (hoặc `quote`) của mình → cơ hội (trong trigger) | Bên sau chờ ở dòng cơ hội; bên trước không cần dòng nào của bên sau ⇒ **không khoá chéo**; bên sau chạy tiếp và bị R-Q7 / U-4 từ chối |
+| SQL trực tiếp ↔ ứng dụng, **cùng** một dòng báo giá | trực tiếp: `quote_version` → cơ hội; ứng dụng: cơ hội → `quote_version` | Có thể thành chu trình chờ. PostgreSQL phát hiện và **huỷ một bên** (lỗi `deadlock_detected`); không bên nào ghi được trạng thái sai. Ứng dụng đổi lỗi này thành 409 để người dùng thử lại. Ghi thẳng SQL không phải đường vận hành được hỗ trợ |
+
+Điều được bảo đảm trong **mọi** trường hợp, kể cả ghi thẳng SQL: không có hai phiên bản được chấp nhận trên một cơ hội; không đổi được báo giá đang theo đuổi sau khi đã chấp nhận; trường hợp xấu nhất là một transaction bị huỷ và phải thử lại. Các ca B12–B15 kiểm bằng **hai kết nối PostgreSQL thật**.
 
 Bản nháp cho phép tổng tạm lệch dòng hàng **bên trong** một transaction lưu; điểm chốt bắt buộc là R-Q1 lúc gửi. Ứng dụng luôn tính lại tổng ở mỗi lần lưu (mục 6).
 
@@ -254,6 +274,7 @@ Bản nháp cho phép tổng tạm lệch dòng hàng **bên trong** một trans
 - **Đơn giá**: số nguyên, `0 ≤ đơn giá ≤ 999 999 999 999`. Đơn giá 0 được phép (hàng tặng kèm).
 - **Giới hạn**: `subtotal ≤ 9 000 000 000 000 000`. Tổng sau VAT lớn nhất `9,9 × 10¹⁵` vượt ngưỡng số nguyên an toàn của JavaScript (`9 007 199 254 740 991`) ⇒ **mọi số tiền đi qua API ở dạng chuỗi số**, như `money()` của cơ hội [Mã hiện có]; giao diện chỉ định dạng, không dùng kết quả tự tính làm số chính thức.
 - **Máy chủ tính bằng số nguyên chính xác** (`BigInt`): số lượng đổi sang phần nghìn `q = SL × 1000`; thành tiền `= (q × đơn giá + 500) div 1000`; VAT `= (base × p + 50) div 100`. Không dùng số thực ở bất kỳ bước nào. Máy chủ **bỏ qua** mọi tổng do trình duyệt gửi lên.
+- **Đường nhập không qua số thực**: API nhận đơn giá, giá vốn ở dạng **chuỗi chữ số** (`^[0-9]{1,12}$`) và số lượng ở dạng chuỗi thập phân (`^[0-9]{1,6}(\.[0-9]{1,3})?$`); máy chủ chuyển thẳng chuỗi → `BigInt` (số lượng: ghép phần nguyên và phần thập phân đã đệm đủ 3 chữ số), **không đi qua kiểu `Number` của JavaScript ở bất kỳ bước nào**. Giá trị gửi lên dưới dạng số JSON, số mũ (`1e3`), có dấu, có khoảng trắng hay dấu phân cách ⇒ 400. Lớp truy cập DB truyền và nhận `bigint` / `numeric` ở dạng `BigInt` / chuỗi.
 - **DB kiểm lại** bằng C-1, C-2, C-3 và R-Q1 (hai cách tính độc lập phải ra cùng số).
 - **Giá trị đưa sang cơ hội** (D7) = `subtotal_vnd` (chưa VAT).
 - **Cách tính VAT** [QB18]: loại báo giá ở chế độ **một mức** (mặc định) ⇒ người lập chọn 8 % hoặc 10 % một lần cho cả báo giá, mọi dòng hàng mang cùng mức đó (một trong hai `base` bằng 0). Loại ở chế độ **theo từng dòng** ⇒ mỗi dòng chọn mức riêng. Cả hai chế độ dùng **cùng** cấu trúc dữ liệu và công thức; chế độ một mức chỉ thêm ràng buộc "mọi dòng cùng mức" (R-Q1).
@@ -316,16 +337,20 @@ Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường �
 | Thông báo lỗi | Lỗi ràng buộc DB đổi thành mã lỗi cố định; không trả nguyên văn lỗi PostgreSQL | C9 |
 | Mã `BG-…` liên tục | Lộ **số lượng** báo giá (không lộ giá). Chấp nhận, giống `CH-…`, `KH-…` | — |
 | **Giá vốn và lãi gộp** | 7.3: bỏ khoá khỏi phản hồi; không có trong tệp xuất, bản in, danh sách, nhật ký; không chép sang bản mới của người không được xem | C14 |
+| Bộ nhớ đệm của trình duyệt và máy trung gian | **Mọi** phản hồi của API báo giá (không chỉ tệp tải) kèm `Cache-Control: no-store`; giao diện không lưu dữ liệu báo giá vào `localStorage` / `sessionStorage` | C15 |
+| Thông báo lỗi của endpoint xuất tệp | Lỗi trả về dạng JSON với mã cố định (`QUOTE_EXPORT_FAILED`…), không kèm nội dung báo giá, đường dẫn tệp hay vết lỗi của thư viện; không quyền ⇒ 403 / 404 **trước khi** dựng tệp | C15 |
+| Phân trang, lọc, sắp xếp, số đếm | `total`, `totalPages` và mọi số đếm chỉ tính trên các dòng người gọi được xem (cùng vị từ với danh sách). Không cho lọc hay sắp xếp theo giá vốn / lãi gộp. Lọc, sắp xếp theo giá trị báo giá chỉ có tác dụng trên tập đã qua vị từ phạm vi | C15 |
 | Kết nối DB khác | `siscom_auth`, `siscom_acct` không có quyền trên năm bảng | B8 |
 
 ### 7.3 Giá vốn [QB23]
 
-- **Ai thấy**: người có `quote.cost` (Quản trị CRM), **hoặc** người tạo ra chính phiên bản đó (`quote_version.created_by` = người đang đăng nhập) và vẫn còn `quote.read` trên báo giá. Kế toán, Kinh doanh chỉ-xem, người tiếp quản cơ hội về sau: **không thấy**.
+- **Ai thấy**: người có `quote.cost` (Quản trị CRM), **hoặc** người tạo ra chính phiên bản đó (`quote_version.created_by` = người đang đăng nhập). Điều kiện "là người tạo" **chỉ được xét sau khi** người gọi đã qua kiểm tra chung của 7.1 (`quote.read` + vị từ phạm vi cơ hội): `created_by` **không bao giờ mở rộng phạm vi** — người tạo cũ đã mất quyền xem cơ hội (chuyển người phụ trách, đổi vai trò, bị khoá) thì nhận 404 như mọi người ngoài phạm vi, không thấy cả báo giá lẫn giá vốn.
+- **`created_by` do máy chủ đặt** từ phiên đăng nhập khi tạo phiên bản; các DTO tạo / sửa **không có** trường này và máy chủ từ chối (400) mọi thuộc tính lạ trong thân yêu cầu, như các module hiện có. Sau khi tạo, R-Q13 chặn đổi ở DB. Kế toán, Kinh doanh chỉ-xem, người tiếp quản cơ hội về sau: **không thấy**.
 - **Ai nhập / sửa**: người đang soạn nháp (chính là người tạo phiên bản) và Quản trị CRM. Sau khi gửi, giá vốn bị khoá cùng phiên bản (R-Q2).
 - **Cách che**: API **bỏ hẳn** các khoá giá vốn và lãi gộp khỏi phản hồi của người không được xem (không trả `null`, để không lộ cả việc "đã nhập hay chưa"). Bộ chuyển đổi dữ liệu liệt kê tường minh từng trường cho hai dạng phản hồi "có giá vốn" / "không có giá vốn", theo cách `toOpportunityTechDetail` đang làm [Mã hiện có]; test chốt danh sách khoá của từng dạng.
 - **Người khác tạo bản mới** từ phiên bản mình không được xem giá vốn ⇒ giá vốn **không được chép** sang (để trống), tránh lộ qua bản nháp mới. Người được xem ⇒ chép đủ.
 - **Lưu nháp bởi người không được xem** (Quản trị CRM luôn được xem; trường hợp này chỉ xảy ra nếu sau này mở rộng quyền sửa): yêu cầu không mang khoá giá vốn ⇒ máy chủ **giữ nguyên** giá vốn đang lưu của các dòng không đổi, không xoá.
-- **Không bao giờ** xuất hiện ở: bản in, PDF, Excel, danh sách báo giá, trang cơ hội, lịch sử thay đổi, `audit_log`, thông báo lỗi.
+- **Không bao giờ** xuất hiện ở: bản in, PDF, Excel, danh sách báo giá, trang cơ hội, lịch sử thay đổi, `audit_log`, thông báo lỗi. Riêng thông báo lỗi: lỗi kiểm dữ liệu của trường giá vốn chỉ nêu **tên trường và số dòng**, không lặp lại giá trị; phản hồi 409 `VERSION_CONFLICT` chỉ trả số phiên bản hiện tại, không kèm nội dung báo giá.
 - Giới hạn cần biết: che ở tầng ứng dụng. Kết nối `siscom_app` đọc được cột này (như mọi cột khác của bảng); người có quyền truy cập thẳng database vẫn thấy.
 
 ## 8. Quy tắc nghiệp vụ [Đề xuất, trừ chỗ ghi mã QB]
@@ -359,7 +384,8 @@ Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường �
 | A và B cùng bấm "Đánh dấu đã gửi" một phiên bản | Một người thành công; người kia 409 `VERSION_CONFLICT` |
 | A gửi báo giá X, B cùng lúc đổi đang theo đuổi sang Y (cùng cơ hội) | Chạy lần lượt; giá trị cơ hội cuối cùng = phiên bản gửi mới nhất của báo giá đang theo đuổi cuối cùng |
 | A lưu nháp, B cùng lúc gửi chính nháp đó | Chạy lần lượt (5.3); người sau 409 hoặc `QUOTE_VERSION_LOCKED` |
-| A chấp nhận báo giá X, B cùng lúc chấp nhận báo giá Y (cùng cơ hội) | Một người thành công; người kia `QUOTE_ALREADY_ACCEPTED` |
+| A chấp nhận báo giá X, B cùng lúc chấp nhận báo giá Y (cùng cơ hội) | Một người thành công; người kia `QUOTE_ALREADY_ACCEPTED` (5.4: khoá chung trên dòng cơ hội + U-4) |
+| A chấp nhận báo giá X, B cùng lúc đổi báo giá đang theo đuổi sang Y | Chạy lần lượt trên khoá chung; nếu A trước ⇒ B nhận `QUOTE_PRIMARY_FIXED`; nếu B trước ⇒ A nhận `QUOTE_NOT_PRIMARY` |
 | A sửa tay giá trị cơ hội, B cùng lúc gửi báo giá đang theo đuổi | Chạy lần lượt trên khoá dòng cơ hội; người lưu sau với `version` cũ nhận 409 |
 | Quản trị sửa loại báo giá, A cùng lúc tạo báo giá từ loại đó | A nhận bản chép của loại ở thời điểm transaction của A đọc; không trạng thái lai |
 
@@ -390,6 +416,7 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 - A10: máy chủ bỏ qua tổng do trình duyệt gửi lên. A11: số lượng 4 chữ số thập phân, số âm, đơn giá lẻ, VAT khác 8 / 10, chữ thay số ⇒ 400, không lưu gì.
 - A12: tiền trả về ở dạng chuỗi số; giá trị vượt ngưỡng số nguyên an toàn của JavaScript vẫn đúng từng chữ số.
 - A13: ca A10, A11 của bảng 6.1 (VAT một mức / theo dòng; giá vốn và lãi gộp tạm tính, kể cả khi một phần dòng chưa nhập giá vốn).
+- A14 (đường nhập): đơn giá `999999999999`, số lượng `999999.999`, và một bộ có tổng vượt `2^53` đi trọn vòng **yêu cầu → máy chủ → DB → phản hồi** đúng từng chữ số; cùng giá trị gửi dưới dạng số JSON, `1e3`, `1,000`, `+5`, ` 5` ⇒ 400. Test tĩnh: mã module báo giá không gọi `Number(`, `parseFloat(`, `parseInt(` trên trường tiền / số lượng.
 
 **B. Database và trigger** (Q2; bài kiểm SQL chạy trong CI bằng `siscom_app`)
 - B1: phiên bản đã gửi — UPDATE **lần lượt mọi cột** nội dung, DELETE ⇒ từ chối. B2: INSERT / UPDATE / DELETE dòng của phiên bản đã gửi, chuyển dòng sang phiên bản khác ⇒ từ chối.
@@ -399,6 +426,10 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 - B8: `siscom_app` không DELETE được `quote`, `quote_version`, `quote_template`; `siscom_auth`, `siscom_acct` không SELECT được năm bảng; vai trò `admin` không nhận được mã `quote.*` (SoD).
 - B9: danh sách cột của R-Q2a khớp `information_schema`.
 - B10: `columns` sai hình dạng (11 cột, key trùng, key sai mẫu, nhãn quá dài) ⇒ từ chối; `extra` có khoá ngoài danh sách cột, quá 10 khoá, giá trị không phải chuỗi ⇒ từ chối; đổi `columns` của nháp khi còn dòng dùng khoá bị bỏ ⇒ từ chối; dòng nhóm có số tiền hoặc giá vốn ⇒ từ chối.
+- B12 (**hai kết nối thật, SQL trực tiếp, không qua API**): hai transaction cùng lúc chấp nhận hai báo giá khác nhau của một cơ hội ⇒ đúng một bên thành công, bên kia `QUOTE_ALREADY_ACCEPTED` hoặc lỗi trùng U-4; lặp 50 lần, không lần nào có hai phiên bản được chấp nhận. Người gọi tự truyền `accepted_opportunity_id` sai ⇒ trigger ghi đè giá trị đúng.
+- B13 (thứ tự khoá thực tế): một transaction chấp nhận báo giá X trong lúc transaction khác đổi báo giá đang theo đuổi sang Y — chạy theo cả hai thứ tự xen kẽ và cả kiểu "ứng dụng ↔ SQL trực tiếp" ⇒ kết quả chỉ có thể là: một bên bị từ chối bởi R-Q7 / R-Q8, hoặc một bên bị `deadlock_detected`; **không bao giờ** ra trạng thái "đã chấp nhận X nhưng đang theo đuổi Y". Kiểm `pg_locks` trong lúc chờ để xác nhận điểm chờ là dòng cơ hội.
+- B14: SQL trực tiếp bằng `siscom_app` đổi `quote_version.created_by`, `quote.created_by`, `vat_mode`, `quote_id`, `version_no` ⇒ từ chối, kể cả trên bản nháp.
+- B15 (hai kết nối thật): transaction A đang thêm / sửa / xoá dòng hàng chưa commit, transaction B gửi chính phiên bản đó ⇒ B chờ; A commit ⇒ B chạy và bị từ chối nếu tổng lệch; đảo thứ tự ⇒ A bị `QUOTE_VERSION_LOCKED`.
 - B11: `vat_mode = QUOTE` mà gửi với hai mức VAT ⇒ từ chối; đổi `vat_mode` hoặc `created_by` của phiên bản (kể cả nháp) ⇒ từ chối; giá vốn âm hoặc vượt giới hạn ⇒ từ chối; sửa giá vốn của phiên bản đã gửi ⇒ từ chối.
 
 **C. Bảo mật** (Q4–Q6, Q9, Q10; ma trận 5 vai trò)
@@ -412,11 +443,12 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 - C11: tải PDF / Excel × 5 vai trò × 3 phạm vi đúng 7.1 (Kế toán tải được mọi báo giá [QB21]); phản hồi có `Cache-Control: no-store`; có dòng `QUOTE_EXPORT`; không có tệp nào còn lại trên đĩa máy chủ sau khi tải.
 - C12: loại báo giá và mặc định cá nhân: người không có quyền ⇒ 403 / 404; không ai đọc hay sửa được mặc định cá nhân của người khác.
 - C13: tệp Excel — mọi ô chứa nội dung người dùng nhập, kể cả chuỗi bắt đầu bằng `=`, `+`, `-`, `@` và chuỗi dạng `=HYPERLINK(…)`, `=cmd|…`, được ghi là **chữ**; đọc lại tệp: tập ô có công thức **đúng bằng** tập ô CRM chủ định sinh (thành tiền, các dòng tổng), mọi công thức chỉ dùng `ROUND`, `SUM`, `SUMIF` và phép `+ *`; không có macro, liên kết ngoài, kết nối dữ liệu.
-- C14 (giá vốn): ma trận {Quản trị CRM, người tạo phiên bản, Kinh doanh khác đang phụ trách cơ hội, Kinh doanh chỉ-xem, Kế toán} × {chi tiết, danh sách, theo cơ hội, giá trị điền sẵn, tải PDF, tải Excel, xem bản in} — chỉ hai đối tượng đầu nhận được khoá giá vốn / lãi gộp, và chỉ ở API chi tiết; phản hồi của người khác **không có các khoá đó** (so danh sách khoá); PDF, Excel, bản in của **mọi** người đều không có giá vốn (tìm chuỗi số giá vốn trong tệp ⇒ không thấy); người không được xem tạo bản mới ⇒ giá vốn bản mới trống; `audit_log` và lịch sử không có giá vốn.
+- C14 (giá vốn): ma trận {Quản trị CRM, người tạo phiên bản, Kinh doanh khác đang phụ trách cơ hội, Kinh doanh chỉ-xem, Kế toán} × {chi tiết, danh sách, theo cơ hội, giá trị điền sẵn, tải PDF, tải Excel, xem bản in} — chỉ hai đối tượng đầu nhận được khoá giá vốn / lãi gộp, và chỉ ở API chi tiết; phản hồi của người khác **không có các khoá đó** (so danh sách khoá); PDF, Excel, bản in của **mọi** người đều không có giá vốn (tìm chuỗi số giá vốn trong tệp ⇒ không thấy); người không được xem tạo bản mới ⇒ giá vốn bản mới trống; `audit_log` và lịch sử không có giá vốn. Thêm, đều với dữ liệu **đã có giá vốn** và người gọi **không được xem**: (a) người tạo cũ sau khi mất quyền xem cơ hội ⇒ 404 ở mọi endpoint, không còn thấy giá vốn; (b) gửi kèm `created_by` / `createdBy` trong thân yêu cầu ⇒ 400, và dòng tạo ra luôn mang người đang đăng nhập; (c) phản hồi lỗi kiểm dữ liệu, 409, 422 của mọi endpoint ghi không chứa chuỗi số giá vốn; (d) người không được xem lưu nháp ⇒ giá vốn đang lưu **không bị xoá và không bị lộ**.
+- C15: mọi phản hồi API báo giá có `Cache-Control: no-store`; giao diện không ghi dữ liệu báo giá vào bộ nhớ trình duyệt; lỗi của endpoint xuất tệp (không quyền, phiên bản không tồn tại, thư viện ném lỗi giả lập) trả mã cố định, không có nội dung báo giá; `total` / `totalPages` / số đếm của Kinh doanh chỉ gồm báo giá người đó được xem (so với cùng truy vấn của Quản trị CRM); tham số lọc / sắp xếp theo giá vốn ⇒ 400.
 
 **D. Đồng thời** (Q5; hai kết nối thật, mẫu `concurrency.int-spec`)
-- D1–D6: sáu tình huống của bảng 8.1, mỗi tình huống lặp 20 lần, không có lần nào ra trạng thái sai.
-- D7: sau mọi tình huống, giá trị cơ hội = `subtotal_vnd` của phiên bản đã gửi mới nhất của báo giá đang theo đuổi; số dòng lịch sử `AMOUNT` = số lần giá trị thực sự đổi.
+- D1–D7: bảy tình huống của bảng 8.1, mỗi tình huống lặp 20 lần, không có lần nào ra trạng thái sai.
+- D11: sau mọi tình huống, giá trị cơ hội = `subtotal_vnd` của phiên bản đã gửi mới nhất của báo giá đang theo đuổi; số dòng lịch sử `AMOUNT` = số lần giá trị thực sự đổi.
 - D8: gửi lần lượt v1 (100), v2 (150) ⇒ giá trị cơ hội 150, **không** 250. D9: sửa tay rồi gửi v3 ⇒ bị ghi đè, có lịch sử; nhãn đúng ở từng bước.
 - D10: không có khoá chéo (deadlock) trong 200 lượt ghi xen kẽ báo giá và cơ hội.
 
@@ -427,12 +459,15 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 - E7: tên tệp với tên có dấu, `đ/Đ`, ký tự `/ \ : * ? " < > |`, tên rỗng sau chuẩn hoá, tên 300 ký tự, phiên bản 1 và 2 ⇒ đúng 4.4.
 - E8: nhập `<script>` và thẻ HTML vào mọi ô chữ ⇒ hiển thị nguyên văn trên màn hình, PDF và Excel.
 - E9: PDF có đủ dấu tiếng Việt (trích văn bản ra so được với dữ liệu); tổng trong PDF **bằng** tổng API trả về, từng đồng. Excel: giá trị kèm sẵn của mọi ô công thức bằng số API trả về, **và** tính lại công thức (bằng một bộ tính công thức trong test) cũng ra đúng số đó trên toàn bộ ca A1–A6, A9, A10.
+- E11 (Excel, đọc **cấu trúc tệp thật**): giải nén tệp `.xlsx` và đọc XML của trang tính — kiểu ô (`t="s"` / `inlineStr` cho chữ, số cho SL và đơn giá, `<f>` cho công thức) đúng với 4.4, không chỉ so giá trị hiển thị. Bộ dữ liệu: số tiền gần giới hạn, ô ghi chú / cột riêng để trống, chuỗi Unicode (tiếng Việt có dấu, ký tự gộp, biểu tượng), 300 dòng. Đổi SL và đơn giá trong tệp rồi tính lại bằng bộ tính công thức ⇒ thành tiền, các dòng tổng và VAT đổi theo đúng công thức mục 6.
+- E12 (**thủ công, Excel thật**, ghi vào biên bản nghiệm thu Q10): mở tệp bằng Microsoft Excel — không có cảnh báo bảo mật hay hộp thoại sửa tệp; bấm tính lại toàn bộ ⇒ các số không đổi; sửa một SL ⇒ tổng đổi đúng; ô chữ bắt đầu bằng `=` vẫn hiện là chữ.
 - E10: báo giá có hai mức VAT ⇒ bảng có cột "VAT %", phần tổng có hai dòng VAT; chỉ một mức ⇒ không có cột "VAT %", chỉ một dòng VAT.
 
 **F. Rollback và triển khai** (Q2, Q3, Q11)
 - F1: script rollback gỡ sạch cấu trúc khi năm bảng rỗng (trừ dòng nạp sẵn "Báo giá chung"); **từ chối** khi có dữ liệu. F2: áp → gỡ → áp lại trong CI.
 - F3: mã bản trước (không có Báo giá) chạy bình thường trên DB đã có migration này. F4: script cấp quyền chạy hai lần cho cùng kết quả; script gỡ quyền trả DB về trạng thái trước.
 - F5: nghiệm thu trên máy chủ theo khuôn các lần trước: sao lưu + khôi phục thử trước migration, `--auto-rollback`, các bài VERIFY không có FAIL.
+- F7 (**phân biệt lùi mã và lùi cấu trúc khi đã có dữ liệu thật**): trên DB có báo giá đã gửi — (a) lùi mã về bản trước: ứng dụng chạy bình thường, dữ liệu báo giá còn nguyên, triển khai lại bản mới thì đọc được đủ (đây là đường lùi **duy nhất** được dùng khi đã có dữ liệu); (b) chạy script gỡ cấu trúc ⇒ **từ chối**, không gỡ gì, không mất dòng nào; (c) script gỡ quyền `quote.*` chạy được và không đụng dữ liệu. Tài liệu vận hành ghi rõ: gỡ cấu trúc khi đã có dữ liệu chỉ làm sau khi xuất dữ liệu và có duyệt riêng của Owner.
 - F6: mỗi PR thêm thư viện (Q9, Q10): `npm audit` không có lỗ hổng mức cao trở lên do thư viện mới; ghi giấy phép và kích thước; lùi PR đó ⇒ phần còn lại của Báo giá vẫn chạy (chỉ mất nút tải tương ứng).
 
 ## 12. Kế hoạch PR nhỏ (Draft; ChatGPT review; Owner duyệt merge từng PR)
@@ -440,16 +475,16 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 | PR | Nội dung | Phụ thuộc | PASS khi | Đụng DB? |
 |---|---|---|---|---|
 | **Q1** | Tài liệu này + chú thích đồng bộ trong `SALES_DESIGN.md` | — | Review không còn điểm chặn; Owner duyệt đặc tả (các điểm QO đã chốt hết) | không |
-| Q2 | Migration: 5 bảng, kiểu enum, hàm mã, hàm kiểm JSON, CHECK, trigger, `fn_auth_perm_class`; nạp "Báo giá chung"; rollback; bài kiểm cấu trúc | Q1 | Nhóm B, F1, F2 | chỉ PostgreSQL tạm của CI |
+| Q2 | Migration: 5 bảng, kiểu enum, hàm mã, hàm kiểm JSON, CHECK, chỉ mục duy nhất (gồm U-4), trigger, `fn_auth_perm_class`; nạp "Báo giá chung"; rollback; bài kiểm cấu trúc và bài kiểm hai kết nối | Q1 | Nhóm B (gồm B12–B15), F1, F2, F7(b) | chỉ PostgreSQL tạm của CI |
 | Q3 | Grants + VERIFY; mã quyền `quote.*`, script hai người / gỡ / kiểm; ma trận `bootstrap.ts` | Q2 | B8, F4; VERIFY hiện có không đổi kết quả | chỉ CI |
 | Q4 | Backend đọc: báo giá, loại báo giá, mặc định cá nhân, giá trị điền sẵn, hàm tên tệp | Q3 | C1, C3, C5–C9 (phần đọc), C12, E7 | không |
-| Q5 | Backend ghi báo giá + tính tiền + giá vốn + đồng bộ giá trị cơ hội | Q4 | Nhóm A, C2, C10, C14 (API), nhóm D | không |
+| Q5 | Backend ghi báo giá + tính tiền + giá vốn + đồng bộ giá trị cơ hội | Q4 | Nhóm A (gồm A14), C2, C10, C14 (API), C15, nhóm D | không |
 | Q6 | Backend ghi loại báo giá + mặc định cá nhân | Q4 | C12, B10 (qua API), D6 | không |
 | Q7 | Giao diện: tab Báo giá + màn hình soạn (cột riêng, dòng nhóm, VAT theo dòng) | Q5 | Test giao diện; Chrome thật các luồng chính | không |
 | Q8 | Giao diện: xem bản in, trang Báo giá, quản lý loại báo giá, mặc định của tôi, điện thoại | Q6, Q7 | E1–E3 (bản in), E5, E6, E8, E10, C4 | không |
 | Q9 | Tải PDF: thêm **một** thư viện dựng PDF + phông chữ; endpoint xuất | Q5 | C11, C14 (PDF), E2–E4, E9 (PDF), F6 | không |
-| Q10 | Tải Excel: thêm **một** thư viện dựng Excel; endpoint xuất | Q5 | C11, C13, C14 (Excel), E4, E9 (Excel), F6 | không |
-| Q11 | Lên máy chủ | Q2–Q10 đã merge | F3, F5; Owner nghiệm thu | **Owner duyệt riêng từng bước** |
+| Q10 | Tải Excel: thêm **một** thư viện dựng Excel; endpoint xuất | Q5 | C11, C13, C14 (Excel), C15, E4, E9 (Excel), E11, E12, F6 | không |
+| Q11 | Lên máy chủ | Q2–Q10 đã merge | F3, F5, F7(a)(c); Owner nghiệm thu | **Owner duyệt riêng từng bước** |
 
 Mỗi PR tự đứng được: Q2, Q3 không đổi hành vi ứng dụng; Q4–Q6 thêm API chưa ai gọi; Q7, Q8 chỉ hiện với người có `quote.read`; Q9, Q10 độc lập với nhau và với giao diện (thiếu một trong hai thì chỉ thiếu nút tải tương ứng). Có thể lên máy chủ sau Q8 (xem bản in rồi in bằng trình duyệt) nếu Owner muốn dùng sớm trước khi có nút tải. Đường lùi: ưu tiên lùi mã, giữ cấu trúc cộng thêm.
 
@@ -473,12 +508,12 @@ Mỗi PR tự đứng được: Q2, Q3 không đổi hành vi ứng dụng; Q4�
 
 | Mã | Nhận xét R1 | Trạng thái | Mục sửa | Ca |
 |---|---|---|---|---|
-| `PR266-R1-DB-01` | Hoàn thiện mô hình DB: trigger chống sửa sau gửi kể cả khi cập nhật đồng thời; không gửi được báo giá rỗng hoặc lệch tổng; khoá các trường ảnh hưởng bản in; unique, khoá ngoại, tranh chấp | **FIXED** | 5.1–5.3, 4.3 | B1–B10 |
+| `PR266-R1-DB-01` | Hoàn thiện mô hình DB: trigger chống sửa sau gửi kể cả khi cập nhật đồng thời; không gửi được báo giá rỗng hoặc lệch tổng; khoá các trường ảnh hưởng bản in; unique, khoá ngoại, tranh chấp | **FIXED** (R2 nêu thiếu ở R-Q7; sửa ở v6, xem `PR266-R2-LOCK-01`) | 5.1–5.4, 4.3 | B1–B15 |
 | `PR266-R1-MONEY-01` | Chốt công thức, làm tròn 0,5 đồng, số lượng lẻ, giới hạn; số học chính xác; CHECK; bảng ví dụ và test | **FIXED** | 6, 6.1, C-1…C-3 | A1–A12 |
 | `PR266-R1-SEC-01` | Kỹ thuật và Quản trị hệ thống không đọc được báo giá ở mọi đường, kể cả gián tiếp; dùng lại RBAC và phạm vi cơ hội | **FIXED** | 7.1, 7.2 | C1–C13, B8 |
-| `PR266-R1-SYNC-01` | Chống hai người gửi / đổi đang theo đuổi cùng lúc; khoá, optimistic version, 409, lịch sử; không cộng dồn; sửa tay giá trị cơ hội | **FIXED** (Owner đã chốt QB5–QB7) | 8 (quy tắc 7, 8), 8.1 | D1–D10 |
+| `PR266-R1-SYNC-01` | Chống hai người gửi / đổi đang theo đuổi cùng lúc; khoá, optimistic version, 409, lịch sử; không cộng dồn; sửa tay giá trị cơ hội | **FIXED** (Owner đã chốt QB5–QB7; R2 nêu thiếu phân tích khoá chéo, sửa ở v6) | 5.4, 8 (quy tắc 7, 8), 8.1 | D1–D11 |
 | `PR266-R1-PRINT-01` | Lưu cố định dữ liệu in theo phiên bản; in lại không đổi; phân trang A4, bản dài, tên tệp | **FIXED** (Owner đã chốt QB4) | 4.3, 4.4 | E1–E10 |
-| `PR266-R1-TEST-01` | Bổ sung test bảo mật, đồng thời, tiền, trigger, rollback, bản in; PR nhỏ, độc lập, có PASS/FAIL; đồng bộ `SALES_DESIGN.md` | **FIXED** | 11, 12; chú thích trong `SALES_DESIGN.md` | A–F |
+| `PR266-R1-TEST-01` | Bổ sung test bảo mật, đồng thời, tiền, trigger, rollback, bản in; PR nhỏ, độc lập, có PASS/FAIL; đồng bộ `SALES_DESIGN.md` | **FIXED** (R2 nêu thiếu ca khoá, hồi quy quyền và mâu thuẫn với `SALES_DESIGN.md`; sửa ở v6) | 11, 12; chú thích trong `SALES_DESIGN.md` | A–F |
 | `PR266-R1-OWNER-01` | Giữ các điểm QO chờ Owner; đề xuất rõ quyết định mới; không tự ghi APPROVED / ACCEPTED | **FIXED** | 1, 2 | — |
 
 ## 15. Thay đổi ở v4 so với v3 (sau khi Owner trả lời ngày 24/11/2026)
@@ -505,3 +540,19 @@ Mỗi PR tự đứng được: Q2, Q3 không đổi hành vi ứng dụng; Q4�
 | QO17: Quản trị CRM, Kinh doanh phụ trách cơ hội, **Kế toán** | QB21. `quote.export` cấp thêm cho Kế toán (mọi báo giá) |
 | QO18: Excel **có công thức** | QB22. 4.4 viết lại: công thức chỉ ở ô do CRM sinh, kèm giá trị; nội dung người dùng nhập vẫn là chữ; ca C13, E9 viết lại; thêm rủi ro "tệp bị sửa" |
 | QO9: **có lưu giá vốn** từng dòng, chỉ Quản trị CRM và người lập thấy | QB23. Thêm `quote_line.cost_price_vnd`, quyền `quote.cost`, mục 7.3, lãi gộp tạm tính (mục 6), R-Q13, ca A11, B11, C14 |
+
+## 17. Đối chiếu review R2 (24/11/2026, tại `24210c0`) → mục sửa → ca nghiệm thu
+
+Kết luận R2 của reviewer: CẦN BỔ SUNG, hai điều kiện chặn (khoá R-Q7; đồng bộ tài liệu Sales với QB23 + bảo vệ `created_by`). Không có điểm nào buộc Owner quyết lại.
+
+| Mã | Nhận xét R2 | Trạng thái | Đã làm | Mục | Ca |
+|---|---|---|---|---|---|
+| `PR266-R2-LOCK-01` (**chặn**) | R-Q7 đọc các `quote` bằng `FOR SHARE` khi transaction có thể đã giữ khoá ghi; không thể kết luận hết khe hở chỉ dựa vào việc ứng dụng khoá dòng cơ hội; cần một điểm khoá chung nhất quán và test hai kết nối thật | **FIXED** | Bỏ hẳn việc khoá các dòng `quote` trong R-Q7. Thêm **U-4** (chỉ mục duy nhất theo cơ hội trên `accepted_opportunity_id`) làm ràng buộc cứng không phụ thuộc khoá; R-Q7 và R-Q8 tự lấy **một điểm khoá chung** là dòng `opportunity`; bảng phân tích ba kiểu xen kẽ (ứng dụng, SQL trực tiếp, lẫn hai kiểu) và điều được bảo đảm trong mọi trường hợp | 5.2 (U-4, C-8), 5.3 (R-Q7, R-Q8), **5.4** | B12, B13, B15, D4, D5 |
+| `PR266-R2-MONEY-01` | Công thức đúng nhưng cần kiểm đường chuyển dữ liệu đầu vào thành `BigInt`, không qua `Number` | **FIXED** | Quy định dạng chuỗi cho tiền và số lượng, chuyển thẳng chuỗi → `BigInt`; từ chối số JSON / số mũ / dấu phân cách; test tĩnh cấm `Number(` trên trường tiền | 6 | A14 |
+| `PR266-R2-COST-01` (**chặn**, phần `created_by`) | `created_by` phải lấy từ phiên đăng nhập; người tạo cũ chỉ xem giá vốn khi vẫn còn `quote.read`; clone, lỗi xác thực, 409, nhật ký, xuất tệp phải kiểm cả khi giá vốn tồn tại mà người gọi không được xem | **FIXED** | `created_by` do máy chủ đặt, DTO không có trường này, R-Q13 chặn đổi ở DB; "là người tạo" chỉ xét **sau** kiểm tra phạm vi, không mở rộng phạm vi; lỗi không lặp lại giá trị giá vốn | 7.3, 5.3 (R-Q13) | B14, C14 (a)–(d) |
+| `PR266-R2-XLSX-01` | Test phải đọc cấu trúc XLSX thật, thử Excel thật; thêm số lớn, ô trống, Unicode, đổi SL / đơn giá rồi tính lại | **FIXED** | Ca đọc XML của tệp; ca thủ công mở bằng Excel thật ghi vào biên bản Q10 | 11 nhóm E | E11, E12, C13, E9 |
+| `PR266-R2-LEAK-01` | Khi viết mã cần kiểm cache trình duyệt, lỗi của endpoint xuất, phản hồi phân trang / lọc | **FIXED** | Ba dòng mới trong bảng 7.2; `no-store` cho mọi API báo giá; số đếm theo phạm vi; cấm lọc / sắp xếp theo giá vốn | 7.2 | C15 |
+| `PR266-R2-TEST-01` | Thêm: hai transaction trực tiếp cùng chấp nhận; thứ tự khoá thực tế của R-Q7, R-Q8; SQL trực tiếp đổi `created_by`; gửi trong lúc transaction khác sửa dòng hàng; rollback khi đã có dữ liệu thật, phân biệt lùi mã với lùi cấu trúc | **FIXED** | Năm ca tương ứng | 11 | B12, B13, B14, B15, F7 |
+| `PR266-R2-DOC-01` (**chặn**) | `SALES_DESIGN.md` còn câu "giá vốn để sau", mâu thuẫn QB23 | **FIXED** | Sửa hai chú thích: giá vốn từng dòng thuộc Báo giá đợt 1 (QB23); phần còn để sau là **báo cáo lợi nhuận tổng hợp** | `docs/SALES_DESIGN.md` | — |
+
+Ngoài ra v6 ghi nhận Owner đã xác nhận hai chỗ diễn giải ở mục 2 (bình luận `[OWNER-DECISION]` trên PR, 24/11/2026).
