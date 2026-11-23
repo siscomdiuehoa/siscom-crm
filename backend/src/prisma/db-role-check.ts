@@ -27,6 +27,12 @@ export interface DbRoleFacts {
   hasAuthGrants: boolean;
   // B1.4 P3c: INSERT customer — pool auth không được ghi nghiệp vụ (phát hiện hai URL đổi chỗ).
   canWriteBusiness: boolean;
+  // P1 (pool quản lý tài khoản, siscom_acct): gọi được fn_auth_api_employee_create (dấu hiệu ĐÚNG tài khoản + đã chạy B1.5_ACCT_GRANTS).
+  acctHasCore: boolean;
+  // P1: EXECUTE được hàm SECURITY DEFINER nào trong public NGOÀI danh sách 12 hàm của B1.5_ACCT_GRANTS (so theo tập, không đếm).
+  acctSecdefExtra: boolean;
+  // P1: INSERT / UPDATE / DELETE / TRUNCATE được bất kỳ bảng nào trong public (pool acct chỉ đọc + gọi hàm).
+  canWriteAnyTable: boolean;
 }
 
 export interface DbRoleAssessment {
@@ -36,7 +42,12 @@ export interface DbRoleAssessment {
 }
 
 // B1.4 P3c: pool đang kiểm. authSeparate = AUTH_DATABASE_URL đã đặt (pool auth tách riêng). Mặc định = pool app chưa tách (P3b).
-export interface DbRolePool { pool: 'app' | 'auth'; authSeparate: boolean }
+// P1: pool 'acct' = pool quản lý tài khoản (ACCT_DATABASE_URL, tuỳ chọn).
+export interface DbRolePool { pool: 'app' | 'auth' | 'acct'; authSeparate: boolean }
+// Danh sách hàm pool acct được gọi — PHẢI khớp backend/docs/B1.5_ACCT_GRANTS.sql.txt (VERIFY_ACCT M16 ghim số 12).
+export const ACCT_FUNCTIONS: readonly string[] = ['fn_auth_api_request_create', 'fn_auth_api_request_decide', 'fn_auth_api_role_grant', 'fn_auth_api_role_revoke',
+  'fn_auth_api_reset_token_issue', 'fn_auth_api_reset_password', 'fn_auth_api_credential_create', 'fn_auth_api_credential_disable',
+  'fn_auth_api_employee_create', 'fn_auth_api_employee_update', 'fn_auth_api_must_change_set', 'fn_auth_api_account_audit'];
 const APP_SHARED: DbRolePool = { pool: 'app', authSeparate: false };
 
 // Một câu truy vấn, chỉ catalog, không tham số, chạy được bằng chính role ứng dụng ($queryRaw tagged template theo quy ước src —
@@ -71,7 +82,19 @@ export async function fetchDbRoleFacts(client: Pick<PrismaClient, '$queryRaw'>):
                              OR has_any_column_privilege(current_user, 'public.remember_device', 'UPDATE') OR has_table_privilege(current_user, 'public.remember_device', 'DELETE') END)
                OR (CASE WHEN to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NULL THEN false
                         ELSE has_function_privilege(current_user, 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE') END) END) AS has_auth_grants,
-    (CASE WHEN to_regclass('public.customer') IS NULL THEN false ELSE has_any_column_privilege(current_user, 'public.customer', 'INSERT') END) AS can_write_business`;
+    (CASE WHEN to_regclass('public.customer') IS NULL THEN false ELSE has_any_column_privilege(current_user, 'public.customer', 'INSERT') END) AS can_write_business,
+    (CASE WHEN to_regprocedure('public.fn_auth_api_employee_create(uuid, text, text, uuid, text)') IS NULL THEN false
+          ELSE has_function_privilege(current_user, 'public.fn_auth_api_employee_create(uuid, text, text, uuid, text)', 'EXECUTE') END) AS acct_has_core,
+    EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege(current_user, p.oid, 'EXECUTE')
+               AND p.proname NOT IN ('fn_auth_api_request_create', 'fn_auth_api_request_decide', 'fn_auth_api_role_grant', 'fn_auth_api_role_revoke',
+                 'fn_auth_api_reset_token_issue', 'fn_auth_api_reset_password', 'fn_auth_api_credential_create', 'fn_auth_api_credential_disable',
+                 'fn_auth_api_employee_create', 'fn_auth_api_employee_update', 'fn_auth_api_must_change_set', 'fn_auth_api_account_audit')) AS acct_secdef_extra,
+    EXISTS (SELECT 1 FROM pg_tables t WHERE t.schemaname = 'public'
+             AND (has_any_column_privilege(current_user, format('%I.%I', t.schemaname, t.tablename), 'INSERT')
+               OR has_any_column_privilege(current_user, format('%I.%I', t.schemaname, t.tablename), 'UPDATE')
+               OR has_table_privilege(current_user, format('%I.%I', t.schemaname, t.tablename), 'DELETE')
+               OR has_table_privilege(current_user, format('%I.%I', t.schemaname, t.tablename), 'TRUNCATE'))) AS can_write_any_table`;
   return dbRoleFactsFromRow(rows[0] ?? {});
 }
 
@@ -88,6 +111,9 @@ export function dbRoleFactsFromRow(row: Record<string, unknown>): DbRoleFacts {
     isMemberOfOtherRoles: row.is_member_of_other_roles === true,
     hasAuthGrants: row.has_auth_grants === true,
     canWriteBusiness: row.can_write_business === true,
+    acctHasCore: row.acct_has_core === true,
+    acctSecdefExtra: row.acct_secdef_extra === true,
+    canWriteAnyTable: row.can_write_any_table === true,
   };
 }
 
@@ -96,6 +122,11 @@ export function assessDbRole(f: DbRoleFacts, nodeEnv: string | undefined, pool: 
   if (pool.pool === 'app' && pool.authSeparate && f.hasAuthGrants) problems.push('tài khoản "' + f.user + '" (pool nghiệp vụ) còn quyền xác thực (auth_session / password_hash / fn_auth_api_change_own_password) dù đã tách pool auth — chạy B1.3_S1_APP_GRANTS_V4.sql.txt (B3 A3; V3 là bản rollback)');
   if (pool.pool === 'auth' && !f.hasAuthGrants) problems.push('tài khoản "' + f.user + '" (pool auth) KHÔNG có quyền xác thực — AUTH_DATABASE_URL trỏ nhầm tài khoản hoặc B1.3_S1_APP_GRANTS_V4.sql.txt chưa áp');
   if (pool.pool === 'auth' && f.canWriteBusiness) problems.push('tài khoản "' + f.user + '" (pool auth) ghi được bảng nghiệp vụ (customer) — AUTH_DATABASE_URL và DATABASE_URL đổi chỗ?');
+  // P1: pool quản lý tài khoản — đúng tài khoản (gọi được hàm P1), không hàm đặc quyền nào ngoài danh sách, không ghi bảng, không quyền xác thực.
+  if (pool.pool === 'acct' && !f.acctHasCore) problems.push('tài khoản "' + f.user + '" (pool quản lý tài khoản) KHÔNG gọi được hàm quản lý tài khoản — ACCT_DATABASE_URL trỏ nhầm tài khoản hoặc B1.5_ACCT_GRANTS.sql.txt chưa áp');
+  if (pool.pool === 'acct' && f.acctSecdefExtra) problems.push('tài khoản "' + f.user + '" (pool quản lý tài khoản) gọi được hàm SECURITY DEFINER ngoài danh sách của B1.5_ACCT_GRANTS.sql.txt');
+  if (pool.pool === 'acct' && f.canWriteAnyTable) problems.push('tài khoản "' + f.user + '" (pool quản lý tài khoản) ghi được bảng trong schema public (role này chỉ được đọc và gọi hàm)');
+  if (pool.pool === 'acct' && f.hasAuthGrants) problems.push('tài khoản "' + f.user + '" (pool quản lý tài khoản) có quyền xác thực (auth_session / password_hash) — ACCT_DATABASE_URL trỏ nhầm tài khoản?');
   if (f.isDbOwner) problems.push('tài khoản "' + f.user + '" là chủ sở hữu database (có thể tắt trigger, sửa nhật ký) — mô hình cũ B1.1, chưa tách role S1');
   if (f.isSuperuser) problems.push('tài khoản "' + f.user + '" là superuser');
   if (f.canCreateInPublic) problems.push('tài khoản "' + f.user + '" có quyền CREATE trên schema public (DDL)');
@@ -103,7 +134,8 @@ export function assessDbRole(f: DbRoleFacts, nodeEnv: string | undefined, pool: 
   if (f.user.toLowerCase() === 'postgres') problems.push('tài khoản là postgres');
   if (f.ownsObjectsInPublic) problems.push('tài khoản "' + f.user + '" sở hữu bảng/sequence/hàm trong schema public (có thể tắt trigger, sửa hàm)');
   if (f.hasAdminAttributes) problems.push('tài khoản "' + f.user + '" có CREATEROLE/CREATEDB/BYPASSRLS');
-  if (f.hasBroadGrants) problems.push('tài khoản "' + f.user + '" có quyền rộng kiểu APP_GRANTS V1 (ghi bảng RBAC / UPDATE password_hash / EXECUTE hàm SECURITY DEFINER ngoài fn_auth_api_change_own_password) — chạy B1.3_S1_APP_GRANTS_V2.sql.txt');
+  // hasBroadGrants = EXECUTE hàm SECURITY DEFINER ngoài change_own_password: với pool acct đó là quyền ĐÚNG (12 hàm) — kiểm bằng acctSecdefExtra ở trên.
+  if (pool.pool !== 'acct' && f.hasBroadGrants) problems.push('tài khoản "' + f.user + '" có quyền rộng kiểu APP_GRANTS V1 (ghi bảng RBAC / UPDATE password_hash / EXECUTE hàm SECURITY DEFINER ngoài fn_auth_api_change_own_password) — chạy B1.3_S1_APP_GRANTS_V2.sql.txt');
   if (f.isMemberOfOtherRoles) problems.push('tài khoản "' + f.user + '" là thành viên của role khác (quyền thừa qua nhóm)');
   return { leastPrivilege: problems.length === 0, problems, enforce: nodeEnv === 'production' };
 }

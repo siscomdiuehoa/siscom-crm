@@ -19,6 +19,9 @@ const CODES: Record<number, string> = {
 };
 const FALLBACK_5XX = 'Lỗi hệ thống. Vui lòng thử lại sau.';
 
+// P1: chỉ hai mã này của DomainException(503) được trả nguyên mã + thông điệp (xem accounts.errors.ts).
+const EXPOSED_503: ReadonlySet<string> = new Set(['ACCOUNT_ADMIN_UNAVAILABLE', 'SYSTEM_REQUESTER_UNAVAILABLE']);
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger('Exception');
@@ -46,10 +49,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
         details = ((body as { message: unknown[] }).message).map((m) => String(m));
       }
     }
-    if (status >= 500) code = 'INTERNAL_ERROR';
-    const text = status >= 500 ? FALLBACK_5XX : (message ?? MESSAGES[status] ?? 'Yêu cầu không thể xử lý.');
+    // P1: hai mã 503 của module accounts ("chức năng chưa bật") được phép ra ngoài với mã + thông điệp riêng; mọi 5xx khác vẫn bị che.
+    const exposed5xx = status === 503 && exception instanceof DomainException && EXPOSED_503.has(code);
+    if (status >= 500 && !exposed5xx) code = 'INTERNAL_ERROR';
+    const text = status >= 500 && !exposed5xx ? FALLBACK_5XX : (message ?? MESSAGES[status] ?? 'Yêu cầu không thể xử lý.');
     const path = req.originalUrl.split('?')[0];
-    if (status >= 500) {
+    if (status >= 500 && !exposed5xx) {
       // Chi tiết thật (có thể chứa thông tin hạ tầng) chỉ ghi ở máy chủ, không trả về client.
       const stack = raw instanceof Error ? raw.stack : String(raw);
       this.logger.error(req.method + ' ' + path + ' -> ' + status + ' id=' + req.requestId + '\n' + stack);

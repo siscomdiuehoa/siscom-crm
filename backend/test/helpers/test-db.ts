@@ -1,4 +1,5 @@
 import { Client } from 'pg';
+import { AcctPrismaService } from '../../src/prisma/acct-prisma.service';
 import { AuthPrismaService } from '../../src/prisma/auth-prisma.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
@@ -100,4 +101,29 @@ export function createAuthTestPrisma(): { prisma: AuthPrismaService; name: strin
   const a = authTestDatabase();
   const cfg = { getOrThrow: () => app.url, get: (k: string) => (k === 'AUTH_DATABASE_URL' ? (a.separate ? a.url : undefined) : k === 'NODE_ENV' ? 'test' : undefined) };
   return { prisma: new AuthPrismaService(cfg as never), name: a.name, separate: a.separate };
+}
+
+// P1: POOL QUẢN LÝ TÀI KHOẢN (siscom_acct) qua TEST_ACCT_DATABASE_URL — CI sau B1.5_ACCT_ROLE + B1.5_ACCT_GRANTS. Không có biến => null
+// (máy chưa bật pool acct: các test cần pool này tự bỏ qua, không rơi về URL khác). Cùng host 127.0.0.1, cùng DB thử.
+export function acctTestDatabase(): { url: string; name: string } | null {
+  const app = testDatabase();
+  const url = process.env.TEST_ACCT_DATABASE_URL;
+  if (!url) return null;
+  let u: URL;
+  try { u = new URL(url); } catch { throw new Error('TEST_ACCT_DATABASE_URL không hợp lệ.'); }
+  const name = decodeURIComponent(u.pathname.replace(/^\//, ''));
+  if (name !== app.name) throw new Error('Từ chối: TEST_ACCT_DATABASE_URL trỏ "' + name + '" khác database thử "' + app.name + '".');
+  if (u.hostname !== '127.0.0.1') throw new Error('Từ chối: host của TEST_ACCT_DATABASE_URL phải là 127.0.0.1.');
+  if (decodeURIComponent(u.username) !== 'siscom_acct') throw new Error('Từ chối: tài khoản của TEST_ACCT_DATABASE_URL phải là siscom_acct.');
+  return { url, name };
+}
+
+// AcctPrismaService thử: constructor chỉ cần getOrThrow('DATABASE_URL') + get('AUTH_DATABASE_URL' / 'ACCT_DATABASE_URL').
+// withUrl = false => dựng service "chưa bật" (available = false) để kiểm nhánh 503.
+export function createAcctTestPrisma(withUrl = true): AcctPrismaService {
+  const app = testDatabase();
+  const auth = authTestDatabase();
+  const acct = withUrl ? acctTestDatabase() : null;
+  const cfg = { getOrThrow: () => app.url, get: (k: string) => (k === 'ACCT_DATABASE_URL' ? acct?.url : k === 'AUTH_DATABASE_URL' ? (auth.separate ? auth.url : undefined) : k === 'NODE_ENV' ? 'test' : undefined) };
+  return new AcctPrismaService(cfg as never);
 }
