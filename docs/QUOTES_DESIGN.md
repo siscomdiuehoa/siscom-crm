@@ -1,8 +1,8 @@
-# Báo giá đợt 1 — lập báo giá ngay trên CRM: đặc tả v4 (PR Q1, 24/11/2026)
+# Báo giá đợt 1 — lập báo giá ngay trên CRM: đặc tả v5 (PR Q1, 24/11/2026)
 
 Trạng thái: **Draft, chờ review và Owner duyệt.** Chưa có mã, chưa có migration. Nối tiếp `docs/SALES_DESIGN.md` (D10, D11, C11).
 Nhãn nguồn: **[Owner]** = Owner đã chốt; **[Đề xuất]** = tác giả đề xuất, cần duyệt; **[Mã hiện có]** = đã đối chiếu mã trên `main` @ `15a60be`.
-**Lịch sử:** v1 sổ báo giá. v2 lập báo giá trên CRM (QB3). v3 xử lý review R1 (mục 14). **v4: Owner trả lời QO1–QO9 và yêu cầu thêm** — nhiều loại báo giá (mỗi loại vật tư một mẫu), có màn hình điều chỉnh các loại báo giá, xuất PDF một chạm và Excel, VAT 8 / 10 %, bỏ chiết khấu, mỗi nhân viên tự soạn điều khoản (mục 15). Tác giả đã đọc bố cục năm tệp mẫu của công ty để thiết kế; dữ liệu thật của các tệp đó không nằm trong kho mã.
+**Lịch sử:** v1 sổ báo giá. v2 lập báo giá trên CRM (QB3). v3 xử lý review R1 (mục 14). **v4: Owner trả lời QO1–QO9 và yêu cầu thêm** — nhiều loại báo giá (mỗi loại vật tư một mẫu), có màn hình điều chỉnh các loại báo giá, xuất PDF một chạm và Excel, VAT 8 / 10 %, bỏ chiết khấu, mỗi nhân viên tự soạn điều khoản (mục 15). **v5: Owner chốt nốt QO9, QO14–QO18** — VAT một mức cho cả báo giá theo mặc định, loại báo giá nào cần thì bật VAT theo từng dòng; Kế toán được tải tệp; Excel có công thức; lưu giá vốn từng dòng với quyền xem riêng (mục 16). Tác giả đã đọc bố cục năm tệp mẫu của công ty để thiết kế; dữ liệu thật của các tệp đó không nằm trong kho mã.
 
 ## 0. Tóm tắt cho người không chuyên
 
@@ -11,7 +11,8 @@ Nhãn nguồn: **[Owner]** = Owner đã chốt; **[Đề xuất]** = tác giả 
 - Tải báo giá về bằng **một nút: PDF hoặc Excel**; tên tệp tự đặt theo mẫu Owner yêu cầu.
 - Đã gửi khách thì **khoá, không sửa được**; đổi giá thì bấm "Tạo bản mới". Bản đã gửi tải lại lúc nào cũng ra đúng nội dung lúc gửi.
 - Giá trị của cơ hội tự đi theo **báo giá đang theo đuổi**, không cộng dồn.
-- Chưa làm đợt này: danh mục thiết bị và bảng giá để chọn nhanh, giá vốn và lợi nhuận, chiết khấu, duyệt giá, gửi email cho khách từ CRM.
+- Người lập nhập được **giá vốn** từng dòng để xem lãi gộp; giá vốn chỉ Quản trị CRM và chính người lập thấy, không bao giờ in ra hay xuất ra tệp.
+- Chưa làm đợt này: danh mục thiết bị và bảng giá để chọn nhanh, công thức tính giá từ giá vốn và tỷ giá, chiết khấu, duyệt giá, gửi email cho khách từ CRM.
 
 ## 1. Quyết định đã chốt [Owner]
 
@@ -36,30 +37,31 @@ Nhãn nguồn: **[Owner]** = Owner đã chốt; **[Đề xuất]** = tác giả 
 | QB15 (QO8) | Điều khoản và thông tin tài khoản in trên báo giá: **mỗi nhân viên tự soạn** | Owner, 24/11/2026 |
 | QB16 | Có lựa chọn **xuất cả tệp Excel** | Owner, 24/11/2026 |
 | QB17 | **Mỗi loại vật tư có mẫu báo giá khác nhau**; có **phần điều chỉnh các loại báo giá** | Owner, 24/11/2026 |
+| QB18 (QO14) | VAT **một mức cho cả báo giá** là mặc định; cách tính đi theo loại báo giá, Owner điều chỉnh sau; **có lựa chọn VAT theo từng dòng** cho loại nào cần | Owner, 24/11/2026 |
+| QB19 (QO15) | Chỉ **Quản trị CRM** được thêm / sửa loại báo giá | Owner, 24/11/2026 |
+| QB20 (QO16) | Đợt 1 mọi loại đều nhập giá **trước VAT**; kiểu "giá đã gồm VAT" để sau | Owner, 24/11/2026 |
+| QB21 (QO17) | Được tải PDF / Excel: **Quản trị CRM, Kinh doanh phụ trách cơ hội, Kế toán** | Owner, 24/11/2026 |
+| QB22 (QO18) | Tệp Excel **có công thức** ở cột thành tiền và các dòng tổng | Owner, 24/11/2026 |
+| QB23 (QO9) | **Có lưu giá vốn từng dòng**; chỉ **Quản trị CRM và người lập** thấy | Owner, 24/11/2026 |
 
 ## 2. Quyết định còn chờ Owner
 
-Tác giả không tự ghi APPROVED / ACCEPTED. Cột "Đề xuất" là phương án đang dùng trong tài liệu.
+**Không còn điểm nào chờ.** QO1–QO18 đã được Owner trả lời ngày 24/11/2026 và ghi thành QB4–QB23 ở mục 1. Tác giả không tự ghi APPROVED / ACCEPTED cho đặc tả; việc duyệt đặc tả để bắt đầu viết mã vẫn là quyết định riêng của Owner sau review.
 
-| Mã | Câu hỏi | Đề xuất | Ảnh hưởng nếu đổi |
-|---|---|---|---|
-| QO9 | Lưu giá vốn (cột ẩn trong mẫu Excel) | Chưa lưu ở đợt này (Owner chưa trả lời câu này) | Thêm cột và quyền xem riêng |
-| QO14 | VAT 8 / 10 % áp theo **từng dòng** hay cả báo giá | **Theo từng dòng**, vì mẫu ống gió vải của công ty tính 8 % cho một số dòng và 10 % cho dòng khác. Bản in gộp thành hai dòng "VAT 8 %", "VAT 10 %" | Mục 5, 6 |
-| QO15 | Ai được thêm / sửa **loại báo giá** | Quản trị CRM. Phương án khác: mọi nhân viên kinh doanh | Mục 7 |
-| QO16 | Mẫu "linh kiện" của công ty ghi **đơn giá đã gồm VAT** | Đợt 1 mọi loại đều nhập giá trước VAT (theo QB12); kiểu "giá đã gồm VAT" để sau | Thêm một cờ trên loại báo giá |
-| QO17 | Ai được **tải PDF / Excel** | Quản trị CRM (mọi báo giá) và Kinh doanh (cơ hội mình phụ trách). Kế toán và Kinh doanh chỉ-xem: xem trên màn hình, không tải | Mục 7 |
-| QO18 | Tệp Excel xuất ra chứa **giá trị** hay **công thức** | Chỉ giá trị (số và chữ), không công thức — để tệp khớp đúng bản đã khoá và an toàn khi mở | Mục 4.4 |
+Hai chỗ tác giả phải **diễn giải** câu trả lời, nêu ra để Owner và reviewer bác nếu sai:
+- QB23 "người lập": hiểu là **người tạo phiên bản báo giá đó** (`quote_version.created_by`). Người khác tiếp quản cơ hội rồi tạo bản mới thì không thấy giá vốn của bản cũ (mục 7.3).
+- QB22 "có công thức": công thức chỉ ở các ô **do CRM sinh ra** (thành tiền, các dòng tổng); nội dung người dùng nhập vẫn luôn là chữ thuần (mục 4.4).
 
 ## 3. Phạm vi
 
-**Làm:** loại báo giá (tiêu đề, cột riêng, điều khoản mặc định) và màn hình quản lý; lập báo giá theo cơ hội với dòng hàng, dòng tiêu đề nhóm, VAT 8 / 10 % theo dòng; phiên bản và năm trạng thái; xem bản in, tải PDF, tải Excel; mặc định cá nhân của từng nhân viên (thông tin liên hệ, thông tin tài khoản); báo giá đang theo đuổi và đồng bộ giá trị cơ hội; trang danh sách; tab Báo giá trong chi tiết cơ hội; nhãn sắp hết hạn.
-**Không làm (để sau):** danh mục thiết bị / vật tư và bảng giá; công thức tính giá từ giá vốn, tỷ giá, hệ số (hiện nằm ở cột ẩn của các tệp Excel); giá vốn, lợi nhuận; chiết khấu; duyệt giá; đơn giá đã gồm VAT; gửi email; nhập từ Excel; tự sinh hoạt động / công việc từ báo giá; đưa báo giá vào tìm kiếm chung; Hợp đồng.
+**Làm:** loại báo giá (tiêu đề, cột riêng, điều khoản mặc định, cách tính VAT) và màn hình quản lý; lập báo giá theo cơ hội với dòng hàng, dòng tiêu đề nhóm, VAT 8 / 10 % (một mức cho cả báo giá, hoặc theo dòng với loại bật lựa chọn này); **giá vốn từng dòng** (chỉ Quản trị CRM và người lập thấy) kèm lãi gộp tạm tính; phiên bản và năm trạng thái; xem bản in, tải PDF, tải Excel; mặc định cá nhân của từng nhân viên (thông tin liên hệ, thông tin tài khoản); báo giá đang theo đuổi và đồng bộ giá trị cơ hội; trang danh sách; tab Báo giá trong chi tiết cơ hội; nhãn sắp hết hạn.
+**Không làm (để sau):** danh mục thiết bị / vật tư và bảng giá; công thức tính giá từ giá vốn, tỷ giá, hệ số (hiện nằm ở cột ẩn của các tệp Excel); báo cáo lợi nhuận tổng hợp; chiết khấu; duyệt giá; đơn giá đã gồm VAT; gửi email; nhập từ Excel; tự sinh hoạt động / công việc từ báo giá; đưa báo giá vào tìm kiếm chung; Hợp đồng.
 
 ## 4. Loại báo giá, bản in và tệp xuất
 
 ### 4.1 Loại báo giá [QB17]
 
-Một **loại báo giá** quyết định: tên loại (ví dụ "Gas lạnh Daikin"), dòng tiêu đề in, câu chào, điều khoản mặc định, số ngày hiệu lực mặc định, VAT mặc định, và **tối đa 10 cột riêng** chèn giữa "Nội dung công việc" và "ĐVT". Ví dụ rút từ các tệp mẫu của công ty:
+Một **loại báo giá** quyết định: tên loại (ví dụ "Gas lạnh Daikin"), dòng tiêu đề in, câu chào, điều khoản mặc định, số ngày hiệu lực mặc định, VAT mặc định, **cách tính VAT** (một mức cho cả báo giá — mặc định; hoặc theo từng dòng) [QB18], và **tối đa 10 cột riêng** chèn giữa "Nội dung công việc" và "ĐVT". Ví dụ rút từ các tệp mẫu của công ty:
 
 | Loại | Cột riêng |
 |---|---|
@@ -97,7 +99,7 @@ Thông tin tài khoản: <…>
 XÁC NHẬN ĐẶT HÀNG                         XÁC NHẬN CÔNG TY
 ```
 
-Khổ A4 dọc khi loại có tối đa 3 cột riêng, A4 ngang khi nhiều hơn. Khi báo giá có cả hai mức VAT, bảng hàng thêm cột "VAT %".
+Khổ A4 dọc khi loại có tối đa 3 cột riêng, A4 ngang khi nhiều hơn. Báo giá thuộc loại "VAT theo từng dòng" và thực sự có cả hai mức thì bảng hàng thêm cột "VAT %". **Giá vốn không bao giờ xuất hiện** trên bản in hay trong tệp xuất.
 
 ### 4.3 Bất biến [QB4]
 
@@ -107,7 +109,7 @@ Khổ A4 dọc khi loại có tối đa 3 cột riêng, A4 ngang khi nhiều hơ
 |---|---|---|
 | Khối khách (6 ô) | khách hàng, người liên hệ, cơ hội | `quote_version.client_*`, `project_name` |
 | Khối người báo giá (4 ô) | nhân viên lập + mặc định cá nhân | `quote_version.quoter_*` |
-| Dòng tiêu đề, danh sách cột riêng, tên loại | loại báo giá | `quote_version.title`, `columns`, `template_name` |
+| Dòng tiêu đề, danh sách cột riêng, tên loại, cách tính VAT | loại báo giá | `quote_version.title`, `columns`, `template_name`, `vat_mode` |
 | Hạng mục (trong tên tệp) | `quote.item_name` | `quote_version.item_name` |
 | Mã, số phiên bản, ngày, hạn | — | `quote_version.code_snapshot`, `version_no`, `quote_date`, `valid_until` |
 | Câu chào, điều khoản | loại báo giá | `quote_version.intro`, `terms` |
@@ -126,7 +128,7 @@ Khổ A4 dọc khi loại có tối đa 3 cột riêng, A4 ngang khi nhiều hơ
 - Cùng một phiên bản đã gửi, tải lại bao nhiêu lần cũng ra **cùng nội dung**.
 - Tên tệp [QB2, QB8, QB9]: `<YYYYMMDD của quote_date>_<mã>[_v<n>]_<TenKhach>_<HangMuc>.pdf|.xlsx`; chỉ gồm `A–Z a–z 0–9 _ -`; mỗi phần tên tối đa 40 ký tự, cả tên tối đa 120; phần nào rỗng sau khi chuẩn hoá thì thay bằng `KhongTen`. Bản nháp thêm `_NHAP`.
 - **PDF**: nhiều trang thì dòng tiêu đề cột lặp lại; một dòng hàng không bị cắt đôi; khối tổng đi cùng ít nhất hai dòng cuối; khối ký và khối tài khoản không bị cắt đôi; phông chữ có đủ dấu tiếng Việt được nhúng trong tệp.
-- **Excel** [QO18]: một trang tính theo đúng bố cục 4.2; số tiền và số lượng là ô **số**, mọi ô khác là ô **chữ**; **không có công thức** — nội dung người dùng nhập bắt đầu bằng `=`, `+`, `-`, `@` vẫn được ghi là chữ thuần, không bị Excel hiểu là công thức.
+- **Excel** [QB22]: một trang tính theo đúng bố cục 4.2. Số lượng và đơn giá là ô **số**. Cột **thành tiền** và các **dòng tổng** là ô **công thức** do CRM sinh ra, kèm sẵn giá trị đã tính: thành tiền `=ROUND(SL*Đơn giá,0)`; tổng trước VAT `=SUM(…)` (theo từng mức thuế bằng `SUMIF` khi VAT theo dòng); VAT `=ROUND(tiền hàng*mức thuế,0)`; tổng sau VAT là phép cộng. `ROUND` của Excel làm tròn 0,5 ra xa 0 — trùng quy tắc mục 6 — nên công thức ra **đúng** số CRM đã lưu (ca E9). Mọi ô chứa nội dung **người dùng nhập** (mô tả, ghi chú, cột riêng, đầu trang, điều khoản) là ô **chữ**: chuỗi bắt đầu bằng `=`, `+`, `-`, `@` vẫn được ghi là chữ thuần, không bao giờ thành công thức. Tệp không có macro, liên kết ngoài hay kết nối dữ liệu. Cuối trang tính có dòng ghi chú: tệp Excel sửa được nên **bản chính thức là bản trong CRM / tệp PDF**.
 - **Thư viện**: hiện hệ thống chưa có thư viện dựng PDF hay Excel. Mỗi thư viện thêm vào là **một PR riêng** (Q9, Q10) kèm lý do chọn, giấy phép, kích thước, kết quả quét lỗ hổng; không đổi thư viện khác trong cùng PR.
 - Mọi ô chữ hiển thị dạng văn bản thuần (không diễn giải HTML).
 
@@ -139,6 +141,7 @@ quote_template                                           -- loại báo giá
   id uuid PK, code varchar(30) UNIQUE (a-z 0-9 -), name varchar(120) NOT NULL
   title varchar(200) NOT NULL, intro varchar(300) NOT NULL DEFAULT '', default_terms varchar(4000) NOT NULL DEFAULT ''
   default_valid_days smallint NOT NULL DEFAULT 15 CHECK (1..365), default_vat smallint NOT NULL DEFAULT 10 CHECK (IN (8, 10))
+  vat_mode quote_vat_mode NOT NULL DEFAULT 'QUOTE'       -- QUOTE = một mức cho cả báo giá | LINE = theo từng dòng [QB18]
   columns jsonb NOT NULL DEFAULT '[]'   -- mảng 0..10 phần tử { key: ^[a-z][a-z0-9_]{0,19}$, label ≤ 40 ký tự, unit ≤ 20 ký tự }, key không trùng
   is_active boolean NOT NULL DEFAULT true, sort_order smallint NOT NULL DEFAULT 0
   version int NOT NULL DEFAULT 1, created_by, created_at, updated_by, updated_at
@@ -166,6 +169,7 @@ quote_version
   status quote_version_status NOT NULL DEFAULT 'DRAFT'   -- DRAFT | SENT | ACCEPTED | REJECTED
   code_snapshot varchar(20) NOT NULL, item_name varchar(120) NOT NULL, print_template varchar(30) NOT NULL
   template_name varchar(120) NOT NULL, title varchar(200) NOT NULL, columns jsonb NOT NULL   -- bản chép từ loại báo giá, cùng ràng buộc hình dạng
+  vat_mode quote_vat_mode NOT NULL                       -- bản chép từ loại báo giá
   quote_date date NULL, valid_until date NULL
   client_name, client_contact, client_company varchar(200); client_phone varchar(30); client_email varchar(254);
   client_address varchar(500); project_name varchar(200)              -- NULL được
@@ -182,6 +186,7 @@ quote_line
   description varchar(500) NOT NULL (không rỗng), unit varchar(30) NOT NULL DEFAULT '', note varchar(200) NULL
   extra jsonb NOT NULL DEFAULT '{}'                      -- { <key của cột riêng>: chữ ≤ 200 ký tự }; tối đa 10 khoá
   quantity numeric(12,3) NULL, unit_price_vnd bigint NULL, vat_percent smallint NULL, amount_vnd bigint NULL
+  cost_price_vnd bigint NULL                             -- giá vốn một đơn vị, trước VAT [QB23]; NULL = chưa nhập; không in, không xuất
 ```
 
 `opportunity` **không thêm cột nào**; chỉ thêm chỉ mục `UNIQUE (id, customer_id)` làm đích cho khoá ngoại kép (`main` chưa có chỉ mục này; cùng cách `contact_id_customer_id_key` của S2 [Mã hiện có]). `customer_id` của cơ hội đã bất biến bằng trigger S2 [Mã hiện có].
@@ -190,8 +195,8 @@ quote_line
 
 | Mã | Ràng buộc |
 |---|---|
-| C-1 | `quote_line` kiểu `ITEM`: `0 < quantity ≤ 999999.999`; `0 ≤ unit_price_vnd ≤ 999999999999`; `vat_percent IN (8, 10)`; `amount_vnd = round(quantity * unit_price_vnd)` (`round` của `numeric`: 0,5 ra xa 0) |
-| C-1b | `quote_line` kiểu `SECTION`: `quantity`, `unit_price_vnd`, `vat_percent`, `amount_vnd` đều NULL; `unit = ''`; `extra = '{}'` |
+| C-1 | `quote_line` kiểu `ITEM`: `0 < quantity ≤ 999999.999`; `0 ≤ unit_price_vnd ≤ 999999999999`; `vat_percent IN (8, 10)`; `amount_vnd = round(quantity * unit_price_vnd)` (`round` của `numeric`: 0,5 ra xa 0); `cost_price_vnd` NULL hoặc `0 ≤ cost_price_vnd ≤ 999999999999` |
+| C-1b | `quote_line` kiểu `SECTION`: `quantity`, `unit_price_vnd`, `vat_percent`, `amount_vnd`, `cost_price_vnd` đều NULL; `unit = ''`; `extra = '{}'` |
 | C-2 | `quote_version`: sáu cột tổng ≥ 0; `subtotal_vnd = base8_vnd + base10_vnd`; `subtotal_vnd ≤ 9000000000000000` |
 | C-3 | `quote_version`: `vat8_vnd = (base8_vnd * 8 + 50) / 100`; `vat10_vnd = (base10_vnd * 10 + 50) / 100` (chia nguyên `bigint`); `total_vnd = subtotal_vnd + vat8_vnd + vat10_vnd` |
 | C-4 | `quote_version`: `status ≠ 'DRAFT'` ⇒ `quote_date`, `valid_until`, `sent_by`, `sent_at` có giá trị và `valid_until ≥ quote_date` |
@@ -212,8 +217,9 @@ quote_line
 | R-Q10 | `quote_line` BEFORE INSERT / UPDATE (cùng hàm với R-Q2c) | Mọi khoá của `extra` phải nằm trong `columns` của phiên bản cha |
 | R-Q11 | `quote_version` BEFORE UPDATE khi đổi `columns` (chỉ xảy ra ở nháp) | Không còn dòng hàng nào có khoá `extra` ngoài danh sách cột mới |
 | R-Q3 | `quote_version` BEFORE UPDATE | Chuyển trạng thái hợp lệ: `DRAFT → SENT`; `SENT → ACCEPTED \| REJECTED`. Mọi chuyển khác ⇒ lỗi |
-| R-Q1 | `quote_version` BEFORE UPDATE khi `NEW.status = 'SENT'` | Khoá mọi dòng của phiên bản `FOR UPDATE`; yêu cầu **≥ 1 dòng kiểu `ITEM`**; tính lại tổng `amount_vnd` theo từng mức VAT và so với `NEW.base8_vnd`, `NEW.base10_vnd`; lệch ⇒ lỗi `QUOTE_TOTAL_MISMATCH`. (C-2, C-3 bảo đảm phần còn lại của chuỗi tổng) |
+| R-Q1 | `quote_version` BEFORE UPDATE khi `NEW.status = 'SENT'` | Khoá mọi dòng của phiên bản `FOR UPDATE`; yêu cầu **≥ 1 dòng kiểu `ITEM`**; tính lại tổng `amount_vnd` theo từng mức VAT và so với `NEW.base8_vnd`, `NEW.base10_vnd`; lệch ⇒ lỗi `QUOTE_TOTAL_MISMATCH`. `vat_mode = 'QUOTE'` mà các dòng hàng không cùng một mức VAT ⇒ lỗi `QUOTE_VAT_MIXED` [QB18]. (C-2, C-3 bảo đảm phần còn lại của chuỗi tổng) |
 | R-Q4 | `quote` BEFORE UPDATE | `code`, `opportunity_id`, `customer_id`, `template_id`, `created_by`, `created_at` bất biến |
+| R-Q13 | `quote_version` BEFORE UPDATE | `vat_mode`, `created_by` bất biến ngay cả khi còn là nháp (cách tính VAT cố định từ lúc tạo phiên bản; `created_by` quyết định ai thấy giá vốn) |
 | R-Q5 | `quote` BEFORE UPDATE khi bật `is_primary` | Phải có ít nhất một phiên bản không phải nháp |
 | R-Q7 | `quote_version` BEFORE UPDATE khi `NEW.status = 'ACCEPTED'` [QB6, QB7] | Cơ hội đã có báo giá khác được chấp nhận ⇒ lỗi `QUOTE_ALREADY_ACCEPTED`; báo giá này phải đang là `is_primary` (ứng dụng đặt trong cùng transaction) |
 | R-Q8 | `quote` BEFORE UPDATE khi đổi `is_primary` | Cơ hội đã có báo giá được chấp nhận ⇒ không đổi được [QB6] |
@@ -232,7 +238,7 @@ Bản nháp cho phép tổng tạm lệch dòng hàng **bên trong** một trans
 
 **"Hết hiệu lực" không lưu trong DB**: phiên bản `SENT` có `valid_until` < hôm nay (ngày theo giờ Việt Nam). Danh sách và bộ lọc dùng **cùng một biểu thức SQL** ở máy chủ.
 
-## 6. Tính tiền [QB11, QB12, QB13; QO14 chờ]
+## 6. Tính tiền [QB11, QB12, QB13, QB18]
 
 Đơn vị: **đồng, số nguyên**. Đơn giá là giá **trước VAT**. Không có chiết khấu ở đợt này.
 
@@ -250,6 +256,8 @@ Bản nháp cho phép tổng tạm lệch dòng hàng **bên trong** một trans
 - **Máy chủ tính bằng số nguyên chính xác** (`BigInt`): số lượng đổi sang phần nghìn `q = SL × 1000`; thành tiền `= (q × đơn giá + 500) div 1000`; VAT `= (base × p + 50) div 100`. Không dùng số thực ở bất kỳ bước nào. Máy chủ **bỏ qua** mọi tổng do trình duyệt gửi lên.
 - **DB kiểm lại** bằng C-1, C-2, C-3 và R-Q1 (hai cách tính độc lập phải ra cùng số).
 - **Giá trị đưa sang cơ hội** (D7) = `subtotal_vnd` (chưa VAT).
+- **Cách tính VAT** [QB18]: loại báo giá ở chế độ **một mức** (mặc định) ⇒ người lập chọn 8 % hoặc 10 % một lần cho cả báo giá, mọi dòng hàng mang cùng mức đó (một trong hai `base` bằng 0). Loại ở chế độ **theo từng dòng** ⇒ mỗi dòng chọn mức riêng. Cả hai chế độ dùng **cùng** cấu trúc dữ liệu và công thức; chế độ một mức chỉ thêm ràng buộc "mọi dòng cùng mức" (R-Q1).
+- **Giá vốn** [QB23]: `cost_price_vnd` là giá vốn **một đơn vị**, số nguyên đồng, trước VAT, không bắt buộc. Giá vốn của dòng `= round(quantity × cost_price_vnd)` (cùng quy tắc làm tròn); **lãi gộp tạm tính** `= thành tiền − giá vốn của dòng`, tổng lãi gộp và tỷ lệ trên tổng trước VAT chỉ tính trên các dòng **đã nhập** giá vốn và ghi rõ có bao nhiêu dòng chưa nhập. Các số này **không lưu**, tính lúc đọc, và chỉ trả cho người được xem giá vốn (7.3). Giá vốn không tham gia bất kỳ tổng nào của báo giá.
 
 ### 6.1 Bảng ví dụ tính tay (dùng làm test, mục 11 nhóm A)
 
@@ -264,10 +272,12 @@ Bản nháp cho phép tổng tạm lệch dòng hàng **bên trong** một trans
 | A7 | 999 999,999 × 999 999 999 999 → 999 999 998 999 000 000 (từ …000 000,001), 10 % | — | — | — | — | — | **từ chối**: vượt giới hạn subtotal |
 | A8 | chỉ có một dòng tiêu đề nhóm, không có dòng hàng | — | — | — | — | — | **không gửi được** (`QUOTE_EMPTY`); lưu nháp được, mọi tổng = 0 |
 | A9 | 1 × 100, 10 %, kèm dòng tiêu đề nhóm ở trên | 0 | 100 | 0 | 10 | 100 | 110 (dòng nhóm không ảnh hưởng tổng) |
+| A10 | loại **một mức**: 1 × 100, 8 % và 1 × 100, 10 % | — | — | — | — | — | **từ chối** (`QUOTE_VAT_MIXED`); cùng dữ liệu với loại **theo từng dòng** ⇒ base8 100, base10 100, vat8 8, vat10 10, total 218 |
+| A11 | giá vốn: 2,5 × 333 333 (thành tiền 833 333), giá vốn đơn vị 300 000 ⇒ giá vốn dòng 750 000, lãi gộp 83 333; dòng thứ hai chưa nhập giá vốn | | | | | | lãi gộp tạm tính 83 333 "trên 1 / 2 dòng"; các tổng của báo giá **không đổi** |
 
 ## 7. Quyền và rò giá
 
-### 7.1 Ma trận [Đề xuất; QO15, QO17 chờ]
+### 7.1 Ma trận [QB19, QB21, QB23; phần còn lại là đề xuất]
 
 Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường đầy đủ** thì không thấy báo giá (ngoài phạm vi trả 404, không trả 403).
 
@@ -278,8 +288,9 @@ Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường �
 | `quote.send` (Đã gửi, chọn đang theo đuổi) | tất cả | chỉ cơ hội mình phụ trách | — | — | — |
 | `quote.decide` (Được chấp nhận / Bị từ chối) | tất cả | chỉ cơ hội mình phụ trách | — | — | — |
 | `quote.delete` (nháp / báo giá chưa gửi) | tất cả | chỉ cơ hội mình phụ trách | — | — | — |
-| `quote.export` (tải PDF / Excel) [QO17] | tất cả | chỉ cơ hội mình phụ trách | — | — | — |
-| `quote.template` (thêm / sửa loại báo giá) [QO15] | có | — | — | — | — |
+| `quote.export` (tải PDF / Excel) [QB21] | tất cả | chỉ cơ hội mình phụ trách | — | tất cả | — |
+| `quote.template` (thêm / sửa loại báo giá) [QB19] | có | — | — | — | — |
+| `quote.cost` (xem giá vốn của **mọi** báo giá) [QB23] | có | — | — | — | — |
 
 - Đọc danh sách loại báo giá đang dùng (để chọn khi lập) và sửa **mặc định cá nhân của chính mình**: mọi người có `quote.create`.
 - Dùng lại RBAC và vị từ phạm vi hiện có: mọi đường đọc báo giá (kể cả tải tệp) đi qua **đúng một hàm** = mã quyền tương ứng **VÀ** vị từ "đường đầy đủ" của cơ hội (`fullReadWhere` [Mã hiện có]). **Không** dùng "đường theo việc" (`taskPathWhere`). Quyền ghi và quyền tải kiểm theo `owner_id` của cơ hội như `opportunity.update`. Mỗi mã cấp riêng.
@@ -304,15 +315,26 @@ Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường �
 | Nhật ký hệ thống (`audit_log`) | Ghi hành động và mã định danh, **không ghi số tiền, không ghi nội dung dòng hàng** | C9 |
 | Thông báo lỗi | Lỗi ràng buộc DB đổi thành mã lỗi cố định; không trả nguyên văn lỗi PostgreSQL | C9 |
 | Mã `BG-…` liên tục | Lộ **số lượng** báo giá (không lộ giá). Chấp nhận, giống `CH-…`, `KH-…` | — |
+| **Giá vốn và lãi gộp** | 7.3: bỏ khoá khỏi phản hồi; không có trong tệp xuất, bản in, danh sách, nhật ký; không chép sang bản mới của người không được xem | C14 |
 | Kết nối DB khác | `siscom_auth`, `siscom_acct` không có quyền trên năm bảng | B8 |
+
+### 7.3 Giá vốn [QB23]
+
+- **Ai thấy**: người có `quote.cost` (Quản trị CRM), **hoặc** người tạo ra chính phiên bản đó (`quote_version.created_by` = người đang đăng nhập) và vẫn còn `quote.read` trên báo giá. Kế toán, Kinh doanh chỉ-xem, người tiếp quản cơ hội về sau: **không thấy**.
+- **Ai nhập / sửa**: người đang soạn nháp (chính là người tạo phiên bản) và Quản trị CRM. Sau khi gửi, giá vốn bị khoá cùng phiên bản (R-Q2).
+- **Cách che**: API **bỏ hẳn** các khoá giá vốn và lãi gộp khỏi phản hồi của người không được xem (không trả `null`, để không lộ cả việc "đã nhập hay chưa"). Bộ chuyển đổi dữ liệu liệt kê tường minh từng trường cho hai dạng phản hồi "có giá vốn" / "không có giá vốn", theo cách `toOpportunityTechDetail` đang làm [Mã hiện có]; test chốt danh sách khoá của từng dạng.
+- **Người khác tạo bản mới** từ phiên bản mình không được xem giá vốn ⇒ giá vốn **không được chép** sang (để trống), tránh lộ qua bản nháp mới. Người được xem ⇒ chép đủ.
+- **Lưu nháp bởi người không được xem** (Quản trị CRM luôn được xem; trường hợp này chỉ xảy ra nếu sau này mở rộng quyền sửa): yêu cầu không mang khoá giá vốn ⇒ máy chủ **giữ nguyên** giá vốn đang lưu của các dòng không đổi, không xoá.
+- **Không bao giờ** xuất hiện ở: bản in, PDF, Excel, danh sách báo giá, trang cơ hội, lịch sử thay đổi, `audit_log`, thông báo lỗi.
+- Giới hạn cần biết: che ở tầng ứng dụng. Kết nối `siscom_app` đọc được cột này (như mọi cột khác của bảng); người có quyền truy cập thẳng database vẫn thấy.
 
 ## 8. Quy tắc nghiệp vụ [Đề xuất, trừ chỗ ghi mã QB]
 
 1. **Tạo báo giá** từ một cơ hội đang mở (`OPEN`): chọn loại báo giá (đang dùng), nhập hạng mục ⇒ sinh mã và phiên bản 1 (Nháp); các ô ở 4.3 được điền sẵn. Cơ hội Tạm hoãn / Thắng / Thua: không tạo mới, vẫn xem và tải được.
-2. **Soạn nháp**: thêm, sửa, xoá, đổi thứ tự dòng hàng và dòng tiêu đề nhóm; mức VAT từng dòng (mặc định theo loại); giá trị các cột riêng; sửa các ô đầu trang, câu chào, điều khoản, thông tin tài khoản [QB15]. Lưu là **một transaction**, máy chủ tính lại mọi tổng. Loại báo giá của một báo giá **không đổi được** sau khi tạo (cần loại khác thì lập báo giá mới).
+2. **Soạn nháp**: thêm, sửa, xoá, đổi thứ tự dòng hàng và dòng tiêu đề nhóm; mức VAT (một lần cho cả báo giá, hoặc từng dòng nếu loại bật chế độ đó; mặc định theo loại) [QB18]; giá vốn từng dòng [QB23]; giá trị các cột riêng; sửa các ô đầu trang, câu chào, điều khoản, thông tin tài khoản [QB15]. Lưu là **một transaction**, máy chủ tính lại mọi tổng. Loại báo giá của một báo giá **không đổi được** sau khi tạo (cần loại khác thì lập báo giá mới).
 3. **Xem bản in / tải PDF / tải Excel**: mọi phiên bản; nháp có chữ chìm và hậu tố `_NHAP`.
 4. **Đánh dấu Đã gửi** [QB1]: cần ≥ 1 dòng hàng, ngày báo giá (không ở tương lai), hạn hiệu lực ≥ ngày báo giá. Phiên bản bị khoá (R-Q2).
-5. **Tạo bản mới**: chép toàn bộ nội dung phiên bản mới nhất (dòng hàng, các ô đầu trang, tiêu đề và danh sách cột **của phiên bản đó**) thành phiên bản kế tiếp, Nháp; `print_template` lấy bố cục hiện hành. Chỉ khi báo giá chưa có nháp và chưa được chấp nhận.
+5. **Tạo bản mới**: chép toàn bộ nội dung phiên bản mới nhất (dòng hàng, các ô đầu trang, tiêu đề và danh sách cột **của phiên bản đó**) thành phiên bản kế tiếp, Nháp; `print_template` lấy bố cục hiện hành; `vat_mode` giữ như phiên bản nguồn; giá vốn chép theo quy tắc 7.3. Chỉ khi báo giá chưa có nháp và chưa được chấp nhận.
 6. **Kết quả**: "Được chấp nhận" hoặc "Bị từ chối" (bắt buộc lý do) cho phiên bản đã gửi **mới nhất** của báo giá. Quá hạn hiệu lực vẫn ghi "Được chấp nhận" được, kèm cảnh báo [QB10]. Được chấp nhận **không** tự chốt Thắng cơ hội (D3); giao diện hiện lối tắt "Chốt Thắng cơ hội".
 7. **Báo giá đang theo đuổi**: báo giá đầu tiên được gửi của một cơ hội tự thành "đang theo đuổi"; người phụ trách đổi sang báo giá khác đã có phiên bản gửi. Khi một phiên bản được chấp nhận ⇒ báo giá đó thành "đang theo đuổi" và cố định [QB6, QB7].
 8. **Đồng bộ giá trị cơ hội** (D7) — ở đúng ba sự kiện: (a) gửi một phiên bản của báo giá đang theo đuổi; (b) đổi báo giá đang theo đuổi; (c) chấp nhận một phiên bản. Khi đó `opportunity.expected_amount_vnd` **được gán bằng** `subtotal_vnd` (chưa VAT) của **phiên bản đã gửi mới nhất** của báo giá đang theo đuổi — phép **gán**, không cộng.
@@ -321,7 +343,7 @@ Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường �
    - Giá trị đổi ⇒ thêm dòng `opportunity_change` (`field = AMOUNT`, cũ → mới, lý do `Theo báo giá BG-… v…`, người thực hiện = người bấm) và tăng `opportunity.version` thêm 1.
    - **Sửa tay giá trị cơ hội** [QB5]: vẫn được, theo đường ghi hiện có. Sự kiện (a) / (b) / (c) kế tiếp ghi đè và để lại lịch sử. Nhãn cạnh ô giá trị: "theo báo giá BG-… v…" khi giá trị cơ hội bằng giá trị phiên bản nói trên, "đã sửa tay, khác báo giá" khi khác. Nhãn tính lúc đọc, **không thêm cột** vào `opportunity`.
 9. **Xoá**: xoá mềm nháp, hoặc cả báo giá khi chưa có phiên bản nào đã gửi (R-Q9).
-10. **Loại báo giá**: thêm, sửa tên / tiêu đề / câu chào / điều khoản mặc định / số ngày / VAT mặc định / danh sách cột; ngừng dùng (không xoá). Sửa loại **không** đổi báo giá đã lập (4.3); nháp đang soạn giữ danh sách cột lúc nó được tạo.
+10. **Loại báo giá** [QB19 — chỉ Quản trị CRM]: thêm, sửa tên / tiêu đề / câu chào / điều khoản mặc định / số ngày / VAT mặc định / cách tính VAT / danh sách cột; ngừng dùng (không xoá). Sửa loại **không** đổi báo giá đã lập (4.3); nháp đang soạn giữ danh sách cột lúc nó được tạo.
 11. **Mặc định cá nhân** [QB15]: mỗi nhân viên tự lưu chức vụ, điện thoại, email và **thông tin tài khoản** của mình để điền sẵn vào báo giá mới; sửa lại được trên từng báo giá.
 12. Giới hạn: tối đa 300 dòng mỗi phiên bản, 999 phiên bản mỗi báo giá, 10 cột riêng mỗi loại, 200 loại báo giá.
 
@@ -364,9 +386,10 @@ Mã lỗi: 400 dữ liệu sai (`AMOUNT_OUT_OF_RANGE`, `QUANTITY_PRECISION`, `VA
 Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó.
 
 **A. Tính tiền** (Q5)
-- A1–A9: chín ca của bảng 6.1 ra đúng từng số, ở **cả hai** nơi: máy chủ (BigInt) và DB (chèn trực tiếp số sai ⇒ CHECK / trigger từ chối).
+- A1–A9: chín ca đầu của bảng 6.1 ra đúng từng số, ở **cả hai** nơi: máy chủ (BigInt) và DB (chèn trực tiếp số sai ⇒ CHECK / trigger từ chối).
 - A10: máy chủ bỏ qua tổng do trình duyệt gửi lên. A11: số lượng 4 chữ số thập phân, số âm, đơn giá lẻ, VAT khác 8 / 10, chữ thay số ⇒ 400, không lưu gì.
 - A12: tiền trả về ở dạng chuỗi số; giá trị vượt ngưỡng số nguyên an toàn của JavaScript vẫn đúng từng chữ số.
+- A13: ca A10, A11 của bảng 6.1 (VAT một mức / theo dòng; giá vốn và lãi gộp tạm tính, kể cả khi một phần dòng chưa nhập giá vốn).
 
 **B. Database và trigger** (Q2; bài kiểm SQL chạy trong CI bằng `siscom_app`)
 - B1: phiên bản đã gửi — UPDATE **lần lượt mọi cột** nội dung, DELETE ⇒ từ chối. B2: INSERT / UPDATE / DELETE dòng của phiên bản đã gửi, chuyển dòng sang phiên bản khác ⇒ từ chối.
@@ -375,7 +398,8 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 - B7: các cột bất biến của `quote` (kể cả `template_id`); bật `is_primary` khi chưa có phiên bản gửi; R-Q7, R-Q8.
 - B8: `siscom_app` không DELETE được `quote`, `quote_version`, `quote_template`; `siscom_auth`, `siscom_acct` không SELECT được năm bảng; vai trò `admin` không nhận được mã `quote.*` (SoD).
 - B9: danh sách cột của R-Q2a khớp `information_schema`.
-- B10: `columns` sai hình dạng (11 cột, key trùng, key sai mẫu, nhãn quá dài) ⇒ từ chối; `extra` có khoá ngoài danh sách cột, quá 10 khoá, giá trị không phải chuỗi ⇒ từ chối; đổi `columns` của nháp khi còn dòng dùng khoá bị bỏ ⇒ từ chối; dòng nhóm có số tiền ⇒ từ chối.
+- B10: `columns` sai hình dạng (11 cột, key trùng, key sai mẫu, nhãn quá dài) ⇒ từ chối; `extra` có khoá ngoài danh sách cột, quá 10 khoá, giá trị không phải chuỗi ⇒ từ chối; đổi `columns` của nháp khi còn dòng dùng khoá bị bỏ ⇒ từ chối; dòng nhóm có số tiền hoặc giá vốn ⇒ từ chối.
+- B11: `vat_mode = QUOTE` mà gửi với hai mức VAT ⇒ từ chối; đổi `vat_mode` hoặc `created_by` của phiên bản (kể cả nháp) ⇒ từ chối; giá vốn âm hoặc vượt giới hạn ⇒ từ chối; sửa giá vốn của phiên bản đã gửi ⇒ từ chối.
 
 **C. Bảo mật** (Q4–Q6, Q9, Q10; ma trận 5 vai trò)
 - C1: mỗi endpoint đọc × 5 vai trò × {phụ trách, chỉ xem, ngoài phạm vi} đúng 7.1. C2: mỗi endpoint ghi tương tự.
@@ -385,9 +409,10 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 - C7: không có dòng `opportunity_document` nào do báo giá sinh ra. C8: không có hoạt động / công việc / kết quả tìm kiếm chung nào chứa dữ liệu báo giá.
 - C9: `audit_log` không chứa số tiền hay nội dung dòng hàng; lỗi DB trả mã cố định.
 - C10: thu hồi `quote.read` hoặc `quote.export` giữa phiên ⇒ lần gọi kế tiếp bị từ chối.
-- C11: tải PDF / Excel × 5 vai trò × 3 phạm vi đúng 7.1; phản hồi có `Cache-Control: no-store`; có dòng `QUOTE_EXPORT`; không có tệp nào còn lại trên đĩa máy chủ sau khi tải.
+- C11: tải PDF / Excel × 5 vai trò × 3 phạm vi đúng 7.1 (Kế toán tải được mọi báo giá [QB21]); phản hồi có `Cache-Control: no-store`; có dòng `QUOTE_EXPORT`; không có tệp nào còn lại trên đĩa máy chủ sau khi tải.
 - C12: loại báo giá và mặc định cá nhân: người không có quyền ⇒ 403 / 404; không ai đọc hay sửa được mặc định cá nhân của người khác.
-- C13: tệp Excel — ô chữ bắt đầu bằng `=`, `+`, `-`, `@`, và chuỗi dạng `=HYPERLINK(…)` được ghi là **chữ**, mở tệp không có công thức nào (kiểm bằng cách đọc lại tệp).
+- C13: tệp Excel — mọi ô chứa nội dung người dùng nhập, kể cả chuỗi bắt đầu bằng `=`, `+`, `-`, `@` và chuỗi dạng `=HYPERLINK(…)`, `=cmd|…`, được ghi là **chữ**; đọc lại tệp: tập ô có công thức **đúng bằng** tập ô CRM chủ định sinh (thành tiền, các dòng tổng), mọi công thức chỉ dùng `ROUND`, `SUM`, `SUMIF` và phép `+ *`; không có macro, liên kết ngoài, kết nối dữ liệu.
+- C14 (giá vốn): ma trận {Quản trị CRM, người tạo phiên bản, Kinh doanh khác đang phụ trách cơ hội, Kinh doanh chỉ-xem, Kế toán} × {chi tiết, danh sách, theo cơ hội, giá trị điền sẵn, tải PDF, tải Excel, xem bản in} — chỉ hai đối tượng đầu nhận được khoá giá vốn / lãi gộp, và chỉ ở API chi tiết; phản hồi của người khác **không có các khoá đó** (so danh sách khoá); PDF, Excel, bản in của **mọi** người đều không có giá vốn (tìm chuỗi số giá vốn trong tệp ⇒ không thấy); người không được xem tạo bản mới ⇒ giá vốn bản mới trống; `audit_log` và lịch sử không có giá vốn.
 
 **D. Đồng thời** (Q5; hai kết nối thật, mẫu `concurrency.int-spec`)
 - D1–D6: sáu tình huống của bảng 8.1, mỗi tình huống lặp 20 lần, không có lần nào ra trạng thái sai.
@@ -401,7 +426,7 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 - E5: giao diện nền tối ⇒ bản in vẫn nền trắng. E6: nháp có chữ chìm và `_NHAP`; bản đã gửi không có.
 - E7: tên tệp với tên có dấu, `đ/Đ`, ký tự `/ \ : * ? " < > |`, tên rỗng sau chuẩn hoá, tên 300 ký tự, phiên bản 1 và 2 ⇒ đúng 4.4.
 - E8: nhập `<script>` và thẻ HTML vào mọi ô chữ ⇒ hiển thị nguyên văn trên màn hình, PDF và Excel.
-- E9: PDF có đủ dấu tiếng Việt (trích văn bản ra so được với dữ liệu); tổng trong PDF và trong Excel **bằng** tổng API trả về, từng đồng.
+- E9: PDF có đủ dấu tiếng Việt (trích văn bản ra so được với dữ liệu); tổng trong PDF **bằng** tổng API trả về, từng đồng. Excel: giá trị kèm sẵn của mọi ô công thức bằng số API trả về, **và** tính lại công thức (bằng một bộ tính công thức trong test) cũng ra đúng số đó trên toàn bộ ca A1–A6, A9, A10.
 - E10: báo giá có hai mức VAT ⇒ bảng có cột "VAT %", phần tổng có hai dòng VAT; chỉ một mức ⇒ không có cột "VAT %", chỉ một dòng VAT.
 
 **F. Rollback và triển khai** (Q2, Q3, Q11)
@@ -414,16 +439,16 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 
 | PR | Nội dung | Phụ thuộc | PASS khi | Đụng DB? |
 |---|---|---|---|---|
-| **Q1** | Tài liệu này + chú thích đồng bộ trong `SALES_DESIGN.md` | — | Review không còn điểm chặn; Owner chốt QO9, QO14–QO18 | không |
+| **Q1** | Tài liệu này + chú thích đồng bộ trong `SALES_DESIGN.md` | — | Review không còn điểm chặn; Owner duyệt đặc tả (các điểm QO đã chốt hết) | không |
 | Q2 | Migration: 5 bảng, kiểu enum, hàm mã, hàm kiểm JSON, CHECK, trigger, `fn_auth_perm_class`; nạp "Báo giá chung"; rollback; bài kiểm cấu trúc | Q1 | Nhóm B, F1, F2 | chỉ PostgreSQL tạm của CI |
 | Q3 | Grants + VERIFY; mã quyền `quote.*`, script hai người / gỡ / kiểm; ma trận `bootstrap.ts` | Q2 | B8, F4; VERIFY hiện có không đổi kết quả | chỉ CI |
 | Q4 | Backend đọc: báo giá, loại báo giá, mặc định cá nhân, giá trị điền sẵn, hàm tên tệp | Q3 | C1, C3, C5–C9 (phần đọc), C12, E7 | không |
-| Q5 | Backend ghi báo giá + tính tiền + đồng bộ giá trị cơ hội | Q4 | Nhóm A, C2, C10, nhóm D | không |
+| Q5 | Backend ghi báo giá + tính tiền + giá vốn + đồng bộ giá trị cơ hội | Q4 | Nhóm A, C2, C10, C14 (API), nhóm D | không |
 | Q6 | Backend ghi loại báo giá + mặc định cá nhân | Q4 | C12, B10 (qua API), D6 | không |
 | Q7 | Giao diện: tab Báo giá + màn hình soạn (cột riêng, dòng nhóm, VAT theo dòng) | Q5 | Test giao diện; Chrome thật các luồng chính | không |
 | Q8 | Giao diện: xem bản in, trang Báo giá, quản lý loại báo giá, mặc định của tôi, điện thoại | Q6, Q7 | E1–E3 (bản in), E5, E6, E8, E10, C4 | không |
-| Q9 | Tải PDF: thêm **một** thư viện dựng PDF + phông chữ; endpoint xuất | Q5 | C11, E2–E4, E9 (PDF), F6 | không |
-| Q10 | Tải Excel: thêm **một** thư viện dựng Excel; endpoint xuất | Q5 | C11, C13, E4, E9 (Excel), F6 | không |
+| Q9 | Tải PDF: thêm **một** thư viện dựng PDF + phông chữ; endpoint xuất | Q5 | C11, C14 (PDF), E2–E4, E9 (PDF), F6 | không |
+| Q10 | Tải Excel: thêm **một** thư viện dựng Excel; endpoint xuất | Q5 | C11, C13, C14 (Excel), E4, E9 (Excel), F6 | không |
 | Q11 | Lên máy chủ | Q2–Q10 đã merge | F3, F5; Owner nghiệm thu | **Owner duyệt riêng từng bước** |
 
 Mỗi PR tự đứng được: Q2, Q3 không đổi hành vi ứng dụng; Q4–Q6 thêm API chưa ai gọi; Q7, Q8 chỉ hiện với người có `quote.read`; Q9, Q10 độc lập với nhau và với giao diện (thiếu một trong hai thì chỉ thiếu nút tải tương ứng). Có thể lên máy chủ sau Q8 (xem bản in rồi in bằng trình duyệt) nếu Owner muốn dùng sớm trước khi có nút tải. Đường lùi: ưu tiên lùi mã, giữ cấu trúc cộng thêm.
@@ -438,7 +463,9 @@ Mỗi PR tự đứng được: Q2, Q3 không đổi hành vi ứng dụng; Q4�
 | Hai người thao tác cùng lúc làm lệch giá trị cơ hội | Khoá dòng cơ hội theo thứ tự cố định; nhóm D |
 | Bản in / tệp xuất lệch mẫu hoặc đổi theo thời gian | Mọi nội dung lưu theo phiên bản; bố cục có mã và không sửa; nhóm E |
 | Thư viện mới mang lỗ hổng hoặc làm nặng hệ thống | Mỗi thư viện một PR riêng, có quét lỗ hổng, giấy phép, kích thước; lùi độc lập (F6) |
-| Tệp Excel bị chèn công thức độc hại qua nội dung người dùng nhập | Mọi ô chữ ghi kiểu chuỗi, không công thức (4.4); C13 |
+| Tệp Excel bị chèn công thức độc hại qua nội dung người dùng nhập | Công thức chỉ ở ô do CRM sinh, từ một danh sách hàm cố định; mọi nội dung người dùng nhập ghi kiểu chuỗi (4.4); C13 |
+| Tệp Excel bị sửa rồi gửi khách, lệch bản đã khoá trong CRM | Không ngăn được bằng kỹ thuật (Owner chọn có công thức, QB22). Dòng ghi chú trong tệp; bản chính thức là PDF / bản trong CRM; khuyến nghị gửi khách bằng PDF |
+| Lộ giá vốn | Bỏ khoá khỏi phản hồi theo danh sách tường minh; không có trong tệp xuất; không chép sang bản mới của người không được xem (7.3); C14. Người truy cập thẳng database vẫn thấy — đã ghi ở 7.3 |
 | Cột riêng tự do làm bảng quá rộng | Tối đa 10 cột, nhãn ≤ 40 ký tự; tự chuyển khổ ngang; E3 |
 | Mẫu của công ty có điểm chưa hỗ trợ (giá đã gồm VAT, công thức tính giá từ giá vốn) | Ghi rõ ở mục 3 và QO16; làm sau |
 
@@ -459,7 +486,7 @@ Mỗi PR tự đứng được: Q2, Q3 không đổi hành vi ứng dụng; Q4�
 | Trả lời / yêu cầu của Owner | Thay đổi trong tài liệu |
 |---|---|
 | QO1, QO2, QO3, QO5 theo đề xuất | Chuyển thành QB8, QB9, QB10, QB12 |
-| QO4: VAT 8 hoặc 10 % | QB11. Bỏ mức 0 và 5 %. Vì mẫu ống gió vải của công ty dùng **cả hai mức trong một báo giá**, VAT chuyển từ "một mức cho cả báo giá" sang **theo từng dòng** (QO14 chờ Owner xác nhận); các cột tổng đổi thành `base8/base10/vat8/vat10`; bảng 6.1 viết lại |
+| QO4: VAT 8 hoặc 10 % | QB11. Bỏ mức 0 và 5 %. Vì mẫu ống gió vải của công ty dùng **cả hai mức trong một báo giá**, VAT chuyển từ "một mức cho cả báo giá" sang **theo từng dòng** (ở v4 còn chờ QO14; v5 đã chốt lại thành QB18: một mức là mặc định, theo dòng là lựa chọn của loại báo giá); các cột tổng đổi thành `base8/base10/vat8/vat10`; bảng 6.1 viết lại |
 | QO6: chưa cần chiết khấu | QB13. Bỏ cột `discount_vnd` và mọi quy tắc chiết khấu |
 | QO7: nút tải PDF một chạm, chấp nhận thư viện | QB14. Thêm 4.4, endpoint xuất, `quote.export`, PR Q9; "xem bản in" giữ lại làm xem trước |
 | QO8: mỗi nhân viên tự soạn | QB15. Bỏ bảng `quote_setting` (mẫu chung do Quản trị soạn); thêm `quote_user_default`; điều khoản mặc định đi theo loại báo giá, nhân viên sửa trên từng báo giá |
@@ -467,3 +494,14 @@ Mỗi PR tự đứng được: Q2, Q3 không đổi hành vi ứng dụng; Q4�
 | Mỗi loại vật tư một mẫu; có phần điều chỉnh các loại báo giá | QB17. Thêm bảng `quote_template` (tiêu đề, cột riêng, điều khoản mặc định), bản chép vào phiên bản, `quote_line.extra`, dòng tiêu đề nhóm, màn hình quản lý, quyền `quote.template`, PR Q6; QO15 |
 | (Tác giả phát hiện khi đọc các tệp mẫu) | Mẫu "linh kiện" ghi giá đã gồm VAT ⇒ QO16; các tệp có công thức tính giá từ giá vốn / tỷ giá ở cột ẩn ⇒ ghi rõ ngoài phạm vi (mục 3) |
 | QO9 (giá vốn) | Owner chưa trả lời; giữ đề xuất "chưa lưu" |
+
+## 16. Thay đổi ở v5 so với v4 (Owner chốt QO9, QO14–QO18 ngày 24/11/2026)
+
+| Trả lời của Owner | Thay đổi trong tài liệu |
+|---|---|
+| QO14: VAT một mức cho cả báo giá; tuỳ loại báo giá, điều chỉnh sau; có lựa chọn theo từng dòng | QB18. Thêm `vat_mode` (`QUOTE` mặc định / `LINE`) trên loại báo giá và bản chép trên phiên bản; ràng buộc "mọi dòng cùng mức" ở R-Q1; ca A10, B11. Cấu trúc tổng `base8/base10` giữ nguyên cho cả hai chế độ |
+| QO15: chỉ Quản trị CRM | QB19 (đúng đề xuất) |
+| QO16: mọi loại nhập giá trước VAT | QB20 (đúng đề xuất) |
+| QO17: Quản trị CRM, Kinh doanh phụ trách cơ hội, **Kế toán** | QB21. `quote.export` cấp thêm cho Kế toán (mọi báo giá) |
+| QO18: Excel **có công thức** | QB22. 4.4 viết lại: công thức chỉ ở ô do CRM sinh, kèm giá trị; nội dung người dùng nhập vẫn là chữ; ca C13, E9 viết lại; thêm rủi ro "tệp bị sửa" |
+| QO9: **có lưu giá vốn** từng dòng, chỉ Quản trị CRM và người lập thấy | QB23. Thêm `quote_line.cost_price_vnd`, quyền `quote.cost`, mục 7.3, lãi gộp tạm tính (mục 6), R-Q13, ca A11, B11, C14 |
