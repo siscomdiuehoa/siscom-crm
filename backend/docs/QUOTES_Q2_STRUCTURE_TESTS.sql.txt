@@ -1,0 +1,326 @@
+-- SISCOM CRM - Bao gia Q2 (20261125000000_quotes): KIEM CAU TRUC / CHECK / CHI MUC DUY NHAT / TRIGGER o tang DB (docs/QUOTES_DESIGN.md muc 11 nhom B).
+-- Dich: backend\docs\QUOTES_Q2_STRUCTURE_TESTS.sql.txt (duoi .txt de Git theo doi, noi dung la SQL - chay bang psql -f).
+-- CHI CHAY TREN BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*) bang CHU SO HUU BANG (siscom_migrator sau tach role). Trigger va CHECK ap dung
+--   nhu nhau cho moi role (ke ca siscom_app) nen ket qua khong phu thuoc role chay; quyen ghi cua siscom_app = PR Q3.
+-- Toan bo trong 1 transaction, ROLLBACK o cuoi (khong de lai du lieu; sequence ma BG-/CH-/KH-/NV- van tang - chap nhan).
+-- Ca hai ket noi (B12, B13, B15) nam o scripts/ci/quotes-q2-concurrency.mjs.
+-- In "PASS|n" va (neu co) "FAIL|n". Ky vong: khong co FAIL.
+\set ON_ERROR_STOP on
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_dang_thu, current_user AS chay_bang;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le.', current_database();
+  END IF;
+  IF to_regclass('public.quote_version') IS NULL THEN RAISE EXCEPTION 'Chua ap migration 20261125000000_quotes.'; END IF;
+END $$;
+BEGIN;
+CREATE TEMP TABLE res (ok boolean, label text) ON COMMIT DROP;
+-- expect_err: cau lenh PHAI loi dung SQLSTATE; p_token (neu co) phai la CONSTRAINT cua loi (ma loi co dinh cua trigger).
+CREATE FUNCTION pg_temp.expect_err(p_label text, p_sql text, p_state text, p_token text DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_c text;
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+    RAISE EXCEPTION 'q2_undo' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN raise_exception THEN INSERT INTO res VALUES (false, p_label || CASE WHEN SQLERRM = 'q2_undo' THEN ' [CHAY DUOC]' ELSE ' [' || SQLERRM || ']' END);
+    WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_c = CONSTRAINT_NAME;
+      INSERT INTO res VALUES (SQLSTATE = p_state AND (p_token IS NULL OR v_c = p_token),
+        p_label || CASE WHEN SQLSTATE = p_state AND (p_token IS NULL OR v_c = p_token) THEN '' ELSE ' [' || SQLSTATE || '/' || coalesce(v_c, '') || ' thay vi ' || p_state || '/' || coalesce(p_token, '') || ']' END);
+  END;
+END $$;
+CREATE FUNCTION pg_temp.expect_true(p_label text, p_sql text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v boolean;
+BEGIN
+  EXECUTE 'SELECT (' || p_sql || ')' INTO v;
+  INSERT INTO res VALUES (coalesce(v, false), p_label);
+EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQLSTATE || ' ' || SQLERRM || ']');
+END $$;
+-- expect_run: cau lenh PHAI chay duoc, sau do bieu thuc kiem phai dung
+CREATE FUNCTION pg_temp.expect_run(p_label text, p_sql text, p_check text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v boolean;
+BEGIN
+  EXECUTE p_sql;
+  EXECUTE 'SELECT (' || p_check || ')' INTO v;
+  INSERT INTO res VALUES (coalesce(v, false), p_label);
+EXCEPTION WHEN OTHERS THEN INSERT INTO res VALUES (false, p_label || ' [' || SQLSTATE || ' ' || SQLERRM || ']');
+END $$;
+-- Tao mot phien ban NHAP toi thieu
+CREATE FUNCTION pg_temp.mk_version(p_id uuid, p_quote uuid, p_no int, p_mode text, p_columns jsonb DEFAULT '[]') RETURNS void LANGUAGE sql AS $$
+  INSERT INTO public.quote_version (id, quote_id, version_no, code_snapshot, item_name, print_template, template_name, title, columns, vat_mode, quoter_name, created_by)
+  VALUES (p_id, p_quote, p_no, 'BG-TEST', 'Hang muc thu', 'siscom-v1', 'Loai thu', 'BANG BAO GIA', p_columns, p_mode::public.quote_vat_mode, 'Q2 NV 1', '6b000000-0000-4000-8000-000000000021') $$;
+-- Them mot dong hang (thanh tien tu tinh dung)
+CREATE FUNCTION pg_temp.mk_line(p_version uuid, p_no int, p_qty numeric, p_price bigint, p_vat int) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO public.quote_line (quote_version_id, line_no, description, unit, quantity, unit_price_vnd, vat_percent, amount_vnd)
+  VALUES (p_version, p_no, 'Dong thu ' || p_no, 'cai', p_qty, p_price, p_vat, round(p_qty * p_price)) $$;
+-- Dat tong dung theo cac dong hien co roi GUI
+CREATE FUNCTION pg_temp.send_version(p_version uuid) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE b8 bigint; b10 bigint;
+BEGIN
+  SELECT coalesce(sum(amount_vnd) FILTER (WHERE vat_percent = 8), 0), coalesce(sum(amount_vnd) FILTER (WHERE vat_percent = 10), 0) INTO b8, b10 FROM public.quote_line WHERE quote_version_id = p_version;
+  UPDATE public.quote_version SET base8_vnd = b8, base10_vnd = b10, subtotal_vnd = b8 + b10, vat8_vnd = (b8 * 8 + 50) / 100, vat10_vnd = (b10 * 10 + 50) / 100,
+         total_vnd = b8 + b10 + (b8 * 8 + 50) / 100 + (b10 * 10 + 50) / 100 WHERE id = p_version;
+  UPDATE public.quote_version SET status = 'SENT', quote_date = current_date, valid_until = current_date + 15, sent_by = '6b000000-0000-4000-8000-000000000021', sent_at = now() WHERE id = p_version;
+END $$;
+
+-- Du lieu thu (tong hop, is_demo)
+INSERT INTO lookup_item (id, type, code, label_vi, is_active) VALUES
+ ('6b000000-0000-4000-8000-000000000011', 'customer_tier',     'ZZ_Q2_TIER',   'Q2 hang thu', true),
+ ('6b000000-0000-4000-8000-000000000012', 'customer_status',   'ZZ_Q2_STATUS', 'Q2 trang thai thu', true),
+ ('6b000000-0000-4000-8000-000000000013', 'opportunity_type',  'ZZ_Q2_TYPE',   'Q2 loai thu', true),
+ ('6b000000-0000-4000-8000-000000000014', 'opportunity_stage', 'ZZ_Q2_STAGE',  'Q2 giai doan thu', true);
+INSERT INTO employee (id, full_name, email, status, is_demo) VALUES
+ ('6b000000-0000-4000-8000-000000000021', 'Q2 NV 1', 'q2.nv1@example.invalid', 'ACTIVE', true),
+ ('6b000000-0000-4000-8000-000000000022', 'Q2 NV 2', 'q2.nv2@example.invalid', 'ACTIVE', true);
+INSERT INTO customer (id, name, phone, tier_id, status_id, is_demo) VALUES
+ ('6b000000-0000-4000-8000-000000000031', 'Q2 Khach 1', '0907000001', '6b000000-0000-4000-8000-000000000011', '6b000000-0000-4000-8000-000000000012', true),
+ ('6b000000-0000-4000-8000-000000000032', 'Q2 Khach 2', '0907000002', '6b000000-0000-4000-8000-000000000011', '6b000000-0000-4000-8000-000000000012', true);
+INSERT INTO opportunity (id, customer_id, title, type_id, stage_id, owner_id, is_demo) VALUES
+ ('6b000000-0000-4000-8000-000000000061', '6b000000-0000-4000-8000-000000000031', 'Q2 co hoi 1 (K1)', '6b000000-0000-4000-8000-000000000013', '6b000000-0000-4000-8000-000000000014', '6b000000-0000-4000-8000-000000000021', true),
+ ('6b000000-0000-4000-8000-000000000062', '6b000000-0000-4000-8000-000000000031', 'Q2 co hoi 2 (K1)', '6b000000-0000-4000-8000-000000000013', '6b000000-0000-4000-8000-000000000014', '6b000000-0000-4000-8000-000000000021', true),
+ ('6b000000-0000-4000-8000-000000000063', '6b000000-0000-4000-8000-000000000032', 'Q2 co hoi 3 (K2)', '6b000000-0000-4000-8000-000000000013', '6b000000-0000-4000-8000-000000000014', '6b000000-0000-4000-8000-000000000022', true);
+INSERT INTO quote_template (id, code, name, title, vat_mode, columns) VALUES
+ ('6b000000-0000-4000-8000-000000000071', 'zz-q2-ong-gio', 'Q2 ong gio', 'BAO GIA ONG GIO', 'QUOTE', '[{"key":"dk","label":"Duong kinh","unit":"mm"},{"key":"dai","label":"Chieu dai","unit":"m"}]'),
+ ('6b000000-0000-4000-8000-000000000072', 'zz-q2-theo-dong', 'Q2 VAT theo dong', 'BAO GIA', 'LINE', '[]');
+-- Q1, Q2: hai bao gia cua co hoi 1; Q3: bao gia cua co hoi 3; Q4: bao gia chi co nhap (co hoi 2)
+INSERT INTO quote (id, opportunity_id, customer_id, template_id, item_name, created_by) VALUES
+ ('6b000000-0000-4000-8000-000000000081', '6b000000-0000-4000-8000-000000000061', '6b000000-0000-4000-8000-000000000031', '6b000000-0000-4000-8000-000000000071', 'Ong gio vai', '6b000000-0000-4000-8000-000000000021'),
+ ('6b000000-0000-4000-8000-000000000082', '6b000000-0000-4000-8000-000000000061', '6b000000-0000-4000-8000-000000000031', '6b000000-0000-4000-8000-000000000072', 'Quat', '6b000000-0000-4000-8000-000000000021'),
+ ('6b000000-0000-4000-8000-000000000083', '6b000000-0000-4000-8000-000000000063', '6b000000-0000-4000-8000-000000000032', '6b000000-0000-4000-8000-000000000072', 'Gas', '6b000000-0000-4000-8000-000000000022'),
+ ('6b000000-0000-4000-8000-000000000084', '6b000000-0000-4000-8000-000000000062', '6b000000-0000-4000-8000-000000000031', '6b000000-0000-4000-8000-000000000072', 'Linh kien', '6b000000-0000-4000-8000-000000000021');
+SELECT pg_temp.mk_version('6b000000-0000-4000-8000-000000000091', '6b000000-0000-4000-8000-000000000081', 1, 'QUOTE', '[{"key":"dk","label":"Duong kinh","unit":"mm"},{"key":"dai","label":"Chieu dai","unit":"m"}]');
+
+-- 1. Cau truc
+SELECT pg_temp.expect_true('Q001 5 bang + 3 enum (4, 2, 2 gia tri) + sequence + ham ma', $q$ to_regclass('public.quote_template') IS NOT NULL AND to_regclass('public.quote_user_default') IS NOT NULL AND to_regclass('public.quote') IS NOT NULL AND to_regclass('public.quote_version') IS NOT NULL AND to_regclass('public.quote_line') IS NOT NULL
+  AND (SELECT count(*) = 4 FROM pg_enum WHERE enumtypid = 'public.quote_version_status'::regtype) AND (SELECT count(*) = 2 FROM pg_enum WHERE enumtypid = 'public.quote_vat_mode'::regtype) AND (SELECT count(*) = 2 FROM pg_enum WHERE enumtypid = 'public.quote_line_kind'::regtype)
+  AND to_regclass('public.quote_code_seq') IS NOT NULL AND to_regprocedure('public.fn_next_quote_code()') IS NOT NULL $q$);
+SELECT pg_temp.expect_true('Q002 nap san dung MOT loai trung tinh "chung": khong cot rieng, dieu khoan rong, VAT mot muc 10, dang dung', $q$ (SELECT count(*) = 1 AND bool_and(columns = '[]'::jsonb AND default_terms = '' AND intro = '' AND vat_mode = 'QUOTE' AND default_vat = 10 AND default_valid_days = 15 AND is_active AND created_by IS NULL) FROM quote_template WHERE code = 'chung') $q$);
+SELECT pg_temp.expect_true('Q003 bao gia moi: ma BG-NNNN, chua theo duoi, version 1; phien ban moi: DRAFT, cac tong = 0, accepted_opportunity_id NULL', $q$ (SELECT bool_and(code ~ '^BG-[0-9]{4,}$' AND NOT is_primary AND version = 1 AND deleted_at IS NULL) FROM quote WHERE id::text LIKE '6b000000-%')
+  AND (SELECT status = 'DRAFT' AND subtotal_vnd = 0 AND total_vnd = 0 AND accepted_opportunity_id IS NULL AND sent_at IS NULL FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000091') $q$);
+SELECT pg_temp.expect_true('Q004 chi muc duy nhat RIENG PHAN U-1, U-2, U-3, U-4 + dich khoa ngoai ghep opportunity(id, customer_id) + thu tu dong DEFERRABLE', $q$ (SELECT count(*) = 4 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname IN ('uq_quote_version_one_draft', 'uq_quote_version_one_accepted', 'uq_quote_primary_per_opportunity', 'uq_quote_version_accepted_opportunity') AND i.indisunique AND i.indpred IS NOT NULL)
+  AND (SELECT i.indisunique AND i.indpred IS NULL FROM pg_index i WHERE i.indexrelid = 'public.opportunity_id_customer_id_key'::regclass)
+  AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_opportunity_id_customer_id_fkey' AND contype = 'f' AND confdeltype = 'r' AND confupdtype = 'r')
+  AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_quote_line_version_line_no' AND contype = 'u' AND condeferrable AND condeferred) $q$);
+SELECT pg_temp.expect_true('Q005 6 ham cua bao gia: SECURITY INVOKER + search_path co dinh; 4 trigger BEFORE gan dung bang', $q$ (SELECT count(*) = 6 AND bool_and(NOT p.prosecdef AND p.proconfig::text LIKE '%search_path=pg_catalog, public%') FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
+     AND p.proname IN ('fn_quote_columns_ok', 'fn_quote_extra_ok', 'fn_quote_guard', 'fn_quote_version_guard', 'fn_quote_line_guard', 'fn_quote_template_no_delete'))
+  AND (SELECT count(*) = 4 FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_quote_guard', 'trg_quote_version_guard', 'trg_quote_line_guard', 'trg_quote_template_no_delete') AND (tgtype & 2) = 2) $q$);
+SELECT pg_temp.expect_true('Q006 fn_auth_perm_class: quote.* thuoc BIZ; cac nhom cu khong doi', $q$ fn_auth_perm_class('quote.read') = 'BIZ' AND fn_auth_perm_class('quote.cost') = 'BIZ' AND fn_auth_perm_class('quote.template') = 'BIZ' AND fn_auth_perm_class('opportunity.read') = 'BIZ' AND fn_auth_perm_class('customer.read') = 'BIZ'
+  AND fn_auth_perm_class('access.approve') = 'APPROVE' AND fn_auth_perm_class('role.manage') = 'REQUEST' AND fn_auth_perm_class('quotes.read') = 'OTHER' AND fn_auth_perm_class('audit.read') = 'OTHER' $q$);
+SELECT pg_temp.expect_true('Q007 siscom_auth, siscom_acct (neu co role): KHONG co quyen nao tren 5 bang', $q$ NOT EXISTS (SELECT 1 FROM pg_roles r CROSS JOIN unnest(ARRAY['quote_template', 'quote_user_default', 'quote', 'quote_version', 'quote_line']) AS t(n) CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']) AS pr(p)
+  WHERE r.rolname IN ('siscom_auth', 'siscom_acct') AND has_table_privilege(r.rolname, 'public.' || t.n, pr.p)) $q$);
+
+-- 2. B10: hinh dang columns (C-6) va extra (C-7, R-Q10), dong nhom (C-1b), R-Q11
+SELECT pg_temp.expect_err('Q010 columns 11 phan tu bi tu choi', $q$ INSERT INTO quote_template (code, name, title, columns) SELECT 'zz-q2-x', 'x', 'x', jsonb_agg(jsonb_build_object('key', 'c' || g, 'label', 'L', 'unit', '')) FROM generate_series(1, 11) g $q$, '23514');
+SELECT pg_temp.expect_err('Q011 columns co key trung bi tu choi', $q$ INSERT INTO quote_template (code, name, title, columns) VALUES ('zz-q2-x', 'x', 'x', '[{"key":"a","label":"A","unit":""},{"key":"a","label":"B","unit":""}]') $q$, '23514');
+SELECT pg_temp.expect_err('Q012 columns co key sai mau (chu hoa) bi tu choi', $q$ INSERT INTO quote_template (code, name, title, columns) VALUES ('zz-q2-x', 'x', 'x', '[{"key":"Model","label":"A","unit":""}]') $q$, '23514');
+SELECT pg_temp.expect_err('Q013 columns co nhan 41 ky tu bi tu choi', $q$ INSERT INTO quote_template (code, name, title, columns) VALUES ('zz-q2-x', 'x', 'x', jsonb_build_array(jsonb_build_object('key', 'a', 'label', repeat('x', 41), 'unit', ''))) $q$, '23514');
+SELECT pg_temp.expect_err('Q014 columns khong phai mang / phan tu thua khoa / nhan rong bi tu choi', $q$ INSERT INTO quote_template (code, name, title, columns) VALUES ('zz-q2-x1', 'x', 'x', '{"key":"a"}'), ('zz-q2-x2', 'x', 'x', '[{"key":"a","label":"A","unit":"","formula":"=1"}]'), ('zz-q2-x3', 'x', 'x', '[{"key":"a","label":"  ","unit":""}]') $q$, '23514');
+SELECT pg_temp.expect_true('Q015 ham kiem: 3 ca sai o Q014 deu false TUNG ca; 10 cot hop le la true; don vi 21 ky tu false', $q$ NOT fn_quote_columns_ok('{"key":"a"}') AND NOT fn_quote_columns_ok('[{"key":"a","label":"A","unit":"","formula":"=1"}]') AND NOT fn_quote_columns_ok('[{"key":"a","label":"  ","unit":""}]') AND NOT fn_quote_columns_ok('[{"key":"a","label":"A"}]') AND NOT fn_quote_columns_ok('[{"key":"a","label":1,"unit":""}]') AND NOT fn_quote_columns_ok('["a"]')
+  AND NOT fn_quote_columns_ok(jsonb_build_array(jsonb_build_object('key', 'a', 'label', 'A', 'unit', repeat('x', 21)))) AND fn_quote_columns_ok('[]') AND fn_quote_columns_ok((SELECT jsonb_agg(jsonb_build_object('key', 'c' || g, 'label', 'Cột ' || g, 'unit', 'm³/h')) FROM generate_series(1, 10) g)) $q$);
+SELECT pg_temp.expect_err('Q016 ma loai sai mau / ten rong / so ngay 0 / VAT mac dinh 5 bi tu choi', $q$ INSERT INTO quote_template (code, name, title, default_valid_days, default_vat) VALUES ('ZZ Q2', 'x', 'x', 15, 10) $q$, '23514');
+SELECT pg_temp.expect_err('Q017 VAT mac dinh 5 bi tu choi', $q$ UPDATE quote_template SET default_vat = 5 WHERE code = 'zz-q2-ong-gio' $q$, '23514');
+SELECT pg_temp.expect_err('Q018 so ngay hieu luc 366 bi tu choi', $q$ UPDATE quote_template SET default_valid_days = 366 WHERE code = 'zz-q2-ong-gio' $q$, '23514');
+SELECT pg_temp.expect_err('Q019 R-Q12 khong xoa cung loai bao gia', $q$ DELETE FROM quote_template WHERE code = 'zz-q2-theo-dong' $q$, '23001', 'QUOTE_TEMPLATE_DELETE');
+-- dong hang hop le co gia tri cot rieng + gia von
+INSERT INTO quote_line (id, quote_version_id, line_no, description, unit, extra, quantity, unit_price_vnd, vat_percent, amount_vnd, cost_price_vnd) VALUES
+ ('6b000000-0000-4000-8000-0000000000a1', '6b000000-0000-4000-8000-000000000091', 1, 'Ong gio vai D400', 'm', '{"dk":"400","dai":"12,5"}', 2.5, 333333, 10, 833333, 250000);
+INSERT INTO quote_line (id, quote_version_id, line_no, kind, description) VALUES ('6b000000-0000-4000-8000-0000000000a2', '6b000000-0000-4000-8000-000000000091', 2, 'SECTION', 'THIET BI THONG GIO');
+SELECT pg_temp.expect_true('Q020 dong hang 2,5 x 333 333 = 833 333 (tu ...332,5 lam tron len) + cot rieng + gia von duoc; dong nhom chi co chu duoc', $q$ (SELECT count(*) = 2 FROM quote_line WHERE quote_version_id = '6b000000-0000-4000-8000-000000000091') $q$);
+SELECT pg_temp.expect_err('Q021 thanh tien 833 332 (lam tron xuong) bi tu choi', $q$ UPDATE quote_line SET amount_vnd = 833332 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q022 so luong 0 bi tu choi', $q$ UPDATE quote_line SET quantity = 0, amount_vnd = 0 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q023 so luong 1 000 000 (vuot 999 999,999) bi tu choi', $q$ UPDATE quote_line SET quantity = 1000000, unit_price_vnd = 1, amount_vnd = 1000000 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q024 don gia am bi tu choi', $q$ UPDATE quote_line SET quantity = 1, unit_price_vnd = -1, amount_vnd = -1 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q025 don gia 1 000 000 000 000 (vuot gioi han) bi tu choi', $q$ UPDATE quote_line SET quantity = 1, unit_price_vnd = 1000000000000, amount_vnd = 1000000000000 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q026 VAT 5 % bi tu choi', $q$ UPDATE quote_line SET vat_percent = 5 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q027 gia von am bi tu choi (B11)', $q$ UPDATE quote_line SET cost_price_vnd = -1 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q028 gia von vuot gioi han bi tu choi (B11)', $q$ UPDATE quote_line SET cost_price_vnd = 1000000000000 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q029 dong hang thieu so luong bi tu choi', $q$ UPDATE quote_line SET quantity = NULL WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q030 dong nhom co thanh tien bi tu choi', $q$ UPDATE quote_line SET quantity = 1, unit_price_vnd = 1, vat_percent = 10, amount_vnd = 1 WHERE id = '6b000000-0000-4000-8000-0000000000a2' $q$, '23514');
+SELECT pg_temp.expect_err('Q031 dong nhom co gia von bi tu choi', $q$ UPDATE quote_line SET cost_price_vnd = 1 WHERE id = '6b000000-0000-4000-8000-0000000000a2' $q$, '23514');
+SELECT pg_temp.expect_err('Q032 dong nhom co don vi / cot rieng bi tu choi', $q$ UPDATE quote_line SET extra = '{"dk":"1"}' WHERE id = '6b000000-0000-4000-8000-0000000000a2' $q$, '23514');
+SELECT pg_temp.expect_err('Q033 mo ta chi khoang trang bi tu choi', $q$ UPDATE quote_line SET description = '   ' WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q034 so thu tu dong 301 bi tu choi', $q$ UPDATE quote_line SET line_no = 301 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514');
+SELECT pg_temp.expect_err('Q035 R-Q10 extra co khoa NGOAI danh sach cot cua phien ban bi tu choi', $q$ UPDATE quote_line SET extra = '{"dk":"400","model":"X"}' WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514', 'QUOTE_UNKNOWN_COLUMN');
+SELECT pg_temp.expect_err('Q036 C-7 extra co gia tri khong phai chuoi bi tu choi', $q$ UPDATE quote_line SET extra = '{"dk":400}' WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514', 'ck_ql_extra');
+SELECT pg_temp.expect_err('Q037 C-7 extra khong phai doi tuong bi tu choi', $q$ UPDATE quote_line SET extra = '["dk"]' WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23514', 'ck_ql_extra');
+SELECT pg_temp.expect_true('Q038 C-7 ham kiem: 11 khoa false; gia tri 201 ky tu false; 10 khoa 200 ky tu true', $q$ NOT fn_quote_extra_ok((SELECT jsonb_object_agg('k' || g, 'v') FROM generate_series(1, 11) g)) AND NOT fn_quote_extra_ok(jsonb_build_object('a', repeat('x', 201))) AND fn_quote_extra_ok((SELECT jsonb_object_agg('k' || g, repeat('x', 200)) FROM generate_series(1, 10) g)) AND fn_quote_extra_ok('{}') $q$);
+SELECT pg_temp.expect_err('Q039 R-Q11 bo cot "dai" khoi nhap khi con dong dung cot do bi tu choi', $q$ UPDATE quote_version SET columns = '[{"key":"dk","label":"Duong kinh","unit":"mm"}]' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'QUOTE_COLUMN_IN_USE');
+SELECT pg_temp.expect_run('Q040 R-Q11 them cot moi vao nhap (khong bo cot dang dung) duoc', $q$ UPDATE quote_version SET columns = '[{"key":"dk","label":"Duong kinh","unit":"mm"},{"key":"dai","label":"Chieu dai","unit":"m"},{"key":"mau","label":"Mau","unit":""}]' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, $q$ (SELECT jsonb_array_length(columns) = 3 FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000091') $q$);
+SELECT pg_temp.expect_err('Q041 hai dong cung so thu tu trong mot phien ban bi tu choi (kiem cuoi transaction => SET CONSTRAINTS IMMEDIATE)', $q$ INSERT INTO quote_line (quote_version_id, line_no, kind, description) VALUES ('6b000000-0000-4000-8000-000000000091', 2, 'SECTION', 'trung'); SET CONSTRAINTS uq_quote_line_version_line_no IMMEDIATE $q$, '23505');
+SELECT pg_temp.expect_run('Q042 doi cho so thu tu hai dong trong mot transaction duoc (DEFERRABLE)', $q$ UPDATE quote_line SET line_no = 3 - line_no WHERE quote_version_id = '6b000000-0000-4000-8000-000000000091'; SET CONSTRAINTS uq_quote_line_version_line_no IMMEDIATE; SET CONSTRAINTS uq_quote_line_version_line_no DEFERRED $q$, $q$ (SELECT line_no = 2 FROM quote_line WHERE id = '6b000000-0000-4000-8000-0000000000a1') AND (SELECT line_no = 1 FROM quote_line WHERE id = '6b000000-0000-4000-8000-0000000000a2') $q$);
+
+-- 3. Tong (C-2, C-3) - cac ca tinh tay A3, A4, A5 cua bang 6.1 o tang DB
+SELECT pg_temp.expect_err('Q050 C-2 subtotal khac base8 + base10 bi tu choi', $q$ UPDATE quote_version SET base10_vnd = 125, subtotal_vnd = 126, vat10_vnd = 13, total_vnd = 139 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'ck_qv_totals');
+SELECT pg_temp.expect_err('Q051 C-3 A3: base10 125 => VAT phai 13 (tu 12,5); 12 bi tu choi', $q$ UPDATE quote_version SET base10_vnd = 125, subtotal_vnd = 125, vat10_vnd = 12, total_vnd = 137 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'ck_qv_vat');
+SELECT pg_temp.expect_run('Q052 C-3 A3: 125 / 13 / 138 duoc', $q$ UPDATE quote_version SET base8_vnd = 0, base10_vnd = 125, subtotal_vnd = 125, vat8_vnd = 0, vat10_vnd = 13, total_vnd = 138 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, $q$ (SELECT total_vnd = 138 FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000091') $q$);
+SELECT pg_temp.expect_run('Q053 C-3 A4: base8 32 => VAT 3 (tu 2,56), tong 35 duoc', $q$ UPDATE quote_version SET base8_vnd = 32, base10_vnd = 0, subtotal_vnd = 32, vat8_vnd = 3, vat10_vnd = 0, total_vnd = 35 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, $q$ (SELECT total_vnd = 35 FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000091') $q$);
+SELECT pg_temp.expect_err('Q054 C-3 A5: base10 15 => VAT phai 2 (tu 1,5); 3 (lam tron tung dong) bi tu choi', $q$ UPDATE quote_version SET base8_vnd = 0, base10_vnd = 15, subtotal_vnd = 15, vat8_vnd = 0, vat10_vnd = 3, total_vnd = 18 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'ck_qv_vat');
+SELECT pg_temp.expect_err('Q055 C-3 total khac subtotal + VAT bi tu choi', $q$ UPDATE quote_version SET base8_vnd = 0, base10_vnd = 15, subtotal_vnd = 15, vat8_vnd = 0, vat10_vnd = 2, total_vnd = 18 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'ck_qv_vat');
+SELECT pg_temp.expect_err('Q056 C-2 subtotal vuot 9 000 000 000 000 000 bi tu choi', $q$ UPDATE quote_version SET base8_vnd = 0, base10_vnd = 9000000000000001, subtotal_vnd = 9000000000000001, vat8_vnd = 0, vat10_vnd = 900000000000000, total_vnd = 9900000000000001 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'ck_qv_totals');
+SELECT pg_temp.expect_run('Q057 C-2 / C-3 tai gioi han: 9 000 000 000 000 000 + 10 % = 9 900 000 000 000 000 (vuot 2^53) luu dung tung chu so', $q$ UPDATE quote_version SET base8_vnd = 0, base10_vnd = 9000000000000000, subtotal_vnd = 9000000000000000, vat8_vnd = 0, vat10_vnd = 900000000000000, total_vnd = 9900000000000000 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, $q$ (SELECT total_vnd::text = '9900000000000000' AND total_vnd > 9007199254740991 FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000091') $q$);
+SELECT pg_temp.expect_err('Q058 C-2 tong am bi tu choi', $q$ UPDATE quote_version SET base8_vnd = -1, base10_vnd = 1, subtotal_vnd = 0, vat8_vnd = 0, vat10_vnd = 0, total_vnd = 0 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'ck_qv_totals');
+
+-- 4. R-Q15 / B16(a), U-1, R-Q13 / B14, B16(b), R-Q4 / B7
+SELECT pg_temp.expect_err('Q060 B16a chen thang phien ban SENT bi tu choi', $q$ INSERT INTO quote_version (quote_id, version_no, status, code_snapshot, item_name, print_template, template_name, title, columns, vat_mode, quoter_name, created_by, quote_date, valid_until, sent_by, sent_at)
+  VALUES ('6b000000-0000-4000-8000-000000000084', 1, 'SENT', 'BG-TEST', 'x', 'siscom-v1', 'x', 'x', '[]', 'LINE', 'x', '6b000000-0000-4000-8000-000000000021', current_date, current_date, '6b000000-0000-4000-8000-000000000021', now()) $q$, '23001', 'QUOTE_VERSION_INSERT_NOT_DRAFT');
+SELECT pg_temp.expect_err('Q061 B16a chen thang phien ban ACCEPTED kem accepted_opportunity_id bi tu choi', $q$ INSERT INTO quote_version (quote_id, version_no, status, code_snapshot, item_name, print_template, template_name, title, columns, vat_mode, quoter_name, created_by, quote_date, valid_until, sent_by, sent_at, decided_by, decided_at, accepted_opportunity_id)
+  VALUES ('6b000000-0000-4000-8000-000000000084', 1, 'ACCEPTED', 'BG-TEST', 'x', 'siscom-v1', 'x', 'x', '[]', 'LINE', 'x', '6b000000-0000-4000-8000-000000000021', current_date, current_date, '6b000000-0000-4000-8000-000000000021', now(), '6b000000-0000-4000-8000-000000000021', now(), '6b000000-0000-4000-8000-000000000062') $q$, '23001', 'QUOTE_ACCEPTED_REF_FORBIDDEN');
+SELECT pg_temp.expect_err('Q062 B16a chen nhap kem accepted_opportunity_id bi tu choi', $q$ INSERT INTO quote_version (quote_id, version_no, code_snapshot, item_name, print_template, template_name, title, columns, vat_mode, quoter_name, created_by, accepted_opportunity_id)
+  VALUES ('6b000000-0000-4000-8000-000000000084', 1, 'BG-TEST', 'x', 'siscom-v1', 'x', 'x', '[]', 'LINE', 'x', '6b000000-0000-4000-8000-000000000021', '6b000000-0000-4000-8000-000000000062') $q$, '23001', 'QUOTE_ACCEPTED_REF_FORBIDDEN');
+SELECT pg_temp.expect_err('Q063 B16a chen nhap kem sent_at bi tu choi', $q$ INSERT INTO quote_version (quote_id, version_no, code_snapshot, item_name, print_template, template_name, title, columns, vat_mode, quoter_name, created_by, sent_at)
+  VALUES ('6b000000-0000-4000-8000-000000000084', 1, 'BG-TEST', 'x', 'siscom-v1', 'x', 'x', '[]', 'LINE', 'x', '6b000000-0000-4000-8000-000000000021', now()) $q$, '23001', 'QUOTE_VERSION_INSERT_NOT_DRAFT');
+SELECT pg_temp.expect_err('Q064 B16a chen nhap kem decided_at bi tu choi', $q$ INSERT INTO quote_version (quote_id, version_no, code_snapshot, item_name, print_template, template_name, title, columns, vat_mode, quoter_name, created_by, decided_at)
+  VALUES ('6b000000-0000-4000-8000-000000000084', 1, 'BG-TEST', 'x', 'siscom-v1', 'x', 'x', '[]', 'LINE', 'x', '6b000000-0000-4000-8000-000000000021', now()) $q$, '23001', 'QUOTE_VERSION_INSERT_NOT_DRAFT');
+SELECT pg_temp.expect_err('Q065 U-1 nhap thu hai cua cung bao gia bi tu choi', $q$ SELECT pg_temp.mk_version('6b000000-0000-4000-8000-000000000099', '6b000000-0000-4000-8000-000000000081', 2, 'QUOTE') $q$, '23505');
+SELECT pg_temp.expect_err('Q066 so phien ban 0 / 1000 bi tu choi', $q$ SELECT pg_temp.mk_version('6b000000-0000-4000-8000-000000000099', '6b000000-0000-4000-8000-000000000084', 1000, 'LINE') $q$, '23514');
+SELECT pg_temp.expect_err('Q067 B14 doi created_by cua NHAP bi tu choi', $q$ UPDATE quote_version SET created_by = '6b000000-0000-4000-8000-000000000022' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23001', 'QUOTE_VERSION_IMMUTABLE');
+SELECT pg_temp.expect_err('Q068 B14 doi vat_mode cua NHAP bi tu choi', $q$ UPDATE quote_version SET vat_mode = 'LINE' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23001', 'QUOTE_VERSION_IMMUTABLE');
+SELECT pg_temp.expect_err('Q069 B14 doi quote_id cua NHAP bi tu choi', $q$ UPDATE quote_version SET quote_id = '6b000000-0000-4000-8000-000000000084' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23001', 'QUOTE_VERSION_IMMUTABLE');
+SELECT pg_temp.expect_err('Q070 B14 doi version_no cua NHAP bi tu choi', $q$ UPDATE quote_version SET version_no = 5 WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23001', 'QUOTE_VERSION_IMMUTABLE');
+SELECT pg_temp.expect_err('Q071 B14 doi created_at cua NHAP bi tu choi', $q$ UPDATE quote_version SET created_at = created_at - interval '1 day' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23001', 'QUOTE_VERSION_IMMUTABLE');
+SELECT pg_temp.expect_err('Q072 B16b dat accepted_opportunity_id tren NHAP bi tu choi', $q$ UPDATE quote_version SET accepted_opportunity_id = '6b000000-0000-4000-8000-000000000061' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23001', 'QUOTE_ACCEPTED_REF_FORBIDDEN');
+SELECT pg_temp.expect_err('Q073 B7 doi created_by cua bao gia bi tu choi', $q$ UPDATE quote SET created_by = '6b000000-0000-4000-8000-000000000022' WHERE id = '6b000000-0000-4000-8000-000000000081' $q$, '23001', 'QUOTE_IMMUTABLE');
+SELECT pg_temp.expect_err('Q074 B7 doi template_id cua bao gia bi tu choi', $q$ UPDATE quote SET template_id = '6b000000-0000-4000-8000-000000000072' WHERE id = '6b000000-0000-4000-8000-000000000081' $q$, '23001', 'QUOTE_IMMUTABLE');
+SELECT pg_temp.expect_err('Q075 B7 doi ma bao gia bi tu choi', $q$ UPDATE quote SET code = 'BG-9999' WHERE id = '6b000000-0000-4000-8000-000000000081' $q$, '23001', 'QUOTE_IMMUTABLE');
+SELECT pg_temp.expect_err('Q076 B7 chuyen bao gia sang co hoi khac (cung khach) bi tu choi', $q$ UPDATE quote SET opportunity_id = '6b000000-0000-4000-8000-000000000062' WHERE id = '6b000000-0000-4000-8000-000000000081' $q$, '23001', 'QUOTE_IMMUTABLE');
+SELECT pg_temp.expect_err('Q077 B7 doi khach / ngay tao cua bao gia bi tu choi', $q$ UPDATE quote SET created_at = created_at - interval '1 day' WHERE id = '6b000000-0000-4000-8000-000000000081' $q$, '23001', 'QUOTE_IMMUTABLE');
+SELECT pg_temp.expect_err('Q078 B6 khoa ngoai ghep: bao gia cua co hoi 1 (K1) ghi khach K2 bi tu choi', $q$ INSERT INTO quote (opportunity_id, customer_id, template_id, item_name, created_by) VALUES ('6b000000-0000-4000-8000-000000000061', '6b000000-0000-4000-8000-000000000032', '6b000000-0000-4000-8000-000000000072', 'x', '6b000000-0000-4000-8000-000000000021') $q$, '23503');
+SELECT pg_temp.expect_err('Q079 bao gia moi tao san is_primary = true bi tu choi', $q$ INSERT INTO quote (opportunity_id, customer_id, template_id, item_name, created_by, is_primary) VALUES ('6b000000-0000-4000-8000-000000000062', '6b000000-0000-4000-8000-000000000031', '6b000000-0000-4000-8000-000000000072', 'x', '6b000000-0000-4000-8000-000000000021', true) $q$, '23001', 'QUOTE_INSERT_STATE');
+SELECT pg_temp.expect_err('Q080 hang muc co khoang trang dau / cuoi hoac rong bi tu choi', $q$ UPDATE quote SET item_name = ' Ong gio ' WHERE id = '6b000000-0000-4000-8000-000000000081' $q$, '23514');
+SELECT pg_temp.expect_err('Q081 R-Q5 bat dang theo duoi khi chua co phien ban da gui bi tu choi', $q$ UPDATE quote SET is_primary = true WHERE id = '6b000000-0000-4000-8000-000000000081' $q$, '23001', 'QUOTE_PRIMARY_NEEDS_SENT');
+
+-- 5. Gui: R-Q1 (B3, B4, B11), C-4, R-Q3 (B5)
+SELECT pg_temp.mk_version('6b000000-0000-4000-8000-000000000094', '6b000000-0000-4000-8000-000000000084', 1, 'LINE');
+SELECT pg_temp.expect_err('Q090 B3 gui phien ban KHONG co dong nao bi tu choi', $q$ SELECT pg_temp.send_version('6b000000-0000-4000-8000-000000000094') $q$, '23514', 'QUOTE_EMPTY');
+INSERT INTO quote_line (quote_version_id, line_no, kind, description) VALUES ('6b000000-0000-4000-8000-000000000094', 1, 'SECTION', 'CHI CO DONG NHOM');
+SELECT pg_temp.expect_err('Q091 B3 gui phien ban CHI co dong nhom bi tu choi', $q$ SELECT pg_temp.send_version('6b000000-0000-4000-8000-000000000094') $q$, '23514', 'QUOTE_EMPTY');
+SELECT pg_temp.expect_err('Q092 B5 DRAFT -> ACCEPTED bi tu choi', $q$ UPDATE quote_version SET status = 'ACCEPTED', decided_by = '6b000000-0000-4000-8000-000000000021', decided_at = now() WHERE id = '6b000000-0000-4000-8000-000000000094' $q$, '23001', 'QUOTE_STATUS_TRANSITION');
+SELECT pg_temp.expect_err('Q093 B5 DRAFT -> REJECTED bi tu choi', $q$ UPDATE quote_version SET status = 'REJECTED', decided_by = '6b000000-0000-4000-8000-000000000021', decided_at = now(), reject_reason = 'x' WHERE id = '6b000000-0000-4000-8000-000000000094' $q$, '23001', 'QUOTE_STATUS_TRANSITION');
+-- Q1 v1: dua tong ve 0, xoa dong nhom, con 1 dong hang 10 % (833 333)
+UPDATE quote_version SET base8_vnd = 0, base10_vnd = 0, subtotal_vnd = 0, vat8_vnd = 0, vat10_vnd = 0, total_vnd = 0 WHERE id = '6b000000-0000-4000-8000-000000000091';
+DELETE FROM quote_line WHERE id = '6b000000-0000-4000-8000-0000000000a2';
+SELECT pg_temp.expect_err('Q094 B4 gui khi base10 lech tong dong (0 thay vi 833 333) bi tu choi', $q$ UPDATE quote_version SET status = 'SENT', quote_date = current_date, valid_until = current_date + 15, sent_by = '6b000000-0000-4000-8000-000000000021', sent_at = now() WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'QUOTE_TOTAL_MISMATCH');
+SELECT pg_temp.expect_err('Q095 B4 gui khi tong dung nhung ghi nham muc VAT (base8 thay vi base10) bi tu choi', $q$ UPDATE quote_version SET base8_vnd = 833333, subtotal_vnd = 833333, vat8_vnd = 66667, total_vnd = 900000, status = 'SENT', quote_date = current_date, valid_until = current_date + 15, sent_by = '6b000000-0000-4000-8000-000000000021', sent_at = now() WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'QUOTE_TOTAL_MISMATCH');
+SELECT pg_temp.expect_err('Q096 C-4 gui thieu ngay bao gia / han / nguoi gui bi tu choi', $q$ UPDATE quote_version SET base10_vnd = 833333, subtotal_vnd = 833333, vat10_vnd = 83333, total_vnd = 916666, status = 'SENT' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'ck_qv_sent');
+SELECT pg_temp.expect_err('Q097 C-4 han hieu luc truoc ngay bao gia bi tu choi', $q$ UPDATE quote_version SET base10_vnd = 833333, subtotal_vnd = 833333, vat10_vnd = 83333, total_vnd = 916666, status = 'SENT', quote_date = current_date, valid_until = current_date - 1, sent_by = '6b000000-0000-4000-8000-000000000021', sent_at = now() WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'ck_qv_sent');
+SELECT pg_temp.expect_err('Q098 C-4 nhap ma co sent_at bi tu choi', $q$ UPDATE quote_version SET sent_at = now(), sent_by = '6b000000-0000-4000-8000-000000000021' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23514', 'ck_qv_sent');
+SELECT pg_temp.mk_line('6b000000-0000-4000-8000-000000000091', 5, 1, 32, 8);
+SELECT pg_temp.expect_err('Q099 B11 loai VAT mot muc (QUOTE) ma cac dong co hai muc 8 va 10 => gui bi tu choi', $q$ SELECT pg_temp.send_version('6b000000-0000-4000-8000-000000000091') $q$, '23514', 'QUOTE_VAT_MIXED');
+DELETE FROM quote_line WHERE quote_version_id = '6b000000-0000-4000-8000-000000000091' AND line_no = 5;
+SELECT pg_temp.send_version('6b000000-0000-4000-8000-000000000091');
+SELECT pg_temp.expect_true('Q100 gui hop le: SENT, tong 833 333 / VAT 83 333 / 916 666, co nguoi gui va thoi diem gui', $q$ (SELECT status = 'SENT' AND subtotal_vnd = 833333 AND vat10_vnd = 83333 AND total_vnd = 916666 AND sent_by IS NOT NULL AND sent_at IS NOT NULL AND accepted_opportunity_id IS NULL FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000091') $q$);
+-- loai VAT theo dong: hai muc duoc phep (A2: 833 333 @8 %, 1 004 + 4 029 000 @10 %)
+DELETE FROM quote_line WHERE quote_version_id = '6b000000-0000-4000-8000-000000000094';
+SELECT pg_temp.mk_line('6b000000-0000-4000-8000-000000000094', 1, 2.5, 333333, 8);
+SELECT pg_temp.mk_line('6b000000-0000-4000-8000-000000000094', 2, 1.005, 999, 10);
+SELECT pg_temp.mk_line('6b000000-0000-4000-8000-000000000094', 3, 237, 17000, 10);
+SELECT pg_temp.send_version('6b000000-0000-4000-8000-000000000094');
+SELECT pg_temp.expect_true('Q101 A2 o DB: loai VAT theo dong gui duoc voi hai muc; 833 333 / 4 030 004 / 66 667 / 403 000 / 4 863 337 / 5 333 004', $q$ (SELECT status = 'SENT' AND base8_vnd = 833333 AND base10_vnd = 4030004 AND vat8_vnd = 66667 AND vat10_vnd = 403000 AND subtotal_vnd = 4863337 AND total_vnd = 5333004 FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000094')
+  AND (SELECT amount_vnd = 1004 FROM quote_line WHERE quote_version_id = '6b000000-0000-4000-8000-000000000094' AND line_no = 2) $q$);
+SELECT pg_temp.expect_err('Q102 B5 SENT -> DRAFT bi tu choi', $q$ UPDATE quote_version SET status = 'DRAFT' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23001', 'QUOTE_STATUS_TRANSITION');
+
+-- 6. B1 + B9: phien ban DA GUI - doi LAN LUOT MOI cot ngoai danh sach duoc phep deu bi tu choi (lay cot tu information_schema => them cot ma quen
+--    dua vao R-Q2a thi dong tuong ung o day do). Cot duoc phep doi sau khi gui: status, decided_by, decided_at, reject_reason, accepted_opportunity_id, updated_at.
+DO $b1$
+DECLARE c record; v_expr text; v_ok boolean; v_state text; v_cons text; n int := 0;
+BEGIN
+  FOR c IN SELECT column_name, data_type, udt_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'quote_version'
+           AND column_name NOT IN ('status', 'decided_by', 'decided_at', 'reject_reason', 'accepted_opportunity_id', 'updated_at') ORDER BY ordinal_position LOOP
+    n := n + 1;
+    v_expr := CASE
+      WHEN c.column_name = 'id' THEN quote_literal('6b000000-0000-4000-8000-0000000000ff') || '::uuid'
+      WHEN c.column_name = 'quote_id' THEN quote_literal('6b000000-0000-4000-8000-000000000082') || '::uuid'
+      WHEN c.udt_name = 'uuid' THEN quote_literal('6b000000-0000-4000-8000-000000000022') || '::uuid'
+      WHEN c.udt_name = 'quote_vat_mode' THEN quote_literal('LINE') || '::public.quote_vat_mode'
+      WHEN c.udt_name = 'jsonb' THEN quote_literal('[{"key":"zz","label":"Z","unit":""}]') || '::jsonb'
+      WHEN c.udt_name IN ('int2', 'int4', 'int8') THEN format('%I + 1', c.column_name)
+      WHEN c.udt_name = 'date' THEN format('%I + 1', c.column_name)
+      WHEN c.udt_name = 'timestamptz' THEN format('%I - interval ''1 hour''', c.column_name)
+      ELSE format('coalesce(%I, '''') || ''x''', c.column_name) END;
+    BEGIN
+      EXECUTE format('UPDATE public.quote_version SET %I = %s WHERE id = %L', c.column_name, v_expr, '6b000000-0000-4000-8000-000000000091');
+      RAISE EXCEPTION 'q2_undo' USING ERRCODE = 'P0001';
+    EXCEPTION
+      WHEN raise_exception THEN INSERT INTO res VALUES (false, 'Q110 B1/B9 phien ban da gui: doi cot ' || c.column_name || ' [CHAY DUOC]');
+      WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS v_cons = CONSTRAINT_NAME; v_state := SQLSTATE;
+        v_ok := v_state = '23001' AND v_cons IN ('QUOTE_VERSION_LOCKED', 'QUOTE_VERSION_IMMUTABLE');
+        INSERT INTO res VALUES (v_ok, 'Q110 B1/B9 phien ban da gui: doi cot ' || c.column_name || ' bi tu choi' || CASE WHEN v_ok THEN '' ELSE ' [' || v_state || '/' || coalesce(v_cons, '') || ']' END);
+    END;
+  END LOOP;
+  INSERT INTO res VALUES (n = 37, 'Q111 B9 quote_version co 43 cot = 37 cot khoa sau khi gui + 6 cot duoc phep doi (dang co ' || (n + 6) || ')');
+END $b1$;
+SELECT pg_temp.expect_err('Q112 B1 xoa phien ban da gui bi tu choi', $q$ DELETE FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23001', 'QUOTE_VERSION_LOCKED');
+SELECT pg_temp.expect_run('Q113 phien ban da gui: doi updated_at (cot duoc phep) duoc, noi dung khong doi', $q$ UPDATE quote_version SET updated_at = now() + interval '1 second' WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, $q$ (SELECT status = 'SENT' AND total_vnd = 916666 FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000091') $q$);
+-- B2: dong cua phien ban da gui
+SELECT pg_temp.expect_err('Q114 B2 them dong vao phien ban da gui bi tu choi', $q$ SELECT pg_temp.mk_line('6b000000-0000-4000-8000-000000000091', 9, 1, 1, 10) $q$, '23001', 'QUOTE_VERSION_LOCKED');
+SELECT pg_temp.expect_err('Q115 B2 sua dong cua phien ban da gui bi tu choi', $q$ UPDATE quote_line SET description = 'sua' WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23001', 'QUOTE_VERSION_LOCKED');
+SELECT pg_temp.expect_err('Q116 B11 sua gia von cua phien ban da gui bi tu choi', $q$ UPDATE quote_line SET cost_price_vnd = 1 WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23001', 'QUOTE_VERSION_LOCKED');
+SELECT pg_temp.expect_err('Q117 B2 xoa dong cua phien ban da gui bi tu choi', $q$ DELETE FROM quote_line WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23001', 'QUOTE_VERSION_LOCKED');
+SELECT pg_temp.mk_version('6b000000-0000-4000-8000-000000000092', '6b000000-0000-4000-8000-000000000081', 2, 'QUOTE');
+SELECT pg_temp.mk_line('6b000000-0000-4000-8000-000000000092', 1, 1, 125, 10);
+SELECT pg_temp.expect_err('Q118 B2 chuyen dong cua nhap sang phien ban khac bi tu choi', $q$ UPDATE quote_line SET quote_version_id = '6b000000-0000-4000-8000-000000000091' WHERE quote_version_id = '6b000000-0000-4000-8000-000000000092' $q$, '23001', 'QUOTE_LINE_IMMUTABLE');
+SELECT pg_temp.expect_err('Q119 B2 chuyen dong cua phien ban da gui sang nhap bi tu choi', $q$ UPDATE quote_line SET quote_version_id = '6b000000-0000-4000-8000-000000000092' WHERE id = '6b000000-0000-4000-8000-0000000000a1' $q$, '23001', 'QUOTE_LINE_IMMUTABLE');
+SELECT pg_temp.expect_err('Q120 R-Q2b xoa nhap con dong hang bi chan (FK RESTRICT) - phai xoa dong truoc', $q$ DELETE FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23001');
+
+-- 7. Dang theo duoi + chap nhan / tu choi: R-Q5, U-3, R-Q7, R-Q8, R-Q9, C-5, U-2, B16(c)(d)
+SELECT pg_temp.send_version('6b000000-0000-4000-8000-000000000092');
+SELECT pg_temp.expect_err('Q130 R-Q7 chap nhan phien ban cua bao gia CHUA la dang theo duoi bi tu choi', $q$ UPDATE quote_version SET status = 'ACCEPTED', decided_by = '6b000000-0000-4000-8000-000000000021', decided_at = now() WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23001', 'QUOTE_NOT_PRIMARY');
+UPDATE quote SET is_primary = true WHERE id = '6b000000-0000-4000-8000-000000000081';
+SELECT pg_temp.expect_true('Q131 R-Q5 bat dang theo duoi khi da co phien ban gui duoc', $q$ (SELECT is_primary FROM quote WHERE id = '6b000000-0000-4000-8000-000000000081') $q$);
+-- Q2 (cung co hoi 1): co phien ban da gui
+SELECT pg_temp.mk_version('6b000000-0000-4000-8000-000000000095', '6b000000-0000-4000-8000-000000000082', 1, 'LINE');
+SELECT pg_temp.mk_line('6b000000-0000-4000-8000-000000000095', 1, 1, 32, 8);
+SELECT pg_temp.send_version('6b000000-0000-4000-8000-000000000095');
+SELECT pg_temp.expect_err('Q132 U-3 bao gia thu hai cua cung co hoi thanh dang theo duoi bi tu choi (phai tat cai cu truoc)', $q$ UPDATE quote SET is_primary = true WHERE id = '6b000000-0000-4000-8000-000000000082' $q$, '23505');
+SELECT pg_temp.expect_err('Q133 R-Q7 chap nhan phien ban cua bao gia khong theo duoi (Q2) bi tu choi', $q$ UPDATE quote_version SET status = 'ACCEPTED', decided_by = '6b000000-0000-4000-8000-000000000021', decided_at = now() WHERE id = '6b000000-0000-4000-8000-000000000095' $q$, '23001', 'QUOTE_NOT_PRIMARY');
+SELECT pg_temp.expect_err('Q134 C-5 chap nhan thieu nguoi quyet dinh bi tu choi', $q$ UPDATE quote_version SET status = 'ACCEPTED' WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23514', 'ck_qv_decided');
+SELECT pg_temp.expect_err('Q135 C-5 tu choi thieu ly do bi tu choi', $q$ UPDATE quote_version SET status = 'REJECTED', decided_by = '6b000000-0000-4000-8000-000000000021', decided_at = now() WHERE id = '6b000000-0000-4000-8000-000000000095' $q$, '23514', 'ck_qv_decided');
+SELECT pg_temp.expect_err('Q136 C-5 phien ban SENT co reject_reason / decided_by bi tu choi', $q$ UPDATE quote_version SET reject_reason = 'x' WHERE id = '6b000000-0000-4000-8000-000000000095' $q$, '23514', 'ck_qv_decided');
+SELECT pg_temp.expect_err('Q137 B16b dat accepted_opportunity_id tren phien ban SENT bi tu choi', $q$ UPDATE quote_version SET accepted_opportunity_id = '6b000000-0000-4000-8000-000000000061' WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23001', 'QUOTE_ACCEPTED_REF_FORBIDDEN');
+SELECT pg_temp.expect_err('Q138 B16c chap nhan kem accepted_opportunity_id cua CO HOI KHAC bi tu choi', $q$ UPDATE quote_version SET status = 'ACCEPTED', decided_by = '6b000000-0000-4000-8000-000000000021', decided_at = now(), accepted_opportunity_id = '6b000000-0000-4000-8000-000000000062' WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23001', 'QUOTE_ACCEPTED_REF_FORBIDDEN');
+-- Tu choi Q2 v1 (co ly do) => REJECTED
+UPDATE quote_version SET status = 'REJECTED', decided_by = '6b000000-0000-4000-8000-000000000021', decided_at = now(), reject_reason = 'Gia cao' WHERE id = '6b000000-0000-4000-8000-000000000095';
+SELECT pg_temp.expect_true('Q139 tu choi co ly do duoc; accepted_opportunity_id van NULL', $q$ (SELECT status = 'REJECTED' AND accepted_opportunity_id IS NULL FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000095') $q$);
+SELECT pg_temp.expect_err('Q140 B16b dat accepted_opportunity_id tren phien ban REJECTED bi tu choi', $q$ UPDATE quote_version SET accepted_opportunity_id = '6b000000-0000-4000-8000-000000000061' WHERE id = '6b000000-0000-4000-8000-000000000095' $q$, '23001', 'QUOTE_ACCEPTED_REF_FORBIDDEN');
+SELECT pg_temp.expect_err('Q141 B5 REJECTED -> ACCEPTED bi tu choi', $q$ UPDATE quote_version SET status = 'ACCEPTED', reject_reason = NULL WHERE id = '6b000000-0000-4000-8000-000000000095' $q$, '23001', 'QUOTE_STATUS_TRANSITION');
+SELECT pg_temp.expect_err('Q142 B5 REJECTED -> SENT bi tu choi', $q$ UPDATE quote_version SET status = 'SENT', decided_by = NULL, decided_at = NULL, reject_reason = NULL WHERE id = '6b000000-0000-4000-8000-000000000095' $q$, '23001', 'QUOTE_STATUS_TRANSITION');
+-- Chap nhan Q1 v2 KHONG truyen accepted_opportunity_id => trigger dien = co hoi cua bao gia
+UPDATE quote_version SET status = 'ACCEPTED', decided_by = '6b000000-0000-4000-8000-000000000021', decided_at = now() WHERE id = '6b000000-0000-4000-8000-000000000092';
+SELECT pg_temp.expect_true('Q143 B16c chap nhan khong truyen cot: thanh cong, accepted_opportunity_id = co hoi cua bao gia (do trigger dat)', $q$ (SELECT v.status = 'ACCEPTED' AND v.accepted_opportunity_id = q.opportunity_id AND v.accepted_opportunity_id = '6b000000-0000-4000-8000-000000000061' FROM quote_version v JOIN quote q ON q.id = v.quote_id WHERE v.id = '6b000000-0000-4000-8000-000000000092') $q$);
+SELECT pg_temp.expect_err('Q144 R-Q7 / QB7 chap nhan phien ban THU HAI tren cung co hoi (Q1 v1) bi tu choi', $q$ UPDATE quote_version SET status = 'ACCEPTED', decided_by = '6b000000-0000-4000-8000-000000000021', decided_at = now() WHERE id = '6b000000-0000-4000-8000-000000000091' $q$, '23001', 'QUOTE_ALREADY_ACCEPTED');
+SELECT pg_temp.expect_err('Q145 B16d da chap nhan: doi accepted_opportunity_id sang co hoi khac bi tu choi', $q$ UPDATE quote_version SET accepted_opportunity_id = '6b000000-0000-4000-8000-000000000062' WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23001', 'QUOTE_ACCEPTED_REF_FORBIDDEN');
+SELECT pg_temp.expect_err('Q146 B16d da chap nhan: dat accepted_opportunity_id ve NULL bi tu choi', $q$ UPDATE quote_version SET accepted_opportunity_id = NULL WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23001', 'QUOTE_ACCEPTED_REF_FORBIDDEN');
+SELECT pg_temp.expect_err('Q147 B16d / B5 da chap nhan: doi status ve SENT bi tu choi', $q$ UPDATE quote_version SET status = 'SENT', decided_by = NULL, decided_at = NULL WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23001', 'QUOTE_STATUS_TRANSITION');
+SELECT pg_temp.expect_err('Q148 B16d / B5 da chap nhan: doi status sang REJECTED bi tu choi', $q$ UPDATE quote_version SET status = 'REJECTED', reject_reason = 'x' WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23001', 'QUOTE_STATUS_TRANSITION');
+SELECT pg_temp.expect_err('Q149 B16d da chap nhan: xoa phien ban bi tu choi', $q$ DELETE FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, '23001', 'QUOTE_VERSION_LOCKED');
+SELECT pg_temp.expect_run('Q150 B16f da chap nhan: UPDATE khong doi gi (hoac truyen lai dung gia tri) duoc, gia tri giu nguyen', $q$ UPDATE quote_version SET updated_at = now() + interval '1 second', accepted_opportunity_id = '6b000000-0000-4000-8000-000000000061' WHERE id = '6b000000-0000-4000-8000-000000000092' $q$, $q$ (SELECT status = 'ACCEPTED' AND accepted_opportunity_id = '6b000000-0000-4000-8000-000000000061' FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000092') $q$);
+SELECT pg_temp.expect_err('Q151 R-Q8 / QB6 da chap nhan: tat dang theo duoi cua bao gia do bi tu choi', $q$ UPDATE quote SET is_primary = false WHERE id = '6b000000-0000-4000-8000-000000000081' $q$, '23001', 'QUOTE_PRIMARY_FIXED');
+SELECT pg_temp.expect_err('Q152 R-Q8 / QB6 da chap nhan: bat dang theo duoi cho bao gia khac cua co hoi bi tu choi', $q$ UPDATE quote SET is_primary = true WHERE id = '6b000000-0000-4000-8000-000000000082' $q$, '23001', 'QUOTE_PRIMARY_FIXED');
+SELECT pg_temp.expect_err('Q153 R-Q9 xoa mem bao gia da co phien ban gui bi tu choi', $q$ UPDATE quote SET deleted_at = now(), deleted_by = '6b000000-0000-4000-8000-000000000021', delete_reason = 'thu' WHERE id = '6b000000-0000-4000-8000-000000000082' $q$, '23001', 'QUOTE_DELETE_FORBIDDEN');
+-- Bao gia chi co nhap (co hoi 3): xoa mem duoc; thieu ly do bi tu choi; bao gia da xoa khong gui duoc
+SELECT pg_temp.mk_version('6b000000-0000-4000-8000-000000000093', '6b000000-0000-4000-8000-000000000083', 1, 'LINE');
+SELECT pg_temp.mk_line('6b000000-0000-4000-8000-000000000093', 1, 3, 5, 10);
+SELECT pg_temp.expect_err('Q154 xoa mem thieu ly do bi tu choi', $q$ UPDATE quote SET deleted_at = now(), deleted_by = '6b000000-0000-4000-8000-000000000022' WHERE id = '6b000000-0000-4000-8000-000000000083' $q$, '23514', 'ck_q_deleted');
+UPDATE quote SET deleted_at = now(), deleted_by = '6b000000-0000-4000-8000-000000000022', delete_reason = 'Lap nham' WHERE id = '6b000000-0000-4000-8000-000000000083';
+SELECT pg_temp.expect_true('Q155 R-Q9 xoa mem bao gia chi co nhap duoc', $q$ (SELECT deleted_at IS NOT NULL FROM quote WHERE id = '6b000000-0000-4000-8000-000000000083') $q$);
+SELECT pg_temp.expect_err('Q156 gui phien ban cua bao gia DA XOA MEM bi tu choi', $q$ SELECT pg_temp.send_version('6b000000-0000-4000-8000-000000000093') $q$, '23001', 'QUOTE_DELETED');
+SELECT pg_temp.expect_err('Q157 xoa cung co hoi con bao gia bi chan (FK RESTRICT)', $q$ DELETE FROM opportunity WHERE id = '6b000000-0000-4000-8000-000000000062' $q$, '23001');
+
+-- 8. Mac dinh ca nhan
+INSERT INTO quote_user_default (employee_id, quoter_title, payment_info) VALUES ('6b000000-0000-4000-8000-000000000021', 'Kinh doanh', 'STK thu 000');
+SELECT pg_temp.expect_err('Q160 moi nhan vien toi da mot dong mac dinh ca nhan', $q$ INSERT INTO quote_user_default (employee_id) VALUES ('6b000000-0000-4000-8000-000000000021') $q$, '23505');
+
+-- 9. B16(e): bat bien sau toan bo cac ca
+SELECT pg_temp.expect_true('Q170 B16e bat bien: moi phien ban ACCEPTED co accepted_opportunity_id = quote.opportunity_id; phien ban khac deu NULL; moi co hoi <= 1 phien ban duoc chap nhan', $q$ NOT EXISTS (SELECT 1 FROM quote_version v JOIN quote q ON q.id = v.quote_id WHERE (v.status = 'ACCEPTED' AND v.accepted_opportunity_id IS DISTINCT FROM q.opportunity_id) OR (v.status <> 'ACCEPTED' AND v.accepted_opportunity_id IS NOT NULL))
+  AND NOT EXISTS (SELECT 1 FROM quote_version v JOIN quote q ON q.id = v.quote_id WHERE v.status = 'ACCEPTED' GROUP BY q.opportunity_id HAVING count(*) > 1)
+  AND NOT EXISTS (SELECT 1 FROM quote_version v JOIN quote q ON q.id = v.quote_id WHERE v.status = 'ACCEPTED' AND NOT q.is_primary) $q$);
+
+SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
+SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;
+SELECT 'FAIL|' || count(*) FROM res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+ROLLBACK;

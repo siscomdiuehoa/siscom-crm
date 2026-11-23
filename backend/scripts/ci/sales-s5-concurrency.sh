@@ -29,6 +29,8 @@ GRANT SET ON PARAMETER app.actor_employee_id, app.priv_request_id TO $owner;
 SQL
 ( cd "$backend" && DATABASE_URL="$url" MIGRATE_DATABASE_URL= npx prisma migrate deploy >/dev/null )
 echo "DB tam dong thoi S5: $name (da migrate)"
+# Bao gia Q2 (moi nhat) cung thay fn_auth_perm_class => go TRUOC de bai S5 chay tren dung ban ham cua S5 (bang rong => rollback chay sach).
+psql -X -q -v ON_ERROR_STOP=1 -d "$name" -f "$docs/QUOTES_Q2_ROLLBACK.sql.txt" >/dev/null || { echo "FAIL rollback Bao gia Q2 truoc khi kiem dong thoi S5"; exit 1; }
 
 node "$here/sales-s5-concurrency.mjs" "$url" "$(command -v psql)" \
   "$backend/prisma/migrations/20261118000000_sales_perm_class/migration.sql" \

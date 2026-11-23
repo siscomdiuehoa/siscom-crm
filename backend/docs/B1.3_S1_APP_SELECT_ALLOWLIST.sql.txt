@@ -18,12 +18,14 @@ DO $$ BEGIN
 END $$;
 CREATE TEMP TABLE b3_al_res (ok boolean, label text);
 CREATE TEMP TABLE b3_al_allow (t text PRIMARY KEY);
--- DANH SACH CHO PHEP (19 bang, sau B3 A2 + V4 + Sales S2: opportunity, opportunity_change + Sales S9b: opportunity_document = bang nghiep vu, app doc - ghi o V5). Bang KHONG duoc co o day: auth_session, employee_credential, remember_device,
+-- DANH SACH CHO PHEP (24 bang, sau B3 A2 + V4 + Sales S2: opportunity, opportunity_change + Sales S9b: opportunity_document = bang nghiep vu, app doc - ghi o V5;
+--   + Bao gia Q2: quote, quote_line, quote_template, quote_user_default, quote_version = bang nghiep vu, app doc theo quyen mac dinh - quyen ghi o PR Q3). Bang KHONG duoc co o day: auth_session, employee_credential, remember_device,
 --   privileged_change_request, password_reset_token (du lieu xac thuc / dac quyen - VERIFY B1d/B1e/B1f kiem rieng).
 INSERT INTO b3_al_allow (t) VALUES
  ('_prisma_migrations'), ('activity'), ('activity_access'), ('activity_transfer_request'), ('app_meta'), ('audit_log'),
  ('contact'), ('customer'), ('customer_assignment'), ('department'), ('employee'), ('employee_role'),
- ('lookup_item'), ('opportunity'), ('opportunity_change'), ('opportunity_document'), ('permission'), ('role'), ('role_permission');
+ ('lookup_item'), ('opportunity'), ('opportunity_change'), ('opportunity_document'), ('permission'),
+ ('quote'), ('quote_line'), ('quote_template'), ('quote_user_default'), ('quote_version'), ('role'), ('role_permission');
 
 -- AL1: moi quan he (bang/view/matview/foreign/partition) trong public ma app SELECT duoc (ke ca theo cot) PHAI nam trong danh sach
 INSERT INTO b3_al_res SELECT count(*) = 0,

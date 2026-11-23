@@ -1,0 +1,110 @@
+-- SISCOM CRM - ROLLBACK Bao gia Q2 (20261125000000_quotes). VIET SAN, KHONG TU CHAY.
+-- Dich: backend\docs\QUOTES_Q2_ROLLBACK.sql.txt (noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/staging/production: CAM, tru khi co phe duyet RIENG.
+-- Viec lam: go 5 bang (quote_line, quote_version, quote, quote_user_default, quote_template) + trigger, 6 ham fn_quote_*, ham + sequence ma BG-,
+--   3 enum, chi muc opportunity_id_customer_id_key; tra fn_auth_perm_class ve ban Sales S5 (khong con tien to "quote."); xoa dong _prisma_migrations.
+-- THU TU (docs/QUOTES_DESIGN.md muc 12 "Duong lui": UU TIEN LUI MA, giu cau truc): (1) trien khai lai backend ban TRUOC Bao gia;
+--   (2) go ma quyen quote.* (script go quyen cua PR Q3); (3) file nay; roi moi toi rollback cua migration cu hon (P1_ACCOUNT_ADMIN_ROLLBACK ...).
+-- MOT transaction. KHONG BAO GIO tu xoa/sua du lieu. TU CHOI khi (F1, F7b):
+--   (1) con BAT KY dong nao trong quote / quote_version / quote_line / quote_user_default (ke ca bao gia da xoa mem);
+--   (2) quote_template co dong khac dong nap san "chung", hoac dong "chung" da bi sua (version > 1 / co nguoi sua);
+--   (3) bang permission con ma quote.* (phan loai SoD se mat).
+--   Xu ly tay TRUOC (Owner duyet rieng, tren ban sao, xuat du lieu, ghi evidence). Khong co co "ep buoc".
+-- KHOA TRUOC KHI KIEM (nhu SALES_S2_ROLLBACK / SALES_S5_PERM_CLASS_ROLLBACK): permission + role_permission SHARE ROW EXCLUSIVE, khoa tu van siscom.rbac,
+--   roi ACCESS EXCLUSIVE tren opportunity va 5 bang bao gia => khong co giao dich nao chen du lieu giua luc dem va luc go. Chay khi bao tri.
+-- Chay bang CHU SO HUU BANG (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi unsplit); khong phai chu so huu => 42501, huy.
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261125000000_quotes') THEN
+    RAISE EXCEPTION 'TU CHOI: chua ap 20261125000000_quotes (khong co gi de rollback).';
+  END IF;
+END $$;
+LOCK TABLE public.permission, public.role_permission IN SHARE ROW EXCLUSIVE MODE;
+DO $$ BEGIN PERFORM pg_advisory_xact_lock(hashtext('siscom.rbac')); END $$;
+LOCK TABLE public.opportunity IN ACCESS EXCLUSIVE MODE;
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['quote_template', 'quote_user_default', 'quote', 'quote_version', 'quote_line'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN EXECUTE format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', t); END IF;
+  END LOOP;
+END $$;
+\if :{?q2_test_pause}
+SELECT pg_sleep(:q2_test_pause);
+\endif
+DO $$
+DECLARE t text; n bigint;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['quote', 'quote_version', 'quote_line', 'quote_user_default'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('SELECT count(*) FROM public.%I', t) INTO n;
+      IF n > 0 THEN
+        RAISE EXCEPTION 'TU CHOI: con % dong % (ke ca da xoa mem) - xuat du lieu truoc, khong tu xoa.', n, t;
+      END IF;
+    END IF;
+  END LOOP;
+  IF to_regclass('public.quote_template') IS NOT NULL THEN
+    EXECUTE $q$SELECT count(*) FROM public.quote_template WHERE NOT (code = 'chung' AND version = 1 AND created_by IS NULL AND updated_by IS NULL)$q$ INTO n;
+    IF n > 0 THEN
+      RAISE EXCEPTION 'TU CHOI: con % dong quote_template ngoai dong nap san "chung" (hoac dong "chung" da bi sua) - xuat du lieu truoc, khong tu xoa.', n;
+    END IF;
+  END IF;
+  SELECT count(*) INTO n FROM public.permission WHERE code ~ '^quote\.';
+  IF n > 0 THEN
+    RAISE EXCEPTION 'TU CHOI: con % ma quote.* trong permission - chay script go quyen bao gia truoc.', n;
+  END IF;
+END $$;
+
+DROP TABLE IF EXISTS public.quote_line;
+DROP TABLE IF EXISTS public.quote_version;
+DROP TABLE IF EXISTS public.quote;
+DROP TABLE IF EXISTS public.quote_user_default;
+DROP TABLE IF EXISTS public.quote_template;
+DROP FUNCTION IF EXISTS public.fn_quote_line_guard();
+DROP FUNCTION IF EXISTS public.fn_quote_version_guard();
+DROP FUNCTION IF EXISTS public.fn_quote_guard();
+DROP FUNCTION IF EXISTS public.fn_quote_template_no_delete();
+DROP FUNCTION IF EXISTS public.fn_quote_columns_ok(jsonb);
+DROP FUNCTION IF EXISTS public.fn_quote_extra_ok(jsonb);
+DROP FUNCTION IF EXISTS public.fn_next_quote_code();
+DROP SEQUENCE IF EXISTS public.quote_code_seq;
+DROP TYPE IF EXISTS public.quote_line_kind;
+DROP TYPE IF EXISTS public.quote_version_status;
+DROP TYPE IF EXISTS public.quote_vat_mode;
+DROP INDEX IF EXISTS public.opportunity_id_customer_id_key;
+-- fn_auth_perm_class ve ban Sales S5 (20261118000000_sales_perm_class)
+CREATE OR REPLACE FUNCTION public.fn_auth_perm_class(p_code text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN p_code = 'access.approve' THEN 'APPROVE'
+    WHEN p_code IN ('employee.manage', 'role.manage', 'auth.credential.manage', 'auth.reset.request', 'access.request') THEN 'REQUEST'
+    WHEN p_code ~ '^(customer|contact|activity|interaction|approval|opportunity)\.' THEN 'BIZ'
+    ELSE 'OTHER' END $$;
+COMMENT ON FUNCTION public.fn_auth_perm_class(text) IS 'B1.3 + Sales S5: phan loai quyen APPROVE/REQUEST/BIZ/OTHER cho SoD (BIZ gom opportunity.*). Doi = migration moi.';
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261125000000_quotes';
+
+DO $$ BEGIN
+  IF to_regclass('public.quote_line') IS NOT NULL OR to_regclass('public.quote_version') IS NOT NULL OR to_regclass('public.quote') IS NOT NULL
+     OR to_regclass('public.quote_user_default') IS NOT NULL OR to_regclass('public.quote_template') IS NOT NULL
+     OR to_regclass('public.quote_code_seq') IS NOT NULL OR to_regclass('public.opportunity_id_customer_id_key') IS NOT NULL
+     OR to_regtype('public.quote_line_kind') IS NOT NULL OR to_regtype('public.quote_version_status') IS NOT NULL OR to_regtype('public.quote_vat_mode') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace WHERE ns.nspname = 'public' AND (p.proname LIKE 'fn\_quote\_%' OR p.proname = 'fn_next_quote_code'))
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261125000000_quotes')
+     OR public.fn_auth_perm_class('quote.read') <> 'OTHER'
+     -- doi tuong cua cac migration truoc phai con nguyen
+     OR public.fn_auth_perm_class('opportunity.read') <> 'BIZ' OR public.fn_auth_perm_class('customer.read') <> 'BIZ'
+     OR public.fn_auth_perm_class('access.approve') <> 'APPROVE' OR public.fn_auth_perm_class('role.manage') <> 'REQUEST'
+     OR to_regclass('public.opportunity') IS NULL OR to_regclass('public.opportunity_code_key') IS NULL OR to_regclass('public.opportunity_change') IS NULL THEN
+    RAISE EXCEPTION 'Rollback Bao gia Q2 (quotes) chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK Bao gia Q2 (20261125000000_quotes) XONG' AS ket_qua;
