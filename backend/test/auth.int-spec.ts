@@ -1433,6 +1433,17 @@ describe('P1 — quản lý tài khoản (/accounts, pool siscom_acct)', () => {
       expect({ k, s: (await get('/roles', s)).status }).toEqual({ k, s: 403 });
       expect({ k, s: (await post('', { fullName: 'X', email: mail('x-' + k), role: 'sales', tempPassword: TEMP }, s)).status }).toEqual({ k, s: 403 });
       expect({ k, s: (await post('/' + adminId + '/disable', { reason: 'thu' }, s)).status }).toEqual({ k, s: 403 });
+      // R1 #262: ĐỦ 9 route (không chỉ 4) — mỗi route tự đi qua cổng access.approve, kể cả khi thân yêu cầu hợp lệ.
+      const before = await counts();
+      const rest: [string, () => Promise<request.Response>][] = [
+        ['GET /departments', () => get('/departments', s)],
+        ['PATCH /:id', () => patch('/' + adminId, { updatedAt: new Date().toISOString(), fullName: 'X', email: mail('x2-' + k) }, s)],
+        ['POST /:id/role', () => post('/' + adminId + '/role', { role: 'sales' }, s)],
+        ['POST /:id/reset-password', () => post('/' + adminId + '/reset-password', { tempPassword: TEMP }, s)],
+        ['POST /:id/enable', () => post('/' + adminId + '/enable', { tempPassword: TEMP }, s)],
+      ];
+      for (const [name, call] of rest) { const r = await call(); expect({ k, name, s: r.status, c: r.body?.error?.code }).toEqual({ k, name, s: 403, c: 'FORBIDDEN' }); }
+      expect(await counts()).toEqual(before);
     }
     expect((await srv().get(A)).status).toBe(401);
   });
@@ -1574,14 +1585,12 @@ describe('P1 — quản lý tài khoản (/accounts, pool siscom_acct)', () => {
     expect((await post('/' + emp.id + '/role', { role: 'admin' })).status).toBe(400);
     // Nhân viên có 2 vai trò (gán bằng chủ sở hữu qua đúng luồng hai người) => giao diện không đổi được, báo rõ.
     const multi = await create('haivaitro', 'sales');
-    const tool = new AccountAdmin(adminPrisma);
     const roleId = (await adminPrisma.role.findFirstOrThrow({ where: { code: 'accountant' }, select: { id: true } })).id;
     await adminPrisma.$transaction(async (tx) => {
       const q = await tx.$queryRaw<{ id: string }[]>`SELECT public.fn_auth_api_request_create(${sysId}::uuid, 'ROLE_GRANT'::public.privileged_change_type, ${multi.id}::uuid, ${roleId}::uuid, '{"t":"p1-multi"}'::jsonb, 5) AS id`;
       await tx.$queryRaw`SELECT public.fn_auth_api_request_decide(${adminId}::uuid, ${q[0].id}::uuid, true)::text`;
       await tx.$executeRaw`SELECT public.fn_auth_api_role_grant(${sysId}::uuid, ${q[0].id}::uuid)`;
     });
-    expect(tool).toBeDefined();
     const m = await post('/' + multi.id + '/role', { role: 'technician' });
     expect({ s: m.status, c: m.body.error.code }).toEqual({ s: 409, c: 'MULTI_ROLE_UNSUPPORTED' });
     expect((await counts()).openPcr).toBe(0);
@@ -1640,6 +1649,27 @@ describe('P1 — quản lý tài khoản (/accounts, pool siscom_acct)', () => {
     const audit = await adminPrisma.auditLog.findMany({ where: { entityId: emp.id, action: { in: ['ACCOUNT_DISABLE', 'ACCOUNT_ENABLE'] } }, select: { action: true, actorId: true } });
     expect(audit.map((x) => x.action + ':' + (x.actorId === adminId)).sort()).toEqual(['ACCOUNT_DISABLE:true', 'ACCOUNT_ENABLE:true']);
     expect((await counts()).openPcr).toBe(0);
+  });
+
+  it('P1-10b. quyền bị GỠ giữa phiên: người vừa bị hạ từ Quản trị CRM xuống Kinh doanh không dùng được phiên cũ để quản lý tài khoản (không tin quyền lúc đăng nhập)', async () => {
+    if (!on()) return;
+    const sale = await session('sale'); const saleId = String(sale.me.employeeId);
+    expect((await get('', sale)).status).toBe(403);
+    const up = await post('/' + saleId + '/role', { role: 'crm_admin' });
+    expect({ s: up.status, c: up.body?.error?.code }).toEqual({ s: 200, c: undefined });
+    const promoted = await session('sale'); // phiên MỚI sau khi được cấp quyền
+    expect((await get('', promoted)).status).toBe(200);
+    const down = await post('/' + saleId + '/role', { role: 'sales' });
+    expect({ s: down.status, c: down.body?.error?.code }).toEqual({ s: 200, c: undefined });
+    const before = await counts();
+    // Phiên lấy lúc CÒN quyền: mọi lời gọi giờ phải bị từ chối (403, hoặc 401 nếu phiên đã bị thu hồi) và không ghi gì.
+    const tries = [await get('', promoted), await post('', { fullName: 'P1 leo quyen', email: mail('leo-quyen'), role: 'crm_admin', tempPassword: TEMP }, promoted),
+      await post('/' + adminId + '/disable', { reason: 'leo quyen' }, promoted), await post('/' + saleId + '/role', { role: 'crm_admin' }, promoted)];
+    for (const r of tries) expect([401, 403]).toContain(r.status);
+    expect(await counts()).toEqual(before);
+    expect(await adminPrisma.employee.count({ where: { email: mail('leo-quyen') } })).toBe(0);
+    expect((await session('admin')).me).toMatchObject({ code: codes.admin });
+    expect(((await session('sale')).me.roles as string[])).toEqual(['sales']);
   });
 
   it('P1-11. người duyệt cuối cùng: lỗi LAST_APPROVER của database ra đúng 409 LAST_APPROVER (không phải 409 chung)', async () => {
