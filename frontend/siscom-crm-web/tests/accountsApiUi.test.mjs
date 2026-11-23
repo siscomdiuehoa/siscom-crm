@@ -211,10 +211,52 @@ test('sửa thông tin: PATCH kèm updatedAt đã tải; 409 VERSION_CONFLICT =>
     assert.equal(f.lists().length, before + 1);
     open = modal(dom.doc.body);
     assert.equal(inputByLabel(open, /Họ tên/).value, 'Trần Thị Mẫu Mới', 'nội dung đang gõ được giữ');
+    assert.equal(inputByLabel(open, /Chức danh/).value, 'Người khác vừa sửa', 'ô mình CHƯA đụng nhận giá trị mới của máy chủ (không ghi đè ngược lại)');
     await press(open, /^Lưu$/);
-    assert.equal(f.writes().length, 2); assert.equal(f.writes()[1].body.updatedAt, T1); assert.equal(f.writes()[1].body.fullName, 'Trần Thị Mẫu Mới');
+    assert.equal(f.writes().length, 2); assert.equal(f.writes()[1].body.updatedAt, T1); assert.equal(f.writes()[1].body.fullName, 'Trần Thị Mẫu Mới'); assert.equal(f.writes()[1].body.positionTitle, 'Người khác vừa sửa');
     assert.equal(modal(dom.doc.body), undefined);
     assert.match(m.toasts[0].message, /NV-0006/);
+  } finally { await m.unmount(); }
+});
+
+test('sửa thông tin sau 409 — KHÔNG mất sửa đổi của người khác: người kia đổi email, mình chỉ đổi chức danh => "Tải lại" nạp email mới, lưu gửi email mới', async () => {
+  let n = 0;
+  const f = server({ write: (p, method, body, db) => {
+    if (method !== 'PATCH') return undefined; n += 1;
+    if (n === 1) { db[2] = { ...db[2], updatedAt: T1, email: 'mau.moi@thu.local' }; return fail(409, 'VERSION_CONFLICT', 'x'); }
+    db[2] = { ...db[2], ...body, updatedAt: '2026-11-23T05:00:00.000Z' }; return res(200, { data: db[2] });
+  } });
+  const m = await mount(f);
+  try {
+    const d = await choose(m.container, EMP.fullName, /Sửa thông tin/);
+    await fill(d, /Chức danh/, 'Trưởng nhóm');
+    await press(d, /^Lưu$/);
+    await press(modal(dom.doc.body), /Tải lại/);
+    const open = modal(dom.doc.body);
+    assert.equal(inputByLabel(open, /Email đăng nhập/).value, 'mau.moi@thu.local');
+    assert.equal(inputByLabel(open, /Chức danh/).value, 'Trưởng nhóm');
+    await press(open, /^Lưu$/);
+    assert.deepEqual(f.writes()[1].body, { updatedAt: T1, fullName: 'Trần Thị Mẫu', email: 'mau.moi@thu.local', departmentId: 'd-kd', positionTitle: 'Trưởng nhóm' });
+  } finally { await m.unmount(); }
+});
+
+test('sửa thông tin sau 409 — cùng sửa MỘT ô: giữ nội dung của mình nhưng báo rõ người khác vừa đổi ô đó thành gì', async () => {
+  let n = 0;
+  const f = server({ write: (p, method, body, db) => {
+    if (method !== 'PATCH') return undefined; n += 1;
+    if (n === 1) { db[2] = { ...db[2], updatedAt: T1, fullName: 'Trần Thị Mẫu (A sửa)' }; return fail(409, 'VERSION_CONFLICT', 'x'); }
+    return undefined;
+  } });
+  const m = await mount(f);
+  try {
+    const d = await choose(m.container, EMP.fullName, /Sửa thông tin/);
+    await fill(d, /Họ tên/, 'Trần Thị Mẫu (B sửa)');
+    await press(d, /^Lưu$/);
+    await press(modal(dom.doc.body), /Tải lại/);
+    const open = modal(dom.doc.body);
+    assert.equal(inputByLabel(open, /Họ tên/).value, 'Trần Thị Mẫu (B sửa)');
+    assert.match(text(open), /Người khác vừa đổi Họ tên thành “Trần Thị Mẫu \(A sửa\)”/);
+    assert.match(text(open), /lưu sẽ ghi đè/i);
   } finally { await m.unmount(); }
 });
 

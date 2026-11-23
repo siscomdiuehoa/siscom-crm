@@ -14,6 +14,9 @@ const TITLE = {
 const OK_LABEL = { create: 'Tạo tài khoản', edit: 'Lưu', role: 'Đổi vai trò', resetPassword: 'Cấp lại mật khẩu', disable: 'Khoá tài khoản', enable: 'Mở lại' };
 const ICON = { create: 'user-plus', edit: 'pencil', role: 'shield', resetPassword: 'key-round', disable: 'lock', enable: 'lock-open' };
 const box = (tone) => ({ padding: '10px 12px', borderRadius: 10, font: 'var(--type-sm)', color: 'var(--' + tone + '-text)', background: 'var(--' + tone + '-soft)', border: '1px solid var(--' + tone + '-border)' });
+// Bốn ô hồ sơ của hộp Sửa: giá trị trong form <- dòng máy chủ trả.
+const PROFILE_FIELDS = [['fullName', 'Họ tên'], ['email', 'Email đăng nhập'], ['departmentId', 'Phòng ban'], ['positionTitle', 'Chức danh']];
+const formOf = (r) => ({ fullName: r ? r.fullName || '' : '', email: r ? r.email || '' : '', departmentId: r ? r.departmentId || '' : '', positionTitle: r ? r.positionTitle || '' : '' });
 const row2 = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 };
 
 function PasswordField({ value, onChange }) {
@@ -26,10 +29,11 @@ export function AccountDialog({ ui, kind, row, onClose }) {
   const busy = !!s.busy;
   const meta = s.meta;
   const [f, setF] = React.useState(() => ({
-    fullName: row ? row.fullName : '', email: row ? row.email || '' : '', departmentId: row ? row.departmentId || '' : '', positionTitle: row ? row.positionTitle || '' : '',
+    ...formOf(row),
     role: kind === 'create' ? 'sales' : row && row.roles.length === 1 ? row.roles[0] : '', tempPassword: '', reason: '',
   }));
   const [base, setBase] = React.useState(row ? row.updatedAt : null); // mốc updatedAt của bản đang sửa (khoá lạc quan)
+  const [seen, setSeen] = React.useState(() => formOf(row)); // bản máy chủ mà form đang dựa vào (để biết ô nào mình đã đụng)
   const [error, setError] = React.useState(null);
   const [conflict, setConflict] = React.useState(false);
   const [note, setNote] = React.useState(null);
@@ -56,10 +60,19 @@ export function AccountDialog({ ui, kind, row, onClose }) {
     ui.toast({ tone: 'success', ...done });
     close();
   };
-  // Sau 409: lấy mốc updatedAt mới nhất của tài khoản, GIỮ nguyên nội dung người dùng đang gõ.
+  // Sau 409: lấy bản mới nhất. Ô mình CHƯA đụng => nhận giá trị mới của máy chủ (nếu không, lần lưu kế tiếp sẽ ghi đè ngược sửa đổi của người kia).
+  // Ô mình ĐÃ sửa => giữ nội dung của mình; nếu người kia cũng vừa đổi chính ô đó thì nói rõ họ đổi thành gì để mình quyết.
   const refresh = async () => {
     const r = await accounts.fresh(row.id);
-    if (r.ok) { setBase(r.row.updatedAt); setConflict(false); setError(null); setNote('Đã lấy bản mới nhất. Nội dung bạn đang gõ được giữ nguyên — kiểm tra lại rồi bấm Lưu.'); }
+    if (r.ok) {
+      const fresh = formOf(r.row); const next = { ...f }; const clash = [];
+      for (const [k, label] of PROFILE_FIELDS) {
+        if (f[k] === seen[k]) next[k] = fresh[k];
+        else if (fresh[k] !== seen[k] && fresh[k] !== f[k]) clash.push('Người khác vừa đổi ' + label + ' thành “' + (k === 'departmentId' ? ((meta.departments || []).find((d) => d.id === fresh[k]) || {}).name || r.row.departmentName || '(trống)' : fresh[k] || '(trống)') + '”');
+      }
+      setF(next); setSeen(fresh); setBase(r.row.updatedAt); setConflict(false); setError(null);
+      setNote(clash.length ? clash.join('. ') + '. Ô đó đang giữ nội dung của bạn — bấm Lưu sẽ ghi đè.' : 'Đã lấy bản mới nhất; các ô bạn chưa sửa đã cập nhật theo máy chủ. Kiểm tra lại rồi bấm Lưu.');
+    }
     else setError(r.gone ? 'Không còn thấy tài khoản này trong danh sách. Hãy đóng hộp thoại và tải lại trang.' : accountErrorMessage(r.error));
   };
 
@@ -104,7 +117,7 @@ export function AccountDialog({ ui, kind, row, onClose }) {
           </>
         ) : null}
         {kind === 'enable' ? <PasswordField value={f.tempPassword} onChange={set('tempPassword')} /> : null}
-        {note ? <div role="status" style={box('success')}>{note}</div> : null}
+        {note ? <div role="status" style={box('warning')}>{note}</div> : null}
         {error ? (
           <div role="alert" style={{ ...box('error'), display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ flex: '1 1 200px', minWidth: 0 }}>{error}</span>

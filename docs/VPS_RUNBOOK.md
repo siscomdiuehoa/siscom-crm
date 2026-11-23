@@ -403,12 +403,14 @@ Thiết kế: `docs/P1_ACCOUNT_ADMIN_DESIGN.md`. Mã đã merge **không** tự 
 | 4. Kiểm chỉ đọc | `SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL` (bằng `siscom_migrator`) ; `curl -s -o /dev/null -w '%{http_code}' https://<host>/api/v1/accounts` | 18 migration; chưa đăng nhập ⇒ `401` (không phải 404 / 503) |
 | 5. Nghiệm thu | Owner đăng nhập bằng tài khoản Quản trị CRM, mở **Vận hành → Tài khoản** | Thấy danh sách tài khoản; tài khoản hệ thống không có nút thao tác; thử thêm một nhân viên rồi khoá lại |
 
+**Nếu bản mã có P1 đã chạy sẵn trên máy chủ** (không còn migration chờ): sau bước 2 phải chạy `create-db.sh siscom_crm_prod grants` rồi mới `systemctl restart siscom-crm-backend`. Role chưa được cấp quyền mà dịch vụ khởi động lại thì ứng dụng **vẫn chạy**, chỉ riêng trang Tài khoản báo "chưa được bật" và log có dòng lỗi `Pool quan ly tai khoan ... KHONG qua kiem dac quyen` — chạy `grants` rồi khởi động lại là hết.
+
 **Điều kiện để dùng được:** phải có **đúng một** tài khoản hệ thống (vai trò `admin`, nhân viên ACTIVE, credential ACTIVE) — nó đứng tên các yêu cầu; không có hoặc có hơn một ⇒ mọi thao tác ghi trả 503 `SYSTEM_REQUESTER_UNAVAILABLE`. Người bấm là Quản trị CRM (`access.approve`); không ai tự đổi vai trò / tự khoá / tự cấp lại mật khẩu cho chính mình, và không thao tác được trên tài khoản hệ thống.
 
 **Lùi:**
 
 - Bản mới không khoẻ: `deploy.sh --rollback` (hoặc `--auto-rollback` ở bước 3). Mã cũ không dùng role mới; role `siscom_acct`, dòng `ACCT_DATABASE_URL` và 5 hàm `fn_acct_api_*` để lại là **vô hại** (không ai gọi tới).
 - Tắt riêng P1 mà giữ bản mã mới: xoá dòng `ACCT_DATABASE_URL` khỏi `backend.env` rồi `systemctl restart siscom-crm-backend` ⇒ trang Tài khoản báo "chưa được bật", phần còn lại không đổi. Đây là thay đổi cấu hình VPS — cần Owner duyệt.
-- Gỡ hẳn (hiếm khi cần, **cần duyệt riêng**): thu hồi quyền + xoá role bằng `backend/docs/B1.5_ACCT_ROLE_ROLLBACK.sql.txt`, rồi gỡ 5 hàm bằng `backend/docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt`. Không đụng dữ liệu nhân viên đã tạo qua trang.
+- Gỡ hẳn (hiếm khi cần, **cần duyệt riêng**): trước hết xoá dòng `ACCT_DATABASE_URL` và khởi động lại dịch vụ (như mục trên), rồi thu hồi quyền + xoá role bằng `backend/docs/B1.5_ACCT_ROLE_ROLLBACK.sql.txt`, rồi gỡ 5 hàm bằng `backend/docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt`. Không đụng dữ liệu nhân viên đã tạo qua trang.
 
 **Theo dõi:** mọi thao tác ghi để lại dòng `audit_log` (`ACCOUNT_CREATE`, `ACCOUNT_ROLE_CHANGE`, `ACCOUNT_PASSWORD_RESET`, `ACCOUNT_DISABLE`, `ACCOUNT_ENABLE`, `EMPLOYEE_UPDATE`) mang tên người bấm; không dòng nào chứa mật khẩu. Kiểm hằng ngày của Owner (ngoài kho) liệt kê các dòng này trong 24 giờ.
