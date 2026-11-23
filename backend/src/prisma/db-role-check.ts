@@ -27,7 +27,7 @@ export interface DbRoleFacts {
   hasAuthGrants: boolean;
   // B1.4 P3c: INSERT customer — pool auth không được ghi nghiệp vụ (phát hiện hai URL đổi chỗ).
   canWriteBusiness: boolean;
-  // P1 (pool quản lý tài khoản, siscom_acct): gọi được fn_auth_api_employee_create (dấu hiệu ĐÚNG tài khoản + đã chạy B1.5_ACCT_GRANTS).
+  // P1 (pool quản lý tài khoản, siscom_acct): gọi được fn_acct_api_employee_create (dấu hiệu ĐÚNG tài khoản + đã chạy B1.5_ACCT_GRANTS).
   acctHasCore: boolean;
   // P1: EXECUTE được hàm SECURITY DEFINER nào trong public NGOÀI danh sách 12 hàm của B1.5_ACCT_GRANTS (so theo tập, không đếm).
   acctSecdefExtra: boolean;
@@ -47,7 +47,7 @@ export interface DbRolePool { pool: 'app' | 'auth' | 'acct'; authSeparate: boole
 // Danh sách hàm pool acct được gọi — PHẢI khớp backend/docs/B1.5_ACCT_GRANTS.sql.txt (VERIFY_ACCT M16 ghim số 12).
 export const ACCT_FUNCTIONS: readonly string[] = ['fn_auth_api_request_create', 'fn_auth_api_request_decide', 'fn_auth_api_role_grant', 'fn_auth_api_role_revoke',
   'fn_auth_api_reset_token_issue', 'fn_auth_api_reset_password', 'fn_auth_api_credential_create', 'fn_auth_api_credential_disable',
-  'fn_auth_api_employee_create', 'fn_auth_api_employee_update', 'fn_auth_api_must_change_set', 'fn_auth_api_account_audit'];
+  'fn_acct_api_employee_create', 'fn_acct_api_employee_update', 'fn_acct_api_must_change_set', 'fn_acct_api_account_audit'];
 const APP_SHARED: DbRolePool = { pool: 'app', authSeparate: false };
 
 // Một câu truy vấn, chỉ catalog, không tham số, chạy được bằng chính role ứng dụng ($queryRaw tagged template theo quy ước src —
@@ -83,13 +83,13 @@ export async function fetchDbRoleFacts(client: Pick<PrismaClient, '$queryRaw'>):
                OR (CASE WHEN to_regprocedure('public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)') IS NULL THEN false
                         ELSE has_function_privilege(current_user, 'public.fn_auth_api_change_own_password(uuid, integer, text, text, jsonb)', 'EXECUTE') END) END) AS has_auth_grants,
     (CASE WHEN to_regclass('public.customer') IS NULL THEN false ELSE has_any_column_privilege(current_user, 'public.customer', 'INSERT') END) AS can_write_business,
-    (CASE WHEN to_regprocedure('public.fn_auth_api_employee_create(uuid, text, text, uuid, text)') IS NULL THEN false
-          ELSE has_function_privilege(current_user, 'public.fn_auth_api_employee_create(uuid, text, text, uuid, text)', 'EXECUTE') END) AS acct_has_core,
+    (CASE WHEN to_regprocedure('public.fn_acct_api_employee_create(uuid, text, text, uuid, text)') IS NULL THEN false
+          ELSE has_function_privilege(current_user, 'public.fn_acct_api_employee_create(uuid, text, text, uuid, text)', 'EXECUTE') END) AS acct_has_core,
     EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
              WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege(current_user, p.oid, 'EXECUTE')
                AND p.proname NOT IN ('fn_auth_api_request_create', 'fn_auth_api_request_decide', 'fn_auth_api_role_grant', 'fn_auth_api_role_revoke',
                  'fn_auth_api_reset_token_issue', 'fn_auth_api_reset_password', 'fn_auth_api_credential_create', 'fn_auth_api_credential_disable',
-                 'fn_auth_api_employee_create', 'fn_auth_api_employee_update', 'fn_auth_api_must_change_set', 'fn_auth_api_account_audit')) AS acct_secdef_extra,
+                 'fn_acct_api_employee_create', 'fn_acct_api_employee_update', 'fn_acct_api_must_change_set', 'fn_acct_api_account_audit')) AS acct_secdef_extra,
     EXISTS (SELECT 1 FROM pg_tables t WHERE t.schemaname = 'public'
              AND (has_any_column_privilege(current_user, format('%I.%I', t.schemaname, t.tablename), 'INSERT')
                OR has_any_column_privilege(current_user, format('%I.%I', t.schemaname, t.tablename), 'UPDATE')
