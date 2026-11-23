@@ -1,0 +1,46 @@
+-- SISCOM CRM - ROLLBACK P1 quan ly tai khoan (20261124000000_p1_account_admin). VIET SAN, KHONG TU CHAY.
+-- Dich: backend\docs\P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt (noi dung la SQL - chay bang psql -f).
+-- CHI dung tren BAN SAO THU (siscom_crm_restore_* / siscom_crm_test_*). Ap len siscom_crm_dev/staging/production: CAM, tru khi co phe duyet RIENG.
+-- Viec lam: go 5 ham cua migration (4 ham SECURITY DEFINER + ham noi bo fn_auth_api_employee_fields) + xoa dong _prisma_migrations.
+-- THU TU: (1) trien khai lai backend ban TRUOC P1 (ban cu khong goi 5 ham nay); (2) file nay - migration MOI NHAT nen go DAU TIEN, truoc
+--   SALES_T07_SEARCH_FOLD_ROLLBACK. Quyen EXECUTE da cap cho siscom_acct (APP_GRANTS_V6) mat theo ham (DROP FUNCTION).
+-- KHONG MAT DU LIEU: migration khong tao bang / cot. Nhan vien da tao, thong tin da sua va cac dong audit_log (EMPLOYEE_CREATE, EMPLOYEE_UPDATE,
+--   PASSWORD_MUST_CHANGE_SET, ACCOUNT_*) GIU NGUYEN.
+-- MOT transaction. Chay bang CHU SO HUU ham (siscom_migrator sau tach role; siscom_app neu DB chua tach - CI chuoi unsplit).
+\set ON_ERROR_STOP on
+\set ON_ERROR_ROLLBACK off
+\pset pager off
+SET client_encoding TO 'UTF8';
+SELECT current_database() AS db_rollback, current_user AS chay_bang;
+BEGIN;
+DO $$ BEGIN
+  IF current_database() !~ '^siscom_crm_(restore|test)_[0-9]{8}_[0-9]{6}$'
+     OR current_database() IN ('siscom_crm_restore_20261014_214105', 'siscom_crm_restore_20261015_214948') THEN
+    RAISE EXCEPTION 'TU CHOI: % khong phai ban sao thu hop le cho rollback.', current_database();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261124000000_p1_account_admin') THEN
+    RAISE EXCEPTION 'TU CHOI: chua ap 20261124000000_p1_account_admin (khong co gi de rollback).';
+  END IF;
+END $$;
+
+DROP FUNCTION IF EXISTS public.fn_auth_api_account_audit(uuid, text, uuid, jsonb);
+DROP FUNCTION IF EXISTS public.fn_auth_api_must_change_set(uuid, uuid, integer);
+DROP FUNCTION IF EXISTS public.fn_auth_api_employee_update(uuid, uuid, timestamptz, text, text, uuid, text);
+DROP FUNCTION IF EXISTS public.fn_auth_api_employee_create(uuid, text, text, uuid, text);
+DROP FUNCTION IF EXISTS public.fn_auth_api_employee_fields(text, text, uuid, text, uuid);
+DELETE FROM public._prisma_migrations WHERE migration_name = '20261124000000_p1_account_admin';
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+              AND p.proname IN ('fn_auth_api_account_audit', 'fn_auth_api_must_change_set', 'fn_auth_api_employee_update', 'fn_auth_api_employee_create', 'fn_auth_api_employee_fields'))
+     OR EXISTS (SELECT 1 FROM public._prisma_migrations WHERE migration_name = '20261124000000_p1_account_admin')
+     -- doi tuong cu phai con nguyen: API M1.2 va bang nhan vien
+     OR to_regprocedure('public.fn_auth_api_actor(uuid, text)') IS NULL
+     OR to_regprocedure('public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer)') IS NULL
+     OR to_regprocedure('public.fn_auth_api_audit(text, uuid, text, text, uuid, text, jsonb)') IS NULL
+     OR to_regclass('public.employee') IS NULL THEN
+    RAISE EXCEPTION 'Rollback P1 (account_admin) chua sach.';
+  END IF;
+END $$;
+COMMIT;
+SELECT 'ROLLBACK P1 (20261124000000_p1_account_admin) XONG' AS ket_qua;

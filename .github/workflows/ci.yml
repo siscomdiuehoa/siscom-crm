@@ -162,10 +162,14 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/SALES_S2_STRUCTURE_TESTS.sql.txt res migrator
           # Sales T-07: cot sinh tu dong tim khong dau - cau truc, gia tri (co dau / d gach / NULL), ghi truc tiep bi tu choi, ap lai CHINH migration tren bang co du lieu (backfill); tu ROLLBACK
           bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_TESTS.sql.txt ok migrator
+          # P1 quan ly tai khoan (20261124000000_p1_account_admin): 4 ham SECURITY DEFINER - cau truc, quyen PUBLIC, tung nhanh tu choi theo ma loi, khong lo bi mat vao nhat ky; cung tien de M1.2 (RBAC rong); tu ROLLBACK
+          bash scripts/ci/pg-sql-check.sh docs/P1_ACCOUNT_ADMIN_TESTS.sql.txt res migrator
       - name: Dien tap rollback day du (S1 -> M1.3 -> M1.2 -> M1.1 -> M1), migrate deploy lai (siscom_app), tach role lai, verify
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh unsplit
+          # P1 (20261124000000_p1_account_admin) moi nhat => rollback DAU chuoi, truoc Sales T-07. Chi go 5 ham, khong tu choi theo du lieu
+          bash scripts/ci/pg-sql-check.sh docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt run app
           # Sales T-07 (20261121000000_sales_opportunity_search_fold) moi nhat => rollback DAU chuoi, truoc Sales S9b. Khong tu choi theo du lieu (2 cot chi la gia tri suy ra tu title / project_name)
           bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt run app
           # Sales S9b (20261120000000_sales_opportunity_document) => rollback ngay sau T-07, truoc Sales S8b. PHAI TU CHOI khi con tai lieu (RED mong doi) + 9 kiem cau truc; transaction ngoai huy => khong de lai du lieu thu
@@ -235,6 +239,8 @@ jobs:
       - name: B1.4 Remember Me - rollback (migrator) => V3 => VERIFY PASS; migrate deploy (migrator) => VERIFY FAIL B1f (quyen mac dinh) => V3 => PASS app + auth + cau truc
         run: |
           set -euo pipefail
+          # P1: moi nhat => rollback DAU chuoi, truoc Sales T-07 (bang chu so huu sau tach role)
+          bash scripts/ci/pg-sql-check.sh docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt run migrator
           # Sales T-07: moi nhat => rollback DAU chuoi, truoc Sales S9b (bang chu so huu sau tach role)
           bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt run migrator
           # Sales S9b: rollback TRUOC Sales S8b (bang chu so huu sau tach role). PHAI TU CHOI khi con tai lieu (RED mong doi) + 9 kiem cau truc
