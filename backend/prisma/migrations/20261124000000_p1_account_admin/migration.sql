@@ -1,15 +1,17 @@
--- SISCOM CRM P1 (20261124000000_p1_account_admin) - man hinh quan ly tai khoan. CHI CONG THEM: 4 ham SECURITY DEFINER.
+-- SISCOM CRM P1 (20261124000000_p1_account_admin) - man hinh quan ly tai khoan. CHI CONG THEM 5 ham: 4 ham SECURITY DEFINER + 1 ham noi bo.
 --   Khong bang moi, khong cot moi, khong CHECK / trigger moi, khong sua ham fn_auth_* hien co, khong ma quyen moi, khong dung role_permission.
 -- Thiet ke: docs/P1_ACCOUNT_ADMIN_DESIGN.md (Owner duyet 23/11/2026: mot nguoi thao tac = Quan tri CRM, nhom APPROVE).
--- Bon ham nay la phan database CHUA co cho P1 (cac buoc con lai dung san fn_auth_api_* cua M1.2):
+-- Bon ham SECURITY DEFINER la phan database CHUA co cho P1 (cac buoc con lai dung san fn_auth_api_* cua M1.2):
 --   fn_acct_api_employee_create  - tao ban ghi nhan vien (truoc day chi chu so huu INSERT duoc)
 --   fn_acct_api_employee_update  - sua ho ten / email / phong ban / chuc danh, khoa lac quan theo updated_at
 --   fn_acct_api_must_change_set  - bat "buoc doi mat khau" sau khi dat mat khau tam (thay cau UPDATE truc tiep cua FV-5)
 --   fn_acct_api_account_audit    - ghi mot dong nhat ky mang ten NGUOI BAM cho thao tac P1 (cac ham M1.2 ghi duoi ten tai khoan he thong)
--- Ca bon: nguoi goi phai hoat dong, co credential ACTIVE va thuoc nhom APPROVE (fn_auth_api_actor) - tuc Quan tri CRM.
+-- Ham thu nam fn_acct_api_employee_fields la ham NOI BO (KHONG SECURITY DEFINER, khong cap cho role nao): chuan hoa + kiem ho ten / email /
+--   phong ban dung chung cho create va update.
+-- Ca bon ham SECURITY DEFINER: nguoi goi phai hoat dong, co credential ACTIVE va thuoc nhom APPROVE (fn_auth_api_actor) - tuc Quan tri CRM.
 -- Ma loi = TIEN TO thong bao (ung dung doc tien to, nhu LAST_ADMIN / SELF_MODIFICATION cua M1):
 --   EMAIL_TAKEN (23505) | VERSION_CONFLICT (40001) | SYSTEM_ACCOUNT, SELF_MODIFICATION, INVALID_STATE (23514) | APPROVAL_REQUIRED, BOOTSTRAP_OPEN (42501)
--- Quyen: REVOKE ALL FROM PUBLIC o cuoi tep; role duoc goi cap o backend/docs/B1.3_S1_APP_GRANTS_V6.sql.txt (siscom_acct).
+-- Quyen: REVOKE ALL FROM PUBLIC o cuoi tep; role duoc goi (siscom_acct) cap o backend/docs/B1.5_ACCT_GRANTS.sql.txt (4 ham SECURITY DEFINER + 8 ham M1.2).
 -- Rollback viet san (KHONG tu chay): backend/docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt. Bai kiem: backend/docs/P1_ACCOUNT_ADMIN_TESTS.sql.txt.
 
 -- Chuan hoa + kiem ho ten / email / phong ban dung chung cho create va update. Tra ve gia tri da cat khoang trang.
