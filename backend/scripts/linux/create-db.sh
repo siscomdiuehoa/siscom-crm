@@ -146,11 +146,7 @@ EOF
     if [ -z "$PW_ACCT" ]; then
       role_exists "$ROLE_ACCT" && die "Role $ROLE_ACCT da ton tai nhung $roles_env khong co SISCOM_ACCT_PW: khong the biet mat khau. Xu ly thu cong roi chay lai."
       PW_ACCT="$(openssl rand -hex 24)"
-      ( umask 077
-        cat "$roles_env" > "$roles_env.new"
-        printf 'SISCOM_ACCT_PW=%s\n' "$PW_ACCT" >> "$roles_env.new"
-        mv -f "$roles_env.new" "$roles_env" )
-      chmod 600 "$roles_env"
+      env_append_line "$roles_env" "SISCOM_ACCT_PW=$PW_ACCT" || die "Khong ghi duoc $roles_env: DUNG (chua tao role, chua doi gi)."
       info "Da sinh mat khau role $ROLE_ACCT -> $roles_env (600). KHONG in ra man hinh."
     fi
     ensure_role "$ROLE_ACCT" "$PW_ACCT"
@@ -158,12 +154,8 @@ EOF
     chk="$(psql_su -d postgres -tA -c "SELECT has_database_privilege('$ROLE_ACCT','$db','CONNECT') || '|' || has_database_privilege('$ROLE_ACCT','$db','TEMP') || '|' || (SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolinherit FROM pg_roles WHERE rolname = '$ROLE_ACCT')")"
     [ "$chk" = "true|false|false" ] || die "Kiem sau tao role $ROLE_ACCT KHONG DAT: '$chk'"
     # backend.env: thay/them DUNG mot dong ACCT_DATABASE_URL; moi dong khac giu nguyen tung byte.
-    ( umask 077
-      grep -v '^ACCT_DATABASE_URL=' "$backend_env" > "$backend_env.new" || true
-      [ -z "$(tail -c1 "$backend_env.new")" ] || printf '\n' >> "$backend_env.new"
-      printf 'ACCT_DATABASE_URL=postgresql://%s:%s@127.0.0.1:%s/%s\n' "$ROLE_ACCT" "$PW_ACCT" "$SISCOM_PG_PORT" "$db" >> "$backend_env.new"
-      chmod 600 "$backend_env.new"
-      mv -f "$backend_env.new" "$backend_env" )
+    env_replace_key "$backend_env" ACCT_DATABASE_URL "$(printf 'ACCT_DATABASE_URL=postgresql://%s:%s@127.0.0.1:%s/%s' "$ROLE_ACCT" "$PW_ACCT" "$SISCOM_PG_PORT" "$db")" \
+      || die "Khong ghi duoc $backend_env: DUNG. Tep goc giu nguyen; role $ROLE_ACCT da tao nhung CHUA duoc dung (xu ly roi chay lai lenh acct)."
     info "Da bat pool quan ly tai khoan: role $ROLE_ACCT (CONNECT $db), ACCT_DATABASE_URL trong $backend_env. Tiep: migrate (migration P1) roi lenh grants."
     ;;
 
