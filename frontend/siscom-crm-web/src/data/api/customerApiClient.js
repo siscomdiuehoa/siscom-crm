@@ -120,6 +120,12 @@ export function createCustomerApi(config, fetchImpl, options) {
       if (!/^\/(opportunities(\/|\?|$)|customers\/[0-9a-fA-F-]{36}\/opportunities(\?|$))/.test(p) || /\.\.|\/\//.test(p)) throw new Error('Đường dẫn API cơ hội không hợp lệ.');
       return await call(method, p, body);
     },
+    // P1 tài khoản: MỘT cổng cho /accounts…; đường dẫn khác bị từ chối trước khi gọi mạng.
+    async accountRequest(method, path, body) {
+      const p = String(path);
+      if (!/^\/accounts(\/|\?|$)/.test(p) || /\.\.|\/\//.test(p)) throw new Error('Đường dẫn API tài khoản không hợp lệ.');
+      return await call(method, p, body);
+    },
     qs,
   };
 }

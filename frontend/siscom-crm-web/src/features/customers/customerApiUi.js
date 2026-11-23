@@ -5,6 +5,7 @@ import { createCustomerRepository, CustomerRepoError } from '../../data/api/cust
 import { createActivitiesController } from '../activities/activitiesUi.js';
 import { createTasksController } from '../activities/tasksUi.js';
 import { createOpportunitiesController } from '../opportunities/opportunitiesUi.js';
+import { createAccountsController } from '../accounts/accountsUi.js';
 
 // Backend DTO field -> UI form field (details strings from class-validator start with the property name, e.g. "phone must be ...").
 const BACKEND_TO_UI = { name: 'name', phone: 'phone', shortName: 'short', taxId: 'taxId', email: 'email', website: 'website', address: 'address', note: 'note', industry: 'industry', source: 'source', province: 'city', tier: 'tier', status: 'status' };
@@ -404,5 +405,7 @@ export function createCustomerApiUi({ env, fetchImpl, auth, session } = {}) {
   ctl.activities = createActivitiesController(repo, describeRepoError, { onCreated: () => (ctl.tasks.getState().summary.status !== 'idle' ? ctl.tasks.refreshAll() : undefined) }); // B3 A7: tab Hoạt động dùng chung repository/phiên
   // Sales S10: cơ hội (API Sales). Tạm hoãn / Thắng / chuyển người làm thay đổi công việc tự sinh => chuông công việc đọc lại nếu đã tải.
   ctl.opportunities = createOpportunitiesController(repo, describeRepoError, { onChanged: () => (ctl.tasks.getState().summary.status !== 'idle' ? ctl.tasks.refreshAll() : undefined) });
+  // P1: quản lý tài khoản (API /accounts). Độc lập với khách hàng / công việc / cơ hội; trang chỉ mở khi máy chủ cấp access.approve.
+  ctl.accounts = createAccountsController(repo, describeRepoError);
   return ctl;
 }

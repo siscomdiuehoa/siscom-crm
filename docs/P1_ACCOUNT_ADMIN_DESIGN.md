@@ -1,6 +1,6 @@
 # P1 — Màn hình quản lý tài khoản (thiết kế)
 
-- **Trạng thái:** bản thiết kế, chờ Owner duyệt. Chưa có mã.
+- **Trạng thái:** Owner duyệt thiết kế 23/11/2026. Đã có mã (migration #18, role `siscom_acct`, API `/accounts`, trang Tài khoản) — **chưa bật trên máy chủ**; cách bật: `docs/VPS_RUNBOOK.md` mục 13.
 - **Ngày:** 23/11/2026. **Nền:** `main` = `695d0be` (production đang chạy `5d9dbf5`, 17 migration).
 - **Liên quan:** `docs/PRODUCTION_GO_LIVE_PLAN.md` (D1, mục 2.3), `docs/FV5_ACCOUNT_ADMIN.md`, `backend/docs/B1.3.1_FINAL_DESIGN.md`.
 
