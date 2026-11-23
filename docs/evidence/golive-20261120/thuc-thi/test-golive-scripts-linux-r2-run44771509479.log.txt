@@ -1,0 +1,120 @@
+== Linux 7.0.0-1014-aws x86_64; bash 5.2.21(1)-release; uid=0 ==
+  [DAT]       bash -n step5-bootstrap-owner.sh
+  [DAT]       bash -n step7.sh
+S5-1 nhap sai (qua ngan, go lai khac, trung nhau)
+  [DAT]       qua ngan bi tu choi roi nhap lai duoc
+  [DAT]       ket thuc hop le
+  [DAT]       go lai khac bi tu choi
+  [DAT]       trung nhau bi dung
+S5-2 CLI gia thanh cong
+  [DAT]       ma thoat = 0
+  [DAT]       in dong XONG
+  [DAT]       nhat ky co 5 tai khoan
+  [DAT]       S5-2: khong lo mat khau gia
+  [DAT]       S5-2: khong lo mat khau gia
+  [DAT]       S5-2: khong lo mat khau gia
+  [DAT]       S5-2: khong lo mat khau gia
+  [DAT]       S5-2: khong lo mat khau gia
+  [DAT]       quyen tep nhat ky luc CLI dang chay = 600
+  [DAT]       quyen thu muc nhat ky = 700
+  [DAT]       quyen tep nhat ky sau cung = 600
+S5-3 CLI gia LO mat khau
+  [DAT]       ma thoat = 3
+  [DAT]       bao CLI lo mat khau
+  [DAT]       S5-3: khong lo mat khau gia
+  [DAT]       S5-3: khong lo mat khau gia
+  [DAT]       S5-3: khong lo mat khau gia
+  [DAT]       S5-3: khong lo mat khau gia
+  [DAT]       S5-3: khong lo mat khau gia
+  [DAT]       khong in dong debug
+S5-4 CLI gia loi, in hash / URL co mat khau DB (gia)
+  [DAT]       ma thoat = 1
+  [DAT]       bao KHONG THANH CONG
+  [DAT]       dem dong bi loc
+  [DAT]       khong in / ghi hash
+  [DAT]       khong in / ghi URL
+  [DAT]       khong in / ghi mat khau DB gia
+  [DAT]       S5-4: khong lo mat khau gia
+  [DAT]       S5-4: khong lo mat khau gia
+  [DAT]       S5-4: khong lo mat khau gia
+  [DAT]       S5-4: khong lo mat khau gia
+  [DAT]       S5-4: khong lo mat khau gia
+S5-5 CLI gia bao BOOTSTRAP_CLOSED
+  [DAT]       ma thoat = 1
+  [DAT]       in ly do da biet
+  [DAT]       S5-5: khong lo mat khau gia
+  [DAT]       S5-5: khong lo mat khau gia
+  [DAT]       S5-5: khong lo mat khau gia
+  [DAT]       S5-5: khong lo mat khau gia
+  [DAT]       S5-5: khong lo mat khau gia
+S5-6 chan dung CLI gia ngoai che do thu
+  [DAT]       tu choi STEP5_FAKE_CLI khi khong SELFTEST
+S7-1 cleanup_key: xoa DUOC khoa gia => huy hen gio
+  [DAT]       ma thoat = 0
+  [DAT]       tep khoa gia da mat
+  [DAT]       da goi systemctl stop hen gio THU (ten rieng)
+  [DAT]       KHONG dung hen gio van hanh
+S7-2 cleanup_key: KHONG xoa duoc khoa gia (shred + rm deu loi) => GIU hen gio, bao loi
+  [DAT]       ma thoat = 1
+  [DAT]       tep khoa gia van con (dung kich ban loi)
+  [DAT]       KHONG goi systemctl stop
+  [DAT]       bao KHONG XOA DUOC KHOA
+  [DAT]       noi ro giu hen gio
+S7-3 selftest tu choi duong dan khoa that
+  [DAT]       tu choi
+S7-3b selftest bat buoc ten hen gio rieng, tu choi ten hen gio van hanh
+  [DAT]       thieu STEP7_TEST_TIMER: ma thoat = 1
+  [DAT]       bao can ten hen gio rieng
+  [DAT]       STEP7_TEST_TIMER=ten van hanh: ma thoat = 2
+  [DAT]       tu choi ten van hanh
+  [DAT]       hai ca tu choi khong xoa tep (khong chay cleanup)
+S7-4 verify-local / G7 tren bo sao luu GIA
+  [DAT]       employee=0, chua co dau: ma thoat = 0
+  [DAT]       bao CHUA DU employee
+  [DAT]       G7 CHUA DAT
+  [DAT]       employee=5 nhung chua co dau => G7 CHUA DAT
+  [DAT]       employee=5 + dau dung bo: ma thoat = 0
+  [DAT]       G7 DAT
+  [DAT]       dau cua bo khac: ma thoat = 1
+  [DAT]       bao dau khong thuoc bo
+  [DAT]       tep bi sua: ma thoat = 1
+  [DAT]       bao SHA-256 khac
+  [DAT]       manifest bi sua: ma thoat = 1
+  [DAT]       bao chu ky khong hop le
+S7-5 pull voi ssh / scp GIA
+  [DAT]       thieu tep BAT BUOC (manifest.sig): ma thoat = 1
+  [DAT]       bao DUNG vi tep bat buoc
+  [DAT]       du 4 tep, chua co dau: ma thoat = 0
+  [DAT]       ghi ro chua khoi phuc thu
+  [DAT]       G7 CHUA DAT
+  [DAT]       co dau dung bo: ma thoat = 0
+  [DAT]       G7 DAT
+  [DAT]       ssh loi (255) khi kiem dau: ma thoat = 1
+  [DAT]       bao khong kiem duoc dau
+  [DAT]       khong coi la chua khoi phuc
+  [DAT]       dau cuc bo giu nguyen khi ssh loi
+S7-REAL hen gio systemd THAT (ten rieng siscom-key-cleanup-test-2261-1795191332) + tep khoa gia khong xoa duoc (chattr +i)
+  [DAT]       hen gio THU that da tao (siscom-key-cleanup-test-2261-1795191332)
+  [DAT]       khong xoa duoc: ma thoat = 1
+  [DAT]       tep khoa gia van con
+  [DAT]       hen gio thu VAN CON cho = 1
+  [DAT]       bao KHONG XOA DUOC KHOA
+  [DAT]       xoa duoc: ma thoat = 0
+  [DAT]       tep khoa gia da mat
+  [DAT]       hen gio thu da huy = 0
+  [DAT]       hen gio van hanh siscom-key-cleanup KHONG bi tao / dung (so dang cho) = 0
+G5-1..4 g5-api-flows.sh chay voi may chu gia: binh thuong / Ky thuat bi tu choi mo co hoi / viec nhac khong duoc huy / Thang luu sai gia tri chot
+  [DAT]       may chu gia binh thuong: ma thoat = 0
+  [DAT]       ket luan dat
+  [DAT]       kiem viec nhac CANCELLED
+  [DAT]       Ky thuat bi 403: ma thoat = 1
+  [DAT]       bao KHONG mo duoc co hoi
+  [DAT]       khong ket luan dat
+  [DAT]       viec nhac khong huy: ma thoat = 1
+  [DAT]       bao viec nhac sai trang thai
+  [DAT]       khong ket luan dat
+  [DAT]       Thang luu sai gia tri chot: ma thoat = 1
+  [DAT]       bao Thang sai
+  [DAT]       khong ket luan dat
+
+TONG: 103 dat, 0 khong dat

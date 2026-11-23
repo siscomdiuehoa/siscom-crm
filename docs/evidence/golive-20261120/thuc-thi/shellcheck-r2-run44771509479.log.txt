@@ -1,0 +1,2 @@
+# ShellCheck (-x -S warning -e SC1091, nhu CI) tren may GitHub run 44771509479: step5-bootstrap-owner.sh step7.sh golive-check.sh test-golive-scripts.sh g5-api-flows.sh
+SHELLCHECK ma thoat: 0

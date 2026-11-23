@@ -1,0 +1,29 @@
+== G5 - doi chieu CHI DOC tren siscom_crm_staging, 2026-11-20T11:58:47Z (gio trong bang la UTC) ==
+(Truy van qua `sudo -u postgres psql -d siscom_crm_staging`, chi SELECT. Khong ghi ten khach / tieu de co hoi vao day.)
+tong: customer=3 opportunity=2 activity=0 opportunity_change=7
+khach ten bat dau THU-: 0 ; khach tao ngay 20/11: 0
+co hoi: CH-0001 OPEN / NEGOTIATION (tao 11-19 08:33, sua 11-19 09:23) ; CH-0002 OPEN / PROSPECTING (tao 11-19 09:47, sua 11-19 09:49)
+-- opportunity_change theo ngay:
+11-19 | 7
+-- audit_log tu 19/11 theo ngay + hanh dong:
+11-19 | PASSWORD_RESET_DONE | 4
+11-19 | PASSWORD_RESET_ISSUE | 4
+11-19 | PRIV_REQUEST_APPROVE | 23
+11-19 | PRIV_REQUEST_CREATE | 23
+11-19 | ROLE_GRANT | 1
+11-19 | ROLE_PERMISSION_CHANGE | 17
+11-19 | ROLE_REVOKE | 1
+11-19 | auth.login_failed | 5
+11-19 | auth.login_ok | 7
+11-19 | auth.logout | 5
+11-19 | opportunity.create | 2
+11-19 | opportunity.delete | 1
+11-19 | opportunity.lose | 1
+11-19 | opportunity.move_stage | 2
+11-19 | opportunity.reopen | 1
+11-19 | opportunity.update | 2
+-- thao tac cuoi cung ghi nhan: 11-19 09:49 opportunity.update
+-- ngay 20/11: KHONG co dong audit_log nao (khong dang nhap, khong thao tac)
+Ket luan cua nguoi chay: tren staging khong co du lieu THU- va khong co phien lam viec nao ngay 20/11. Cac thao tac co ghi nhan la cua
+dot nghiem thu S12 ngay 19/11: tao co hoi, sua, chuyen giai doan, Thua, Mo lai, Xoa. CHUA co ghi nhan: Thang (+ viec ban giao),
+Tam hoan / Tiep tuc, viec duoc giao cho Ky thuat (activity = 0).

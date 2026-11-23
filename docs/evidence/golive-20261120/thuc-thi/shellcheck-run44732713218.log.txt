@@ -1,0 +1,16 @@
+== BAT BUOC sach (kich ban con dung tiep) ==
+SHELLCHECK: 4 kich ban tren khong co canh bao muc warning tro len
+== CHI GHI NHAN (kich ban buoc 1, 2 DA CHAY THAT - giu nguyen lam bang chung) ==
+
+In step1-caddy.sh line 29:
+validate() { ( set -a; . "$ENVF"; set +a; caddy validate --config "$CF" --adapter caddyfile ) >/tmp/step1-validate.out 2>&1; }
+                         ^-----^ SC1090 (warning): ShellCheck can't follow non-constant source. Use a directive to specify location.
+
+
+In step2-db.sh line 72:
+    echo "bo sao luu staging moi nhat: $(ls -1t /var/backups/siscom-crm | grep -E "^${STG}_.*\.dump\.age$" | head -1)"
+                                         ^-- SC2010 (warning): Don't use ls | grep. Use a glob or a for loop with a condition to allow non-alphanumeric filenames.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC1090 -- ShellCheck can't follow non-const...
+  https://www.shellcheck.net/wiki/SC2010 -- Don't use ls | grep. Use a glob o...

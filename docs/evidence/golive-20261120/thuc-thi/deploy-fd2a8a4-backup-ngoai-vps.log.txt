@@ -1,0 +1,4 @@
+[DAT] chu ky manifest hop le (khoa cong khai Owner giu ngoai VPS)
+[DAT] SHA-256 khop manifest da ky: 4dde00524b3e6fe4dd83101e772690935748cd178ce9bc78c9f103c1a59e546c
+[DAT] manifest: employee = 5
+[CHUA CO] dau khoi phuc thu (.restore-ok.txt) - chua khoi phuc thu bo nay

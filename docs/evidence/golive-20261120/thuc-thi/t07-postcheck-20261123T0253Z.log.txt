@@ -1,0 +1,24 @@
+== Kiem SAU trien khai T-07 (chi doc) == 2026-11-23T02:54:42Z
+  [DAT]       ban dang chay = src-20261123025309
+  [DAT]       ban truoc (de lui) = src-20261121084141
+  [DAT]       transaction chi doc = on
+  [DAT]       so migration da ap = 17
+  [DAT]       migration loi / dang do = 0
+  [DAT]       migration #17 da ap = 1
+  [DAT]       2 cot sinh tu dong = project_name_fold:ALWAYS,title_fold:ALWAYS
+      bieu thuc: project_name_fold = f_vn_fold((project_name)::text); title_fold = f_vn_fold((title)::text)
+  [DAT]       2 chi muc GIN hop le = ix_opportunity_project_name_fold:gin:true,ix_opportunity_title_fold:gin:true
+  [DAT]       siscom_app doc duoc 2 cot moi = t
+  [DAT]       siscom_auth KHONG doc bang opportunity = f
+  [DAT]       chu bang opportunity = siscom_migrator
+      so dong tung bang sau trien khai:
+        _prisma_migrations=17 activity=0 activity_access=0 activity_transfer_request=0 app_meta=2 audit_log=16 
+        auth_session=6 contact=0 customer=0 customer_assignment=0 department=5 employee=5 employee_credential=5 
+        employee_role=5 lookup_item=73 opportunity=0 opportunity_change=0 opportunity_document=0 
+        password_reset_token=0 permission=37 privileged_change_request=0 remember_device=0 role=5 role_permission=66
+  [DAT]       health/database migrated:true
+  [DAT]       API tim co hoi khi chua dang nhap (phai chan) = 401
+  [DAT]       loi backend tu luc trien khai = 0
+  [DAT]       NRestarts = 0
+
+KET QUA: moi muc deu DAT

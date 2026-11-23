@@ -1,0 +1,19 @@
+STAMP=20261120092749
+--- 1. sao luu staging lan cuoi ---
+[OK] Ket noi siscom_crm_staging (PostgreSQL 18), pg_dump 18
+[OK] Da sao luu: /var/backups/siscom-crm/siscom_crm_staging_20261120_092749.dump.age (272056 byte, 484 muc, ma hoa=1); manifest da ky va tu 
+[OK] SHA-256 (file luu): aea3b63cc439adc5abe8154ea7fd4f51fc27a72d74caa3c71f1a3ad8a5b1f446
+[OK] Da xoa bo .age cu: siscom_crm_staging_20261113_041638.dump.age
+[OK] Con 14 bo .age (theo retention) va 0 bo plaintext cua siscom_crm_staging; 0 stem trung.
+[OK] Nho chep ra NGOAI may chu (Owner chon noi luu).
+bo sao luu lan cuoi: siscom_crm_staging_20261120_092749.dump.age - chu ky manifest + SHA-256 hop le
+--- 2. dung dich vu ---
+backend: inactive
+--- 3. sao luu env ---
+/etc/siscom-crm/backend.env.bak-20261120092749, /etc/siscom-crm/migrate.env.bak-20261120092749 (600 root)
+--- 4. create-db.sh siscom_crm_prod create ---
+[OK] Da tao database siscom_crm_prod (prod), chu so huu siscom_migrator.
+[OK] Tach role xong: owner=siscom_migrator, app+auth CONNECT, PUBLIC khong co quyen. Tiep: ghi env (lenh env), migrate, roi lenh grants.
+--- 5. create-db.sh siscom_crm_prod env --force-env (SISCOM_HOST=crm.siscom.io.vn) ---
+[OK] Da ghi /etc/siscom-crm/backend.env va /etc/siscom-crm/migrate.env (600) tro DB siscom_crm_prod, domain crm.siscom.io.vn.
+Dich vu de DUNG: siscom_crm_prod chua migrate (buoc 3).

@@ -1,0 +1,13 @@
+== Dua sao luu ra ngoai VPS == 2026-11-23T03:09:32Z
+1. Keo tu VPS ve may
+  [DAT]       da chep siscom_crm_prod_20261120_190358 (254743 byte)
+  [DAT]       da chep siscom_crm_prod_20261121_190111 (260949 byte)
+  [DAT]       da chep siscom_crm_prod_20261122_190158 (260949 byte)
+      tren VPS: 7 bo; moi nhat: siscom_crm_prod_20261123_025352
+2. Kiem chu ky + SHA-256 tren may
+  [DAT]       7 bo tren may hop le; moi nhat: siscom_crm_prod_20261123_025352
+  [DAT]       bo moi nhat tren may cach day 0 gio
+3. Dua len Google Drive
+  [DAT]       Drive: them 7 bo, tong 7 bo tai /g/My Drive/SISCOM-CRM-Backup/prod (Google Drive tu tai len may chu)
+
+KET QUA CHEP: DAT (chua khoi phuc thu cac bo nay)

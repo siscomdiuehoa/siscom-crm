@@ -1,0 +1,6 @@
+== A: chuan bi fd2a8a4 == 2026-11-21T08:40:12Z
+[OK] da chep 2 goi
+[OK] SHA-256 goi ma nguon khop
+[OK] SHA-256 goi giao dien khop
+[OK] giai nen: src 549 tep, web 17 tep
+[OK] 17 tep giao dien tren VPS trung tung tep voi ban build

@@ -1,0 +1,38 @@
+== Kiem truoc T-07 (chi doc) == 2026-11-23T02:50:39Z
+   ban dang chay: src-20261121084141; ban truoc: src-20261120095200
+  [DAT]       transaction chi doc = on
+1. Migration
+      PostgreSQL: 18.6 (Ubuntu 18.6-1.pgdg24.04+2)
+  [DAT]       so migration da ap = 16
+  [DAT]       migration loi / dang do = 0
+      migration moi nhat: 20261120000000_sales_opportunity_document
+  [DAT]       migration #17 chua ap = 0
+  [DAT]       migration se ap tu ban moi = 20261121000000_sales_opportunity_search_fold
+  [DAT]       DB khong co migration la (ngoai ban moi)
+2. Dieu kien cua migration #17
+  [DAT]       pg_trgm + unaccent = pg_trgm,unaccent
+  [DAT]       gin_trgm_ops co san = 1
+  [DAT]       f_vn_fold(text) IMMUTABLE = i
+  [DAT]       f_vn_fold('Hòa Phát ĐÀ Nẵng') = hoa phat da nang
+  [DAT]       chu bang opportunity = siscom_migrator
+  [DAT]       siscom_migrator goi duoc f_vn_fold = t
+  [DAT]       cot title_fold / project_name_fold chua co = 0
+  [DAT]       chi muc ix_opportunity_*_fold chua co = 0
+3. Tac dong len bang opportunity
+      so dong: 0 (da xoa mem: 0)
+      dung luong bang + chi muc: 64 kB
+  [DAT]       dong tinh gap dau bi NULL (title co gia tri) = 0
+  [DAT]       dong tinh gap dau bi NULL (project_name co gia tri) = 0
+      do dai lon nhat sau gap dau: title 0, project_name 0
+4. Tinh trang database luc nay
+      dung luong DB: 10 MB; ket noi: 3
+  [DAT]       transaction mo qua 60 giay = 0
+  [DAT]       phien idle in transaction = 0
+  [DAT]       khoa dang giu tren opportunity (phien khac) = 0
+      so dong tung bang (moc doi chieu sau trien khai):
+        _prisma_migrations=16 activity=0 activity_access=0 activity_transfer_request=0 app_meta=2 audit_log=16 
+        auth_session=6 contact=0 customer=0 customer_assignment=0 department=5 employee=5 employee_credential=5 
+        employee_role=5 lookup_item=73 opportunity=0 opportunity_change=0 opportunity_document=0 
+        password_reset_token=0 permission=37 privileged_change_request=0 remember_device=0 role=5 role_permission=66
+
+KET QUA: moi muc deu DAT
