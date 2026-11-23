@@ -29,6 +29,9 @@ ROLE_MIGRATOR=siscom_migrator
 ROLE_APP=siscom_app
 # shellcheck disable=SC2034
 ROLE_AUTH=siscom_auth
+# P1: pool quan ly tai khoan (module accounts). Tuy chon: chi co sau `create-db.sh <db> acct`.
+# shellcheck disable=SC2034
+ROLE_ACCT=siscom_acct
 
 # --- Chay psql bang superuser postgres. Mac dinh: peer qua runuser (khong mat khau). ---
 # SISCOM_REHEARSAL=1 (CHI de dien tap tren PostgreSQL tam): dung PGHOST/PGPORT/PGUSER/PGPASSWORD cua moi truong; tu choi cong 5432/55433.

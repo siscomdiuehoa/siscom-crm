@@ -9,7 +9,7 @@
 #   mode=ok   : file in cac dong "label|t" hoac "label|f" (psql -tA). Dat khi psql thoat 0, co >=1 dong va KHONG co dong "|f".
 #   mode=run  : chi can psql thoat 0 (vi du rollback: file tu RAISE neu khong sach).
 #   as=app (mac dinh): ket noi TEST_DATABASE_URL (siscom_app) | as=migrator: TEST_MIGRATE_DATABASE_URL (siscom_migrator, chu so huu sau S1)
-#   | as=auth: TEST_AUTH_DATABASE_URL (siscom_auth, pool xac thuc - B1.4 P3c) | as=su: superuser cua container (PGUSER/PGPASSWORD, -d TEST_DB_NAME)
+#   | as=auth: TEST_AUTH_DATABASE_URL (siscom_auth, pool xac thuc - B1.4 P3c) | as=acct: TEST_ACCT_DATABASE_URL (siscom_acct, pool quan ly tai khoan - P1) | as=su: superuser cua container (PGUSER/PGPASSWORD, -d TEST_DB_NAME)
 #   cho file tu SET ROLE (B1.3_S1_VERIFY_AUTH: siscom_auth khong co TEMP).
 set -euo pipefail
 file="${1:-}"; mode="${2:-}"; as="${3:-app}"
@@ -32,7 +32,11 @@ case "$as" in
     [ -n "${TEST_DB_NAME:-}" ] || { echo "THIEU TEST_DB_NAME."; exit 2; }
     case "$TEST_DB_NAME" in siscom_crm_test_*) ;; *) echo "TU CHOI: TEST_DB_NAME khong phai DB tam."; exit 2 ;; esac
     conn_url="$TEST_DB_NAME" ;;
-  *) echo "as khong hop le: $as (app|migrator|auth|su)"; exit 2 ;;
+  acct)
+    [ -n "${TEST_ACCT_DATABASE_URL:-}" ] || { echo "THIEU TEST_ACCT_DATABASE_URL."; exit 2; }
+    case "$TEST_ACCT_DATABASE_URL" in postgresql://siscom_acct:*@127.0.0.1:*/siscom_crm_test_*) ;; *) echo "TU CHOI: TEST_ACCT_DATABASE_URL khong phai DB tam siscom_crm_test_* voi user siscom_acct."; exit 2 ;; esac
+    conn_url="$TEST_ACCT_DATABASE_URL" ;;
+  *) echo "as khong hop le: $as (app|migrator|auth|acct|su)"; exit 2 ;;
 esac
 
 out="$(mktemp)"

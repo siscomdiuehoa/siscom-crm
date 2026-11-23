@@ -3,7 +3,9 @@
 # CHI dung trong CI: server la container tam, song trong job, huy khi job ket thuc. KHONG bao gio tro toi siscom_crm_dev
 # hay bat ky may chu nao ngoai 127.0.0.1. Khong in mat khau. Khong doc .env.
 #
-# Dung: pg-temp-db.sh create | split | grants v1|v2|v3 | unsplit | drop
+# Dung: pg-temp-db.sh create | split | grants v1|v2|v3 | acct | unacct | unsplit | drop
+#   (P1) create sinh TEST_ACCT_DATABASE_URL + TEST_ACCT_PW; split = ... + ACCT_ROLE + ACCT_GRANTS x2 (khi migration P1 da ap);
+#   acct = cap lai (sau rollback + migrate deploy); unacct = ACCT_ROLE_ROLLBACK voi DB canary4 (giu role khi DB khac con dung), roi DROP role.
 #   (B1.4 P3c) create sinh TEST_AUTH_DATABASE_URL + TEST_AUTH_PW (role siscom_auth do AUTH_ROLE.sql tao o split - dien tap nhanh CREATE ROLE);
 #   split = ROLE_SPLIT -> AUTH_ROLE -> APP_GRANTS_V5 x2; auth = AUTH_ROLE + V5 (tach lai sau rollback); unauth = AUTH_ROLE_ROLLBACK
 #   voi DB canary3 cung cluster cap CONNECT cho siscom_auth (phai GIU CONNECT/SET/role), roi khong canary => role bi DROP.
@@ -56,17 +58,29 @@ END \gexec
 SQL
 }
 
+# P1: role quan ly tai khoan siscom_acct (pool thu ba). ACCT_ROLE (superuser: CREATE ROLE neu chua co voi TEST_ACCT_PW, CONNECT + SET ON PARAMETER)
+# roi ACCT_GRANTS (siscom_migrator) 2 lan (file khai bao - lan 2 phai cho cung ket qua). Can migration 20261124000000_p1_account_admin da ap.
+acct_apply() { # acct_apply <ten db>
+  [ -n "${TEST_ACCT_PW:-}" ] || { echo "THIEU TEST_ACCT_PW."; exit 2; }
+  echo "--- P1 ACCT_ROLE (superuser container) tren $1 ---"
+  psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$1" -v "acct_pw=$TEST_ACCT_PW" -d "$1" -f "$docs/B1.5_ACCT_ROLE.sql.txt"
+  echo "--- P1 ACCT_GRANTS (siscom_migrator) tren $1, 2 lan ---"
+  psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$1" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.5_ACCT_GRANTS.sql.txt"
+  psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$1" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.5_ACCT_GRANTS.sql.txt"
+}
+
 case "$cmd" in
   create)
     name="siscom_crm_test_$(date -u +%Y%m%d_%H%M%S)"
     # Khop dung TEST_DB_RE cua backend/test/helpers/test-db.ts; khong bao gio la siscom_crm_dev.
     if ! valid_name "$name"; then echo "TU CHOI: ten DB khong hop le: $name"; exit 2; fi
-    pw="$(openssl rand -hex 24)"; mpw="$(openssl rand -hex 24)"; apw="$(openssl rand -hex 24)"
-    echo "::add-mask::$pw"; echo "::add-mask::$mpw"; echo "::add-mask::$apw"
+    pw="$(openssl rand -hex 24)"; mpw="$(openssl rand -hex 24)"; apw="$(openssl rand -hex 24)"; cpw="$(openssl rand -hex 24)"
+    echo "::add-mask::$pw"; echo "::add-mask::$mpw"; echo "::add-mask::$apw"; echo "::add-mask::$cpw"
     url="postgresql://siscom_app:${pw}@127.0.0.1:${PGPORT}/${name}"
     murl="postgresql://siscom_migrator:${mpw}@127.0.0.1:${PGPORT}/${name}"
     aurl="postgresql://siscom_auth:${apw}@127.0.0.1:${PGPORT}/${name}"
-    echo "::add-mask::$url"; echo "::add-mask::$murl"; echo "::add-mask::$aurl"
+    curl="postgresql://siscom_acct:${cpw}@127.0.0.1:${PGPORT}/${name}"
+    echo "::add-mask::$url"; echo "::add-mask::$murl"; echo "::add-mask::$aurl"; echo "::add-mask::$curl"
     ver="$(psql_su -tA -c 'SHOW server_version')"
     echo "PostgreSQL server (container tam): $ver"
     ensure_role siscom_app "$pw"
@@ -91,6 +105,8 @@ case "$cmd" in
       echo "TEST_MIGRATE_DATABASE_URL=$murl"
       echo "TEST_AUTH_DATABASE_URL=$aurl"
       echo "TEST_AUTH_PW=$apw"
+      echo "TEST_ACCT_DATABASE_URL=$curl"
+      echo "TEST_ACCT_PW=$cpw"
     } >> "$GITHUB_ENV"
     echo "DB tam da tao: $name (owner siscom_app - mo hinh cu; role siscom_migrator san sang cho buoc split)."
     ;;
@@ -111,6 +127,35 @@ case "$cmd" in
     echo "--- S1 APP_GRANTS_V5 lan 2 (idempotent) ---"
     psql -X -q -w -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$TEST_MIGRATE_DATABASE_URL" -f "$docs/B1.3_S1_APP_GRANTS_V5.sql.txt"
     assert_canary "sau APP_GRANTS_V5"
+    # P1: pool quan ly tai khoan - CHI khi migration P1 da ap (chuoi rollback co luc tach role khi chua co 4 ham P1 => bo qua; buoc "acct" chay sau).
+    if [ "$(psql_su -tA -d "$name" -c "SELECT to_regprocedure('public.fn_auth_api_account_audit(uuid, text, uuid, jsonb)') IS NOT NULL")" = t ]; then
+      acct_apply "$name"; assert_canary "sau ACCT_ROLE + ACCT_GRANTS"
+    fi
+    ;;
+  acct)
+    # P1: cap lai quyen cho siscom_acct (sau khi cac ham bi DROP / tao lai boi rollback + migrate deploy, hoac sau "unacct").
+    name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }
+    [ -n "${TEST_MIGRATE_DATABASE_URL:-}" ] || { echo "THIEU TEST_MIGRATE_DATABASE_URL."; exit 2; }
+    acct_apply "$name"; assert_canary "sau acct (ACCT_ROLE + ACCT_GRANTS)"
+    ;;
+  unacct)
+    # P1: ACCT_ROLE_ROLLBACK khong duoc dung toi DB khac cung cluster (cung dien tap voi "unauth"): canary4 = DB khac cap CONNECT rieng cho
+    # siscom_acct => sau rollback tren DB tam, role + CONNECT canary4 + SET ON PARAMETER phai CON; xoa canary4, rollback lan 2 => role bi DROP.
+    name="${TEST_DB_NAME:-}"; valid_name "$name" || { echo "TU CHOI: TEST_DB_NAME khong phai DB tam hop le."; exit 2; }
+    canary4="siscom_crm_canary4_$(date -u +%Y%m%d_%H%M%S)"; [[ "$canary4" =~ ^siscom_crm_canary4_[0-9]{8}_[0-9]{6}$ ]] || { echo "TU CHOI: ten canary4."; exit 2; }
+    psql_su -c "CREATE DATABASE \"$canary4\" OWNER siscom_migrator ENCODING 'UTF8' TEMPLATE template0" -c "REVOKE ALL ON DATABASE \"$canary4\" FROM PUBLIC" -c "GRANT CONNECT ON DATABASE \"$canary4\" TO siscom_acct"
+    echo "--- P1 ACCT_ROLE_ROLLBACK (superuser) tren $name, canary4=$canary4 ---"
+    psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$name" -f "$docs/B1.5_ACCT_ROLE_ROLLBACK.sql.txt"
+    c4="$(psql_su -tA -c "SELECT has_database_privilege('siscom_acct', '$canary4', 'CONNECT')")"; st="$(psql_su -tA -c "SELECT has_parameter_privilege('siscom_acct', 'app.actor_employee_id', 'SET')")"
+    left="$(psql_su -tA -d "$name" -c "SELECT (SELECT count(*) FROM information_schema.table_privileges WHERE grantee = 'siscom_acct') + (SELECT count(*) FROM information_schema.column_privileges WHERE grantee = 'siscom_acct') + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('siscom_acct', p.oid, 'EXECUTE'))")"
+    cn="$(psql_su -tA -c "SELECT has_database_privilege('siscom_acct', '$name', 'CONNECT')")"
+    echo "canary4 [sau rollback]: connect_canary4=$c4 set_param=$st quyen_con_lai_trong_DB_tam=$left connect_DB_tam=$cn (mong doi t t 0 f)"
+    psql_su -c "DROP DATABASE IF EXISTS \"$canary4\" WITH (FORCE)" || true
+    if [ "$c4" != t ] || [ "$st" != t ] || [ "$left" != 0 ] || [ "$cn" != f ]; then echo "KHONG DAT: rollback role acct cham DB khac cung cluster hoac con sot quyen trong DB tam."; exit 1; fi
+    echo "--- ACCT_ROLE_ROLLBACK lan 2 (khong con DB khac) => role bi DROP ---"
+    psql -X -q -v ON_ERROR_STOP=1 -v "target_db=$name" -d "$name" -f "$docs/B1.5_ACCT_ROLE_ROLLBACK.sql.txt" | tail -2
+    ex2="$(psql_su -tA -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='siscom_acct')")"; [ "$ex2" = f ] || { echo "KHONG DAT: role siscom_acct van con sau rollback lan 2."; exit 1; }
+    assert_canary "sau unacct"
     ;;
   grants)
     # B1.4 P3b (QA Minor 11): dien tap rollback quyen app: "grants v1" (B1.3_S1_APP_GRANTS.sql.txt - duong rollback P3b) | "grants v2" | "grants v3" (duong rollback B3 A3) | "grants v4" (duong rollback Sales S3) | "grants v5" (hien hanh).
@@ -209,11 +254,12 @@ case "$cmd" in
     if ! valid_name "$name"; then echo "Bo qua drop: TEST_DB_NAME khong phai DB tam hop le ('$name')."; exit 0; fi
     psql_su -c "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE)" || true
     if valid_canary "${CANARY_DB_NAME:-}"; then psql_su -c "DROP DATABASE IF EXISTS \"$CANARY_DB_NAME\" WITH (FORCE)" || true; fi
+    psql_su -c "DROP OWNED BY siscom_acct" -c "DROP ROLE IF EXISTS siscom_acct" || true
     psql_su -c "DROP OWNED BY siscom_auth" -c "DROP ROLE IF EXISTS siscom_auth" || true
     psql_su -c "DROP OWNED BY siscom_migrator" -c "DROP ROLE IF EXISTS siscom_migrator" || true
     psql_su -c "DROP OWNED BY siscom_app" -c "DROP ROLE IF EXISTS siscom_app" || true
     echo "Da don DB tam $name."
     ;;
   *)
-    echo "Dung: $0 create | split | grants v1|v2|v3 | auth | unauth | unsplit | drop"; exit 2 ;;
+    echo "Dung: $0 create | split | grants v1|v2|v3|v4|v5 | auth | unauth | acct | unacct | unsplit | drop"; exit 2 ;;
 esac

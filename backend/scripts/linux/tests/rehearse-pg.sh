@@ -2,6 +2,7 @@
 # SISCOM CRM - DIEN TAP phan SQL/van hanh cua bo script Linux tren PostgreSQL TAM, CACH LY (khong can VPS, khong cham DB that/demo).
 # Tao cum PostgreSQL moi (initdb) trong thu muc tam, cong la (mac dinh 55871; tu choi 5432/55433), chay:
 #   create-db.sh create -> env -> prisma migrate deploy (siscom_migrator) -> grants (APP_GRANTS_V5 x2 + VERIFY + VERIFY_AUTH)
+#   -> acct (P1: role siscom_acct + ACCT_DATABASE_URL, chay 2 lan) -> grants (them ACCT_GRANTS x2 + VERIFY_ACCT)
 #   -> (neu co thu muc `current`) run-cli seed-lookups + bootstrap-auth -> backup-db.sh -> restore-test.sh -> tu choi sua manifest
 # roi DUNG cum va XOA toan bo thu muc tam. Mat khau sinh ngau nhien trong thu muc tam, khong in ra.
 # Can: PG_BIN (thu muc bin cua PostgreSQL >= 17, vd /c/Program Files/PostgreSQL/18/bin), da `npm ci` trong backend/, openssl.
@@ -50,6 +51,15 @@ step "prisma migrate deploy (siscom_migrator)"
   npx --no-install prisma migrate deploy 2>&1 | tail -2
   npx --no-install prisma migrate status 2>&1 | tail -1 )
 step "grants + VERIFY"; bash "$lin/create-db.sh" "$db" grants 2>&1 | grep -E '^\[(OK|LOI)\]|PASS|FAIL'
+# P1: bat pool quan ly tai khoan cho DB da co (nhu se lam tren VPS), chay lai (idempotent), roi grants phai them ACCT_GRANTS + VERIFY_ACCT.
+step "acct (P1: role siscom_acct + ACCT_DATABASE_URL)"; bash "$lin/create-db.sh" "$db" acct 2>&1 | grep -E '^\[(OK|LOI)\]'
+before_env="$(grep -v '^ACCT_DATABASE_URL=' "$work/etc/backend.env" | sha256sum)"
+step "acct lan 2 (khong doi mat khau, dung 1 dong ACCT_DATABASE_URL, cac dong khac giu nguyen)"
+a1="$(grep '^ACCT_DATABASE_URL=' "$work/etc/backend.env")"; bash "$lin/create-db.sh" "$db" acct >/dev/null 2>&1; a2="$(grep '^ACCT_DATABASE_URL=' "$work/etc/backend.env")"
+if [ -n "$a1" ] && [ "$a1" = "$a2" ] && [ "$(grep -c '^ACCT_DATABASE_URL=' "$work/etc/backend.env")" = 1 ] && [ "$(grep -v '^ACCT_DATABASE_URL=' "$work/etc/backend.env" | sha256sum)" = "$before_env" ]; then echo "dat"; else echo "KHONG DAT: acct lan 2 doi env"; exit 1; fi
+step "grants + VERIFY (co acct)"; out_acct="$(bash "$lin/create-db.sh" "$db" grants 2>&1)" || { echo "$out_acct" | tail -20; exit 1; }
+echo "$out_acct" | grep -E '^\[(OK|LOI)\]|PASS|FAIL'
+echo "$out_acct" | grep -q 'B1.5_VERIFY_ACCT.sql.txt: PASS|' || { echo "KHONG DAT: thieu VERIFY_ACCT PASS"; exit 1; }
 
 if ln -s "$(cd "$backend/.." && pwd)" "$work/opt/current" 2>/dev/null && [ -f "$work/opt/current/backend/dist/cli/seed-lookups.js" ]; then
   step "seed-lookups"; bash "$lin/run-cli.sh" seed-lookups 2>&1 | grep -E 'Seed danh muc|LOI|Loi|TU CHOI'
