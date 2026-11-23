@@ -60,6 +60,26 @@ run_sql_file_su() {
 }
 
 # Doc bien KEY tu mot file env dang KEY=VALUE (khong source, khong thuc thi). In gia tri ra stdout.
+# Ghi tep env AN TOAN (quyen 600, thay nguyen tu bang mv). Loi doc nguon => that bai, tep goc KHONG doi, khong sot tep .new.
+env_append_line() { # env_append_line <file> <dong> : them MOT dong vao cuoi; tep thieu xuong dong cuoi thi bu truoc (khong dinh dong).
+  local f="$1" line="$2"
+  ( umask 077
+    cat "$f" > "$f.new" 2>/dev/null || { rm -f "$f.new"; exit 1; }
+    [ -z "$(tail -c1 "$f.new")" ] || printf '\n' >> "$f.new"
+    printf '%s\n' "$line" >> "$f.new"
+    chmod 600 "$f.new" && mv -f "$f.new" "$f" ) || { warn "Khong ghi duoc $f (tep goc giu nguyen)."; return 1; }
+}
+env_replace_key() { # env_replace_key <file> <KEY> <dong moi> : bo moi dong KEY=..., them dung mot dong moi; dong khac giu nguyen tung byte.
+  local f="$1" key="$2" line="$3"
+  ( umask 077
+    rc=0; grep -v "^$key=" "$f" > "$f.new" 2>/dev/null || rc=$?
+    # grep: 0 = con dong khac, 1 = khong con dong nao (hop le), >= 2 = LOI doc tep => khong duoc thay tep goc.
+    [ "$rc" -le 1 ] && [ -f "$f" ] || { rm -f "$f.new"; exit 1; }
+    [ -z "$(tail -c1 "$f.new")" ] || printf '\n' >> "$f.new"
+    printf '%s\n' "$line" >> "$f.new"
+    chmod 600 "$f.new" && mv -f "$f.new" "$f" ) || { warn "Khong ghi duoc $f (tep goc giu nguyen)."; return 1; }
+}
+
 env_get() { # env_get <file> <KEY>
   local line; line="$(grep -E "^$2=" "$1" 2>/dev/null | tail -n1)" || true
   [ -n "$line" ] || return 1

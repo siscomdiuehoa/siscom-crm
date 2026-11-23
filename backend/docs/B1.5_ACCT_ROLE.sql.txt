@@ -44,7 +44,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 1. Role xac thuc: LOGIN, khong superuser, khong tao DB/role, khong ke thua nhom. Mat khau chi dat khi TAO MOI (\gexec vi DO khong thay :'acct_pw').
+-- 1. Role quan ly tai khoan (siscom_acct): LOGIN, khong superuser, khong tao DB/role, khong ke thua nhom. Mat khau chi dat khi TAO MOI (\gexec vi DO khong thay :'acct_pw').
 SELECT CASE
   WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_acct') THEN 'SELECT ''role siscom_acct da ton tai, giu nguyen mat khau'''
   WHEN :'acct_pw' = '' OR length(:'acct_pw') < 32 THEN 'SELECT s1_fail_missing_or_short_acct_pw()'
@@ -54,7 +54,7 @@ END \gexec
 -- 1b. Role da ton tai (chay lai): EP LAI thuoc tinh an toan (khong doi mat khau) - QA M-7.
 ALTER ROLE siscom_acct NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 
--- 2. Quyen cap database/cluster. KHONG cap TEMP (M-c): pool auth khong can bang tam (thu tuong minh phong khi PUBLIC/role tung duoc cap).
+-- 2. Quyen cap database/cluster. KHONG cap TEMP (M-c): pool quan ly tai khoan khong can bang tam (thu tuong minh phong khi PUBLIC/role tung duoc cap).
 SELECT format('REVOKE TEMP ON DATABASE %I FROM siscom_acct', current_database()) \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO siscom_acct', current_database()) \gexec
 -- Ham M1.2 (SECURITY DEFINER, "SET app.actor_employee_id = ''") doi nguoi goi co SET tren tham so tuy bien (PostgreSQL >= 15).
@@ -68,4 +68,4 @@ SELECT 'siscom_acct' AS role, rolsuper AS super, rolcreaterole AS createrole, ro
        has_parameter_privilege('siscom_acct', 'app.actor_employee_id', 'SET') AS set_actor
   FROM pg_roles WHERE rolname = 'siscom_acct';
 -- Ky vong: super=f createrole=f createdb=f inherit=f connect_db=t temp_db=f set_actor=t.
--- Tiep theo: B1.3_S1_APP_GRANTS_V4.sql.txt (bang siscom_migrator), roi B1.3_S1_VERIFY.sql.txt (app) + B1.3_S1_VERIFY_AUTH.sql.txt (auth).
+-- Tiep theo (sau khi migration P1 da ap): B1.5_ACCT_GRANTS.sql.txt (bang siscom_migrator, 2 lan), roi B1.5_VERIFY_ACCT.sql.txt (superuser).
