@@ -500,3 +500,35 @@ test('điện thoại (ui.mobile): thẻ thay cho bảng, vẫn đủ nút thao 
     assert.match(text(m.container), /Tài khoản hệ thống/);
   } finally { await m.unmount(); }
 });
+
+// PR263-QA1-A11Y-01 (đo bằng Chrome thật, cây trợ năng): nút của ô chọn chỉ có tên = nội dung ("Mọi vai trò", "Kinh doanh"), thiếu nhãn.
+// Ô nhập chữ trong hộp thoại ĐÃ đúng (tên theo <label for>), nên không đổi. Sửa ở thành phần Select dùng chung, chỉ thêm tuỳ chọn (không đổi hành vi cũ).
+test('trợ năng (PR263-QA1-A11Y-01) — hai ô lọc: nút có TÊN RIÊNG gồm nhãn + giá trị đang chọn, đổi theo lựa chọn', async () => {
+  const m = await mount(server());
+  try {
+    const btnOf = (g) => findAll(m.container, (e) => e.attributes.role === 'group' && e.attributes['aria-label'] === g).flatMap((grp) => findAll(grp, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox'))[0];
+    assert.equal(btnOf('Lọc vai trò').attributes['aria-label'], 'Lọc vai trò: Mọi vai trò');
+    assert.equal(btnOf('Lọc trạng thái').attributes['aria-label'], 'Lọc trạng thái: Mọi trạng thái');
+    await pick(m.container, /Lọc vai trò/, /Kỹ thuật/);
+    assert.equal(btnOf('Lọc vai trò').attributes['aria-label'], 'Lọc vai trò: Kỹ thuật');
+  } finally { await m.unmount(); }
+});
+
+test('trợ năng (PR263-QA1-A11Y-01) — hộp thoại Thêm nhân viên: nhãn của ô chọn Phòng ban / Vai trò gắn vào nút (aria-labelledby = nhãn + giá trị)', async () => {
+  const m = await mount(server());
+  try {
+    await press(m.container, /^Thêm nhân viên$/);
+    const dlg = modal(m.container); assert.ok(dlg, 'có hộp thoại');
+    for (const [lab, val] of [['Phòng ban', '— Chưa xếp phòng ban —'], ['Vai trò', 'Kinh doanh']]) {
+      const field = findAll(dlg, (e) => e.attributes.class === 'sg-field' && findAll(e, (l) => l.tagName === 'LABEL' && text(l).replace('*', '').trim() === lab).length)[0];
+      assert.ok(field, 'có ô ' + lab);
+      const btn = findAll(field, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]; assert.ok(btn, 'có nút chọn của ' + lab);
+      const ids = String(btn.attributes['aria-labelledby'] || '').split(/\s+/).filter(Boolean);
+      assert.equal(ids.length, 2, lab + ': aria-labelledby gồm nhãn và giá trị');
+      const byId = (id) => findAll(dlg, (e) => e.attributes.id === id)[0];
+      assert.ok(byId(ids[0]) && byId(ids[1]), lab + ': cả hai id đều có trong DOM');
+      assert.equal(text(byId(ids[0])).replace('*', '').trim(), lab);
+      assert.equal(text(byId(ids[1])).trim(), val);
+    }
+  } finally { await m.unmount(); }
+});

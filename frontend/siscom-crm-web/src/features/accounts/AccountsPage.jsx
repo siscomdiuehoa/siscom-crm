@@ -102,8 +102,8 @@ export default function AccountsPage({ ui }) {
       <p style={{ margin: 0, font: 'var(--type-sm)', color: 'var(--text-2)' }}>Thêm nhân viên, đổi thông tin, vai trò và mật khẩu. Mọi thay đổi có hiệu lực ngay và được ghi nhật ký.</p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ flex: '2 1 240px', minWidth: 0 }}><Input icon="search" size="sm" type="search" placeholder="Tìm theo tên, email, mã…" aria-label="Tìm tài khoản" value={text} onChange={(e) => setText(e.target.value)} /></div>
-        <div role="group" aria-label="Lọc vai trò" style={{ flex: '1 1 160px', maxWidth: mobile ? 'none' : 220 }}><Select size="sm" value={f.role} onChange={setFilter('role')} options={ROLE_FILTERS} /></div>
-        <div role="group" aria-label="Lọc trạng thái" style={{ flex: '1 1 160px', maxWidth: mobile ? 'none' : 220 }}><Select size="sm" value={f.status} onChange={setFilter('status')} options={STATUS_FILTERS} /></div>
+        <div role="group" aria-label="Lọc vai trò" style={{ flex: '1 1 160px', maxWidth: mobile ? 'none' : 220 }}><Select size="sm" ariaLabel="Lọc vai trò" value={f.role} onChange={setFilter('role')} options={ROLE_FILTERS} /></div>
+        <div role="group" aria-label="Lọc trạng thái" style={{ flex: '1 1 160px', maxWidth: mobile ? 'none' : 220 }}><Select size="sm" ariaLabel="Lọc trạng thái" value={f.status} onChange={setFilter('status')} options={STATUS_FILTERS} /></div>
       </div>
       {short ? <div role="status" style={sub}>Nhập ít nhất 2 ký tự để tìm.</div> : null}
       {l.status !== 'error' ? (

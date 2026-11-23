@@ -1,10 +1,10 @@
 import React, { useId } from 'react';
 import { Icon } from '../core/Icon.jsx';
 
-export function Field({ label, required, hint, error, success, htmlFor, children }) {
+export function Field({ label, required, hint, error, success, htmlFor, labelId, children }) {
   return (
     <div className="sg-field">
-      {label ? <label className="sg-label" htmlFor={htmlFor}>{label}{required ? <span className="sg-label__req">*</span> : null}</label> : null}
+      {label ? <label className="sg-label" id={labelId} htmlFor={htmlFor}>{label}{required ? <span className="sg-label__req">*</span> : null}</label> : null}
       {children}
       {error ? <span className="sg-hint sg-hint--error"><Icon name="circle-alert" size={13} />{error}</span>
         : success ? <span className="sg-hint sg-hint--success"><Icon name="circle-check" size={13} />{success}</span>

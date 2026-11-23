@@ -1,8 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { Icon } from '../core/Icon.jsx';
 import { Field } from './Input.jsx';
 
-export function Select({ options = [], value, defaultValue, onChange, placeholder = 'Chọn…', label, hint, error, required, icon, size = 'md', disabled, className = '' }) {
+// Trợ năng: có `label` => nút được gọi tên bằng aria-labelledby = nhãn + giá trị đang chọn ("Phòng ban — Kinh doanh"). Ô không nhãn thì truyền `ariaLabel`
+// => tên nút = "<ariaLabel>: <giá trị đang chọn>". Không truyền gì => như cũ (tên = nội dung nút).
+export function Select({ options = [], value, defaultValue, onChange, placeholder = 'Chọn…', label, hint, error, required, icon, size = 'md', disabled, className = '', ariaLabel }) {
+  const uid = useId(); const lid = 'sl' + uid.replace(/:/g, ''); const vid = lid + '-v';
   const [inner, setInner] = useState(defaultValue);
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -16,13 +19,14 @@ export function Select({ options = [], value, defaultValue, onChange, placeholde
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
   const pick = (v) => { if (value === undefined) setInner(v); onChange && onChange(v); setOpen(false); };
+  const btnName = ariaLabel ? ariaLabel + ': ' + (sel ? sel.label : placeholder) : undefined;
   const cls = ['sg-control', 'sg-select__trigger', size === 'sm' && 'sg-control--sm', error && 'sg-control--error', disabled && 'sg-control--disabled'].filter(Boolean).join(' ');
   const ctl = (
     <div className={'sg-select ' + className} ref={ref}>
-      <button type="button" className={cls} aria-haspopup="listbox" aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
+      <button type="button" className={cls} aria-haspopup="listbox" aria-expanded={open} aria-label={btnName} aria-labelledby={!btnName && label ? lid + ' ' + vid : undefined} disabled={disabled} onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
         {icon ? <Icon name={icon} size={16} /> : null}
         {sel && sel.icon ? <Icon name={sel.icon} size={16} color="var(--text-3)" /> : null}
-        <span className={'sg-select__value' + (sel ? '' : ' sg-select__value--ph')}>{sel ? sel.label : placeholder}</span>
+        <span id={vid} className={'sg-select__value' + (sel ? '' : ' sg-select__value--ph')}>{sel ? sel.label : placeholder}</span>
         <Icon name="chevron-down" size={16} color="var(--text-3)" style={{ transition: 'transform var(--dur-fast)', transform: open ? 'rotate(180deg)' : 'none' }} />
       </button>
       {open ? (
@@ -39,5 +43,5 @@ export function Select({ options = [], value, defaultValue, onChange, placeholde
     </div>
   );
   if (!label && !hint && !error) return ctl;
-  return <Field label={label} required={required} hint={hint} error={error}>{ctl}</Field>;
+  return <Field label={label} labelId={lid} required={required} hint={hint} error={error}>{ctl}</Field>;
 }
