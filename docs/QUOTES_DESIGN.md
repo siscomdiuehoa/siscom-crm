@@ -308,7 +308,7 @@ Bản nháp cho phép tổng tạm lệch dòng hàng **bên trong** một trans
 
 ### 7.1 Ma trận [QB19, QB21, QB23; phần còn lại là đề xuất]
 
-Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường đầy đủ** thì không thấy báo giá (ngoài phạm vi trả 404, không trả 403).
+Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường đầy đủ** thì không thấy báo giá. **Quy ước 403 / 404 cho mọi endpoint báo giá** (Owner chốt 24/11/2026, review `R1-02`): (1) người gọi **không có mã quyền** của thao tác (ví dụ không có `quote.read`) ⇒ **403**, quyết định **trước khi** tra bất kỳ bản ghi nào nên giống hệt nhau với id có thật, id không tồn tại, id đã xoá — không lộ sự tồn tại của báo giá; (2) có mã nhưng báo giá / cơ hội ngoài phạm vi, không tồn tại hoặc đã xoá mềm ⇒ **cùng một 404**, không trả 403; (3) thấy được báo giá nhưng thiếu quyền của thao tác trên chính nó ⇒ 403.
 
 | Mã | Quản trị CRM | Kinh doanh | Kỹ thuật | Kế toán | Quản trị hệ thống |
 |---|---|---|---|---|---|
@@ -443,7 +443,7 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 
 **C. Bảo mật** (Q4–Q6, Q9, Q10; ma trận 5 vai trò)
 - C1: mỗi endpoint đọc × 5 vai trò × {phụ trách, chỉ xem, ngoài phạm vi} đúng 7.1. C2: mỗi endpoint ghi tương tự.
-- C3: Kỹ thuật có công việc đang mở trên cơ hội: **mọi** endpoint báo giá ⇒ 404; chi tiết cơ hội đường theo việc không có khoá nào mới (`TECH_KEYS`).
+- C3: Kỹ thuật có công việc đang mở trên cơ hội (không có mã `quote.read`): **mọi** endpoint báo giá ⇒ **403**, giống hệt nhau với id có thật và id không tồn tại, thân phản hồi không chứa dữ liệu báo giá (quy ước ở 7.1; bản v7 ghi 404); người **có** `quote.read` nhưng chỉ thấy cơ hội theo đường theo việc ⇒ 404; chi tiết cơ hội đường theo việc không có khoá nào mới (`TECH_KEYS`).
 - C4: xem bản in không quyền ⇒ trang "không có quyền", 0 lời gọi API báo giá (Chrome thật).
 - C5: sau khi đồng bộ giá trị, đường theo việc vẫn không có giá trị, tổng cột, số đếm. C6: dòng `AMOUNT` chỉ thấy trên đường đầy đủ.
 - C7: không có dòng `opportunity_document` nào do báo giá sinh ra. C8: không có hoạt động / công việc / kết quả tìm kiếm chung nào chứa dữ liệu báo giá.
