@@ -8,9 +8,10 @@ import { AuthApiModule } from './modules/auth/auth-api.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { LookupsModule } from './modules/lookups/lookups.module';
 import { OpportunitiesModule } from './modules/opportunities/opportunities.module';
+import { QuotesModule } from './modules/quotes/quotes.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, cache: true, validate: validateEnv }), PrismaModule, HealthModule, AuthApiModule, CustomersModule, LookupsModule, ActivitiesModule, OpportunitiesModule, AccountsModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true, cache: true, validate: validateEnv }), PrismaModule, HealthModule, AuthApiModule, CustomersModule, LookupsModule, ActivitiesModule, OpportunitiesModule, AccountsModule, QuotesModule],
 })
 export class AppModule {}
