@@ -308,7 +308,7 @@ Bản nháp cho phép tổng tạm lệch dòng hàng **bên trong** một trans
 
 ### 7.1 Ma trận [QB19, QB21, QB23; phần còn lại là đề xuất]
 
-Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường đầy đủ** thì không thấy báo giá (ngoài phạm vi trả 404, không trả 403).
+Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường đầy đủ** thì không thấy báo giá. **Quy ước 403 / 404 cho mọi endpoint báo giá** (Owner chốt 24/11/2026, review `R1-02`): (1) người gọi **không có mã quyền** của thao tác (ví dụ không có `quote.read`) ⇒ **403**, quyết định **trước khi** tra bất kỳ bản ghi nào nên giống hệt nhau với id có thật, id không tồn tại, id đã xoá — không lộ sự tồn tại của báo giá; (2) có mã nhưng báo giá / cơ hội ngoài phạm vi, không tồn tại hoặc đã xoá mềm ⇒ **cùng một 404**, không trả 403; (3) thấy được báo giá nhưng thiếu quyền của thao tác trên chính nó ⇒ 403.
 
 | Mã | Quản trị CRM | Kinh doanh | Kỹ thuật | Kế toán | Quản trị hệ thống |
 |---|---|---|---|---|---|
@@ -324,7 +324,7 @@ Báo giá **đi theo cơ hội**: ai không thấy cơ hội trên **đường �
 - Đọc danh sách loại báo giá đang dùng (để chọn khi lập) và sửa **mặc định cá nhân của chính mình**: mọi người có `quote.create`.
 - Dùng lại RBAC và vị từ phạm vi hiện có: mọi đường đọc báo giá (kể cả tải tệp) đi qua **đúng một hàm** = mã quyền tương ứng **VÀ** vị từ "đường đầy đủ" của cơ hội (`fullReadWhere` [Mã hiện có]). **Không** dùng "đường theo việc" (`taskPathWhere`). Quyền ghi và quyền tải kiểm theo `owner_id` của cơ hội như `opportunity.update`. Mỗi mã cấp riêng.
 - `fn_auth_perm_class` xếp thêm tiền tố `quote.` vào nhóm BIZ ⇒ rào SoD của M1 chặn ở DB việc cấp bất kỳ mã `quote.*` nào cho vai trò `admin` (cùng cách S5).
-- Cấp quyền trên DB đã bootstrap: script hai người + script gỡ + diễn tập CI (mẫu `SALES_S5_OPPORTUNITY_PERMISSIONS`). Grants cho `siscom_app`: INSERT / UPDATE `quote`, `quote_version`, `quote_template`, `quote_user_default`; INSERT / UPDATE / DELETE `quote_line`; không DELETE trên bốn bảng còn lại. `siscom_auth`, `siscom_acct`: **không có quyền nào** trên năm bảng.
+- Cấp quyền trên DB đã bootstrap: script hai người + script gỡ + diễn tập CI (mẫu `SALES_S5_OPPORTUNITY_PERMISSIONS`). Grants cho `siscom_app` (APP_GRANTS_V5 mục 2e): INSERT / UPDATE `quote`, `quote_template`, `quote_user_default` (không DELETE); INSERT / UPDATE / DELETE `quote_version` và `quote_line` — hai bảng duy nhất ứng dụng được DELETE, để xoá **bản nháp** và dòng của nó; trigger R-Q2b / R-Q2c chặn mọi DELETE trên phiên bản đã gửi (xem mục 19, điểm 9). Không TRUNCATE bảng nào. `siscom_auth`, `siscom_acct`: **không có quyền nào** trên năm bảng.
 
 ### 7.2 Rà các đường có thể lộ giá gián tiếp
 
@@ -431,7 +431,7 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 - B3: gửi phiên bản không có dòng hàng (kể cả chỉ có dòng nhóm) ⇒ từ chối. B4: gửi khi `base8_vnd` / `base10_vnd` lệch tổng dòng ⇒ từ chối.
 - B5: mọi chuyển trạng thái ngoài R-Q3 ⇒ từ chối. B6: U-1, U-2, U-3 và khoá ngoại kép ⇒ từ chối.
 - B7: các cột bất biến của `quote` (kể cả `template_id`); bật `is_primary` khi chưa có phiên bản gửi; R-Q7, R-Q8.
-- B8: `siscom_app` không DELETE được `quote`, `quote_version`, `quote_template`; `siscom_auth`, `siscom_acct` không SELECT được năm bảng; vai trò `admin` không nhận được mã `quote.*` (SoD).
+- B8: `siscom_app` không DELETE được `quote`, `quote_template`, `quote_user_default`, không TRUNCATE bảng nào, và chỉ DELETE được `quote_version` / `quote_line` của **bản nháp** (mục 19, điểm 9); `siscom_auth`, `siscom_acct` không SELECT được năm bảng; vai trò `admin` không nhận được mã `quote.*` (SoD).
 - B9: danh sách cột của R-Q2a khớp `information_schema`.
 - B10: `columns` sai hình dạng (11 cột, key trùng, key sai mẫu, nhãn quá dài) ⇒ từ chối; `extra` có khoá ngoài danh sách cột, quá 10 khoá, giá trị không phải chuỗi ⇒ từ chối; đổi `columns` của nháp khi còn dòng dùng khoá bị bỏ ⇒ từ chối; dòng nhóm có số tiền hoặc giá vốn ⇒ từ chối.
 - B12 (**hai kết nối thật, SQL trực tiếp, không qua API**): hai transaction cùng lúc chấp nhận hai báo giá khác nhau của một cơ hội ⇒ đúng một bên thành công, bên kia `QUOTE_ALREADY_ACCEPTED` hoặc lỗi trùng U-4; lặp 50 lần, không lần nào có hai phiên bản được chấp nhận. Người gọi tự truyền `accepted_opportunity_id` sai ⇒ trigger ghi đè giá trị đúng.
@@ -443,7 +443,7 @@ Mỗi ca ghi PASS / FAIL kèm bằng chứng. Ca FAIL chặn merge PR chứa nó
 
 **C. Bảo mật** (Q4–Q6, Q9, Q10; ma trận 5 vai trò)
 - C1: mỗi endpoint đọc × 5 vai trò × {phụ trách, chỉ xem, ngoài phạm vi} đúng 7.1. C2: mỗi endpoint ghi tương tự.
-- C3: Kỹ thuật có công việc đang mở trên cơ hội: **mọi** endpoint báo giá ⇒ 404; chi tiết cơ hội đường theo việc không có khoá nào mới (`TECH_KEYS`).
+- C3: Kỹ thuật có công việc đang mở trên cơ hội (không có mã `quote.read`): **mọi** endpoint báo giá ⇒ **403**, giống hệt nhau với id có thật và id không tồn tại, thân phản hồi không chứa dữ liệu báo giá (quy ước ở 7.1; bản v7 ghi 404); người **có** `quote.read` nhưng chỉ thấy cơ hội theo đường theo việc ⇒ 404; chi tiết cơ hội đường theo việc không có khoá nào mới (`TECH_KEYS`).
 - C4: xem bản in không quyền ⇒ trang "không có quyền", 0 lời gọi API báo giá (Chrome thật).
 - C5: sau khi đồng bộ giá trị, đường theo việc vẫn không có giá trị, tổng cột, số đếm. C6: dòng `AMOUNT` chỉ thấy trên đường đầy đủ.
 - C7: không có dòng `opportunity_document` nào do báo giá sinh ra. C8: không có hoạt động / công việc / kết quả tìm kiếm chung nào chứa dữ liệu báo giá.
