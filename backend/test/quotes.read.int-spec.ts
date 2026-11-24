@@ -9,6 +9,9 @@ import { ensureFixtures, Fixtures, makeContact, makeCustomer, makeEmployee, make
 const Q = '/api/v1/quotes';
 const O = '/api/v1/opportunities';
 const GHOST = '00000000-0000-4000-8000-000000000001';
+// Tìm một GIÁ TRỊ số (tiền, giá vốn) trong phản hồi: chỉ khớp khi đứng riêng, KHÔNG khớp đoạn hex của UUID hay dấu thời gian
+// (id ngẫu nhiên kiểu 'f1888a6d-…' từng làm bài kiểm trượt giả).
+const hasValue = (body: unknown, ...vals: string[]): boolean => new RegExp('(?<![0-9a-fA-F.-])(' + vals.join('|') + ')(?![0-9a-fA-F-])').test(JSON.stringify(body));
 let prisma: PrismaService; let fx: Fixtures; let t: TestApp;
 const a = (who?: string, app: INestApplication = t.app) => as(app, who);
 type Ref = { id: string; code: string };
@@ -102,7 +105,8 @@ describe('GET /quotes — phạm vi theo cơ hội (C1, C15)', () => {
     expect(Object.keys(by[q1]!).sort()).toEqual(['code', 'createdAt', 'createdBy', 'customer', 'id', 'isPrimary', 'itemName', 'latest', 'opportunity', 'template', 'updatedAt', 'version']);
     expect(by[q1]!.latest).toMatchObject({ versionNo: 2, state: 'DRAFT', daysLeft: null, subtotalVnd: '125', totalVnd: '138' });
     expect(by[q2]!.latest).toMatchObject({ versionNo: 1, state: 'EXPIRED', daysLeft: -10, subtotalVnd: '15', totalVnd: '17' });
-    expect(JSON.stringify(r.body)).not.toMatch(/costPrice|250000|77777|1888|"lines"/);
+    expect(JSON.stringify(r.body)).not.toMatch(/costPrice|"lines"/);
+    expect(hasValue(r.body, '250000', '77777', '1888')).toBe(false);
   });
   it('lọc trạng thái theo phiên bản MỚI NHẤT; "hết hiệu lực" dùng cùng mốc ngày với nhãn', async () => {
     const want: Record<string, string[]> = { DRAFT: sorted(q1, q3, q4), EXPIRED: [q2], SENT: [], EXPIRING: [], ACCEPTED: [], REJECTED: [] };
@@ -147,19 +151,20 @@ describe('GET /quotes/:id — chi tiết và giá vốn theo TỪNG phiên bản
     expect(d.versions.map((v) => [v.versionNo, v.costVisible])).toEqual([[1, true], [2, false]]);
     expect(d.versions[0]!.lines[0]).toHaveProperty('costPriceVnd', '250000');
     expect(Object.keys(d.versions[1]!.lines[0]!)).not.toContain('costPriceVnd');
-    expect(JSON.stringify(d.versions[1])).not.toMatch(/77777/);
+    expect(hasValue(d.versions[1], '77777')).toBe(false);
   });
   it('Kế toán (xem được báo giá) và Kinh doanh chỉ-xem: không có khoá giá vốn ở phiên bản nào', async () => {
     for (const [who, id] of [['acctC', q1], ['salesA', q3]] as const) {
       const d = await get(who, id);
       for (const v of d.versions) { expect({ who, v: v.versionNo, cost: v.costVisible }).toEqual({ who, v: v.versionNo, cost: false }); for (const l of v.lines) expect(Object.keys(l)).not.toContain('costPriceVnd'); }
-      expect(JSON.stringify(d)).not.toMatch(/costPrice|250000|77777|"900"/);
+      expect(JSON.stringify(d)).not.toMatch(/costPrice/);
+      expect(hasValue(d, '250000', '77777', '900')).toBe(false);
     }
   });
   it('người tạo cũ không còn thấy cơ hội => 404, không thấy cả báo giá lẫn giá vốn (created_by không mở rộng phạm vi)', async () => {
     const r = await a('salesA').get(Q + '/' + q4);
     expect(err(r)).toEqual({ s: 404, code: 'QUOTE_NOT_FOUND' });
-    expect(JSON.stringify(r.body)).not.toMatch(/1888|2000/);
+    expect(hasValue(r.body, '1888', '2000')).toBe(false);
     expect(r.headers['cache-control']).toBe('no-store');
   });
   it('ngoài phạm vi / không tồn tại / đã xoá mềm => cùng một 404; không có mã đọc => 403; id sai dạng => 400', async () => {
@@ -201,7 +206,8 @@ describe('GET /opportunities/:id/quotes — tab Báo giá của cơ hội', () =
     const d = r.body.data as { items: Array<{ id: string; versions: Array<{ versionNo: number; state: string; subtotalVnd: string }> }>; can: Record<string, boolean> };
     expect(d.items.filter((x) => x.id === q1).map((x) => x.versions.map((v) => [v.versionNo, v.state, v.subtotalVnd]))).toEqual([[[1, 'SENT', '8999000000824334'], [2, 'DRAFT', '125']]]);
     expect(d.can).toEqual({ create: true, export: true });
-    expect(JSON.stringify(r.body)).not.toMatch(/costPrice|250000|77777/);
+    expect(JSON.stringify(r.body)).not.toMatch(/costPrice/);
+    expect(hasValue(r.body, '250000', '77777')).toBe(false);
     expect((await list('salesA', o3.id)).body.data.can).toEqual({ create: false, export: false });
     expect((await list('acctC', o2.id)).body.data.can).toEqual({ create: false, export: true });
   });
@@ -216,7 +222,8 @@ describe('GET /opportunities/:id/quotes — tab Báo giá của cơ hội', () =
     for (const u of [O + '/' + o1.id + '/quotes', O + '/' + o1.id + '/quotes/defaults?templateId=' + tpl, Q, Q + '/' + q1, Q + '/templates', Q + '/my-defaults']) {
       const r = await a('techXp').get(u);
       expect({ u, s: r.status }).toEqual({ u, s: 403 });
-      expect(JSON.stringify(r.body)).not.toMatch(/BG-|833333|Ống gió/);
+      expect(JSON.stringify(r.body)).not.toMatch(/BG-|Ống gió/);
+      expect(hasValue(r.body, '833333')).toBe(false);
       expect(r.headers['cache-control']).toBe('no-store');
     }
   });
