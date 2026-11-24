@@ -189,6 +189,21 @@ d('B1.4 P3 — S1 tách role: siscom_app chỉ DML, siscom_migrator chủ sở h
     expect(await appTry('TRUNCATE public.opportunity_document')).toBe('42501');
   });
 
+  it('Báo giá Q3 (APP_GRANTS_V5 mục 2e): app INSERT + UPDATE 5 bảng báo giá; DELETE chỉ quote_version + quote_line; không TRUNCATE; siscom_auth không có quyền nào', async () => {
+    const r = await prisma.$queryRaw<{ t: string; ins: boolean; upd: boolean; del: boolean; trunc: boolean; auth: boolean }[]>`
+      SELECT t, has_table_privilege('siscom_app', 'public.' || t, 'INSERT') AS ins, has_table_privilege('siscom_app', 'public.' || t, 'UPDATE') AS upd,
+             has_table_privilege('siscom_app', 'public.' || t, 'DELETE') AS del, has_table_privilege('siscom_app', 'public.' || t, 'TRUNCATE') AS trunc,
+             has_any_column_privilege('siscom_auth', 'public.' || t, 'SELECT') AS auth
+      FROM unnest(ARRAY['quote', 'quote_line', 'quote_template', 'quote_user_default', 'quote_version']) AS t ORDER BY t`;
+    expect(r).toEqual(['quote', 'quote_line', 'quote_template', 'quote_user_default', 'quote_version'].map((t) => ({ t, ins: true, upd: true, del: t === 'quote_line' || t === 'quote_version', trunc: false, auth: false })));
+    expect(await appTry('DELETE FROM public.quote WHERE false')).toBe('42501');
+    expect(await appTry('DELETE FROM public.quote_template WHERE false')).toBe('42501');
+    expect(await appTry('DELETE FROM public.quote_user_default WHERE false')).toBe('42501');
+    expect(await appTry('TRUNCATE public.quote_line')).toBe('42501');
+    await prisma.$executeRawUnsafe('DELETE FROM public.quote_line WHERE false');
+    await prisma.$executeRawUnsafe('DELETE FROM public.quote_version WHERE false');
+  });
+
   it('siscom_app không tự nâng quyền: GRANT cho chính mình (PostgreSQL chỉ WARNING, không lỗi) KHÔNG có hiệu lực; đổi chủ sở hữu/role/SET ROLE bị 42501', async () => {
     // GRANT bởi role không sở hữu và không có grant option: PostgreSQL trả "no privileges were granted" (WARNING) và thoát 0 —
     // nên kiểm HIỆU QUẢ (quyền sau đó vẫn không có), không kiểm mã lỗi. Thử ngoài transaction để chắc không có gì "dính" lại.

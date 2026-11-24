@@ -80,7 +80,25 @@ INSERT INTO s1_result SELECT 'B1s app INSERT/UPDATE opportunity (KHONG DELETE/TR
   -- Sales S9b: opportunity_document (khi co bang): INSERT + UPDATE (xoa mem), KHONG DELETE/TRUNCATE.
   AND (CASE WHEN to_regclass('public.opportunity_document') IS NULL THEN true
         ELSE has_table_privilege('siscom_app', 'public.opportunity_document', 'INSERT') AND has_table_privilege('siscom_app', 'public.opportunity_document', 'UPDATE')
-             AND NOT has_table_privilege('siscom_app', 'public.opportunity_document', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.opportunity_document', 'TRUNCATE') END);
+             AND NOT has_table_privilege('siscom_app', 'public.opportunity_document', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.opportunity_document', 'TRUNCATE') END)
+  -- Bao gia Q3 (khi co bang): quote, quote_template, quote_user_default: INSERT + UPDATE, KHONG DELETE/TRUNCATE.
+  --   quote_version, quote_line: INSERT + UPDATE + DELETE (xoa NHAP; trigger chan phien ban da gui), KHONG TRUNCATE. Day la HAI bang duy nhat app duoc DELETE:
+  AND NOT EXISTS (SELECT 1 FROM pg_tables t WHERE t.schemaname = 'public' AND t.tablename NOT IN ('quote_version', 'quote_line') AND has_table_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'DELETE'))
+  AND (CASE WHEN to_regclass('public.quote') IS NULL THEN true
+        ELSE has_table_privilege('siscom_app', 'public.quote', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote', 'UPDATE')
+             AND NOT has_table_privilege('siscom_app', 'public.quote', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.quote', 'TRUNCATE') END)
+  AND (CASE WHEN to_regclass('public.quote_template') IS NULL THEN true
+        ELSE has_table_privilege('siscom_app', 'public.quote_template', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote_template', 'UPDATE')
+             AND NOT has_table_privilege('siscom_app', 'public.quote_template', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.quote_template', 'TRUNCATE') END)
+  AND (CASE WHEN to_regclass('public.quote_user_default') IS NULL THEN true
+        ELSE has_table_privilege('siscom_app', 'public.quote_user_default', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote_user_default', 'UPDATE')
+             AND NOT has_table_privilege('siscom_app', 'public.quote_user_default', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.quote_user_default', 'TRUNCATE') END)
+  AND (CASE WHEN to_regclass('public.quote_version') IS NULL THEN true
+        ELSE has_table_privilege('siscom_app', 'public.quote_version', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote_version', 'UPDATE')
+             AND has_table_privilege('siscom_app', 'public.quote_version', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.quote_version', 'TRUNCATE') END)
+  AND (CASE WHEN to_regclass('public.quote_line') IS NULL THEN true
+        ELSE has_table_privilege('siscom_app', 'public.quote_line', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote_line', 'UPDATE')
+             AND has_table_privilege('siscom_app', 'public.quote_line', 'DELETE') AND NOT has_table_privilege('siscom_app', 'public.quote_line', 'TRUNCATE') END);
 INSERT INTO s1_result SELECT 'B1e app KHONG co quyen nao (ke ca SELECT theo cot) tren auth_session va employee_credential (P3c, S3)',
   bool_and(NOT has_any_column_privilege('siscom_app', 'public.' || t, 'SELECT') AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'INSERT')
        AND NOT has_any_column_privilege('siscom_app', 'public.' || t, 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.' || t, 'DELETE'))
@@ -221,7 +239,12 @@ SELECT pg_temp.expect_ok('E5s app INSERT/UPDATE opportunity va INSERT opportunit
   'EXECUTE $s$UPDATE public.opportunity SET status = status, stage_id = stage_id, owner_id = owner_id, version = version, closed_at = closed_at, deleted_at = deleted_at WHERE false$s$; END IF; '
   'IF to_regclass($t$public.opportunity_change$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.opportunity_change (opportunity_id, field, changed_by) SELECT gen_random_uuid(), $v$STAGE$v$, gen_random_uuid() WHERE false$s$; END IF; '
   'IF to_regclass($t$public.opportunity_document$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.opportunity_document (opportunity_id, kind, file_name, url, created_by) SELECT gen_random_uuid(), $v$TECHNICAL$v$, chr(120), $v$https://x$v$, gen_random_uuid() WHERE false$s$; '
-  'EXECUTE $s$UPDATE public.opportunity_document SET deleted_at = deleted_at, deleted_by = deleted_by, delete_reason = delete_reason WHERE false$s$; END IF; END $s3$');
+  'EXECUTE $s$UPDATE public.opportunity_document SET deleted_at = deleted_at, deleted_by = deleted_by, delete_reason = delete_reason WHERE false$s$; END IF; '
+  'IF to_regclass($t$public.quote$t$) IS NOT NULL THEN EXECUTE $s$INSERT INTO public.quote (opportunity_id, customer_id, template_id, item_name, created_by) SELECT gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), chr(120), gen_random_uuid() WHERE false$s$; '
+  'EXECUTE $s$UPDATE public.quote SET is_primary = is_primary, version = version, deleted_at = deleted_at WHERE false$s$; '
+  'EXECUTE $s$UPDATE public.quote_template SET is_active = is_active WHERE false$s$; EXECUTE $s$UPDATE public.quote_user_default SET payment_info = payment_info WHERE false$s$; '
+  'EXECUTE $s$UPDATE public.quote_version SET status = status WHERE false$s$; EXECUTE $s$DELETE FROM public.quote_version WHERE false$s$; '
+  'EXECUTE $s$UPDATE public.quote_line SET line_no = line_no WHERE false$s$; EXECUTE $s$DELETE FROM public.quote_line WHERE false$s$; END IF; END $s3$');
 -- M-8 (ra soat P3b): ham runtime can EXECUTE (qua PUBLIC): tim kiem (f_vn_fold), khoi phuc (fn_customer_restore_conflicts), sinh ma trong
 -- DEFAULT khi app INSERT (fn_next_customer_code / fn_next_contact_code). Migration sau nay lo REVOKE FROM PUBLIC => FAIL o day, khong doi 500.
 INSERT INTO s1_result SELECT 'E7 app EXECUTE duoc 5 ham runtime (f_vn_fold, fn_customer_restore_conflicts, fn_next_customer_code, fn_next_contact_code, fn_next_activity_code - B3 A3)',
@@ -244,6 +267,7 @@ SELECT pg_temp.expect_denied('F11 app khong INSERT app_meta (khong tu dong/mo kh
 SELECT pg_temp.expect_denied('F12 app khong UPDATE employee',                      'UPDATE public.employee SET full_name = full_name WHERE false');
 SELECT pg_temp.expect_denied('F13 app khong INSERT lookup_item (seed chay bang migrator)', 'INSERT INTO public.lookup_item (type, code, label_vi) SELECT ''x'', ''x'', ''x'' WHERE false');
 SELECT pg_temp.expect_denied('F14 app khong DELETE customer (chi xoa mem bang UPDATE)', 'DELETE FROM public.customer WHERE false');
+-- Bao gia Q3: bang quote / quote_template khong DELETE duoc - kiem bang hanh vi o QUOTES_Q3_APP_TESTS (bang co the chua ton tai o day).
 SELECT pg_temp.expect_denied('F15 app khong setval sequence ma khach',             'SELECT setval(''public.customer_code_seq'', last_value, is_called) FROM public.customer_code_seq');
 INSERT INTO s1_result SELECT 'F16 app KHONG EXECUTE fn_auth_api_request_create / role_grant / reset_password (chi nguoi van hanh qua migrator)',
   NOT has_function_privilege('siscom_app', 'public.fn_auth_api_request_create(uuid, public.privileged_change_type, uuid, uuid, jsonb, integer)', 'EXECUTE')

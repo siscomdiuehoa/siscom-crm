@@ -83,6 +83,18 @@ INSERT INTO opportunity (id, customer_id, title, type_id, stage_id, owner_id, is
  ('6b000000-0000-4000-8000-000000000061', '6b000000-0000-4000-8000-000000000031', 'Q2 co hoi 1 (K1)', '6b000000-0000-4000-8000-000000000013', '6b000000-0000-4000-8000-000000000014', '6b000000-0000-4000-8000-000000000021', true),
  ('6b000000-0000-4000-8000-000000000062', '6b000000-0000-4000-8000-000000000031', 'Q2 co hoi 2 (K1)', '6b000000-0000-4000-8000-000000000013', '6b000000-0000-4000-8000-000000000014', '6b000000-0000-4000-8000-000000000021', true),
  ('6b000000-0000-4000-8000-000000000063', '6b000000-0000-4000-8000-000000000032', 'Q2 co hoi 3 (K2)', '6b000000-0000-4000-8000-000000000013', '6b000000-0000-4000-8000-000000000014', '6b000000-0000-4000-8000-000000000022', true);
+-- Q3 (B8 + "nhom B chay bang siscom_app"): file QUOTES_Q3_APP_TESTS.sql.txt dat q2_as_app roi \ir file nay bang superuser cua DB tam. Tu day moi lenh chay
+--   bang siscom_app (SET ROLE): CHECK va trigger phai cho CUNG ket qua; rieng DELETE tren bang app khong co quyen xoa => 42501 thay vi loi cua trigger.
+\if :{?q2_as_app}
+GRANT ALL ON TABLE res TO siscom_app;
+SET ROLE siscom_app;
+\set q2_nodel_state 42501
+\set q2_tpl_token ''
+\else
+\set q2_nodel_state 23001
+\set q2_tpl_token QUOTE_TEMPLATE_DELETE
+\endif
+SELECT current_user AS cac_ca_duoi_day_chay_bang;
 INSERT INTO quote_template (id, code, name, title, vat_mode, columns) VALUES
  ('6b000000-0000-4000-8000-000000000071', 'zz-q2-ong-gio', 'Q2 ong gio', 'BAO GIA ONG GIO', 'QUOTE', '[{"key":"dk","label":"Duong kinh","unit":"mm"},{"key":"dai","label":"Chieu dai","unit":"m"}]'),
  ('6b000000-0000-4000-8000-000000000072', 'zz-q2-theo-dong', 'Q2 VAT theo dong', 'BAO GIA', 'LINE', '[]');
@@ -124,7 +136,7 @@ SELECT pg_temp.expect_true('Q015 ham kiem: 3 ca sai o Q014 deu false TUNG ca; 10
 SELECT pg_temp.expect_err('Q016 ma loai sai mau / ten rong / so ngay 0 / VAT mac dinh 5 bi tu choi', $q$ INSERT INTO quote_template (code, name, title, default_valid_days, default_vat) VALUES ('ZZ Q2', 'x', 'x', 15, 10) $q$, '23514');
 SELECT pg_temp.expect_err('Q017 VAT mac dinh 5 bi tu choi', $q$ UPDATE quote_template SET default_vat = 5 WHERE code = 'zz-q2-ong-gio' $q$, '23514');
 SELECT pg_temp.expect_err('Q018 so ngay hieu luc 366 bi tu choi', $q$ UPDATE quote_template SET default_valid_days = 366 WHERE code = 'zz-q2-ong-gio' $q$, '23514');
-SELECT pg_temp.expect_err('Q019 R-Q12 khong xoa cung loai bao gia', $q$ DELETE FROM quote_template WHERE code = 'zz-q2-theo-dong' $q$, '23001', 'QUOTE_TEMPLATE_DELETE');
+SELECT pg_temp.expect_err('Q019 R-Q12 khong xoa cung loai bao gia', $q$ DELETE FROM quote_template WHERE code = 'zz-q2-theo-dong' $q$, :'q2_nodel_state', nullif(:'q2_tpl_token', ''));
 -- dong hang hop le co gia tri cot rieng + gia von
 INSERT INTO quote_line (id, quote_version_id, line_no, description, unit, extra, quantity, unit_price_vnd, vat_percent, amount_vnd, cost_price_vnd) VALUES
  ('6b000000-0000-4000-8000-0000000000a1', '6b000000-0000-4000-8000-000000000091', 1, 'Ong gio vai D400', 'm', '{"dk":"400","dai":"12,5"}', 2.5, 333333, 10, 833333, 250000);
@@ -309,11 +321,23 @@ SELECT pg_temp.expect_err('Q154 xoa mem thieu ly do bi tu choi', $q$ UPDATE quot
 UPDATE quote SET deleted_at = now(), deleted_by = '6b000000-0000-4000-8000-000000000022', delete_reason = 'Lap nham' WHERE id = '6b000000-0000-4000-8000-000000000083';
 SELECT pg_temp.expect_true('Q155 R-Q9 xoa mem bao gia chi co nhap duoc', $q$ (SELECT deleted_at IS NOT NULL FROM quote WHERE id = '6b000000-0000-4000-8000-000000000083') $q$);
 SELECT pg_temp.expect_err('Q156 gui phien ban cua bao gia DA XOA MEM bi tu choi', $q$ SELECT pg_temp.send_version('6b000000-0000-4000-8000-000000000093') $q$, '23001', 'QUOTE_DELETED');
-SELECT pg_temp.expect_err('Q157 xoa cung co hoi con bao gia bi chan (FK RESTRICT)', $q$ DELETE FROM opportunity WHERE id = '6b000000-0000-4000-8000-000000000062' $q$, '23001');
+SELECT pg_temp.expect_err('Q157 xoa cung co hoi con bao gia bi chan (FK RESTRICT)', $q$ DELETE FROM opportunity WHERE id = '6b000000-0000-4000-8000-000000000062' $q$, :'q2_nodel_state');
 
 -- 8. Mac dinh ca nhan
 INSERT INTO quote_user_default (employee_id, quoter_title, payment_info) VALUES ('6b000000-0000-4000-8000-000000000021', 'Kinh doanh', 'STK thu 000');
 SELECT pg_temp.expect_err('Q160 moi nhan vien toi da mot dong mac dinh ca nhan', $q$ INSERT INTO quote_user_default (employee_id) VALUES ('6b000000-0000-4000-8000-000000000021') $q$, '23505');
+
+-- 8b. B8 (chi khi chay bang siscom_app - Q3): quyen theo APP_GRANTS_V5 muc 2e, kiem bang HANH VI
+\if :{?q2_as_app}
+SELECT pg_temp.expect_err('Q161 B8 app KHONG DELETE duoc quote (chi xoa mem)', $q$ DELETE FROM quote WHERE id = '6b000000-0000-4000-8000-000000000083' $q$, '42501');
+SELECT pg_temp.expect_err('Q162 B8 app KHONG DELETE duoc quote_user_default', $q$ DELETE FROM quote_user_default WHERE false $q$, '42501');
+SELECT pg_temp.expect_err('Q163 B8 app KHONG TRUNCATE duoc quote_line', $q$ TRUNCATE quote_line $q$, '42501');
+SELECT pg_temp.expect_err('Q164 B8 app KHONG TRUNCATE duoc quote_version', $q$ TRUNCATE quote_version CASCADE $q$, '42501');
+SELECT pg_temp.expect_run('Q165 app xoa duoc dong roi phien ban NHAP (Q3 v1 cua bao gia da xoa mem)', $q$ DELETE FROM quote_line WHERE quote_version_id = '6b000000-0000-4000-8000-000000000093'; DELETE FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000093' $q$, $q$ NOT EXISTS (SELECT 1 FROM quote_version WHERE id = '6b000000-0000-4000-8000-000000000093') $q$);
+SELECT pg_temp.expect_true('Q166 B8 dang chay bang siscom_app; quyen: INSERT + UPDATE 5 bang; DELETE chi quote_version + quote_line; khong TRUNCATE', $q$ current_user = 'siscom_app' AND NOT EXISTS (SELECT 1 FROM unnest(ARRAY['quote_template', 'quote_user_default', 'quote', 'quote_version', 'quote_line']) AS t(n)
+  WHERE NOT has_table_privilege('siscom_app', 'public.' || t.n, 'INSERT') OR NOT has_table_privilege('siscom_app', 'public.' || t.n, 'UPDATE') OR has_table_privilege('siscom_app', 'public.' || t.n, 'TRUNCATE')
+     OR has_table_privilege('siscom_app', 'public.' || t.n, 'DELETE') <> (t.n IN ('quote_version', 'quote_line'))) $q$);
+\endif
 
 -- 9. B16(e): bat bien sau toan bo cac ca
 SELECT pg_temp.expect_true('Q170 B16e bat bien: moi phien ban ACCEPTED co accepted_opportunity_id = quote.opportunity_id; phien ban khac deu NULL; moi co hoi <= 1 phien ban duoc chap nhan', $q$ NOT EXISTS (SELECT 1 FROM quote_version v JOIN quote q ON q.id = v.quote_id WHERE (v.status = 'ACCEPTED' AND v.accepted_opportunity_id IS DISTINCT FROM q.opportunity_id) OR (v.status <> 'ACCEPTED' AND v.accepted_opportunity_id IS NOT NULL))
@@ -323,4 +347,7 @@ SELECT pg_temp.expect_true('Q170 B16e bat bien: moi phien ban ACCEPTED co accept
 SELECT label || ' => ' || CASE WHEN ok THEN 'ok' ELSE 'KHONG DAT' END FROM res ORDER BY label;
 SELECT 'PASS|' || count(*) FROM res WHERE ok IS TRUE;
 SELECT 'FAIL|' || count(*) FROM res WHERE ok IS NOT TRUE HAVING count(*) > 0;
+\if :{?q2_as_app}
+RESET ROLE;
+\endif
 ROLLBACK;
