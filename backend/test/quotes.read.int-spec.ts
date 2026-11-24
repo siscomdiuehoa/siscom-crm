@@ -166,7 +166,13 @@ describe('GET /quotes/:id — chi tiết và giá vốn theo TỪNG phiên bản
     const gone = await mkQuote(o1, cA.id, fx.empA, 'Đã xoá ' + TAG);
     await prisma.quote.update({ where: { id: gone }, data: { deletedAt: new Date(), deletedById: fx.empA, deleteReason: 'thử' } });
     for (const [who, id] of [['salesB', q1], ['salesC', q2], ['crmAdmin', GHOST], ['crmAdmin', gone], ['salesA', gone]] as const) expect({ who, ...err(await a(who).get(Q + '/' + id)) }).toEqual({ who, s: 404, code: 'QUOTE_NOT_FOUND' });
-    for (const who of ['techB', 'none']) expect({ who, ...err(await a(who).get(Q + '/' + q1)) }).toEqual({ who, s: 403, code: 'FORBIDDEN' });
+    // Thiếu mã đọc => 403 quyết định TRƯỚC khi tra bản ghi: id có thật, không tồn tại, đã xoá mềm cho CÙNG một phản hồi (review R1-02 — không lộ sự tồn tại).
+    for (const who of ['techB', 'none']) {
+      const seen = new Set<string>();
+      for (const id of [q1, GHOST, gone]) { const r = await a(who).get(Q + '/' + id); expect({ who, id, ...err(r) }).toEqual({ who, id, s: 403, code: 'FORBIDDEN' }); seen.add(JSON.stringify({ ...r.body, timestamp: undefined }).split(id).join('<id>')); }
+      expect([...seen]).toHaveLength(1);
+      expect({ who, ...err(await a(who).get(O + '/' + GHOST + '/quotes')) }).toEqual({ who, s: 403, code: 'FORBIDDEN' });
+    }
     expect((await a('crmAdmin').get(Q + '/khong-phai-uuid')).status).toBe(400);
   });
   it('tiền là chuỗi, đúng từng chữ số khi vượt 2^53 (A12); tên tệp gợi ý; nhãn còn hạn', async () => {
