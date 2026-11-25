@@ -238,6 +238,15 @@ model Employee {
   opportunityChanges   OpportunityChange[] @relation("OpportunityChangedBy")
   opportunityDocumentsCreated OpportunityDocument[] @relation("OpportunityDocumentCreatedBy")
   opportunityDocumentsDeleted OpportunityDocument[] @relation("OpportunityDocumentDeletedBy")
+  // Bao gia Q2
+  quoteTemplatesCreated QuoteTemplate[]   @relation("QuoteTemplateCreatedBy")
+  quoteTemplatesUpdated QuoteTemplate[]   @relation("QuoteTemplateUpdatedBy")
+  quoteUserDefault      QuoteUserDefault?
+  quotesCreated         Quote[]           @relation("QuoteCreatedBy")
+  quotesDeleted         Quote[]           @relation("QuoteDeletedBy")
+  quoteVersionsCreated  QuoteVersion[]    @relation("QuoteVersionCreatedBy")
+  quoteVersionsSent     QuoteVersion[]    @relation("QuoteVersionSentBy")
+  quoteVersionsDecided  QuoteVersion[]    @relation("QuoteVersionDecidedBy")
   assignments        CustomerAssignment[] @relation("AssignmentEmployee")
   assignmentsMade    CustomerAssignment[] @relation("AssignmentAssignedBy")
   auditEntries       AuditLog[]
@@ -562,6 +571,9 @@ model Opportunity {
   changes    OpportunityChange[]
   documents  OpportunityDocument[]
   activities Activity[]
+  // Bao gia Q2
+  quotes                Quote[]
+  quoteVersionsAccepted QuoteVersion[] @relation("QuoteVersionAcceptedOpportunity")
 
   @@index([customerId])
   @@index([ownerId, status])
@@ -570,6 +582,7 @@ model Opportunity {
   @@index([deletedAt])
   @@index([titleFold(ops: raw("gin_trgm_ops"))], map: "ix_opportunity_title_fold", type: Gin)
   @@index([projectNameFold(ops: raw("gin_trgm_ops"))], map: "ix_opportunity_project_name_fold", type: Gin)
+  @@unique([id, customerId]) // Bao gia Q2: dich cua FK ghep quote(opportunity_id, customer_id)
   @@map("opportunity")
 }
 
@@ -610,6 +623,180 @@ model OpportunityDocument {
 
   @@index([opportunityId])
   @@map("opportunity_document")
+}
+
+// ───────── Bao gia Q2 (migration 20261125000000_quotes; thiet ke docs/QUOTES_DESIGN.md muc 5) ─────────
+// Rang buoc Prisma khong mo ta duoc nam trong migration.sql: CHECK (C-1..C-8), chi muc duy nhat rieng phan U-1..U-4, trigger R-Q1..R-Q15,
+// UNIQUE (quote_version_id, line_no) DEFERRABLE. Ung dung KHONG BAO GIO ghi quote_version.accepted_opportunity_id (trigger R-Q14 tu dat).
+enum QuoteVersionStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+
+  @@map("quote_version_status")
+}
+
+enum QuoteVatMode {
+  QUOTE
+  LINE
+
+  @@map("quote_vat_mode")
+}
+
+enum QuoteLineKind {
+  ITEM
+  SECTION
+
+  @@map("quote_line_kind")
+}
+
+model QuoteTemplate {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code             String       @unique @db.VarChar(30)
+  name             String       @db.VarChar(120)
+  title            String       @db.VarChar(200)
+  intro            String       @default("") @db.VarChar(300)
+  defaultTerms     String       @default("") @map("default_terms") @db.VarChar(4000)
+  defaultValidDays Int          @default(15) @map("default_valid_days") @db.SmallInt
+  defaultVat       Int          @default(10) @map("default_vat") @db.SmallInt
+  vatMode          QuoteVatMode @default(QUOTE) @map("vat_mode")
+  columns          Json         @default("[]")
+  isActive         Boolean      @default(true) @map("is_active")
+  sortOrder        Int          @default(0) @map("sort_order") @db.SmallInt
+  version          Int          @default(1)
+  createdById      String?      @map("created_by") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedById      String?      @map("updated_by") @db.Uuid
+  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy Employee? @relation("QuoteTemplateCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy Employee? @relation("QuoteTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  quotes    Quote[]
+
+  @@map("quote_template")
+}
+
+model QuoteUserDefault {
+  employeeId  String   @id @map("employee_id") @db.Uuid
+  quoterTitle String?  @map("quoter_title") @db.VarChar(120)
+  quoterPhone String?  @map("quoter_phone") @db.VarChar(30)
+  quoterEmail String?  @map("quoter_email") @db.VarChar(254)
+  paymentInfo String   @default("") @map("payment_info") @db.VarChar(2000)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@map("quote_user_default")
+}
+
+model Quote {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String    @unique @default(dbgenerated("fn_next_quote_code()")) @db.VarChar(20)
+  opportunityId String    @map("opportunity_id") @db.Uuid
+  customerId    String    @map("customer_id") @db.Uuid
+  templateId    String    @map("template_id") @db.Uuid
+  itemName      String    @map("item_name") @db.VarChar(120)
+  isPrimary     Boolean   @default(false) @map("is_primary")
+  version       Int       @default(1)
+  createdById   String    @map("created_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById   String?   @map("deleted_by") @db.Uuid
+  deleteReason  String?   @map("delete_reason") @db.VarChar(500)
+
+  opportunity Opportunity    @relation(fields: [opportunityId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: Restrict)
+  template    QuoteTemplate  @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  createdBy   Employee       @relation("QuoteCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  deletedBy   Employee?      @relation("QuoteDeletedBy", fields: [deletedById], references: [id], onDelete: Restrict)
+  versions    QuoteVersion[]
+
+  @@index([opportunityId])
+  @@index([customerId])
+  @@index([templateId])
+  @@index([deletedAt])
+  @@map("quote")
+}
+
+model QuoteVersion {
+  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quoteId               String             @map("quote_id") @db.Uuid
+  versionNo             Int                @map("version_no") @db.SmallInt
+  status                QuoteVersionStatus @default(DRAFT)
+  codeSnapshot          String             @map("code_snapshot") @db.VarChar(20)
+  itemName              String             @map("item_name") @db.VarChar(120)
+  printTemplate         String             @map("print_template") @db.VarChar(30)
+  templateName          String             @map("template_name") @db.VarChar(120)
+  title                 String             @db.VarChar(200)
+  columns               Json
+  vatMode               QuoteVatMode       @map("vat_mode")
+  quoteDate             DateTime?          @map("quote_date") @db.Date
+  validUntil            DateTime?          @map("valid_until") @db.Date
+  clientName            String?            @map("client_name") @db.VarChar(200)
+  clientContact         String?            @map("client_contact") @db.VarChar(200)
+  clientCompany         String?            @map("client_company") @db.VarChar(200)
+  clientPhone           String?            @map("client_phone") @db.VarChar(30)
+  clientEmail           String?            @map("client_email") @db.VarChar(254)
+  clientAddress         String?            @map("client_address") @db.VarChar(500)
+  projectName           String?            @map("project_name") @db.VarChar(200)
+  quoterName            String             @map("quoter_name") @db.VarChar(200)
+  quoterTitle           String?            @map("quoter_title") @db.VarChar(120)
+  quoterPhone           String?            @map("quoter_phone") @db.VarChar(30)
+  quoterEmail           String?            @map("quoter_email") @db.VarChar(254)
+  intro                 String             @default("") @db.VarChar(300)
+  terms                 String             @default("") @db.VarChar(4000)
+  paymentInfo           String             @default("") @map("payment_info") @db.VarChar(2000)
+  subtotalVnd           BigInt             @default(0) @map("subtotal_vnd")
+  base8Vnd              BigInt             @default(0) @map("base8_vnd")
+  base10Vnd             BigInt             @default(0) @map("base10_vnd")
+  vat8Vnd               BigInt             @default(0) @map("vat8_vnd")
+  vat10Vnd              BigInt             @default(0) @map("vat10_vnd")
+  totalVnd              BigInt             @default(0) @map("total_vnd")
+  note                  String?            @db.VarChar(2000)
+  rejectReason          String?            @map("reject_reason") @db.VarChar(500)
+  // CHI do trigger R-Q14 dat (= quote.opportunityId khi ACCEPTED). Ung dung khong ghi truong nay.
+  acceptedOpportunityId String?            @map("accepted_opportunity_id") @db.Uuid
+  createdById           String             @map("created_by") @db.Uuid
+  createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sentById              String?            @map("sent_by") @db.Uuid
+  sentAt                DateTime?          @map("sent_at") @db.Timestamptz(3)
+  decidedById           String?            @map("decided_by") @db.Uuid
+  decidedAt             DateTime?          @map("decided_at") @db.Timestamptz(3)
+
+  quote               Quote        @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  acceptedOpportunity Opportunity? @relation("QuoteVersionAcceptedOpportunity", fields: [acceptedOpportunityId], references: [id], onDelete: Restrict)
+  createdBy           Employee     @relation("QuoteVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  sentBy              Employee?    @relation("QuoteVersionSentBy", fields: [sentById], references: [id], onDelete: Restrict)
+  decidedBy           Employee?    @relation("QuoteVersionDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+  lines               QuoteLine[]
+
+  @@unique([quoteId, versionNo])
+  @@map("quote_version")
+}
+
+model QuoteLine {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quoteVersionId String        @map("quote_version_id") @db.Uuid
+  lineNo         Int           @map("line_no") @db.SmallInt
+  kind           QuoteLineKind @default(ITEM)
+  description    String        @db.VarChar(500)
+  unit           String        @default("") @db.VarChar(30)
+  note           String?       @db.VarChar(200)
+  extra          Json          @default("{}")
+  quantity       Decimal?      @db.Decimal(12, 3)
+  unitPriceVnd   BigInt?       @map("unit_price_vnd")
+  vatPercent     Int?          @map("vat_percent") @db.SmallInt
+  amountVnd      BigInt?       @map("amount_vnd")
+  // Gia von mot don vi [QB23]: che o tang ung dung (docs/QUOTES_DESIGN.md muc 7.3), khong in, khong xuat
+  costPriceVnd   BigInt?       @map("cost_price_vnd")
+
+  version QuoteVersion @relation(fields: [quoteVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([quoteVersionId, lineNo], map: "uq_quote_line_version_line_no")
+  @@index([quoteVersionId])
+  @@map("quote_line")
 }
 
 // ───────── Phan cong (lich su). Partial unique "1 OWNER dang hieu luc / khach hang" o HAND_SQL ─────────

@@ -577,3 +577,18 @@ Kết luận R3 của reviewer: CẦN BỔ SUNG, **một** điều kiện chặn
 | `PR266-R3-TEST-01` | Bổ sung ca bảo vệ `accepted_opportunity_id` | **FIXED** | Ca B16; Q2 phải đạt B12–B16 | 11, 12 | B16 |
 
 Đây là vòng review thứ ba (tối đa theo quy trình). Sau bản v7, việc duyệt đặc tả và cho bắt đầu Q2 là quyết định của Owner.
+
+## 19. Ghi chú triển khai Q2 (migration `20261125000000_quotes`) — chỗ làm chặt hơn hoặc khác chữ so với mục 5 và 11
+
+Không đổi quyết định QB nào. Các điểm dưới đây phát sinh khi viết migration và bài kiểm; reviewer xét ở PR Q2.
+
+| # | Nội dung | Lý do | Ca kiểm |
+|---|---|---|---|
+| 1 | **Gửi (R-Q1) và xoá mềm báo giá (R-Q9) cũng lấy điểm khoá chung** (dòng `opportunity` `FOR UPDATE`); gửi phiên bản của báo giá đã xoá mềm ⇒ lỗi `QUOTE_DELETED` | Không có khoá chung thì "xoá mềm báo giá" và "gửi phiên bản của nó" chạy đồng thời có thể cùng thành công, ra báo giá đã xoá nhưng có phiên bản đã gửi. Thứ tự khoá của ứng dụng (8.1) không đổi | X1, X2 (hai kết nối), Q156 |
+| 2 | Dòng `quote` mới **không được** tạo sẵn `is_primary = true` hay đã xoá (`QUOTE_INSERT_STATE`) | Cùng lý do với R-Q15: không cho chèn thẳng để vượt R-Q5 / R-Q8 | Q079 |
+| 3 | C-4 chặt hơn: phiên bản **nháp** thì `sent_by`, `sent_at` phải NULL | Tránh nháp mang thông tin gửi | Q098 |
+| 4 | Thêm CHECK "không rỗng" cho các ô chữ bắt buộc của `quote_version`, `quote_template`, `quote_line.description`; `quote.item_name` phải đã cắt khoảng trắng | Như các bảng hiện có | Q016, Q033, Q080 |
+| 5 | Mọi lỗi của trigger mang trường `CONSTRAINT` = mã lỗi cố định (`QUOTE_VERSION_LOCKED`, `QUOTE_ALREADY_ACCEPTED`…); SQLSTATE `23001` cho bất biến / khoá / trạng thái, `23514` cho dữ liệu chưa đủ điều kiện gửi | Để Q5 đổi lỗi DB thành mã lỗi API mà không phải dò chữ trong thông báo (7.2) | mọi ca `expect_err` có mã |
+| 6 | **B12 đọc lại cho đúng với U-3 + R-Q7**: hai báo giá *khác nhau* của một cơ hội không bao giờ cùng đủ điều kiện chấp nhận (chỉ một báo giá đang theo đuổi, và chỉ báo giá đó được chấp nhận). Bài kiểm chạy đua hai kiểu: hai phiên bản đã gửi của báo giá đang theo đuổi (bên thua: `QUOTE_ALREADY_ACCEPTED`), và báo giá đang theo đuổi ↔ báo giá khác (bên thua: `QUOTE_NOT_PRIMARY`). Câu "người gọi truyền sai ⇒ trigger ghi đè" của B12 đã được R-Q14 thay bằng **báo lỗi** (B16c) | Làm rõ, không đổi quy tắc | B12a, B12b |
+| 7 | Ở Q2 các bài nhóm B chạy bằng **chủ sở hữu bảng** (`siscom_migrator`), chưa phải `siscom_app` | Quyền ghi của `siscom_app` thuộc Q3. CHECK và trigger áp dụng như nhau cho mọi role; Q3 chạy lại bằng `siscom_app` cùng B8 | — |
+| 8 | Số lượng nhập quá 3 chữ số thập phân: cột `numeric(12,3)` của PostgreSQL **tự làm tròn**, không báo lỗi | Việc từ chối thuộc tầng API (mục 6, ca A11 / A14 ở Q5) | — |

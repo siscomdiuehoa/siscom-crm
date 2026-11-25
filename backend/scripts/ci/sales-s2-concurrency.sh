@@ -32,6 +32,8 @@ echo "DB tam dong thoi: $name (da migrate)"
 # Sales T-07 (moi nhat): cot sinh tu dong nam tren opportunity => go T-07 truoc S9b (SALES_S2_ROLLBACK tu choi khi T-07 con).
 # Bang rong (DB vua migrate) => rollback T-07, S9b chay sach; migrate deploy sau do ap lai T-07, S9b cung S2.
 s9_rollback() {
+  # Bao gia Q2 (moi nhat): bang quote tro toi opportunity => go TRUOC T-07 (bang rong, chi co dong nap san => rollback chay sach; migrate deploy sau do ap lai).
+  psql -X -q -v ON_ERROR_STOP=1 -d "$name" -f "$docs/QUOTES_Q2_ROLLBACK.sql.txt" >/dev/null || { echo "FAIL rollback Bao gia Q2 truoc khi dien tap rollback S2"; exit 1; }
   psql -X -q -v ON_ERROR_STOP=1 -d "$name" -f "$docs/SALES_T07_SEARCH_FOLD_ROLLBACK.sql.txt" >/dev/null || { echo "FAIL rollback Sales T-07 truoc khi dien tap rollback S2"; exit 1; }
   psql -X -q -v ON_ERROR_STOP=1 -d "$name" -f "$docs/SALES_S9_DOCUMENT_ROLLBACK.sql.txt" >/dev/null || { echo "FAIL rollback Sales S9b truoc khi dien tap rollback S2"; exit 1; }
 }

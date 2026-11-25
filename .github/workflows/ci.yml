@@ -166,10 +166,17 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_TESTS.sql.txt ok migrator
           # P1 quan ly tai khoan (20261124000000_p1_account_admin): 4 ham SECURITY DEFINER - cau truc, quyen PUBLIC, tung nhanh tu choi theo ma loi, khong lo bi mat vao nhat ky; cung tien de M1.2 (RBAC rong); tu ROLLBACK
           bash scripts/ci/pg-sql-check.sh docs/P1_ACCOUNT_ADMIN_TESTS.sql.txt res migrator
+          # Bao gia Q2 (20261125000000_quotes; docs/QUOTES_DESIGN.md muc 11 nhom B): CHECK, chi muc duy nhat U-1..U-4, trigger R-Q1..R-Q15 (bat bien sau khi gui, accepted_opportunity_id chi do DB dat), fn_auth_perm_class; tu ROLLBACK
+          bash scripts/ci/pg-sql-check.sh docs/QUOTES_Q2_STRUCTURE_TESTS.sql.txt res migrator
       - name: Dien tap rollback day du (S1 -> M1.3 -> M1.2 -> M1.1 -> M1), migrate deploy lai (siscom_app), tach role lai, verify
         run: |
           set -euo pipefail
           bash scripts/ci/pg-temp-db.sh unsplit
+          # Bao gia Q2 (20261125000000_quotes) moi nhat => rollback DAU chuoi, truoc P1. PHAI TU CHOI khi con bao gia (RED mong doi; transaction ngoai huy => khong de lai du lieu thu), roi chay sach khi chi co dong nap san
+          out="$(bash scripts/ci/pg-sql-check.sh docs/QUOTES_Q2_ROLLBACK_REFUSE_TEST.sql.txt run app 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (QUOTES_Q2_ROLLBACK_REFUSE_TEST)'; exit 1; }
+          echo "$out" | grep -E 'TU CHOI: con 1 dong quote ' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (QUOTES_Q2_ROLLBACK_REFUSE_TEST)'; exit 1; }
+          echo 'DAT (RED mong doi): QUOTES_Q2_ROLLBACK_REFUSE_TEST.sql.txt - rollback tu choi khi con bao gia (ke ca da xoa mem)'
+          bash scripts/ci/pg-sql-check.sh docs/QUOTES_Q2_ROLLBACK.sql.txt run app
           # P1 (20261124000000_p1_account_admin) moi nhat => rollback DAU chuoi, truoc Sales T-07. Chi go 5 ham, khong tu choi theo du lieu
           bash scripts/ci/pg-sql-check.sh docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt run app
           # Sales T-07 (20261121000000_sales_opportunity_search_fold) moi nhat => rollback DAU chuoi, truoc Sales S9b. Khong tu choi theo du lieu (2 cot chi la gia tri suy ra tu title / project_name)
@@ -243,6 +250,11 @@ jobs:
       - name: B1.4 Remember Me - rollback (migrator) => V3 => VERIFY PASS; migrate deploy (migrator) => VERIFY FAIL B1f (quyen mac dinh) => V3 => PASS app + auth + cau truc
         run: |
           set -euo pipefail
+          # Bao gia Q2: moi nhat => rollback DAU chuoi, truoc P1 (bang chu so huu sau tach role). PHAI TU CHOI khi con bao gia (RED mong doi), roi chay sach
+          out="$(bash scripts/ci/pg-sql-check.sh docs/QUOTES_Q2_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (QUOTES_Q2_ROLLBACK_REFUSE_TEST)'; exit 1; }
+          echo "$out" | grep -E 'TU CHOI: con 1 dong quote ' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (QUOTES_Q2_ROLLBACK_REFUSE_TEST)'; exit 1; }
+          echo 'DAT (RED mong doi): QUOTES_Q2_ROLLBACK_REFUSE_TEST.sql.txt - rollback tu choi khi con bao gia (ke ca da xoa mem)'
+          bash scripts/ci/pg-sql-check.sh docs/QUOTES_Q2_ROLLBACK.sql.txt run migrator
           # P1: moi nhat => rollback DAU chuoi, truoc Sales T-07 (bang chu so huu sau tach role)
           bash scripts/ci/pg-sql-check.sh docs/P1_ACCOUNT_ADMIN_ROLLBACK.sql.txt run migrator
           # Sales T-07: moi nhat => rollback DAU chuoi, truoc Sales S9b (bang chu so huu sau tach role)
@@ -311,6 +323,11 @@ jobs:
           bash scripts/ci/pg-sql-check.sh docs/SALES_S2_STRUCTURE_TESTS.sql.txt res migrator
           # Sales T-07: cau truc + hanh vi cot tim khong dau sau ap lai bang migrator (thu tu production)
           bash scripts/ci/pg-sql-check.sh docs/SALES_T07_SEARCH_FOLD_TESTS.sql.txt ok migrator
+          # Bao gia Q2: cau truc + trigger sau ap lai bang migrator (thu tu production); quyen mac dinh: app chi SELECT 5 bang moi (ALLOWLIST da co)
+          bash scripts/ci/pg-sql-check.sh docs/QUOTES_Q2_STRUCTURE_TESTS.sql.txt res migrator
+          out="$(bash scripts/ci/pg-sql-check.sh docs/QUOTES_Q2_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (QUOTES_Q2_ROLLBACK_REFUSE_TEST)'; exit 1; }
+          echo "$out" | grep -E 'TU CHOI: con 1 dong quote ' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (QUOTES_Q2_ROLLBACK_REFUSE_TEST)'; exit 1; }
+          echo 'DAT (RED mong doi): QUOTES_Q2_ROLLBACK_REFUSE_TEST.sql.txt - rollback tu choi khi con bao gia (ke ca da xoa mem)'
           # Sales S2: rollback PHAI TU CHOI khi con co hoi (ke ca xoa mem) - RED mong doi; transaction ngoai huy => khong de lai du lieu thu
           out="$(bash scripts/ci/pg-sql-check.sh docs/SALES_S2_ROLLBACK_REFUSE_TEST.sql.txt run migrator 2>&1)" && { echo "$out" | tail -8; echo 'KHONG DAT: rollback phai TU CHOI (SALES_S2_ROLLBACK_REFUSE_TEST)'; exit 1; } || true
           echo "$out" | grep -E 'TU CHOI: con [0-9]+ dong opportunity' >/dev/null || { echo "$out" | tail -20; echo 'KHONG DAT: khong thay thong bao TU CHOI (SALES_S2_ROLLBACK_REFUSE_TEST)'; exit 1; }
@@ -356,6 +373,10 @@ jobs:
       # rollback doi dau chen ma / script ADD, script REMOVE doi dau cap quyen ngoai ma tran / doi scope - ca hai thu tu; ben den sau cho roi bi tu choi.
       - name: Sales S5 - kiem dong thoi hai ket noi (migration / rollback phan loai quyen, script cap va go quyen khoa truoc khi tien kiem)
         run: bash scripts/ci/sales-s5-concurrency.sh
+      # Bao gia Q2 (docs/QUOTES_DESIGN.md muc 11: B12, B13, B15, F1, F2, F7b): HAI KET NOI that tren DB tam RIENG (tao + DROP trong buoc): hai lan chap nhan tren mot co hoi,
+      # chap nhan doi dau doi bao gia dang theo duoi (ca hai thu tu + vong cho ung dung / SQL truc tiep), sua dong doi dau gui; rollback sach / ap lai / ap mot phan / tu choi khi co du lieu.
+      - name: Bao gia Q2 - rollback / ap lai / ap mot phan + kiem dong thoi hai ket noi (chap nhan, dang theo duoi, gui)
+        run: bash scripts/ci/quotes-q2-concurrency.sh
       - name: Integration test tren DB tam DA TACH ROLE (ung dung = siscom_app; bootstrap/ALTER DATABASE qua TEST_MIGRATE_DATABASE_URL)
         run: |
           set -euo pipefail
