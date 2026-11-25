@@ -171,7 +171,7 @@ const headOf = (col) => byTag(byTag(col, 'header')[0], 'div').map((d) => text(d)
 const toKanban = async (m) => { const t = tabBtn(m.container, /^Kanban$/); assert.ok(t, 'có nút Kanban'); await doAct(() => click(t)); };
 async function pickIn(scope, optionRe) {
   await doAct(() => click(findAll(scope, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
-  const opt = findAll(scope, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]; assert.ok(opt, 'có lựa chọn ' + optionRe);
+  const opt = findAll(document.body, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]; assert.ok(opt, 'có lựa chọn ' + optionRe);
   await doAct(() => click(opt));
 }
 const BOARD = {
