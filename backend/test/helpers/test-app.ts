@@ -161,6 +161,8 @@ export function as(app: INestApplication, who?: string) {
     get: (u: string) => h(srv().get(u)),
     post: (u: string, body: object = {}) => h(srv().post(u)).send(body),
     patch: (u: string, body: object = {}) => h(srv().patch(u)).send(body),
+    // Báo giá Q5: PUT /quotes/:id/versions/:no (lưu cả bản nháp).
+    put: (u: string, body: object = {}) => h(srv().put(u)).send(body),
     // B3 A6: DELETE /activities/:id nhận lý do ở body.
     delete: (u: string, body?: object) => (body ? h(srv().delete(u)).send(body) : h(srv().delete(u))),
   };

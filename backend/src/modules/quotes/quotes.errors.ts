@@ -1,4 +1,5 @@
 import { DomainException } from '../../common/errors/domain.exception';
+import { mapPrismaError, sqlStateOf } from '../../common/errors/prisma-error.mapper';
 
 // Mã lỗi ổn định của Báo giá (docs/QUOTES_DESIGN.md mục 9). Thông điệp tiếng Việt an toàn để trả về client: không lộ chi tiết nội bộ,
 // không lặp lại số tiền hay giá vốn (mục 7.2, 7.3).
@@ -12,4 +13,51 @@ export const quoteErrors = {
   templateNotFound: () => new DomainException(404, 'QUOTE_TEMPLATE_NOT_FOUND', 'Không tìm thấy loại báo giá.'),
   opportunityNotOpen: () => new DomainException(422, 'OPPORTUNITY_NOT_OPEN', 'Chỉ lập báo giá mới cho cơ hội đang mở.'),
   templateInactive: () => new DomainException(422, 'TEMPLATE_INACTIVE', 'Loại báo giá này đã ngừng dùng.'),
+  // ───── Q5: ghi ─────
+  // 409 chỉ trả số phiên bản hiện tại, không kèm nội dung báo giá (mục 7.3).
+  versionConflict: (currentVersion: number) => new DomainException(409, 'VERSION_CONFLICT', 'Báo giá đã được người khác cập nhật. Vui lòng tải lại.', { currentVersion }),
+  versionNotFound: () => new DomainException(404, 'QUOTE_VERSION_NOT_FOUND', 'Không tìm thấy phiên bản báo giá.'),
+  versionLocked: () => new DomainException(409, 'QUOTE_VERSION_LOCKED', 'Phiên bản đã gửi khách — không sửa, không xoá được. Hãy tạo bản mới.'),
+  draftExists: () => new DomainException(409, 'QUOTE_DRAFT_EXISTS', 'Báo giá đang có một bản nháp. Hãy sửa hoặc xoá bản nháp đó trước.'),
+  alreadyAccepted: () => new DomainException(409, 'QUOTE_ALREADY_ACCEPTED', 'Báo giá đã có phiên bản được chấp nhận — cần thay đổi thì lập báo giá mới.'),
+  deleteForbidden: () => new DomainException(409, 'QUOTE_DELETE_FORBIDDEN', 'Báo giá đã có phiên bản gửi khách — không xoá được.'),
+  lastVersion: () => new DomainException(422, 'QUOTE_LAST_VERSION', 'Đây là phiên bản duy nhất của báo giá. Hãy xoá cả báo giá nếu không dùng nữa.'),
+  versionLimit: () => new DomainException(422, 'QUOTE_VERSION_LIMIT', 'Báo giá đã đủ 999 phiên bản.'),
+  amountOutOfRange: () => new DomainException(400, 'AMOUNT_OUT_OF_RANGE', 'Tổng giá trị trước VAT vượt giới hạn cho phép.'),
+  busy: () => new DomainException(409, 'QUOTE_BUSY', 'Báo giá đang được xử lý bởi thao tác khác. Vui lòng thử lại.'),
+  conflict: () => new DomainException(409, 'CONSTRAINT_CONFLICT', 'Dữ liệu vi phạm ràng buộc của hệ thống.'),
 };
+
+type Dict = Record<string, unknown>;
+const dig = (v: unknown, ...path: string[]): unknown => path.reduce<unknown>((cur, k) => (typeof cur === 'object' && cur !== null ? (cur as Dict)[k] : undefined), v);
+
+// Tên ràng buộc / mã lỗi của trigger báo giá trong lỗi DB. Trigger Q2 đặt trường CONSTRAINT = mã cố định (mục 19, điểm 5) và đầu thông điệp
+// cũng là mã đó; chỉ mục duy nhất mang tên của nó. Chỉ dùng để SO KHỚP nội bộ — không bao giờ đưa vào phản hồi hay log.
+const KNOWN = /\b(QUOTE_[A-Z_]+|uq_quote_[a-z_]+|quote_version_quote_id_version_no_key)\b/;
+export function quoteConstraintOf(e: unknown): string | null {
+  for (const p of [dig(e, 'meta', 'driverAdapterError', 'cause', 'constraint'), dig(e, 'meta', 'constraint'), dig(e, 'cause', 'constraint'), dig(e, 'constraint')]) {
+    if (typeof p === 'string' && KNOWN.test(p)) return KNOWN.exec(p)![1]!;
+  }
+  for (const p of [dig(e, 'meta', 'driverAdapterError', 'cause', 'originalMessage'), dig(e, 'meta', 'message'), dig(e, 'message'), dig(e, 'meta', 'target')]) {
+    const s = Array.isArray(p) ? p.join(',') : p;
+    if (typeof s === 'string' && KNOWN.test(s)) return KNOWN.exec(s)![1]!;
+  }
+  return null;
+}
+
+// Lỗi DB => mã lỗi API cố định (mục 7.2: không trả nguyên văn lỗi PostgreSQL). null = không phải lỗi DB đã biết (để nguyên => 500 chung).
+export function quoteDbError(e: unknown): DomainException | null {
+  const st = sqlStateOf(e);
+  if (st === '55P03' || st === '40001' || st === '40P01') return quoteErrors.busy();
+  switch (quoteConstraintOf(e)) {
+    case 'QUOTE_VERSION_LOCKED': return quoteErrors.versionLocked();
+    case 'uq_quote_version_one_draft': return quoteErrors.draftExists();
+    case 'QUOTE_ALREADY_ACCEPTED': case 'uq_quote_version_one_accepted': case 'uq_quote_version_accepted_opportunity': return quoteErrors.alreadyAccepted();
+    case 'QUOTE_DELETE_FORBIDDEN': return quoteErrors.deleteForbidden();
+    case 'quote_version_quote_id_version_no_key': return quoteErrors.busy();
+    default: break;
+  }
+  const m = mapPrismaError(e);
+  if (!m) return null;
+  return m.code === 'CUSTOMER_BUSY' ? quoteErrors.busy() : m.code === 'CUSTOMER_NOT_FOUND' ? quoteErrors.notFound() : quoteErrors.conflict();
+}

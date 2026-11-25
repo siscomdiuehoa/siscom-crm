@@ -1,5 +1,6 @@
 import type { OppRef } from '../opportunities/opportunities.access';
 import { suggestedFileName } from './quotes.filename';
+import { costSummary, LineIn, qtyFromDb } from './quotes.money';
 
 // Báo giá Q4 — trường trả về (docs/QUOTES_DESIGN.md mục 7.2, 7.3). Mỗi hàm LIỆT KÊ TƯỜNG MINH từng trường, không bao giờ sao chép cả dòng
 // (cùng cách toOpportunityTechDetail). Dòng hàng có HAI dạng: có giá vốn / không có giá vốn — người không được xem nhận phản hồi KHÔNG CÓ KHOÁ
@@ -143,8 +144,17 @@ export function toVersionDetail(v: VersionDetailRow, quoteCode: string, today: s
     }),
     costVisible: withCost,
     lines: withCost ? v.lines.map(toLineWithCost) : v.lines.map(toLine),
+    // Lãi gộp tạm tính (Q5, mục 6): CHỈ có ở dạng có giá vốn; người không được xem không có cả khoá này.
+    ...(withCost ? { margin: marginOf(v.lines) } : {}),
   };
 }
+
+// Dòng đã lưu => đầu vào của bộ tính tiền (số lượng từ chuỗi numeric, tiền BigInt; không qua Number).
+export function lineInOf(l: LineRow): LineIn {
+  if (l.kind !== 'ITEM' || l.quantity === null || l.unitPriceVnd === null || (l.vatPercent !== 8 && l.vatPercent !== 10)) return { kind: 'SECTION' };
+  return { kind: 'ITEM', q: qtyFromDb(l.quantity.toString()), price: l.unitPriceVnd, vat: l.vatPercent, cost: l.costPriceVnd };
+}
+const marginOf = (lines: readonly LineRow[]) => costSummary(lines.map(lineInOf), lines.map((l) => l.amountVnd));
 
 export function toQuoteDetail(r: QuoteDetailRow, today: string, withCostOf: (v: VersionDetailRow) => boolean) {
   return { ...quoteHead(r), versions: r.versions.map((v) => toVersionDetail(v, r.code, today, withCostOf(v))) };
