@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import type { Request } from 'express';
 import request from 'supertest';
 import { AUDIT_PORT, AuditEntry, AuditPort } from '../../src/common/audit/audit.port';
-import { ACTOR_PROVIDER, Actor, ActorProvider, OPPORTUNITY_PERMISSIONS, Permission, Scope } from '../../src/common/auth/actor';
+import { ACTOR_PROVIDER, Actor, ActorProvider, OPPORTUNITY_PERMISSIONS, Permission, QUOTE_PERMISSIONS, Scope } from '../../src/common/auth/actor';
 import { ASSIGNEE_ELIGIBILITY, AssigneeEligibility } from '../../src/common/auth/assignee-eligibility';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import type { Prisma } from '../../src/generated/prisma/client';
@@ -15,6 +15,7 @@ import { CustomersModule } from '../../src/modules/customers/customers.module';
 import { LookupsModule } from '../../src/modules/lookups/lookups.module';
 import { OPP_EMPLOYEE_ACCESS } from '../../src/modules/opportunities/opportunities.employee-access';
 import { OpportunitiesModule } from '../../src/modules/opportunities/opportunities.module';
+import { QuotesModule } from '../../src/modules/quotes/quotes.module';
 import { DbAuditPort } from '../../src/common/audit/db-audit.port';
 import { EXPORT_ACCESS, EXPORT_CONFIG, ExportAccessReader, ExportConfig, exportConfigFromEnv } from '../../src/modules/customers/export/customers-export.service';
 import { AuthPrismaService } from '../../src/prisma/auth-prisma.service';
@@ -29,17 +30,21 @@ const ALL_PERMS: Permission[] = ['customer.read', 'customer.create', 'customer.u
   // FV-4A
   'customer.export',
   // Sales S5/S6
-  ...OPPORTUNITY_PERMISSIONS];
+  ...OPPORTUNITY_PERMISSIONS,
+  // Báo giá Q3/Q4
+  ...QUOTE_PERMISSIONS];
 const uniform = (s: Scope): Partial<Record<Permission, Scope>> => Object.fromEntries(ALL_PERMS.map((p) => [p, s]));
 // B3 A5: phạm vi theo vai trò thật (bootstrap.ts BIZ) \u2014 dùng cho preset và cho người được giao việc (TestEmployeeAccess).
 export const SALES: Partial<Record<Permission, Scope>> = { 'customer.read': 'OWN', 'customer.create': 'OWN', 'customer.update': 'OWN', 'contact.read': 'OWN', 'contact.create': 'OWN', 'lookup.read': 'ALL',
   'activity.read': 'OWN', 'activity.create': 'OWN', 'activity.update': 'OWN', 'activity.assign': 'OWN', 'activity.assign_external': 'OWN',
   // Sales S5 §5.2
-  'opportunity.read': 'OWN', 'opportunity.create': 'OWN', 'opportunity.update': 'OWN', 'opportunity.move_stage': 'OWN', 'opportunity.close': 'OWN', 'opportunity.assign': 'OWN' };
+  'opportunity.read': 'OWN', 'opportunity.create': 'OWN', 'opportunity.update': 'OWN', 'opportunity.move_stage': 'OWN', 'opportunity.close': 'OWN', 'opportunity.assign': 'OWN',
+  // Báo giá Q3 mục 7.1
+  'quote.read': 'OWN', 'quote.create': 'OWN', 'quote.update': 'OWN', 'quote.send': 'OWN', 'quote.decide': 'OWN', 'quote.delete': 'OWN', 'quote.export': 'OWN' };
 export const TECH: Partial<Record<Permission, Scope>> = { 'customer.read': 'DEPARTMENT', 'contact.read': 'DEPARTMENT', 'lookup.read': 'ALL',
   'activity.read': 'DEPARTMENT', 'activity.create_tech': 'DEPARTMENT', 'activity.update_own': 'DEPARTMENT', 'activity.transfer_request': 'DEPARTMENT',
   'opportunity.read_assigned': 'OWN' };
-export const ACCT: Partial<Record<Permission, Scope>> = { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL', 'activity.read': 'ALL', 'opportunity.read': 'ALL' };
+export const ACCT: Partial<Record<Permission, Scope>> = { 'customer.read': 'ALL', 'contact.read': 'ALL', 'lookup.read': 'ALL', 'activity.read': 'ALL', 'opportunity.read': 'ALL', 'quote.read': 'ALL', 'quote.export': 'ALL' };
 // Sales S6: Quản trị CRM theo ma trận thật (mọi mã BIZ phạm vi ALL trừ các mã chỉ của Kỹ thuật).
 export const CRM_ADMIN: Partial<Record<Permission, Scope>> = Object.fromEntries(ALL_PERMS.filter((p) => !['activity.create_tech', 'activity.update_own', 'activity.transfer_request', 'opportunity.read_assigned'].includes(p)).map((p) => [p, 'ALL' as Scope]).concat([['access.approve', 'ALL' as Scope]]));
 
@@ -126,7 +131,7 @@ export async function makeApp(prisma: PrismaService, fx: Fixtures, opts: { verif
   const audit = new RecordingAuditPort();
   const access = new TestEmployeeAccess();
   const eligibility = new TestAssigneeEligibility();
-  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule, ActivitiesModule, OpportunitiesModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(EMPLOYEE_ACCESS).useValue(access)
+  let b = Test.createTestingModule({ imports: [CustomersModule, LookupsModule, ActivitiesModule, OpportunitiesModule, QuotesModule] }).overrideProvider(PrismaService).useValue(prisma).overrideProvider(AuthPrismaService).useValue(prisma).overrideProvider(EMPLOYEE_ACCESS).useValue(access)
     // Sales S6: quyền hiệu lực của người phụ trách cơ hội dùng CHUNG bảng do test đặt (access.scopes); tài khoản dùng được do test đặt.
     .overrideProvider(OPP_EMPLOYEE_ACCESS).useValue(access).overrideProvider(ASSIGNEE_ELIGIBILITY).useValue(eligibility);
   // FV-4A: realAudit => DbAuditPort thật (hạn mức xuất đếm từ audit_log trong DB).
