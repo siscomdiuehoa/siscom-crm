@@ -15,6 +15,8 @@ export const KNOWN: ReadonlySet<string> = new Set<Permission>(['customer.read', 
   'activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request',
   // FV-4A
   'customer.export',
+  // Báo giá Q3
+  'quote.read', 'quote.create', 'quote.update', 'quote.send', 'quote.decide', 'quote.delete', 'quote.export', 'quote.template', 'quote.cost',
   // P1
   'access.approve',
   // Sales S5

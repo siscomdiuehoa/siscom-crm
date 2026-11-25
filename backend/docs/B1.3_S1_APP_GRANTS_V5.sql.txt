@@ -20,7 +20,8 @@
 --     SELECT   : moi bang public TRU auth_session, employee_credential, remember_device, privileged_change_request, password_reset_token.
 --     INSERT+UPDATE: customer, contact, customer_assignment, activity (B3 A3), activity_access + activity_transfer_request (B3 A3, khi bang ton tai),
 --                    opportunity (Sales S3, khi bang ton tai), opportunity_document (Sales S9b, khi bang ton tai - chi them / xoa mem, trigger chan sua).
---     INSERT: audit_log, opportunity_change (Sales S3, khi bang ton tai; KHONG UPDATE - lich su chi them, trigger cung chan). Sequence: USAGE + SELECT. KHONG ham dac quyen nao. KHONG DELETE/TRUNCATE bang nao (xoa mem / thu hoi = UPDATE).
+--                    quote, quote_template, quote_user_default (Bao gia Q3, khi bang ton tai). INSERT+UPDATE+DELETE: quote_version, quote_line (Bao gia Q3 - xoa NHAP; trigger chan phan con lai).
+--     INSERT: audit_log, opportunity_change (Sales S3, khi bang ton tai; KHONG UPDATE - lich su chi them, trigger cung chan). Sequence: USAGE + SELECT. KHONG ham dac quyen nao. KHONG TRUNCATE bang nao; KHONG DELETE bang nao NGOAI quote_version, quote_line (xoa mem / thu hoi = UPDATE).
 --   Quyen mac dinh: siscom_app nhu V2 (bang moi SELECT; sequence USAGE/SELECT); siscom_auth KHONG co quyen mac dinh.
 -- Rollback P3c (ve P3b): (1) trien khai lai backend BAN TRUOC P3c (ma P3c o production bat buoc AUTH_DATABASE_URL - chi bo bien thi khong
 --   khoi dong duoc), (2) chay lai B1.3_S1_APP_GRANTS_V2.sql.txt (tra quyen xac thuc cho siscom_app; V2 KHONG dung toi siscom_auth),
@@ -146,6 +147,20 @@ SELECT CASE WHEN to_regclass('public.opportunity_change') IS NULL THEN 'SELECT '
 --     hoac da rollback S9b) => cap co dieu kien. INSERT (them) + UPDATE (xoa mem; trg_opportunity_document_guard chan moi UPDATE khac). KHONG DELETE.
 SELECT CASE WHEN to_regclass('public.opportunity_document') IS NULL THEN 'SELECT ''opportunity_document: chua co bang (bo qua)'''
             ELSE 'GRANT INSERT, UPDATE ON public.opportunity_document TO siscom_app' END \gexec
+-- 2e. Bao gia Q3 (docs/QUOTES_DESIGN.md muc 7.1): 5 bang cua 20261125000000_quotes co the CHUA ton tai (DB truoc Q2 hoac da rollback Q2) => cap co dieu kien.
+--     quote, quote_template, quote_user_default: INSERT + UPDATE, KHONG DELETE (xoa mem / ngung dung). quote_version + quote_line: INSERT + UPDATE + DELETE -
+--     DAY LA HAI BANG DUY NHAT app duoc DELETE: xoa phien ban NHAP va dong cua no; trigger fn_quote_version_guard / fn_quote_line_guard chan moi DELETE
+--     tren phien ban da gui (QUOTE_VERSION_LOCKED), FK RESTRICT chan xoa phien ban con dong. KHONG TRUNCATE bang nao.
+SELECT CASE WHEN to_regclass('public.quote') IS NULL THEN 'SELECT ''quote: chua co bang (bo qua)'''
+            ELSE 'GRANT INSERT, UPDATE ON public.quote TO siscom_app' END \gexec
+SELECT CASE WHEN to_regclass('public.quote_template') IS NULL THEN 'SELECT ''quote_template: chua co bang (bo qua)'''
+            ELSE 'GRANT INSERT, UPDATE ON public.quote_template TO siscom_app' END \gexec
+SELECT CASE WHEN to_regclass('public.quote_user_default') IS NULL THEN 'SELECT ''quote_user_default: chua co bang (bo qua)'''
+            ELSE 'GRANT INSERT, UPDATE ON public.quote_user_default TO siscom_app' END \gexec
+SELECT CASE WHEN to_regclass('public.quote_version') IS NULL THEN 'SELECT ''quote_version: chua co bang (bo qua)'''
+            ELSE 'GRANT INSERT, UPDATE, DELETE ON public.quote_version TO siscom_app' END \gexec
+SELECT CASE WHEN to_regclass('public.quote_line') IS NULL THEN 'SELECT ''quote_line: chua co bang (bo qua)'''
+            ELSE 'GRANT INSERT, UPDATE, DELETE ON public.quote_line TO siscom_app' END \gexec
 GRANT INSERT ON public.audit_log TO siscom_app;
 -- 3. Sequence: sinh ma (nextval) va doc; khong setval
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO siscom_app;
@@ -187,8 +202,11 @@ SELECT 'bang_app_INSERT (phai 5; co bang B3: 7; co them bang Sales: 9; co them o
   AND has_any_column_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'INSERT')
 UNION ALL SELECT 'bang_app_UPDATE (phai 4; co bang B3: 6; co them opportunity: 7; co them opportunity_document: 8)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'
   AND has_any_column_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'UPDATE')
-UNION ALL SELECT 'bang_app_DELETE (phai 0)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'
+UNION ALL SELECT 'bang_app_DELETE (phai 0; co bang bao gia: 2 = quote_version, quote_line)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public'
   AND has_table_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'DELETE')
+UNION ALL SELECT 'bang_app_DELETE_ngoai_bao_gia (phai 0)', count(*)::text FROM pg_tables t WHERE t.schemaname = 'public' AND t.tablename NOT IN ('quote_version', 'quote_line')
+  AND has_table_privilege('siscom_app', format('%I.%I', t.schemaname, t.tablename), 'DELETE')
+UNION ALL SELECT 'bao_gia_app_ghi_dung_ma_tran (phai t; chua co bang: t)', (to_regclass('public.quote') IS NULL OR (has_table_privilege('siscom_app', 'public.quote', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.quote', 'DELETE') AND has_table_privilege('siscom_app', 'public.quote_template', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote_template', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.quote_template', 'DELETE') AND has_table_privilege('siscom_app', 'public.quote_user_default', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote_user_default', 'UPDATE') AND NOT has_table_privilege('siscom_app', 'public.quote_user_default', 'DELETE') AND has_table_privilege('siscom_app', 'public.quote_version', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote_version', 'UPDATE') AND has_table_privilege('siscom_app', 'public.quote_version', 'DELETE') AND has_table_privilege('siscom_app', 'public.quote_line', 'INSERT') AND has_table_privilege('siscom_app', 'public.quote_line', 'UPDATE') AND has_table_privilege('siscom_app', 'public.quote_line', 'DELETE')))::text
 UNION ALL SELECT 'cot_credential_app_UPDATE (phai 0)', count(*)::text FROM information_schema.column_privileges
   WHERE grantee = 'siscom_app' AND table_schema = 'public' AND table_name = 'employee_credential' AND privilege_type = 'UPDATE'
 UNION ALL SELECT 'ham_api_app_EXECUTE (phai 0)', count(*)::text FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace

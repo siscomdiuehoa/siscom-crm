@@ -1,0 +1,11 @@
+-- SISCOM CRM - Bao gia Q3 (docs/QUOTES_DESIGN.md muc 11: nhom B chay bang siscom_app + B8): chay lai TOAN BO QUOTES_Q2_STRUCTURE_TESTS voi cac cau lenh
+--   thu duoc thuc thi bang siscom_app (SET ROLE sau khi dung du lieu nen), cong 6 ca B8 ve quyen (Q161-Q166).
+-- Dich: backend\docs\QUOTES_Q3_APP_TESTS.sql.txt. CHI CHAY TREN BAN SAO THU, bang SUPERUSER cua cum thu (can SET ROLE; siscom_app khong tu chen duoc
+--   nhan vien / danh muc de dung du lieu nen). Can DA TACH ROLE + APP_GRANTS_V5 (muc 2e). Toan bo trong 1 transaction, ROLLBACK o cuoi.
+-- In "PASS|n" va (neu co) "FAIL|n". Ky vong: khong co FAIL.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'siscom_app') THEN RAISE EXCEPTION 'Chua co role siscom_app.'; END IF;
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN RAISE EXCEPTION 'Phai chay bang superuser cua cum thu (can SET ROLE siscom_app).'; END IF;
+END $$;
+\set q2_as_app 1
+\ir QUOTES_Q2_STRUCTURE_TESTS.sql.txt

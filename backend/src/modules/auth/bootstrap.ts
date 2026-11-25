@@ -49,6 +49,18 @@ export const BIZ: Record<string, Partial<Record<Exclude<BootstrapRoleCode, 'sysa
   'opportunity.reopen':        { admin: 'ALL' },
   'opportunity.delete':        { admin: 'ALL' },
   'opportunity.restore':       { admin: 'ALL' },
+  // Báo giá Q3 — ma trận docs/QUOTES_DESIGN.md mục 7.1: 9 mã, 18 dòng (crm_admin 9, sales 7, accountant 2; technician và admin/sysadmin 0).
+  // Phạm vi OWN của Kinh doanh: đọc theo cơ hội mình thấy được, ghi / gửi / tải theo cơ hội mình phụ trách (kiểm ở service, Q4–Q5).
+  // DB đã bootstrap: docs/QUOTES_Q3_PERMISSIONS.sql.txt (2 người); unit test quote-permissions.spec.ts giữ các nguồn khớp nhau.
+  'quote.read':                { admin: 'ALL', sale: 'OWN', accountant: 'ALL' },
+  'quote.create':              { admin: 'ALL', sale: 'OWN' },
+  'quote.update':              { admin: 'ALL', sale: 'OWN' },
+  'quote.send':                { admin: 'ALL', sale: 'OWN' },
+  'quote.decide':              { admin: 'ALL', sale: 'OWN' },
+  'quote.delete':              { admin: 'ALL', sale: 'OWN' },
+  'quote.export':              { admin: 'ALL', sale: 'OWN', accountant: 'ALL' },
+  'quote.template':            { admin: 'ALL' },
+  'quote.cost':                { admin: 'ALL' },
 };
 // Quyền hệ thống của M1: sysadmin (mã vai trò `admin`) = nhóm REQUEST; crm_admin = APPROVE (access.approve) + đọc.
 const SYS_ADMIN = ['employee.read', 'employee.manage', 'role.read', 'role.manage', 'auth.credential.manage', 'auth.reset.request', 'access.request', 'audit.read'];

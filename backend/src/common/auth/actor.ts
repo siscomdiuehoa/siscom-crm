@@ -12,6 +12,8 @@ export type Permission =
   // Sales S5 (docs/SALES_DESIGN.md §5.2, §5.4): MỖI mã cấp riêng — service kiểm đúng mã của thao tác, không suy move_stage/close/assign từ update.
   | 'opportunity.read' | 'opportunity.read_assigned' | 'opportunity.create' | 'opportunity.update' | 'opportunity.move_stage'
   | 'opportunity.close' | 'opportunity.assign' | 'opportunity.reopen' | 'opportunity.delete' | 'opportunity.restore'
+  // Báo giá Q3 (docs/QUOTES_DESIGN.md mục 7.1): MỖI mã cấp riêng. template = quản lý loại báo giá [QB19]; cost = xem giá vốn của mọi báo giá [QB23].
+  | 'quote.read' | 'quote.create' | 'quote.update' | 'quote.send' | 'quote.decide' | 'quote.delete' | 'quote.export' | 'quote.template' | 'quote.cost'
   // P1 (docs/P1_ACCOUNT_ADMIN_DESIGN.md §6.1): quyền DUYỆT của Quản trị CRM — gác trang và API quản lý tài khoản. Mã quản trị khác
   // (access.request, role.manage, employee.manage…) KHÔNG đưa vào ứng dụng: chỉ tài khoản hệ thống giữ, không ai thao tác qua giao diện.
   | 'access.approve';
@@ -19,6 +21,8 @@ export type Permission =
 export const ACTIVITY_PERMISSIONS: readonly Permission[] = ['activity.read', 'activity.create', 'activity.create_tech', 'activity.update', 'activity.update_own', 'activity.assign', 'activity.delete', 'activity.assign_external', 'activity.transfer_request'];
 // Sales S5: 10 mã quyền cơ hội (kiểm nhất quán Permission / KNOWN / BIZ / script cấp quyền 2 người). opportunity.export KHÔNG tồn tại ở đợt này (§5.2).
 export const OPPORTUNITY_PERMISSIONS: readonly Permission[] = ['opportunity.read', 'opportunity.read_assigned', 'opportunity.create', 'opportunity.update', 'opportunity.move_stage', 'opportunity.close', 'opportunity.assign', 'opportunity.reopen', 'opportunity.delete', 'opportunity.restore'];
+// Báo giá Q3: 9 mã quyền báo giá (kiểm nhất quán Permission / KNOWN / BIZ / script cấp quyền 2 người). Không có mã duyệt (QB1).
+export const QUOTE_PERMISSIONS: readonly Permission[] = ['quote.read', 'quote.create', 'quote.update', 'quote.send', 'quote.decide', 'quote.delete', 'quote.export', 'quote.template', 'quote.cost'];
 export type Scope = 'ALL' | 'DEPARTMENT' | 'OWN';
 
 export interface Actor {

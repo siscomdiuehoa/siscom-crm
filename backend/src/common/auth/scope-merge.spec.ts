@@ -25,8 +25,10 @@ describe('mergeScopes', () => {
     const r = mergeScopes([role('x', true, [['employee.manage', 'ALL'], ['customer.read', 'GLOBAL'], ['activity.read', 'OWN']])]);
     expect(r.scopes).toEqual({ 'activity.read': 'OWN' });
   });
-  it('KNOWN gồm 8 quyền B1 + 9 quyền activity.* (A4) + customer.export (FV-4A) + 10 quyền opportunity.* (Sales S5)', () => {
-    expect(KNOWN.size).toBe(29);
+  it('KNOWN gồm 8 quyền B1 + 9 quyền activity.* (A4) + customer.export (FV-4A) + 10 quyền opportunity.* (Sales S5) + access.approve (P1) + 9 quyền quote.* (Báo giá Q3)', () => {
+    expect(KNOWN.size).toBe(38);
+    expect(KNOWN.has('quote.cost')).toBe(true);
+    expect(KNOWN.has('quote.approve')).toBe(false);
     // P1: access.approve (Quản trị CRM) phải tới được ứng dụng để gác trang Tài khoản; các mã quản trị khác vẫn KHÔNG lộ ra ứng dụng.
     expect(KNOWN.has('access.approve')).toBe(true);
     expect(KNOWN.has('access.request')).toBe(false);
