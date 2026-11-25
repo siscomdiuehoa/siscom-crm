@@ -65,13 +65,14 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
       async tasks() { throw new CustomerRepoError('config', 'Chế độ demo: công việc chỉ có ở chế độ API.'); },
       async opportunities() { throw new CustomerRepoError('config', 'Chế độ demo: cơ hội chỉ có ở chế độ API.'); },
       async accounts() { throw new CustomerRepoError('config', 'Chế độ demo: quản lý tài khoản chỉ có ở chế độ API.'); },
+      async quotes() { throw new CustomerRepoError('config', 'Chế độ demo: báo giá chỉ có ở chế độ API.'); },
       async exportCustomers() { throw new CustomerRepoError('config', 'Chế độ demo: xuất dùng hộp thoại cục bộ.'); },
     };
   }
 
   if (!config.enabled) {
     const err = () => new CustomerRepoError('config', 'Đã bật VITE_CRM_API_ENABLED nhưng thiếu VITE_CRM_API_BASE. Không dùng dữ liệu cục bộ thay thế.');
-    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); }, async contacts() { throw err(); }, async setPrimaryContact() { throw err(); }, async addContact() { throw err(); }, async updateContact() { throw err(); }, async deleteContact() { throw err(); }, async activities() { throw err(); }, async createActivity() { throw err(); }, async assigneeCandidates() { throw err(); }, async tasks() { throw err(); }, async opportunities() { throw err(); }, async accounts() { throw err(); }, async exportCustomers() { throw err(); } };
+    return { mode: 'misconfigured', async lookups() { throw err(); }, async ownerCandidates() { throw err(); }, async list() { throw err(); }, async create() { throw err(); }, async get() { throw err(); }, async update() { throw err(); }, async contacts() { throw err(); }, async setPrimaryContact() { throw err(); }, async addContact() { throw err(); }, async updateContact() { throw err(); }, async deleteContact() { throw err(); }, async activities() { throw err(); }, async createActivity() { throw err(); }, async assigneeCandidates() { throw err(); }, async tasks() { throw err(); }, async opportunities() { throw err(); }, async accounts() { throw err(); }, async quotes() { throw err(); }, async exportCustomers() { throw err(); } };
   }
 
   // Wrap fetch: transport failures become kind 'network', and we know whether a request was sent
@@ -244,6 +245,11 @@ export function createCustomerRepository({ env, fetchImpl, local, auth, session 
     async accounts(method, path, body) {
       sent = false;
       try { return await api.accountRequest(method, path, body); } catch (err) { throw classify(err); }
+    },
+    // Báo giá Q7: gọi API báo giá (path đã dựng sẵn, id đã encode). Lỗi phân loại như mọi lời gọi khác; không thử lại ngầm.
+    async quotes(method, path, body) {
+      sent = false;
+      try { return await api.quoteRequest(method, path, body); } catch (err) { throw classify(err); }
     },
     qs: api.qs,
   };

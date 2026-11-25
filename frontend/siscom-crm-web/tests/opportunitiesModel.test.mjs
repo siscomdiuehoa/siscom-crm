@@ -8,6 +8,8 @@ import {
   initAction, validateAction, toActionRequest, ACTION_TITLE, ACTION_LABEL, ACTION_CANDIDATES, ACTION_FIELDS, unplacedErrors, groupAmountText, amountTyping,
   actionBaseKey, rebaseAction, customerLacksOwner, CUSTOMER_NO_OWNER_MESSAGE,
 } from '../src/features/opportunities/opportunitiesModel.js';
+// Báo giá Q7: model báo giá chạy cùng tệp này trong CI (danh sách tệp FE của CI không đổi).
+import './quotesModel.test.mjs';
 
 test('unplacedErrors: lỗi theo trường của máy chủ cho ô KHÔNG có trong hộp thao tác => thành câu hiển thị; ô có trong hộp thì để ô tự báo', () => {
   const NEED = 'Phải ghi nhu cầu của khách trước khi rời giai đoạn Tiếp cận.';

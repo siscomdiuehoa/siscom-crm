@@ -645,3 +645,18 @@ Q5 trong mục 12 được tách làm **hai PR** để dễ review: **Q5a** = t�
 | 5 | Gửi lại đúng giá trị cũ ⇒ không tăng `version`, không ghi nhật ký; so sánh cột không phụ thuộc thứ tự khoá (JSONB tự sắp lại khoá) | Như các module hiện có | `quotes.templates.int-spec` |
 | 6 | `PUT /quotes/my-defaults` **thay toàn bộ** (trường không gửi ⇒ để trống); không có `version` (dữ liệu của riêng một người, ghi sau thắng); gửi kèm `employeeId` ⇒ 400 | Không ai đọc / sửa được mặc định của người khác (C12) | `quotes.templates.int-spec` |
 | 7 | Nhật ký: loại báo giá ghi mã loại + tên trường đã đổi; mặc định cá nhân ghi "(đã ghi)" — không ghi nội dung (số tài khoản…) | Mục 7.2 | `quotes.templates.int-spec` |
+
+## 24. Ghi chú triển khai Q7 (giao diện: tab Báo giá + màn hình soạn)
+
+| # | Nội dung | Lý do | Ca kiểm |
+|---|---|---|---|
+| 1 | **Tab "Báo giá"** ở chi tiết cơ hội: chỉ trên đường đầy đủ và khi có `quote.read` (không có mã ⇒ không có tab, không gọi API báo giá). Mỗi báo giá một khối: mã, loại, hạng mục, nhãn "Đang theo đuổi", bảng phiên bản (bản, trạng thái, trước VAT, ngày, hạn, "còn n ngày" khi ≤ 7). Nút theo phiên bản mới nhất: Soạn, Đánh dấu đã gửi, Xoá bản nháp / Xoá báo giá, Ghi kết quả, Tạo bản mới, Chọn đang theo đuổi, Xem. Dòng nhãn giá trị cơ hội [QB5] "theo báo giá … / đã sửa tay, khác báo giá …" lấy từ `amountSource` | Mục 10 | `quotesApiUi.test.mjs` |
+| 2 | **Màn hình soạn ở route riêng `#/quotes/:id`** (không phải hộp thoại): bảng 300 dòng với tối đa 10 cột riêng cần cả màn hình. Không có `quote.read` (gõ thẳng địa chỉ) ⇒ trang "không có quyền", không gọi máy chủ. Bản nháp mới nhất + có quyền sửa ⇒ soạn; còn lại ⇒ xem chỉ đọc, chọn được phiên bản cũ | Mục 10, ca C4 (phần giao diện) | `quotesApiUi.test.mjs` |
+| 3 | Ô nhập kiểu Việt Nam: số lượng nhận `2,5` hoặc `2.5`; đơn giá / giá vốn nhận `1.636.000` (bỏ dấu chấm chỉ khi tách đúng nhóm 3 chữ số — `1.5` bị báo lỗi, không âm thầm thành 15). Tiền / số lượng luôn là chuỗi, tính bằng BigInt — kiểm tĩnh: không `Number(` / `parseFloat(` / `parseInt(`, không ghi bộ nhớ trình duyệt | Mục 6, 7.2 (C15) | `quotesModel.test.mjs` |
+| 4 | **Tạm tính ngay** khi gõ (cùng công thức với máy chủ, A1 / A2 / A5 / A9 khớp), ghi rõ "Tạm tính — máy chủ tính lại khi lưu"; thanh lưu dính đáy có tổng sau VAT. Số chính thức luôn là số máy chủ trả về sau khi lưu | Mục 6: máy chủ bỏ qua tổng của trình duyệt | `quotesModel.test.mjs`, `quotesApiUi.test.mjs` |
+| 5 | Lỗi kiểm dữ liệu hiện ngay dưới ô (khoá `lines[i].field` trùng khoá lỗi của máy chủ); 409 `VERSION_CONFLICT` báo "tải lại" và giữ nguyên nội dung đang gõ | Mục 8.1 | `quotesApiUi.test.mjs` |
+| 6 | Cột "Giá vốn / đv" và khối "Lãi gộp tạm tính" chỉ hiện khi máy chủ báo `costVisible` | Mục 7.3 | `quotesApiUi.test.mjs` |
+| 7 | Loại "một mức VAT": ô "VAT cho cả báo giá", mặc định theo VAT mặc định của loại; loại "theo từng dòng": ô VAT ở mỗi dòng | QB18 | `quotesApiUi.test.mjs` |
+| 8 | Điện thoại: mỗi dòng một thẻ (không có bảng rộng) | Mục 10 | `quotesApiUi.test.mjs` |
+| 9 | Bài kiểm FE mới (`quotesModel.test.mjs`, `quotesApiUi.test.mjs`) chạy trong CI qua `import` ở hai tệp đã có trong danh sách (`opportunitiesModel.test.mjs`, `opportunitiesDetailApiUi.test.mjs`) — **không đổi `.github/workflows/ci.yml`** | Đổi workflow cần Owner duyệt riêng | CI FE 476 / 476 |
+| 10 | Để sau: xem bản in, trang danh sách Báo giá, quản lý loại báo giá, "Mặc định của tôi" (Q8); tải PDF (Q9), Excel (Q10) | Mục 12 | — |

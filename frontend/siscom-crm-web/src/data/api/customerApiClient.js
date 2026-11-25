@@ -126,6 +126,12 @@ export function createCustomerApi(config, fetchImpl, options) {
       if (!/^\/accounts(\/|\?|$)/.test(p) || /\.\.|\/\//.test(p)) throw new Error('Đường dẫn API tài khoản không hợp lệ.');
       return await call(method, p, body);
     },
+    // Báo giá Q7: MỘT cổng cho /quotes… và /opportunities/:uuid/quotes…; đường dẫn khác bị từ chối trước khi gọi mạng.
+    async quoteRequest(method, path, body) {
+      const p = String(path);
+      if (!/^\/(quotes(\/|\?|$)|opportunities\/[0-9a-fA-F-]{36}\/quotes(\/|\?|$))/.test(p) || /\.\.|\/\//.test(p)) throw new Error('Đường dẫn API báo giá không hợp lệ.');
+      return await call(method, p, body);
+    },
     qs,
   };
 }

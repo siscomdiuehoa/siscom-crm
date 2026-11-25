@@ -18,6 +18,7 @@ import { parseTasksRoute, bellCount } from './features/activities/tasksModel.js'
 import OpportunitiesPage, { OpportunityView } from './features/opportunities/OpportunitiesPage.jsx';
 import { parseOpportunitiesRoute, canSeeOpportunities } from './features/opportunities/opportunitiesModel.js';
 import { AccountsRoute } from './features/accounts/AccountsPage.jsx';
+import { QuoteRoute } from './features/quotes/QuoteView.jsx';
 import { canManageAccounts, accountsNav } from './features/accounts/accountsModel.js';
 import ApiModeUnsupported, { API_UNSUPPORTED_NOTE } from './features/apiMode/ApiModeUnsupported.jsx';
 import ChangePasswordDialog from './features/auth/ChangePasswordDialog.jsx';
@@ -43,6 +44,7 @@ function parseRoute(h) {
   const p = (h || '').replace(/^#\/?/, '').split('/');
   if (p[0] === 'activities') return parseTasksRoute(p); // B3 A8: #/activities[/:filter], #/activities/view/:id
   if (p[0] === 'pipeline') return parseOpportunitiesRoute(p); // Sales S10: #/pipeline, #/pipeline/view/:id
+  if (p[0] === 'quotes' && p[1]) { let id = p[1]; try { id = decodeURIComponent(id); } catch (e) { /* giữ nguyên; máy chủ trả 404 */ } return { page: 'quotes', id }; } // Báo giá Q7: #/quotes/:id
   if (p[0] === 'customers' && p[1]) { let id = p[1]; try { id = decodeURIComponent(id); } catch (e) { /* malformed %-escape: keep the raw text; the id check rejects it, the app must not crash */ } return { page: 'customers', id }; }
   return { page: p[0] || 'dashboard' };
 }
@@ -190,6 +192,8 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
   else if (route.page === 'pipeline' && OPPS && route.id) { title = 'Cơ hội kinh doanh'; crumbs = ['SISCOM CRM', 'Cơ hội kinh doanh', 'Chi tiết']; body = <OpportunityView ui={ui} id={route.id} />; }
   else if (route.page === 'pipeline' && OPPS) { title = 'Cơ hội kinh doanh'; crumbs = ['SISCOM CRM', 'Kinh doanh', 'Cơ hội kinh doanh']; body = <OpportunitiesPage ui={ui} />; }
   // P1: #/accounts ở chế độ API — có quyền => trang thật; không quyền (gõ thẳng địa chỉ) => trang "không có quyền", không gọi máy chủ.
+  // Báo giá Q7: #/quotes/:id ở chế độ API — có quote.read => trang báo giá; không (gõ thẳng địa chỉ) => "không có quyền", không gọi máy chủ.
+  else if (route.page === 'quotes' && route.id && API_ON) { title = 'Báo giá'; crumbs = ['SISCOM CRM', 'Kinh doanh', 'Báo giá']; body = <QuoteRoute ui={ui} id={route.id} allowed={!!(CUSTOMER_API.quotes && API_CAN('quote.read'))} />; }
   else if (route.page === 'accounts' && API_ON) { title = 'Tài khoản'; crumbs = ['SISCOM CRM', 'Vận hành', 'Tài khoản']; body = <AccountsRoute ui={ui} allowed={!!ACCOUNTS} />; }
   else if (route.page === 'customers' && route.id && CUSTOMER_API) { title = 'Chi tiết khách hàng'; crumbs = ['SISCOM CRM', 'Khách hàng', 'Chi tiết']; body = <CustomerApiDetail ui={ui} id={route.id} />; }
   else if (route.page === 'customers' && route.id) { title = cust ? cust.short : 'Không tìm thấy'; crumbs = ['SISCOM CRM', 'Khách hàng', route.id]; body = cust ? <CustomerProfilePage ui={ui} c={cust} /> : <div className="sg-card sg-solid"><EmptyState kind="search" title="Không tìm thấy khách hàng" description={'Mã ' + route.id + ' không tồn tại hoặc đã bị xoá.'} action={<Button onClick={() => navigate('/customers')}>Về danh sách</Button>} /></div>; }
