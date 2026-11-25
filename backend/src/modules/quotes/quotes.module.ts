@@ -5,6 +5,7 @@ import { AuthModule } from '../../common/auth/auth.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { OpportunityQuotesController, QuotesController } from './quotes.controller';
 import { QuotesService } from './quotes.service';
+import { QuotesSetupService } from './quotes.setup.service';
 import { QuotesWriteService } from './quotes.write.service';
 
 // Mọi phản hồi của API báo giá — thành công, 4xx của guard / pipe, lỗi — đều không được lưu đệm ở trình duyệt hay máy trung gian
@@ -15,12 +16,12 @@ export function quoteNoStore(_req: Request, res: Response, next: NextFunction): 
 }
 
 // Báo giá Q4: đọc (danh sách, theo cơ hội, chi tiết, giá trị điền sẵn, loại báo giá, mặc định cá nhân). Q5a: ghi báo giá (mọi lần ghi có nhật ký —
-// AuditModule). Gửi / kết quả / đang theo đuổi = Q5b; loại báo giá + mặc định cá nhân = Q6.
+// AuditModule). Q5b: gửi / kết quả / đang theo đuổi. Q6: ghi loại báo giá + mặc định cá nhân (QuotesSetupService).
 // AuthModule cấp ACTOR_PROVIDER và ActorGuard. Module chỉ dùng module cơ hội qua các hàm chính sách đã export (opportunities.access).
 @Module({
   imports: [AuthModule, AuditModule, PrismaModule],
   controllers: [OpportunityQuotesController, QuotesController],
-  providers: [QuotesService, QuotesWriteService],
+  providers: [QuotesService, QuotesWriteService, QuotesSetupService],
 })
 export class QuotesModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

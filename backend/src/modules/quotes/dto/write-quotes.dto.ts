@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsObject, IsString, IsUUID, Matches, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsNotEmpty, IsObject, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { SkipIfBlank, SkipIfUndefined, Trim } from '../../customers/dto/dto-helpers';
 
 // Báo giá Q5a — thân yêu cầu ghi (docs/QUOTES_DESIGN.md mục 6, 7.3, 9). ValidationPipe toàn cục: whitelist + forbidNonWhitelisted
@@ -166,4 +166,88 @@ export class RejectQuoteDto {
 
   @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng ghi lý do khách từ chối' }) @MaxLength(500)
   reason!: string;
+}
+
+// ───── Q6: loại báo giá [QB17, QB19] + mặc định cá nhân [QB15] ─────
+// Một cột riêng: key ^[a-z][a-z0-9_]{0,19}$, nhãn 1–40 ký tự, đơn vị ≤ 20 (không gửi = ''). Key không trùng: kiểm ở service. Cùng hình dạng với
+// hàm fn_quote_columns_ok của DB (CHECK C-6) — thuộc tính lạ (ví dụ công thức) => 400.
+export class TemplateColumnDto {
+  @IsString() @Matches(/^[a-z][a-z0-9_]{0,19}$/, { message: 'key của cột: chữ thường không dấu, số, gạch dưới; bắt đầu bằng chữ; tối đa 20 ký tự' })
+  key!: string;
+
+  @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập tên cột' }) @MaxLength(40)
+  label!: string;
+
+  @SkipIfUndefined() @Trim() @IsString() @MaxLength(20)
+  unit?: string;
+}
+
+const TEMPLATE_CODE = /^[a-z0-9][a-z0-9-]{0,29}$/;
+const TEMPLATE_CODE_MESSAGE = 'Mã loại báo giá: chữ thường không dấu, số, gạch nối; tối đa 30 ký tự.';
+
+// Trường sửa được của loại báo giá (dùng chung cho thêm và sửa). Không gửi = giữ nguyên (sửa) / mặc định (thêm).
+class TemplateFieldsDto {
+  @SkipIfUndefined() @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập tên loại báo giá' }) @MaxLength(120)
+  name?: string;
+
+  @SkipIfUndefined() @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập dòng tiêu đề in' }) @MaxLength(200)
+  title?: string;
+
+  @SkipIfUndefined() @IsString() @MaxLength(300)
+  intro?: string;
+
+  @SkipIfUndefined() @IsString() @MaxLength(4000)
+  defaultTerms?: string;
+
+  @SkipIfUndefined() @IsInt({ message: 'Số ngày hiệu lực phải là số nguyên' }) @Min(1) @Max(365)
+  defaultValidDays?: number;
+
+  @SkipIfUndefined() @IsIn([8, 10], { message: 'VAT mặc định chỉ nhận 8 hoặc 10' })
+  defaultVat?: 8 | 10;
+
+  @SkipIfUndefined() @IsIn(['QUOTE', 'LINE'], { message: 'Cách tính VAT: QUOTE (một mức cho cả báo giá) hoặc LINE (theo từng dòng)' })
+  vatMode?: 'QUOTE' | 'LINE';
+
+  @SkipIfUndefined() @IsArray({ message: 'columns phải là mảng' }) @ArrayMaxSize(10, { message: 'Tối đa 10 cột riêng.' })
+  @ValidateNested({ each: true }) @Type(() => TemplateColumnDto)
+  columns?: TemplateColumnDto[];
+
+  @SkipIfUndefined() @IsBoolean({ message: 'isActive phải là true hoặc false' })
+  isActive?: boolean;
+
+  @SkipIfUndefined() @IsInt({ message: 'sortOrder phải là số nguyên' }) @Min(-32768) @Max(32767)
+  sortOrder?: number;
+}
+
+// POST /quotes/templates — name, title bắt buộc; mã đặt một lần, sau đó không đổi.
+export class CreateTemplateDto extends TemplateFieldsDto {
+  @IsString() @Matches(TEMPLATE_CODE, { message: TEMPLATE_CODE_MESSAGE })
+  code!: string;
+
+  @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập tên loại báo giá' }) @MaxLength(120)
+  declare name: string;
+
+  @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng nhập dòng tiêu đề in' }) @MaxLength(200)
+  declare title: string;
+}
+
+// PATCH /quotes/templates/:id — kèm version (khoá lạc quan riêng của loại báo giá). Không có `code`.
+export class UpdateTemplateDto extends TemplateFieldsDto {
+  @IsInt({ message: VERSION_MESSAGE }) @Min(1, { message: VERSION_MESSAGE })
+  version!: number;
+}
+
+// PUT /quotes/my-defaults — LUÔN của chính người gọi (không có tham số nhân viên). Thay toàn bộ: không gửi = để trống.
+export class MyDefaultsDto {
+  @SkipIfBlank() @Trim() @IsString() @MaxLength(120)
+  quoterTitle?: string | null;
+
+  @SkipIfBlank() @Trim() @IsString() @MaxLength(30)
+  quoterPhone?: string | null;
+
+  @SkipIfBlank() @Trim() @IsEmail({}, { message: 'Email không hợp lệ' }) @MaxLength(254)
+  quoterEmail?: string | null;
+
+  @SkipIfUndefined() @IsString() @MaxLength(2000)
+  paymentInfo?: string;
 }
