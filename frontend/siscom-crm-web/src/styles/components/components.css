@@ -99,6 +99,8 @@ textarea.sg-input{resize:vertical;min-height:72px}
 .sg-select__value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sg-select__value--ph{color:var(--text-3)}
 .sg-menu{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:var(--z-dropdown);padding:6px;border-radius:var(--radius-md);animation:sg-scale-in var(--dur-fast) var(--ease-out);max-height:280px;overflow:auto}
+/* Danh sách nổi của Select (gắn vào body, toạ độ do JS đặt): nằm trên hộp thoại, không bị khung có thanh cuộn cắt. */
+.sg-menu--float{position:fixed;right:auto;top:auto;z-index:calc(var(--z-modal) + 5);transform-origin:top center}.sg-menu--up{transform-origin:bottom center}
 .sg-menu__item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font:var(--type-body);color:var(--text-1);cursor:pointer;transition:background var(--dur-instant) var(--ease-out)}
 .sg-menu__item:hover,.sg-menu__item[data-active="true"]{background:var(--surface-hover)}
 .sg-menu__item[aria-selected="true"]{color:var(--primary-text);font-weight:var(--fw-medium)}

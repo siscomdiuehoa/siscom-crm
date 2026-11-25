@@ -71,7 +71,7 @@ async function pick(root, labelRe, optionRe) {
   const field = findAll(root, (e) => (e.attributes.class === 'sg-field' && findAll(e, (l) => l.tagName === 'LABEL' && labelRe.test(text(l))).length) || (e.attributes.role === 'group' && labelRe.test(e.attributes['aria-label'] || '')))[0];
   assert.ok(field, 'có ô chọn ' + labelRe);
   await doAct(() => click(findAll(field, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
-  await doAct(() => click(findAll(root, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]));
+  await doAct(() => click(findAll(document.body, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]));
 }
 const fill = async (root, labelRe, value) => { const el = inputByLabel(root, labelRe); assert.ok(el, 'có ô ' + labelRe); await doAct(() => type(el, value)); };
 const press = async (root, re) => { const b = buttonByText(root, re); assert.ok(b, 'có nút ' + re); await doAct(() => click(b)); };

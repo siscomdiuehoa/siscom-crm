@@ -7,12 +7,13 @@ import { createServer } from 'vite';
 import React from 'react';
 import { installDom, findAll, buttonByText, click, keydown } from './helpers/miniDom.mjs';
 
-let vite; let dom; let Modal; let createRoot; let act;
+let vite; let dom; let Modal; let Select; let createRoot; let act;
 before(async () => {
   dom = installDom();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   vite = await createServer({ configFile: new URL('../vite.config.js', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'), server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom', logLevel: 'silent', clearScreen: false });
   ({ Modal } = await vite.ssrLoadModule('/src/ds/feedback/Modal.jsx'));
+  ({ Select } = await vite.ssrLoadModule('/src/ds/forms/Select.jsx'));
   ({ createRoot } = await import('react-dom/client'));
   ({ act } = await import('react'));
 });
@@ -277,4 +278,203 @@ test('inline (trang mẫu design system) => không bắt focus, không bẫy Tab
     const last = buttonByText(m.container, /^Lưu$/); last.focus();
     let ev; await doAct(() => { ev = keydown(last, 'Tab'); }); assert.equal(ev.defaultPrevented, false);
   } finally { await m.unmount(); }
+});
+
+// ───── Ô chọn (Select) trong hộp thoại — danh sách xổ ra NỔI trên cùng màn hình (Owner 25/11/2026: phải lăn chuột mới thấy hết lựa chọn) ─────
+// Thân hộp thoại có thanh cuộn riêng (overflow) => danh sách nằm bên trong bị cắt. Danh sách phải gắn vào <body>, đặt theo vị trí nút,
+// lật lên trên khi bên dưới không đủ chỗ; chọn một mục không được đóng hộp thoại.
+const DEPTS = [{ value: '', label: '— Chưa xếp phòng ban —' }, { value: 'bgd', label: 'BGD' }, { value: 'it', label: 'IT' }, { value: 'kd', label: 'KD' }, { value: 'kt', label: 'KT' }];
+function SelectHarness({ onCloseSpy, onPick }) {
+  const [v, setV] = React.useState('bgd');
+  return h(Harness, { onCloseSpy, body: [h(Select, { key: 's', label: 'Phòng ban', options: DEPTS, value: v, onChange: (x) => { setV(x); if (onPick) onPick(x); } })] });
+}
+const trigger = (root) => findAll(root, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0];
+const listbox = () => findAll(dom.doc.body, (e) => e.attributes.role === 'listbox')[0];
+// Select đóng danh sách khi nhấn chuột ra ngoài qua listener 'mousedown' cấp document: gọi đúng các listener đó với target cho trước.
+const mousedownAt = (target) => (dom.doc.listeners.mousedown || []).slice().forEach((f) => f({ type: 'mousedown', target }));
+const rect = (top, height = 40, left = 100, width = 220) => () => ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top });
+
+test('Select trong hộp thoại: danh sách xổ ra gắn vào <body>, KHÔNG nằm trong khung hộp thoại (thân có thanh cuộn sẽ cắt mất)', async () => {
+  const m = await mount(h(SelectHarness));
+  try {
+    const { d } = await openFrom(m);
+    await doAct(() => click(trigger(d)));
+    const lb = listbox(); assert.ok(lb, 'danh sách phải mở');
+    assert.equal(d.contains(lb), false, 'danh sách không được nằm trong hộp thoại');
+    assert.equal(lb.parentNode, dom.doc.body, 'danh sách gắn thẳng vào body');
+    assert.deepEqual(findAll(lb, (e) => e.attributes.role === 'option').map((e) => e.textContent), DEPTS.map((o) => o.label));
+  } finally { await m.unmount(); }
+});
+
+test('Select trong hộp thoại: chọn một mục => đổi giá trị, đóng danh sách, hộp thoại VẪN mở', async () => {
+  let closed = 0; const picked = [];
+  const m = await mount(h(SelectHarness, { onCloseSpy: () => { closed += 1; }, onPick: (x) => picked.push(x) }));
+  try {
+    const { d } = await openFrom(m);
+    await doAct(() => click(trigger(d)));
+    await doAct(() => click(findAll(listbox(), (e) => e.attributes.role === 'option' && e.textContent === 'KD')[0]));
+    assert.deepEqual(picked, ['kd']);
+    assert.equal(listbox(), undefined, 'danh sách đóng sau khi chọn');
+    assert.equal(closed, 0, 'hộp thoại không được đóng');
+    assert.ok(dialog(m.container), 'hộp thoại vẫn còn');
+    assert.match(trigger(d).textContent, /KD/);
+  } finally { await m.unmount(); }
+});
+
+test('Select: nhấn chuột trong danh sách nổi KHÔNG đóng nó; nhấn ra ngoài thì đóng', async () => {
+  const m = await mount(h(SelectHarness));
+  try {
+    const { d } = await openFrom(m);
+    await doAct(() => click(trigger(d)));
+    const opt = findAll(listbox(), (e) => e.attributes.role === 'option')[2];
+    await doAct(() => mousedownAt(opt));
+    assert.ok(listbox(), 'nhấn trong danh sách: vẫn mở');
+    await doAct(() => mousedownAt(buttonByText(m.container, /^Lưu$/)));
+    assert.equal(listbox(), undefined, 'nhấn ra ngoài: đóng');
+  } finally { await m.unmount(); }
+});
+
+test('Select: còn đủ chỗ bên dưới => mở xuống, ngay dưới nút, cùng chiều rộng với nút', async () => {
+  const m = await mount(h(SelectHarness));
+  const prevH = globalThis.window.innerHeight; globalThis.window.innerHeight = 800;
+  try {
+    const { d } = await openFrom(m);
+    const b = trigger(d); b.getBoundingClientRect = rect(100);
+    await doAct(() => click(b));
+    const st = listbox().style;
+    assert.equal(st.position, 'fixed'); assert.equal(st.top, '146px'); assert.equal(st.left, '100px'); assert.equal(st.width, '220px');
+    assert.ok(!st.bottom, 'mở xuống: không đặt bottom');
+    assert.equal(st.maxHeight, '280px');
+  } finally { globalThis.window.innerHeight = prevH; await m.unmount(); }
+});
+
+test('Select: gần mép dưới màn hình => lật lên trên nút, chiều cao không vượt chỗ trống', async () => {
+  const m = await mount(h(SelectHarness));
+  const prevH = globalThis.window.innerHeight; globalThis.window.innerHeight = 800;
+  try {
+    const { d } = await openFrom(m);
+    const b = trigger(d); b.getBoundingClientRect = rect(700);
+    await doAct(() => click(b));
+    let st = listbox().style;
+    assert.equal(st.bottom, '106px', 'đáy danh sách cách mép dưới = 800 - 700 + 6');
+    assert.ok(!st.top, 'lật lên: không đặt top');
+    assert.equal(st.maxHeight, '280px');
+    await doAct(() => click(b)); // đóng
+    b.getBoundingClientRect = rect(170, 40); globalThis.window.innerHeight = 300; // trên 156px, dưới 76px => lật lên, cao 156
+    await doAct(() => click(b));
+    st = listbox().style;
+    assert.equal(st.bottom, '136px'); assert.equal(st.maxHeight, '156px');
+  } finally { globalThis.window.innerHeight = prevH; await m.unmount(); }
+});
+
+test('Select: nút hẹp trên điện thoại => danh sách rộng ít nhất 220px nhưng vẫn nằm gọn trong màn hình (cách mép 8px)', async () => {
+  const m = await mount(h(SelectHarness));
+  const prevH = globalThis.window.innerHeight; const prevW = globalThis.window.innerWidth;
+  globalThis.window.innerHeight = 812; globalThis.window.innerWidth = 375;
+  try {
+    const { d } = await openFrom(m);
+    const b = trigger(d);
+    b.getBoundingClientRect = rect(400, 40, 41, 141); // ô bên trái
+    await doAct(() => click(b));
+    let st = listbox().style;
+    assert.equal(st.width, '220px'); assert.equal(st.left, '41px');
+    await doAct(() => click(b));
+    b.getBoundingClientRect = rect(400, 40, 200, 141); // ô bên phải: 200 + 220 > 375 - 8 => dịch sang trái
+    await doAct(() => click(b));
+    st = listbox().style;
+    assert.equal(st.width, '220px'); assert.equal(st.left, '147px');
+  } finally { globalThis.window.innerHeight = prevH; globalThis.window.innerWidth = prevW; await m.unmount(); }
+});
+
+// ───── R1 PR #270 (MAJOR): chiều cao danh sách KHÔNG được vượt vùng hiển thị thực tế (trước đây tối thiểu 120px => tràn khi chỗ trống < 120px) ─────
+// Bất biến: danh sách luôn nằm trong [8px, chiều cao màn hình - 8px] cả khi mở xuống lẫn lật lên.
+function assertInside(st, vh, msg) {
+  const px = (v) => (v ? Number(String(v).replace('px', '')) : null);
+  const mh = px(st.maxHeight); assert.ok(mh !== null && mh >= 0, msg + ': có maxHeight không âm');
+  if (st.top) { const top = px(st.top); assert.ok(top >= 8, msg + ': top >= 8 (' + top + ')'); assert.ok(top + mh <= vh - 8, msg + ': đáy <= vh - 8 (' + (top + mh) + ')'); }
+  else { const bottom = px(st.bottom); assert.ok(bottom >= 8, msg + ': bottom >= 8 (' + bottom + ')'); assert.ok(vh - bottom - mh >= 8, msg + ': đỉnh >= 8 (' + (vh - bottom - mh) + ')'); }
+}
+async function openAt(m, vh, r, vw) {
+  globalThis.window.innerHeight = vh; if (vw !== undefined) globalThis.window.innerWidth = vw;
+  const d = dialog(m.container) || (await openFrom(m)).d;
+  const b = trigger(d); b.getBoundingClientRect = r;
+  await doAct(() => click(b));
+  return b;
+}
+
+test('R1 #270: chỗ trống cả trên lẫn dưới < 120px => danh sách thấp lại vừa chỗ trống, không tràn màn hình', async () => {
+  const m = await mount(h(SelectHarness));
+  const prevH = globalThis.window.innerHeight;
+  try {
+    await openAt(m, 200, rect(80, 40)); // dưới: 200-120-6-8 = 66; trên: 80-6-8 = 66 => mở xuống, cao 66
+    const st = listbox().style;
+    assert.equal(st.top, '126px'); assert.equal(st.maxHeight, '66px');
+    assertInside(st, 200, 'mở xuống, chỗ trống 66px');
+  } finally { globalThis.window.innerHeight = prevH; await m.unmount(); }
+});
+
+test('R1 #270: sát mép dưới, bên trên cũng < 120px => lật lên nhưng cao bằng đúng chỗ trống phía trên', async () => {
+  const m = await mount(h(SelectHarness));
+  const prevH = globalThis.window.innerHeight;
+  try {
+    await openAt(m, 150, rect(90, 40)); // dưới: 150-130-14 = 6; trên: 90-14 = 76 => lật lên, cao 76
+    const st = listbox().style;
+    assert.equal(st.bottom, '66px'); assert.equal(st.maxHeight, '76px');
+    assertInside(st, 150, 'lật lên, chỗ trống 76px');
+  } finally { globalThis.window.innerHeight = prevH; await m.unmount(); }
+});
+
+test('R1 #270: sát mép trên (nút bị cuộn khuất một phần phía trên) => mở xuống, vẫn trong màn hình', async () => {
+  const m = await mount(h(SelectHarness));
+  const prevH = globalThis.window.innerHeight;
+  try {
+    await openAt(m, 800, rect(-30, 40)); // đáy nút ở 10px
+    const st = listbox().style;
+    assert.equal(st.top, '16px'); assert.equal(st.maxHeight, '280px');
+    assertInside(st, 800, 'nút khuất một phần phía trên');
+  } finally { globalThis.window.innerHeight = prevH; await m.unmount(); }
+});
+
+test('R1 #270: nút gần như ra khỏi mép dưới màn hình => danh sách vẫn kẹp trong màn hình', async () => {
+  const m = await mount(h(SelectHarness));
+  const prevH = globalThis.window.innerHeight;
+  try {
+    await openAt(m, 400, rect(395, 40)); // nút thò ra ngoài mép dưới
+    assertInside(listbox().style, 400, 'nút thò ra mép dưới');
+  } finally { globalThis.window.innerHeight = prevH; await m.unmount(); }
+});
+
+test('R1 #270: đang mở mà cuộn trang => đặt lại vị trí theo nút, vẫn trong màn hình', async () => {
+  const m = await mount(h(SelectHarness));
+  const prevH = globalThis.window.innerHeight;
+  try {
+    const b = await openAt(m, 800, rect(100, 40));
+    assert.equal(listbox().style.top, '146px');
+    b.getBoundingClientRect = rect(700, 40); // cuộn: nút trôi xuống gần đáy
+    await doAct(() => (dom.doc.listeners.scroll || []).slice().forEach((f) => f({ type: 'scroll', target: dom.doc.body })));
+    const st = listbox().style;
+    assert.ok(!st.top, 'sau khi cuộn: lật lên'); assert.equal(st.bottom, '106px');
+    assertInside(st, 800, 'sau khi cuộn');
+  } finally { globalThis.window.innerHeight = prevH; await m.unmount(); }
+});
+
+test('R1 #270: đang mở mà đổi cỡ cửa sổ (thấp lại) => chiều cao co theo, vẫn trong màn hình; đóng thì gỡ listener', async () => {
+  const m = await mount(h(SelectHarness));
+  const prevH = globalThis.window.innerHeight; const win = globalThis.window;
+  const prevAdd = win.addEventListener; const prevRm = win.removeEventListener; const ls = {};
+  win.addEventListener = (t, f) => { (ls[t] = ls[t] || []).push(f); };
+  win.removeEventListener = (t, f) => { ls[t] = (ls[t] || []).filter((x) => x !== f); };
+  try {
+    const b = await openAt(m, 800, rect(100, 40));
+    assert.equal(listbox().style.maxHeight, '280px');
+    assert.equal((ls.resize || []).length, 1, 'đang mở: có đúng một listener resize');
+    win.innerHeight = 220; // dưới: 220-140-14 = 66; trên: 100-14 = 86 => lật lên, cao 86
+    await doAct(() => (ls.resize || []).slice().forEach((f) => f({ type: 'resize' })));
+    const st = listbox().style;
+    assert.equal(st.bottom, '126px'); assert.equal(st.maxHeight, '86px');
+    assertInside(st, 220, 'sau khi đổi cỡ');
+    await doAct(() => click(b)); // đóng
+    assert.equal((ls.resize || []).length, 0, 'đóng: đã gỡ listener resize');
+    assert.equal((dom.doc.listeners.scroll || []).length, 0, 'đóng: đã gỡ listener scroll');
+  } finally { win.addEventListener = prevAdd; win.removeEventListener = prevRm; globalThis.window.innerHeight = prevH; await m.unmount(); }
 });

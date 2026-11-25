@@ -74,7 +74,7 @@ const menuItem = async (root, re) => { await doAct(() => click(findAll(root, (e)
 async function pick(root, labelRe, optionRe) {
   const field = findAll(root, (e) => e.attributes.class === 'sg-field' && findAll(e, (l) => l.tagName === 'LABEL' && labelRe.test(text(l))).length)[0];
   await doAct(() => click(findAll(field, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
-  await doAct(() => click(findAll(root, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]));
+  await doAct(() => click(findAll(document.body, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]));
 }
 
 test('trang Công việc: "Của tôi" gọi GET /activities?assignee=me&type=TASK…; KPI từ chuông; dòng có quá hạn + khách + phụ trách', async () => {

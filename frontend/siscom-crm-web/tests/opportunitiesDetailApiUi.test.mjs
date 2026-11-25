@@ -93,7 +93,7 @@ const press = async (root, re) => { const b = buttonByText(root, re); assert.ok(
 const openTab = async (root, re) => { const t = findAll(root, (e) => e.attributes.role === 'tab' && re.test(text(e)))[0]; assert.ok(t, 'có tab ' + re); await doAct(() => click(t)); };
 async function pickIn(scope, optionRe) {
   await doAct(() => click(findAll(scope, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
-  const opt = findAll(scope, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]; assert.ok(opt, 'có lựa chọn ' + optionRe);
+  const opt = findAll(document.body, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]; assert.ok(opt, 'có lựa chọn ' + optionRe);
   await doAct(() => click(opt));
 }
 const pickGroup = (root, groupLabel, optionRe) => { const g = findAll(root, (e) => e.attributes['aria-label'] === groupLabel)[0]; assert.ok(g, 'có bộ lọc ' + groupLabel); return pickIn(g, optionRe); };

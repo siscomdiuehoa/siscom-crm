@@ -84,12 +84,12 @@ const actionButtons = (root) => { const g = findAll(root, (e) => e.attributes['a
 async function pickGroup(root, groupLabel, optionRe) {
   const g = findAll(root, (e) => e.attributes['aria-label'] === groupLabel)[0]; assert.ok(g, 'có bộ lọc ' + groupLabel);
   await doAct(() => click(findAll(g, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
-  await doAct(() => click(findAll(g, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]));
+  await doAct(() => click(findAll(document.body, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]));
 }
 async function pickField(root, labelRe, optionRe) {
   const field = findAll(root, (e) => e.attributes.class === 'sg-field' && findAll(e, (l) => l.tagName === 'LABEL' && labelRe.test(text(l))).length)[0]; assert.ok(field, 'có ô ' + labelRe);
   await doAct(() => click(findAll(field, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
-  const opt = findAll(field, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]; assert.ok(opt, 'có lựa chọn ' + optionRe);
+  const opt = findAll(document.body, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0]; assert.ok(opt, 'có lựa chọn ' + optionRe);
   await doAct(() => click(opt));
 }
 const fill = async (root, labelRe, value) => { const el = inputByLabel(root, labelRe); assert.ok(el, 'có ô ' + labelRe); await doAct(() => type(el, value)); };
@@ -249,7 +249,7 @@ async function openCreate(f, r = SALES) {
 }
 async function chooseCustomer(d) {
   await fill(d, /Khách hàng/, 'Cô'); await wait(300);
-  const opt = findAll(d, (e) => e.attributes.role === 'option')[0]; assert.ok(opt, 'có khách tìm thấy');
+  const opt = findAll(document.body, (e) => e.attributes.role === 'option')[0]; assert.ok(opt, 'có khách tìm thấy');
   await doAct(() => click(opt));
 }
 const chooseType = async (d, re) => { const lab = byTag(d, 'label').find((l) => re.test(text(l)) && byTag(l, 'input').some((i) => i.attributes.type === 'radio')); const input = byTag(lab, 'input')[0]; input.checked = true; await doAct(() => click(input)); };
@@ -328,7 +328,7 @@ test('chuyển giai đoạn: gửi POST /stage với version đã tải, đọc 
     let d = modal(m.container);
     await press(d, /^Chuyển giai đoạn$/);
     assert.equal(f.writes().length, 0); assert.match(text(d), /Chọn giai đoạn/);
-    assert.equal(findAll(d, (e) => e.attributes.role === 'option').length, 0);
+    assert.equal(findAll(document.body, (e) => e.attributes.role === 'option').length, 0);
     await pickField(d, /Giai đoạn mới/, /Khảo sát · mặc định 25%/);
     await press(d, /^Chuyển giai đoạn$/);
     assert.deepEqual(f.writes().map((c) => [c.method, c.p, c.body]), [['POST', '/opportunities/o1/stage', { version: 3, stageId: 's2' }]]);

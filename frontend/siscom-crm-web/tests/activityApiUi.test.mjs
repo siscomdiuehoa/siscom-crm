@@ -76,7 +76,7 @@ async function pick(root, labelRe, optionRe) {
     : findAll(root, (e) => e.attributes['aria-label'] && labelRe.test(e.attributes['aria-label']) && findAll(e, (b) => b.tagName === 'BUTTON').length).map((w) => findAll(w, (b) => b.tagName === 'BUTTON')[0])[0];
   assert.ok(trigger, 'có ô chọn ' + labelRe);
   await doAct(() => click(trigger));
-  const opt = findAll(root, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0];
+  const opt = findAll(document.body, (e) => e.attributes.role === 'option' && optionRe.test(text(e)))[0];
   assert.ok(opt, 'có lựa chọn ' + optionRe);
   await doAct(() => click(opt));
 }
@@ -207,8 +207,8 @@ test('T-05: drawer có ô "Cơ hội" lấy từ GET /customers/:id/opportunitie
     const d = dialog(m.container);
     const field = findAll(d, (e) => e.attributes.class === 'sg-field' && findAll(e, (l) => l.tagName === 'LABEL' && /^Cơ hội/.test(text(l))).length)[0]; assert.ok(field, 'có ô Cơ hội');
     await doAct(() => click(findAll(field, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
-    assert.deepEqual(findAll(field, (e) => e.attributes.role === 'option').map((e) => text(e)), ['— Không gắn cơ hội —', 'CH-0001 · Cơ hội 1', 'CH-0003 · Cơ hội 3 (Thắng)']);
-    await doAct(() => click(findAll(field, (e) => e.attributes.role === 'option' && /CH-0001/.test(text(e)))[0]));
+    assert.deepEqual(findAll(document.body, (e) => e.attributes.role === 'option').map((e) => text(e)), ['— Không gắn cơ hội —', 'CH-0001 · Cơ hội 1', 'CH-0003 · Cơ hội 3 (Thắng)']);
+    await doAct(() => click(findAll(document.body, (e) => e.attributes.role === 'option' && /CH-0001/.test(text(e)))[0]));
     type(inputByLabel(dialog(m.container), /^Nội dung/), 'Gọi chốt lịch khảo sát'); await flush();
     await doAct(() => click(buttonByText(dialog(m.container), /^Lưu$/)));
     assert.equal(f.posts().length, 1);
@@ -227,8 +227,8 @@ test('T-05: ô "Cơ hội" đọc cả trang sau — trang 1 toàn cơ hội ng�
     const d = dialog(m.container);
     const field = findAll(d, (e) => e.attributes.class === 'sg-field' && findAll(e, (l) => l.tagName === 'LABEL' && /^Cơ hội/.test(text(l))).length)[0]; assert.ok(field, 'có ô Cơ hội (cơ hội gắn được ở trang 2)');
     await doAct(() => click(findAll(field, (e) => e.tagName === 'BUTTON' && e.attributes['aria-haspopup'] === 'listbox')[0]));
-    assert.deepEqual(findAll(field, (e) => e.attributes.role === 'option').map((e) => text(e)), ['— Không gắn cơ hội —', 'CH-0007 · Cơ hội 7']);
-    await doAct(() => click(findAll(field, (e) => e.attributes.role === 'option' && /CH-0007/.test(text(e)))[0]));
+    assert.deepEqual(findAll(document.body, (e) => e.attributes.role === 'option').map((e) => text(e)), ['— Không gắn cơ hội —', 'CH-0007 · Cơ hội 7']);
+    await doAct(() => click(findAll(document.body, (e) => e.attributes.role === 'option' && /CH-0007/.test(text(e)))[0]));
     type(inputByLabel(dialog(m.container), /^Nội dung/), 'Gọi khách'); await flush();
     await doAct(() => click(buttonByText(dialog(m.container), /^Lưu$/)));
     assert.equal(f.posts()[0].body.opportunityId, 'o7');
