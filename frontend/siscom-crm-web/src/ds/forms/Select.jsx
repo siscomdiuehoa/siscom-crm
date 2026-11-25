@@ -4,12 +4,12 @@ import { Icon } from '../core/Icon.jsx';
 import { Field } from './Input.jsx';
 
 // Danh sách xổ ra NỔI trên cùng màn hình (gắn vào <body>, position: fixed theo vị trí nút): không bị khung có thanh cuộn (thân hộp thoại,
-// bảng) cắt mất. Bên dưới không đủ chỗ mà bên trên rộng hơn => lật lên trên nút; chiều cao tối đa 280px và không vượt chỗ trống (thừa thì cuộn
-// trong danh sách); rộng ít nhất 220px, luôn nằm gọn trong màn hình. Cuộn trang / đổi cỡ cửa sổ khi đang mở => đặt lại vị trí. Sự kiện React từ danh sách vẫn nổi bọt theo cây component
+// bảng) cắt mất. Bên dưới không đủ chỗ mà bên trên rộng hơn => lật lên trên nút; chiều cao tối đa 280px và không bao giờ vượt chỗ trống thực tế, mép luôn cách màn hình
+// ít nhất 8px (thừa thì cuộn trong danh sách); rộng ít nhất 220px, luôn nằm gọn trong màn hình. Cuộn trang / đổi cỡ cửa sổ khi đang mở => đặt lại vị trí. Sự kiện React từ danh sách vẫn nổi bọt theo cây component
 // (bấm chọn trong hộp thoại không đóng hộp thoại).
 // Trợ năng: có `label` => nút được gọi tên bằng aria-labelledby = nhãn + giá trị đang chọn ("Phòng ban — Kinh doanh"). Ô không nhãn thì truyền `ariaLabel`
 // => tên nút = "<ariaLabel>: <giá trị đang chọn>". Không truyền gì => như cũ (tên = nội dung nút).
-const MENU_MAX = 280; const MENU_MIN = 120; const MENU_GAP = 6; const MENU_EDGE = 8; const MENU_MIN_W = 220;
+const MENU_MAX = 280; const MENU_GAP = 6; const MENU_EDGE = 8; const MENU_MIN_W = 220;
 
 export function Select({ options = [], value, defaultValue, onChange, placeholder = 'Chọn…', label, hint, error, required, icon, size = 'md', disabled, className = '', ariaLabel }) {
   const uid = useId(); const lid = 'sl' + uid.replace(/:/g, ''); const vid = lid + '-v';
@@ -29,7 +29,11 @@ export function Select({ options = [], value, defaultValue, onChange, placeholde
     const need = Math.min(MENU_MAX, natural);
     const below = vh - r.bottom - MENU_GAP - MENU_EDGE; const above = r.top - MENU_GAP - MENU_EDGE;
     const up = below < need && above > below;
-    const room = Math.max(MENU_MIN, Math.min(MENU_MAX, up ? above : below));
+    // Mép của danh sách kẹp trong [MENU_EDGE, vh - MENU_EDGE]; chiều cao = phần còn lại tới mép kia, tối đa MENU_MAX, KHÔNG có mức tối thiểu
+    // (mức tối thiểu cũ 120px làm danh sách tràn khỏi màn hình khi chỗ trống nhỏ hơn — review R1 #270). Thiếu chỗ thì cuộn trong danh sách.
+    const clampEdge = (v) => Math.min(Math.max(v, MENU_EDGE), Math.max(MENU_EDGE, vh - MENU_EDGE));
+    const top = clampEdge(r.bottom + MENU_GAP); const bottom = clampEdge(vh - r.top + MENU_GAP);
+    const room = Math.max(0, Math.min(MENU_MAX, vh - MENU_EDGE - (up ? bottom : top)));
     // Rộng ít nhất MENU_MIN_W (nút hẹp trên điện thoại làm chữ lựa chọn xuống dòng) nhưng không vượt màn hình; tràn phải => dịch sang trái.
     const vw = window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 0;
     let width = r.width; let left = r.left;
@@ -37,8 +41,7 @@ export function Select({ options = [], value, defaultValue, onChange, placeholde
       width = Math.min(Math.max(r.width, MENU_MIN_W), vw - 2 * MENU_EDGE);
       left = Math.max(MENU_EDGE, Math.min(r.left, vw - MENU_EDGE - width));
     }
-    setPos(up ? { left, width, bottom: vh - r.top + MENU_GAP, maxHeight: room, up: true }
-      : { left, width, top: r.bottom + MENU_GAP, maxHeight: room, up: false });
+    setPos(up ? { left, width, bottom, maxHeight: room, up: true } : { left, width, top, maxHeight: room, up: false });
   }, []);
   useLayoutEffect(() => { if (open) place(); else setPos(null); }, [open, place]);
   useEffect(() => {
