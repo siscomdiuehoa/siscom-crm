@@ -80,7 +80,7 @@ export class QuotesService {
   private async visibleOpportunity(tx: Tx, actor: Actor, scopeOf: ScopeOf, opportunityId: string) {
     const o = await tx.opportunity.findFirst({
       where: { AND: [{ id: opportunityId }, fullReadWhere(actor, scopeOf)] },
-      select: { id: true, code: true, title: true, status: true, ownerId: true, deletedAt: true, contactId: true, projectName: true, customerId: true, customer: { select: { ownerId: true, deletedAt: true } } },
+      select: { id: true, code: true, title: true, status: true, ownerId: true, deletedAt: true, contactId: true, projectName: true, customerId: true, expectedAmountVnd: true, customer: { select: { ownerId: true, deletedAt: true } } },
     });
     if (!o) throw quoteErrors.opportunityNotFound();
     const ref: OppRef = { ownerId: o.ownerId, deletedAt: o.deletedAt, customer: { ownerId: o.customer.ownerId, deletedAt: o.customer.deletedAt } };
@@ -93,15 +93,24 @@ export class QuotesService {
     const scopeOf = this.scopeOf(actor);
     assertQuoteReadCode(scopeOf);
     return this.snapshot(async (tx) => {
-      const { ref } = await this.visibleOpportunity(tx, actor, scopeOf, opportunityId);
+      const { o, ref } = await this.visibleOpportunity(tx, actor, scopeOf, opportunityId);
       if (!readsQuotesOf(actor, scopeOf, ref)) throw quoteErrors.opportunityNotFound();
       const today = await todayVn(tx);
       const rows = (await tx.quote.findMany({ where: { AND: [quoteReadWhere(actor, scopeOf), { opportunityId }] }, orderBy: [{ createdAt: 'asc' }, { code: 'asc' }], select: QUOTE_LIST_SELECT })) as QuoteListRow[];
       const versions = rows.length === 0 ? [] : ((await tx.quoteVersion.findMany({ where: { quoteId: { in: rows.map((r) => r.id) } }, orderBy: [{ quoteId: 'asc' }, { versionNo: 'asc' }], select: VERSION_SUMMARY_SELECT })) as VersionSummaryRow[]);
       const by = new Map<string, VersionSummaryRow[]>();
       for (const v of versions) { const a = by.get(v.quoteId); if (a) a.push(v); else by.set(v.quoteId, [v]); }
+      // Nhãn giá trị cơ hội [QB5] (Q5b): phiên bản đã gửi mới nhất của báo giá đang theo đuổi; matchesOpportunity = giá trị cơ hội đang bằng
+      // tổng trước VAT của phiên bản đó ("theo báo giá …") hay đã được sửa tay ("đã sửa tay, khác báo giá"). Tính lúc đọc, không thêm cột.
+      const prim = rows.find((r) => r.isPrimary);
+      const sent = prim ? (by.get(prim.id) ?? []).filter((v) => v.status !== 'DRAFT') : [];
+      const src = prim && sent.length ? sent[sent.length - 1]! : null;
+      const amountSource = prim && src
+        ? { quoteId: prim.id, code: prim.code, versionNo: src.versionNo, subtotalVnd: src.subtotalVnd.toString(), matchesOpportunity: o.expectedAmountVnd === src.subtotalVnd }
+        : null;
       return {
         items: rows.map((r) => toQuoteOfOpportunity(r, by.get(r.id) ?? [], today)),
+        amountSource,
         // Quyền thao tác của người gọi trên cơ hội này (giao diện ẩn / hiện nút; máy chủ vẫn kiểm lại ở từng thao tác ghi).
         can: { create: allowsQuoteWrite(actor, scopeOf, 'quote.create', ref), export: allowsQuoteWrite(actor, scopeOf, 'quote.export', ref) },
       };

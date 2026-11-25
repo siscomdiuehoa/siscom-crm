@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import type { RequestCtx } from '../../common/auth/actor';
 import { CurrentCtx } from '../../common/auth/actor.decorator';
 import { ActorGuard } from '../../common/auth/actor.guard';
 import { QueryQuoteDefaultsDto, QueryQuotesDto, QueryTemplatesDto } from './dto/query-quotes.dto';
-import { CreateQuoteDto, DeleteQuoteDto, QuoteVersionRefDto, SaveQuoteDraftDto, UpdateQuoteDto } from './dto/write-quotes.dto';
+import { CreateQuoteDto, DeleteQuoteDto, QuoteVersionRefDto, RejectQuoteDto, SaveQuoteDraftDto, SendQuoteDto, UpdateQuoteDto } from './dto/write-quotes.dto';
 import { QuotesService } from './quotes.service';
 import { QuotesWriteService } from './quotes.write.service';
 
@@ -86,5 +86,26 @@ export class QuotesController {
   @Delete(':id/versions/:no')
   async deleteVersion(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Param('no', new ParseIntPipe()) no: number, @Body() dto: QuoteVersionRefDto) {
     return { data: await this.writes.deleteVersion(ctx, id, no, dto) };
+  }
+
+  // ───── Q5b: gửi / kết quả / đang theo đuổi ─────
+  @Post(':id/primary') @HttpCode(200)
+  async setPrimary(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: QuoteVersionRefDto) {
+    return { data: await this.writes.setPrimary(ctx, id, dto) };
+  }
+
+  @Post(':id/versions/:no/send') @HttpCode(200)
+  async send(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Param('no', new ParseIntPipe()) no: number, @Body() dto: SendQuoteDto) {
+    return { data: await this.writes.send(ctx, id, no, dto) };
+  }
+
+  @Post(':id/versions/:no/accept') @HttpCode(200)
+  async accept(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Param('no', new ParseIntPipe()) no: number, @Body() dto: QuoteVersionRefDto) {
+    return { data: await this.writes.accept(ctx, id, no, dto) };
+  }
+
+  @Post(':id/versions/:no/reject') @HttpCode(200)
+  async reject(@CurrentCtx() ctx: RequestCtx, @Param('id', new ParseUUIDPipe()) id: string, @Param('no', new ParseIntPipe()) no: number, @Body() dto: RejectQuoteDto) {
+    return { data: await this.writes.reject(ctx, id, no, dto) };
   }
 }
