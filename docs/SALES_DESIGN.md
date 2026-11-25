@@ -14,7 +14,7 @@
 - **Thắng** chỉ khi có hợp đồng hoặc đơn đặt hàng được xác nhận. **Thua** phải ghi lý do. **Tạm hoãn** là trạng thái riêng, có ngày liên hệ lại, không tính là Thua.
 - Mọi thay đổi giai đoạn, người phụ trách, giá trị, xác suất, ngày dự kiến chốt đều lưu lịch sử.
 - Kỹ thuật chỉ thấy cơ hội gắn với việc mình được giao (và không thấy giá trị). Kế toán xem tất cả nhưng không sửa.
-- Báo giá giai đoạn đầu vẫn làm bằng Excel hiện có; CRM giữ sổ báo giá theo cơ hội (đợt sau, gói riêng).
+- Báo giá giai đoạn đầu vẫn làm bằng Excel hiện có; CRM giữ sổ báo giá theo cơ hội (đợt sau, gói riêng). **[Cập nhật 24/11/2026: Owner đổi hướng — báo giá lập ngay trên CRM; xem `docs/QUOTES_DESIGN.md`, QB3.]**
 
 ## 1. Quyết định đã chốt
 ### 1.1 Từ 8 câu trả lời của Owner [Owner]
@@ -30,7 +30,7 @@
 | D8 | Không ghi tên đối thủ khi thua |
 | D9 | Nhiều cơ hội mỗi khách; có **loại cơ hội**, tách riêng **lĩnh vực/hệ thống** |
 | D10 | Thứ tự phân hệ: Sales → Báo giá → Dashboard, Marketing, Dự án |
-| D11 | Báo giá đợt đầu giữ mẫu Excel; CRM quản lý mã, khách, cơ hội, phiên bản, giá trị chưa VAT, ngày gửi, hạn hiệu lực, tệp Excel/PDF trên Google Drive; tạo bản mới từ bản cũ, không ghi đè bản đã gửi. Lập báo giá từ danh mục, chiết khấu, VAT, xuất PDF: để sau. Giá vốn/lợi nhuận phân quyền riêng; không tự giảm giá hoặc gửi khách khi chưa duyệt |
+| D11 | Báo giá đợt đầu giữ mẫu Excel; CRM quản lý mã, khách, cơ hội, phiên bản, giá trị chưa VAT, ngày gửi, hạn hiệu lực, tệp Excel/PDF trên Google Drive; tạo bản mới từ bản cũ, không ghi đè bản đã gửi. Lập báo giá từ danh mục, chiết khấu, VAT, xuất PDF: để sau. Giá vốn/lợi nhuận phân quyền riêng; không tự giảm giá hoặc gửi khách khi chưa duyệt. **[Thay thế một phần ngày 24/11/2026 bởi `docs/QUOTES_DESIGN.md`: QB3 thay "đợt đầu giữ mẫu Excel" (báo giá lập ngay trên CRM, có VAT và bản in PDF); QB1 thay "không gửi khách khi chưa duyệt" (kinh doanh tự gửi, không có bước duyệt trong CRM); QB2 thêm mẫu tên tệp. Giá vốn **từng dòng báo giá** đã vào gói Báo giá đợt 1 với quyền xem riêng (QB23: chỉ Quản trị CRM và người lập thấy) — đúng tinh thần "phân quyền riêng" của dòng này; phần còn để sau là báo cáo lợi nhuận tổng hợp.]** |
 | D12 | Dashboard (sau): 9 chỉ số đã chọn; bấm vào ra danh sách và người phụ trách; lọc tháng/quý, nhân viên, loại, lĩnh vực. Tỷ lệ thắng = Thắng / (Thắng + Thua) theo ngày kết thúc trong kỳ, không tính mở hoặc Tạm hoãn. Tạm hoãn và "chưa biết giá trị" hiển thị riêng. Cần lưu lịch sử chuyển giai đoạn ngay từ Sales |
 | D13 | Làm theo PR nhỏ; trước khi viết mã phải có đặc tả, màn hình, tiêu chí nghiệm thu, kế hoạch PR. Không tự merge, không tự triển khai VPS, bảo toàn dữ liệu khách hiện có. Thiết kế để bổ sung Báo giá, Dashboard, Dự án, Kho sau mà ít ảnh hưởng phần đã nghiệm thu |
 
@@ -75,9 +75,9 @@ Không còn câu hỏi nghiệp vụ nào chờ Owner. Ba điểm kỹ thuật s
 
 ## 3. Phạm vi
 **Làm trong đợt Sales:** cơ hội (tạo, sửa, giai đoạn, Tạm hoãn, Thắng, Thua, mở lại, chuyển người phụ trách), lịch sử thay đổi, loại + lựa chọn "Gắn với dự án/công trình" + tên dự án/công trình + phạm vi chào (lĩnh vực mặc định HVAC, chưa có ô chọn), cơ hội không gắn dự án (bán hàng theo dõi nhu cầu, báo giá, chốt đơn), danh sách bảng + kanban, thẻ/tab cơ hội trong chi tiết khách, gắn công việc/hoạt động vào cơ hội, quyền theo người phụ trách và theo việc được giao (kiểm ở API + giao diện), điện thoại.
-**Gói Báo giá đợt 1 (ngay sau Sales, thiết kế riêng):** sổ báo giá theo cơ hội, phiên bản, trạng thái (Nháp / Đã gửi / Được chấp nhận / Bị từ chối / Hết hiệu lực), đường dẫn Drive, tạo bản mới từ bản cũ, không sửa bản đã gửi; giá trị cơ hội theo báo giá đang theo đuổi.
+**Gói Báo giá đợt 1 (ngay sau Sales, thiết kế riêng):** sổ báo giá theo cơ hội, phiên bản, trạng thái (Nháp / Đã gửi / Được chấp nhận / Bị từ chối / Hết hiệu lực), đường dẫn Drive, tạo bản mới từ bản cũ, không sửa bản đã gửi; giá trị cơ hội theo báo giá đang theo đuổi. **[Phạm vi hiện hành của gói Báo giá: `docs/QUOTES_DESIGN.md` (24/11/2026) — lập báo giá ngay trên CRM, không còn chỉ là sổ kèm đường dẫn Drive.]**
 **Ngoài phạm vi [O5]:** thay thế phần mềm bán hàng/kế toán; bắt nhập mọi giao dịch bán lẻ đã hoàn tất thành cơ hội (cơ hội chỉ dùng để theo dõi nhu cầu, báo giá, chốt đơn).
-**Để sau:** lập báo giá từ danh mục thiết bị/vật tư, chiết khấu, VAT, duyệt giá, xuất PDF; giá vốn và lợi nhuận; Dashboard; xuất dữ liệu cơ hội; Hợp đồng; Dự án; Kho; kho tệp trong CRM; email/thông báo đẩy.
+**Để sau** *(riêng Báo giá: chiết khấu cả báo giá, VAT và bản in PDF đã chuyển vào gói Báo giá đợt 1 theo `docs/QUOTES_DESIGN.md`; giá vốn **từng dòng** cũng đã vào đợt 1 theo QB23; danh mục thiết bị, duyệt giá, chiết khấu, báo cáo lợi nhuận tổng hợp vẫn để sau)*: lập báo giá từ danh mục thiết bị/vật tư, chiết khấu, VAT, duyệt giá, xuất PDF; giá vốn và lợi nhuận; Dashboard; xuất dữ liệu cơ hội; Hợp đồng; Dự án; Kho; kho tệp trong CRM; email/thông báo đẩy.
 
 ## 4. Mô hình dữ liệu [Đề xuất] — chỉ cộng thêm, không đổi/xoá cột cũ
 ### 4.1 Bảng
@@ -117,7 +117,7 @@ CHECK ở mức DB: nhất quán `status` với trường bắt buộc (ON_HOLD 
 - R-S1: giai đoạn **từ Báo giá trở đi** (Báo giá, Đàm phán) **và** `status = OPEN` ⇒ `expected_amount_vnd` bắt buộc (không áp dụng khi ON_HOLD/WON/LOST — mở lại về OPEN ở giai đoạn đó thì lại bắt buộc).
 - R-S2: giai đoạn **khác Tiếp cận** ⇒ `need_summary` bắt buộc (không rỗng).
 - R-S3: loại **Thi công** hoặc **Cung cấp và thi công** ⇒ `is_project_linked = true` (kéo theo bắt buộc `project_name` + `offer_scope` qua CHECK `ck_opp_project`); đổi loại sang một trong hai loại này mà chưa gắn dự án ⇒ từ chối; tắt gắn dự án khi loại là một trong hai ⇒ từ chối.
-`customer.revenue_vnd` (số ước tính cũ) **không** tự cập nhật từ cơ hội: tránh hai nguồn doanh thu. Đợt này chưa có cột giá vốn, lợi nhuận, chiết khấu. `opportunity_change.reason` ≤ 500 ký tự và được che trong audit chung như các lý do khác.
+`customer.revenue_vnd` (số ước tính cũ) **không** tự cập nhật từ cơ hội: tránh hai nguồn doanh thu. Đợt này chưa có cột giá vốn, lợi nhuận, chiết khấu. *(Câu này nói về bảng cơ hội của đợt Sales. Giá vốn theo từng dòng **báo giá** thuộc gói Báo giá đợt 1 — `docs/QUOTES_DESIGN.md`, QB23.)* `opportunity_change.reason` ≤ 500 ký tự và được che trong audit chung như các lý do khác.
 Bảng `quote` (gói Báo giá) sẽ trỏ **tới** `opportunity`; `opportunity` không trỏ ngược.
 
 ### 4.2 Danh mục (`lookup_item`, nạp bằng lệnh seed; sửa tên/thứ tự không cần sửa mã; mục đã dùng chỉ **ẩn**, không xoá)
