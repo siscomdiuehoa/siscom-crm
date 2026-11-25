@@ -282,4 +282,21 @@ describe('POST /quotes/:id/versions — tạo bản mới; DELETE nháp; DELETE 
     expect({ item: nd.itemName, v1: nd.versions[0]!.itemName, v2: nd.versions[1]!.itemName, ver: nd.version }).toEqual({ item: 'Hạng mục mới', v1: d.itemName, v2: 'Hạng mục mới', ver: 4 });
     expect(err(await a('salesA').patch(Q + '/' + d.id, { version: 3, itemName: 'Khác' }))).toEqual({ s: 409, code: 'VERSION_CONFLICT' });
   });
+  it('R1 (#271): hạng mục của báo giá đã LỆCH hạng mục của phiên bản nguồn (đổi sau khi gửi) => bản mới lấy hạng mục của báo giá (mục 4.3), mọi nội dung khác chép từ bản nguồn; bản nguồn không đổi', async () => {
+    const d = await freshQuote();
+    await save('salesA', d.id, 1, { version: 1, vatPercent: 10, clientCompany: 'Khách của v1', terms: 'Điều khoản của v1', lines: [ITEM('3', '700')] });
+    await markSent(d.id, 1);
+    const renamed = await a('salesA').patch(Q + '/' + d.id, { version: 2, itemName: 'Hạng mục đổi sau khi gửi' });
+    expect(renamed.status).toBe(200);
+    // Trạng thái lệch: quote.item_name ≠ quote_version.item_name của phiên bản nguồn (đã gửi, bất biến).
+    const before = await prisma.quoteVersion.findFirstOrThrow({ where: { quoteId: d.id, versionNo: 1 }, select: { itemName: true } });
+    expect(before.itemName).toBe(d.itemName);
+    expect((await prisma.quote.findUniqueOrThrow({ where: { id: d.id }, select: { itemName: true } })).itemName).toBe('Hạng mục đổi sau khi gửi');
+    const r = await a('salesA').post(Q + '/' + d.id + '/versions', { version: 3 });
+    expect(r.status).toBe(201);
+    const [v1, v2] = (r.body.data as Detail).versions;
+    expect({ v1: v1!.itemName, v2: v2!.itemName }).toEqual({ v1: d.itemName, v2: 'Hạng mục đổi sau khi gửi' });
+    expect(v2).toMatchObject({ client: { company: 'Khách của v1' }, terms: 'Điều khoản của v1', subtotalVnd: '2100' });
+    expect(String(v2!.suggestedFileName)).toMatch(/HangMucDoiSauKhiGui/);
+  });
 });
