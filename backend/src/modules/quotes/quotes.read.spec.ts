@@ -96,14 +96,16 @@ describe('Báo giá — giá vốn [QB23]', () => {
   const VERSION_KEYS = ['client', 'codeSnapshot', 'columns', 'costVisible', 'createdAt', 'createdBy', 'daysLeft', 'decidedAt', 'decidedBy', 'intro', 'itemName', 'lines', 'note', 'paymentInfo', 'printTemplate', 'projectName',
     'quoteDate', 'quoter', 'rejectReason', 'sentAt', 'sentBy', 'state', 'status', 'subtotalVnd', 'base8Vnd', 'base10Vnd', 'vat8Vnd', 'vat10Vnd', 'totalVnd', 'suggestedFileName', 'templateName', 'terms', 'title', 'updatedAt',
     'validUntil', 'vatMode', 'versionNo'].sort();
-  it('chi tiết phiên bản: danh sách khoá cố định ở cả hai dạng; chỉ khác ở dòng hàng; không lộ id nội bộ / createdById', () => {
+  it('chi tiết phiên bản: danh sách khoá cố định ở cả hai dạng; dạng có giá vốn thêm ĐÚNG khoá margin (Q5); không lộ id nội bộ / createdById', () => {
     const without = toVersionDetail(version, 'BG-0012', '2026-11-24', false);
     const withCost = toVersionDetail(version, 'BG-0012', '2026-11-24', true);
     expect(Object.keys(without).sort()).toEqual(VERSION_KEYS);
-    expect(Object.keys(withCost).sort()).toEqual(VERSION_KEYS);
-    expect(JSON.stringify(without)).not.toMatch(/costPrice|250000/);
+    expect(Object.keys(withCost).sort()).toEqual([...VERSION_KEYS, 'margin'].sort());
+    expect(JSON.stringify(without)).not.toMatch(/costPrice|250000|margin|grossProfit/);
     expect(without.costVisible).toBe(false);
     expect(withCost.lines[0]).toHaveProperty('costPriceVnd', '250000');
+    // dòng 2,5 × 333 333 (thành tiền 833 333), giá vốn 250 000 => giá vốn dòng 625 000, lãi gộp 208 333
+    expect((withCost as { margin?: unknown }).margin).toEqual({ itemLines: 1, costedLines: 1, costedAmountVnd: '833333', costVnd: '625000', grossProfitVnd: '208333' });
   });
   it('tiền vượt 2^53 vẫn đúng từng chữ số (chuỗi, không qua Number)', () => {
     const d = toVersionDetail(version, 'BG-0012', '2026-11-24', false);
@@ -140,8 +142,11 @@ describe('Báo giá — "hết hiệu lực" tính lúc đọc', () => {
 describe('Báo giá Q4 — route và ràng buộc tĩnh', () => {
   const dir = __dirname;
   const src = readFileSync(join(dir, 'quotes.controller.ts'), 'utf8');
-  it('Q4 chỉ có đường ĐỌC: 6 route GET, không có Post / Put / Patch / Delete', () => {
-    expect([...src.matchAll(/@(Get|Post|Put|Patch|Delete)\(([^)]*)\)/g)].map((m) => m[1] + ' ' + m[2])).toEqual(['Get ', "Get 'defaults'", 'Get ', "Get 'templates'", "Get 'my-defaults'", "Get ':id'"]);
+  it('tập route cố định: 6 route GET (Q4) + 6 route ghi (Q5a); chưa có gửi / kết quả / đang theo đuổi (Q5b), loại báo giá / mặc định (Q6), xuất tệp', () => {
+    expect([...src.matchAll(/@(Get|Post|Put|Patch|Delete)\(([^)]*)\)/g)].map((m) => m[1] + ' ' + m[2])).toEqual([
+      'Get ', "Get 'defaults'", 'Post ', 'Get ', "Get 'templates'", "Get 'my-defaults'", "Get ':id'",
+      "Patch ':id'", "Delete ':id'", "Post ':id/versions'", "Put ':id/versions/:no'", "Delete ':id/versions/:no'",
+    ]);
   });
   it("đường tĩnh 'templates' và 'my-defaults' khai báo TRƯỚC ':id'", () => {
     expect(src.indexOf("@Get('templates')")).toBeLessThan(src.indexOf("@Get(':id')"));

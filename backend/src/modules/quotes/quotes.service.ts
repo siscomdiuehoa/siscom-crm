@@ -113,19 +113,21 @@ export class QuotesService {
     const { actor } = ctx;
     const scopeOf = this.scopeOf(actor);
     assertQuoteReadCode(scopeOf);
-    return this.snapshot(async (tx) => {
-      const row = (await tx.quote.findFirst({ where: { AND: [{ id }, quoteReadWhere(actor, scopeOf)] }, select: QUOTE_DETAIL_SELECT })) as QuoteDetailRow | null;
-      if (!row) throw quoteErrors.notFound();
-      const ref = oppRefOf(row.opportunity);
-      const today = await todayVn(tx);
-      return {
-        ...toQuoteDetail(row, today, (v) => seesCost(actor, scopeOf, v.createdById)),
-        can: {
-          update: allowsQuoteWrite(actor, scopeOf, 'quote.update', ref), send: allowsQuoteWrite(actor, scopeOf, 'quote.send', ref), decide: allowsQuoteWrite(actor, scopeOf, 'quote.decide', ref),
-          delete: allowsQuoteWrite(actor, scopeOf, 'quote.delete', ref), export: allowsQuoteWrite(actor, scopeOf, 'quote.export', ref),
-        },
-      };
-    });
+    return this.snapshot((tx) => this.detailIn(tx, actor, scopeOf, id));
+  }
+  // Cùng phản hồi chi tiết, đọc trong transaction của người gọi (đường ghi Q5 trả lại chi tiết sau khi ghi, cùng transaction).
+  async detailIn(tx: Tx, actor: Actor, scopeOf: ScopeOf, id: string) {
+    const row = (await tx.quote.findFirst({ where: { AND: [{ id }, quoteReadWhere(actor, scopeOf)] }, select: QUOTE_DETAIL_SELECT })) as QuoteDetailRow | null;
+    if (!row) throw quoteErrors.notFound();
+    const ref = oppRefOf(row.opportunity);
+    const today = await todayVn(tx);
+    return {
+      ...toQuoteDetail(row, today, (v) => seesCost(actor, scopeOf, v.createdById)),
+      can: {
+        update: allowsQuoteWrite(actor, scopeOf, 'quote.update', ref), send: allowsQuoteWrite(actor, scopeOf, 'quote.send', ref), decide: allowsQuoteWrite(actor, scopeOf, 'quote.decide', ref),
+        delete: allowsQuoteWrite(actor, scopeOf, 'quote.delete', ref), export: allowsQuoteWrite(actor, scopeOf, 'quote.export', ref),
+      },
+    };
   }
 
   // ───── GET /quotes/templates ─────
@@ -165,27 +167,33 @@ export class QuotesService {
       const t = (await tx.quoteTemplate.findUnique({ where: { id: templateId }, select: TEMPLATE_SELECT })) as TemplateRow | null;
       if (!t) throw quoteErrors.templateNotFound();
       if (!t.isActive) throw quoteErrors.templateInactive();
-      const today = await todayVn(tx);
-      const customer = await tx.customer.findFirst({ where: { id: o.customerId, deletedAt: null }, select: { name: true, phone: true, email: true, address: true } });
-      if (!customer) throw quoteErrors.opportunityNotFound(); // không xảy ra trong cùng snapshot (vị từ buộc khách chưa xoá) — fail-closed
-      // Người liên hệ: của cơ hội nếu có, không thì người liên hệ chính của khách.
-      const contact = o.contactId
-        ? await tx.contact.findFirst({ where: { id: o.contactId, customerId: o.customerId, deletedAt: null }, select: { fullName: true, phone: true, email: true } })
-        : await tx.contact.findFirst({ where: { customerId: o.customerId, deletedAt: null, isPrimary: true }, orderBy: { createdAt: 'asc' }, select: { fullName: true, phone: true, email: true } });
-      const me = await tx.employee.findUnique({ where: { id: actor.employeeId }, select: { fullName: true, positionTitle: true, phone: true, email: true } });
-      const mine = await tx.quoteUserDefault.findUnique({ where: { employeeId: actor.employeeId }, select: { quoterTitle: true, quoterPhone: true, quoterEmail: true, paymentInfo: true } });
-      return {
-        template: toTemplate(t),
-        printTemplate: CURRENT_PRINT_TEMPLATE,
-        quoteDate: today, validUntil: addDays(today, t.defaultValidDays), vatPercent: t.defaultVat,
-        client: {
-          name: cut(contact?.fullName, 200), contact: null, company: cut(customer.name, 200), phone: cut(contact?.phone ?? customer.phone, 30), email: cut(contact?.email ?? customer.email, 254),
-          address: cut(customer.address, 500),
-        },
-        projectName: cut(o.projectName, 200),
-        quoter: { name: cut(me?.fullName, 200) ?? '', title: cut(mine?.quoterTitle ?? me?.positionTitle, 120), phone: cut(mine?.quoterPhone ?? me?.phone, 30), email: cut(mine?.quoterEmail ?? me?.email, 254) },
-        intro: t.intro, terms: t.defaultTerms, paymentInfo: mine?.paymentInfo ?? '',
-      };
+      return this.prefillIn(tx, actor, o, t);
     });
+  }
+
+  // Giá trị điền sẵn từ khách, người liên hệ, cơ hội, nhân viên lập + mặc định cá nhân, loại báo giá (mục 4.3). Dùng cho GET …/defaults và cho
+  // POST …/quotes (Q5: phiên bản 1 chép đúng các giá trị này). Người gọi đã kiểm quyền, trạng thái cơ hội và loại báo giá.
+  async prefillIn(tx: Tx, actor: Actor, o: { customerId: string; contactId: string | null; projectName: string | null }, t: TemplateRow) {
+    const today = await todayVn(tx);
+    const customer = await tx.customer.findFirst({ where: { id: o.customerId, deletedAt: null }, select: { name: true, phone: true, email: true, address: true } });
+    if (!customer) throw quoteErrors.opportunityNotFound(); // người gọi đã buộc khách chưa xoá trong cùng transaction — fail-closed
+    // Người liên hệ: của cơ hội nếu có, không thì người liên hệ chính của khách.
+    const contact = o.contactId
+      ? await tx.contact.findFirst({ where: { id: o.contactId, customerId: o.customerId, deletedAt: null }, select: { fullName: true, phone: true, email: true } })
+      : await tx.contact.findFirst({ where: { customerId: o.customerId, deletedAt: null, isPrimary: true }, orderBy: { createdAt: 'asc' }, select: { fullName: true, phone: true, email: true } });
+    const me = await tx.employee.findUnique({ where: { id: actor.employeeId }, select: { fullName: true, positionTitle: true, phone: true, email: true } });
+    const mine = await tx.quoteUserDefault.findUnique({ where: { employeeId: actor.employeeId }, select: { quoterTitle: true, quoterPhone: true, quoterEmail: true, paymentInfo: true } });
+    return {
+      template: toTemplate(t),
+      printTemplate: CURRENT_PRINT_TEMPLATE,
+      quoteDate: today, validUntil: addDays(today, t.defaultValidDays), vatPercent: t.defaultVat,
+      client: {
+        name: cut(contact?.fullName, 200), contact: null, company: cut(customer.name, 200), phone: cut(contact?.phone ?? customer.phone, 30), email: cut(contact?.email ?? customer.email, 254),
+        address: cut(customer.address, 500),
+      },
+      projectName: cut(o.projectName, 200),
+      quoter: { name: cut(me?.fullName, 200) ?? '', title: cut(mine?.quoterTitle ?? me?.positionTitle, 120), phone: cut(mine?.quoterPhone ?? me?.phone, 30), email: cut(mine?.quoterEmail ?? me?.email, 254) },
+      intro: t.intro, terms: t.defaultTerms, paymentInfo: mine?.paymentInfo ?? '',
+    };
   }
 }
