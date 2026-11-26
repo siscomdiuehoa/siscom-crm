@@ -8,9 +8,12 @@ export const MAX_LINES = 300;
 const MAX_SUBTOTAL = 9000000000000000n;
 
 // Ô số lượng kiểu Việt Nam: có dấu phẩy => phẩy là thập phân, chấm là hàng nghìn; không có phẩy => chấm là thập phân. Trả chuỗi theo mẫu API.
+// Có dấu phẩy => phẩy là thập phân; phần nguyên chỉ được bỏ dấu chấm khi tách ĐÚNG từng nhóm 3 chữ số ('1.234,5').
+// Sai nhóm ('1.2,5', '1.2.3,5') hoặc nhiều dấu phẩy => giữ nguyên để kiểm dữ liệu báo lỗi, không âm thầm hiểu thành số khác (Q7-R1-01).
 export function normQty(s) {
   const t = String(s == null ? '' : s).replace(/\s+/g, '');
-  return t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t;
+  const m = /^(\d+|\d{1,3}(?:\.\d{3})+),(\d*)$/.exec(t);
+  return m ? m[1].replace(/\./g, '') + '.' + m[2] : t;
 }
 // Ô tiền: bỏ dấu phân cách nghìn (chấm, phẩy, khoảng trắng) CHỈ khi nó tách đúng từng nhóm 3 chữ số ('1.636.000'); '1.5' giữ nguyên => báo lỗi,
 // không âm thầm hiểu thành 15.

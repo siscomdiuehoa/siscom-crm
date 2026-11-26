@@ -16,6 +16,26 @@ describe('Báo giá Q7 — model giao diện', () => {
     assert.equal(normQty(' 5 '), '5');
     assert.equal(normQty(''), '');
   });
+  it('Q7-R1-01: số lượng sai nhóm nghìn KHÔNG bị âm thầm đổi thành số khác — giữ nguyên để kiểm dữ liệu báo lỗi', () => {
+    assert.equal(normQty('1.2,5'), '1.2,5');
+    assert.equal(normQty('1.2.3,5'), '1.2.3,5');
+    assert.equal(normQty('12.34,5'), '12.34,5');
+    assert.equal(normQty('1,2,5'), '1,2,5');
+    assert.equal(normQty('.234,5'), '.234,5');
+    // định dạng đúng vẫn đọc như cũ
+    assert.equal(normQty('1.234,5'), '1234.5');
+    assert.equal(normQty('2,5'), '2.5');
+    assert.equal(normQty('1.005'), '1.005');
+    assert.equal(normQty('12.345.678,125'), '12345678.125');
+    // dòng hàng mang số lượng sai => báo lỗi ở ô số lượng, không tính thành tiền
+    for (const bad of ['1.2,5', '1.2.3,5']) {
+      const d = { vatMode: 'QUOTE', vatPercent: 10, quoteDate: '2026-11-25', validUntil: '2026-12-10',
+        lines: [{ ...emptyLine(), description: 'Ống gió', unit: 'm', quantity: bad, unitPriceVnd: '100000' }] };
+      assert.equal(validateDraft(d)['lines[0].quantity'] !== undefined, true, bad);
+      const t = previewTotals(d.lines, 'QUOTE', 10);
+      assert.equal(t.ok, false, bad);
+    }
+  });
   it('đọc tiền: bỏ dấu chấm / phẩy / khoảng trắng phân cách nghìn; giữ nguyên chữ số', () => {
     assert.equal(normVnd('1.636.000'), '1636000');
     assert.equal(normVnd('1 636 000'), '1636000');

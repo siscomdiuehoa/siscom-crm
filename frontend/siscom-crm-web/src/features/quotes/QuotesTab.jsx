@@ -174,12 +174,13 @@ export function QuotesTab({ ui, o, onReload }) {
   const done = () => { setDlg(null); if (typeof onReload === 'function') onReload(); };
   const quick = async (fn, title, q) => {
     const r = await fn();
-    if (r.duplicate) return;
+    if (r.duplicate) return r;
     if (r.ok) { ui.toast({ tone: 'success', title, message: q.code }); if (typeof onReload === 'function') onReload(); }
     else ui.toast({ tone: 'error', title: r.error.title, message: r.error.message });
+    return r;
   };
   const onDialog = (x) => {
-    if (x.kind === 'newVersion') { quick(() => ctl.newVersion(x.q), 'Đã tạo bản mới', x.q).then(() => ui.navigate('/quotes/' + x.q.id)); return; }
+    if (x.kind === 'newVersion') { quick(() => ctl.newVersion(x.q), 'Đã tạo bản mới', x.q).then((r) => { if (r && r.ok === true) ui.navigate('/quotes/' + x.q.id); }); return; }   // chỉ mở màn hình soạn khi tạo thành công (Q7-R1-02)
     if (x.kind === 'primary') { quick(() => ctl.setPrimary(x.q), 'Đã chọn báo giá đang theo đuổi', x.q); return; }
     setDlg(x);
   };

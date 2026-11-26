@@ -138,6 +138,39 @@ describe('Báo giá Q7 — giao diện', () => {
     assert.deepEqual(f.writes().map((c) => [c.method, c.p]), [['POST', '/quotes/' + Q1 + '/versions/1/accept']]);
     await m.unmount();
   });
+  it('Q7-R1-02: Tạo bản mới chỉ mở màn hình soạn khi máy chủ trả thành công; 409 / 403 / 500 / bấm trùng => ở lại, báo lỗi', async () => {
+    const block1 = (root) => findAll(root, (e) => e.tagName === 'SECTION' && /BG-0001/.test(e.attributes['aria-label'] || ''))[0];
+    const NV = '/quotes/' + Q1 + '/versions';
+    for (const [status, code] of [[409, 'VERSION_CONFLICT'], [403, 'FORBIDDEN'], [500, 'INTERNAL']]) {
+      const f = server({ write: (p, method) => (method === 'POST' && p === NV ? res(status, { error: { code, message: 'lỗi ' + code } }) : undefined) });
+      const m = await mount(f, tabEl);
+      await press(block1(m.container), /^Tạo bản mới$/);
+      assert.deepEqual(f.writes().map((c) => [c.method, c.p]), [['POST', NV]], String(status));
+      assert.deepEqual(m.nav, [], status + ' => không đổi trang');
+      assert.equal(m.toasts.filter((t) => t.tone === 'error').length, 1, status + ' => báo lỗi');
+      await m.unmount();
+    }
+    // bấm trùng: một thao tác ghi khác đang chạy => newVersion trả duplicate, không gọi mạng, không đổi trang
+    let release; const gate = new Promise((r) => { release = r; });
+    const f = server({ write: (p, method) => (method === 'POST' && p === '/quotes/' + Q2 + '/primary' ? gate.then(() => res(200, { data: DETAIL([version(1, 'DRAFT')]) })) : undefined) });
+    const m = await mount(f, tabEl);
+    const btn = buttonByText(block1(m.container), /^Tạo bản mới$/);
+    let pending;
+    await act(async () => { pending = m.ui.customerApi.quotes.setPrimary(DETAIL([version(1, 'DRAFT')])); assert.equal(click(btn), true); });
+    await flush();
+    assert.deepEqual(f.writes().map((c) => c.p), ['/quotes/' + Q2 + '/primary'], 'không có POST tạo bản mới');
+    assert.deepEqual(m.nav, [], 'bấm trùng => không đổi trang');
+    release(); await act(async () => { await pending; }); await flush();
+    assert.deepEqual(m.nav, []);
+    await m.unmount();
+    // thành công => mở màn hình soạn
+    const ok = server({ write: (p, method) => (method === 'POST' && p === NV ? res(201, { data: DETAIL([version(1, 'SENT'), version(2, 'DRAFT')]) }) : undefined) });
+    const m2 = await mount(ok, tabEl);
+    await press(block1(m2.container), /^Tạo bản mới$/);
+    assert.deepEqual(m2.nav, ['/quotes/' + Q1]);
+    assert.equal(m2.toasts.filter((t) => t.tone === 'success').length, 1);
+    await m2.unmount();
+  });
   it('quyền: không có quote.read => KHÔNG có tab Báo giá, không gọi API báo giá; có quote.read => có tab', async () => {
     const f = server();
     const tabsEl = (ui) => React.createElement(OpportunityTabs, { ui, o: OPP, meta: null });
