@@ -116,12 +116,13 @@ export function toSaveBody(f, version) {
 export const emptyLine = (kind = 'ITEM') => ({ kind, description: '', unit: '', note: '', extra: {}, quantity: '', unitPriceVnd: '', vatPercent: null, costPriceVnd: '' });
 export const moveLine = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) return arr; const n = arr.slice(); [n[i], n[j]] = [n[j], n[i]]; return n; };
 
-// Phiên bản của API => biểu mẫu soạn. Loại "một mức VAT": mức chung = mức của dòng hàng đầu; chưa có dòng hàng => VAT mặc định của loại.
-export function fromVersion(v, defaultVat) {
+// Phiên bản của API => biểu mẫu soạn. Loại "một mức VAT": mức chung = mức của dòng hàng đầu (bản chép trong phiên bản);
+// chưa có dòng hàng => ĐỂ TRỐNG, người soạn phải chọn — không lấy VAT mặc định của loại hiện tại vì loại có thể đã sửa / ngừng dùng (Q7-R1-03, Owner chốt 26/11/2026).
+export function fromVersion(v) {
   const items = (v.lines || []).filter((l) => l.kind === 'ITEM');
   const c = v.client || {}; const q = v.quoter || {};
   return {
-    vatMode: v.vatMode, costVisible: !!v.costVisible, vatPercent: v.vatMode === 'QUOTE' ? (items[0] ? items[0].vatPercent : defaultVat) : null,
+    vatMode: v.vatMode, costVisible: !!v.costVisible, vatPercent: v.vatMode === 'QUOTE' && items[0] ? items[0].vatPercent : null,
     quoteDate: v.quoteDate || '', validUntil: v.validUntil || '',
     clientName: c.name || '', clientContact: c.contact || '', clientCompany: c.company || '', clientPhone: c.phone || '', clientEmail: c.email || '', clientAddress: c.address || '',
     projectName: v.projectName || '', quoterName: q.name || '', quoterTitle: q.title || '', quoterPhone: q.phone || '', quoterEmail: q.email || '',

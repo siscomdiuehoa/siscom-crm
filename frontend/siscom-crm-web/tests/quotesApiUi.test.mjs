@@ -198,6 +198,7 @@ describe('Báo giá Q7 — giao diện', () => {
     await fillCell(m.container, 'Dòng 2: Số lượng', '2,5');
     await fillCell(m.container, 'Dòng 2: Đơn giá', '333.333');
     await fillCell(m.container, 'Dòng 2: Giá vốn', '300.000');
+    await pick(m.container, /VAT cho cả báo giá/, /VAT 10 %/);
     const tmp = text(m.container);
     assert.ok(tmp.includes('833.333'), 'tạm tính thành tiền'); assert.ok(tmp.includes('916.666'), 'tạm tính tổng sau VAT');
     assert.match(tmp, /Lãi gộp tạm tính/);
@@ -212,6 +213,34 @@ describe('Báo giá Q7 — giao diện', () => {
     assert.match(text(m.container), /Đã lưu/);
     await m.unmount();
   });
+  it('Q7-R1-03: nháp chưa có dòng hàng => ô VAT để trống (không theo loại báo giá hiện tại, không gọi danh sách loại); phải chọn trước khi lưu dòng hàng', async () => {
+    const orig = TPL[0].defaultVat; TPL[0].defaultVat = 8;   // giả lập Quản trị CRM đã đổi loại sau khi lập nháp
+    try {
+      const f = server(); const m = await mount(f, viewEl);
+      assert.equal(f.calls.filter((c) => c.p === '/quotes/templates').length, 0, 'không đọc loại báo giá hiện tại');
+      const vatField = findAll(m.container, (e) => e.attributes.class === 'sg-field' && /VAT cho cả báo giá/.test(text(e)))[0];
+      assert.ok(vatField, 'có ô VAT cho cả báo giá');
+      assert.doesNotMatch(text(vatField), /VAT (8|10) %/, 'ô VAT trống');
+      await press(m.container, /Thêm dòng hàng/);
+      await fillCell(m.container, 'Dòng 1: Nội dung', 'Ống gió vải D400');
+      await fillCell(m.container, 'Dòng 1: Số lượng', '2');
+      await fillCell(m.container, 'Dòng 1: Đơn giá', '100.000');
+      await press(m.container, /^Lưu nháp$/);
+      assert.equal(f.writes().length, 0, 'chưa chọn VAT => không gọi mạng');
+      assert.match(text(m.container), /Chọn mức VAT cho cả báo giá/);
+      await pick(m.container, /VAT cho cả báo giá/, /VAT 8 %/);
+      await press(m.container, /^Lưu nháp$/);
+      const put = f.writes().find((c) => c.method === 'PUT');
+      assert.ok(put, 'đã gọi PUT'); assert.equal(put.body.vatPercent, 8);
+      await m.unmount();
+    } finally { TPL[0].defaultVat = orig; }
+    // nháp đã có dòng hàng => VAT lấy từ dòng (bản chép), không phụ thuộc loại
+    const f2 = server({ detail: DETAIL([version(1, 'DRAFT', { lines: [line(1, 'ITEM', { quantity: '1', unitPriceVnd: '100', vatPercent: 8, amountVnd: '100' })] })]) });
+    const m2 = await mount(f2, viewEl);
+    const vf = findAll(m2.container, (e) => e.attributes.class === 'sg-field' && /VAT cho cả báo giá/.test(text(e)))[0];
+    assert.match(text(vf), /VAT 8 %/);
+    await m2.unmount();
+  });
   it('màn hình soạn: dòng sai => báo ngay tại ô, không gọi mạng; lỗi 409 VERSION_CONFLICT => báo tải lại, giữ nội dung đang gõ', async () => {
     const f = server({ write: (p, method) => (method === 'PUT' ? res(409, { error: { code: 'VERSION_CONFLICT', message: 'Báo giá đã được người khác cập nhật. Vui lòng tải lại.', details: { currentVersion: 5 } } }) : undefined) });
     const m = await mount(f, viewEl);
@@ -219,6 +248,7 @@ describe('Báo giá Q7 — giao diện', () => {
     await fillCell(m.container, 'Dòng 1: Nội dung', 'Hàng');
     await fillCell(m.container, 'Dòng 1: Số lượng', '1,0005');
     await fillCell(m.container, 'Dòng 1: Đơn giá', '100');
+    await pick(m.container, /VAT cho cả báo giá/, /VAT 10 %/);
     await press(m.container, /^Lưu nháp$/);
     assert.equal(f.writes().length, 0);
     assert.match(text(m.container), /tối đa 3 chữ số thập phân/);

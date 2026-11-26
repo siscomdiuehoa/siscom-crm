@@ -71,17 +71,8 @@ export function QuoteView({ ui, id }) {
   const s = useCustomerApiState(ctl);
   const [st, setSt] = React.useState({ status: 'loading', q: null, error: null });
   const [sel, setSel] = React.useState(null);
-  // VAT mặc định của loại báo giá (cho bản nháp chưa có dòng hàng). Không tải được => 10 %; người soạn vẫn chọn lại được.
-  const [defaultVat, setDefaultVat] = React.useState(null);
   const load = React.useCallback(() => { ctl.detail(id).then((r) => setSt(r.ok ? { status: 'ready', q: r.data, error: null } : { status: 'error', q: null, error: r.error })); }, [ctl, id]);
   React.useEffect(() => { load(); }, [load]);
-  const tplId = st.q && st.q.template ? st.q.template.id : null;
-  React.useEffect(() => {
-    if (!tplId) return undefined;
-    let live = true;
-    ctl.templates().then((r) => { if (!live) return; const t = r.ok ? (r.data.items || []).find((x) => x.id === tplId) : null; setDefaultVat(t && (t.defaultVat === 8 || t.defaultVat === 10) ? t.defaultVat : 10); });
-    return () => { live = false; };
-  }, [ctl, tplId]);
   if (st.status === 'loading') return <div role="status" className="sg-card sg-solid" style={{ padding: 20 }}>Đang tải báo giá…</div>;
   if (st.status === 'error') return <ApiErrorBox error={st.error} onRetry={load} />;
   const q = st.q; const vs = q.versions || [];
@@ -89,7 +80,6 @@ export function QuoteView({ ui, id }) {
   const latest = vs[vs.length - 1];
   const shown = vs.find((v) => v.versionNo === sel) || latest;
   const editing = shown === latest && latest.status === 'DRAFT' && q.can && q.can.update;
-  if (editing && defaultVat === null) return <div role="status" className="sg-card sg-solid" style={{ padding: 20 }}>Đang tải báo giá…</div>;
   const accepted = vs.some((v) => v.status === 'ACCEPTED');
   const newVersion = async () => {
     const r = await ctl.newVersion(q);
@@ -118,7 +108,7 @@ export function QuoteView({ ui, id }) {
         {!editing && q.can && q.can.update && latest.status !== 'DRAFT' && !accepted ? <div><Button size="sm" icon="copy-plus" loading={!!s.busy} onClick={newVersion}>Tạo bản mới</Button></div> : null}
         {latest.status === 'DRAFT' && !(q.can && q.can.update) ? <div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>Bạn chỉ xem được bản nháp này.</div> : null}
       </section>
-      {editing ? <QuoteEditor ui={ui} q={q} v={latest} defaultVat={defaultVat} onSaved={(data) => setSt({ status: 'ready', q: data, error: null })} /> : <VersionRead v={shown} mobile={ui.mobile} />}
+      {editing ? <QuoteEditor ui={ui} q={q} v={latest} onSaved={(data) => setSt({ status: 'ready', q: data, error: null })} /> : <VersionRead v={shown} mobile={ui.mobile} />}
     </div>
   );
 }

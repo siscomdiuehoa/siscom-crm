@@ -102,13 +102,18 @@ describe('Báo giá Q7 — model giao diện', () => {
       quoter: { name: 'N', title: null, phone: null, email: null }, intro: 'i', terms: 't', paymentInfo: 'p', note: null, columns: [{ key: 'dk', label: 'ĐK', unit: 'mm' }],
       lines: [{ lineNo: 1, kind: 'SECTION', description: 'S', unit: '', note: null, extra: {}, quantity: null, unitPriceVnd: null, vatPercent: null, amountVnd: null, costPriceVnd: null },
         { lineNo: 2, kind: 'ITEM', description: 'I', unit: 'm', note: 'n', extra: { dk: '400' }, quantity: '2.5', unitPriceVnd: '100', vatPercent: 8, amountVnd: '250', costPriceVnd: '90' }] };
-    const f = fromVersion(v, 10);
+    const f = fromVersion(v);
     assert.equal(f.vatPercent, 8);
     assert.equal(f.lines[1].quantity, '2,5');
     assert.equal(f.lines[1].unitPriceVnd, '100');
     assert.equal(f.lines[1].costPriceVnd, '90');
     assert.equal(f.clientCompany, 'C');
-    assert.equal(fromVersion({ ...v, lines: [] }, 10).vatPercent, 10);   // chưa có dòng => VAT mặc định của loại
+    // Q7-R1-03 (Owner chốt 26/11/2026): chưa có dòng hàng => ô VAT để TRỐNG, người soạn phải chọn; không lấy VAT của loại hiện tại
+    assert.equal(fromVersion({ ...v, lines: [] }).vatPercent, null);
+    assert.equal(fromVersion({ ...v, lines: [] }, 8).vatPercent, null);
+    const noVat = { ...fromVersion({ ...v, lines: [] }), lines: [{ ...emptyLine(), description: 'Ống', quantity: '1', unitPriceVnd: '100' }] };
+    assert.equal(validateDraft(noVat).vatPercent, 'Chọn mức VAT cho cả báo giá.');
+    assert.equal(toSaveBody({ ...fromVersion({ ...v, lines: [] }) }, 2).vatPercent, null);   // lưu phần đầu khi chưa có dòng: không tự điền VAT
   });
   it('emptyLine, moveLine, nhãn trạng thái', () => {
     assert.deepEqual(emptyLine('SECTION'), { kind: 'SECTION', description: '', unit: '', note: '', extra: {}, quantity: '', unitPriceVnd: '', vatPercent: null, costPriceVnd: '' });

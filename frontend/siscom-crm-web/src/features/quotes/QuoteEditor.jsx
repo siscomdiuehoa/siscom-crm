@@ -13,17 +13,17 @@ const cellStyle = { padding: '4px', verticalAlign: 'top' };
 const thStyle = { padding: '6px 4px', textAlign: 'left', font: 'var(--type-caption)', color: 'var(--text-3)', fontWeight: 600, whiteSpace: 'nowrap' };
 const errText = (e) => (e ? <div role="alert" style={{ font: 'var(--type-caption)', color: 'var(--error-text)', marginTop: 2 }}>{e}</div> : null);
 
-export function QuoteEditor({ ui, q, v, onSaved, defaultVat = 10 }) {
+export function QuoteEditor({ ui, q, v, onSaved }) {
   const ctl = ui.customerApi.quotes;
   const s = useCustomerApiState(ctl);
   const busy = !!s.busy;
-  const [f, setF] = React.useState(() => fromVersion(v, defaultVat));
+  const [f, setF] = React.useState(() => fromVersion(v));
   const [errs, setErrs] = React.useState({});
   const [error, setError] = React.useState(null);
   const [savedAt, setSavedAt] = React.useState(null);
   // Sau khi lưu, trang đưa vào phiên bản máy chủ vừa trả về => biểu mẫu lấy đúng số / dòng của máy chủ (lần đầu đã dựng ở useState).
   const first = React.useRef(true);
-  React.useEffect(() => { if (first.current) { first.current = false; return; } setF(fromVersion(v, defaultVat)); setErrs({}); }, [v]);
+  React.useEffect(() => { if (first.current) { first.current = false; return; } setF(fromVersion(v)); setErrs({}); }, [v]);
   const cols =Array.isArray(v.columns) ? v.columns : [];
   const lineMode = f.vatMode === 'LINE';
   const setHead = (k) => (e) => { const val = e && e.target ? e.target.value : e; setF((x) => ({ ...x, [k]: val })); setErrs((x) => ({ ...x, [k]: undefined })); setSavedAt(null); };
@@ -149,7 +149,7 @@ export function QuoteEditor({ ui, q, v, onSaved, defaultVat = 10 }) {
       <section className="sg-card sg-solid" style={{ padding: ui.mobile ? 14 : 20, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <h3 style={{ margin: 0, flex: 1, font: 'var(--type-h4, var(--type-body))', fontWeight: 600 }}>{'Dòng hàng (' + f.lines.length + ' / ' + MAX_LINES + ')'}</h3>
-          {!lineMode ? <div style={{ minWidth: 160 }}><Select label="VAT cho cả báo giá" size="sm" value={f.vatPercent == null ? '' : String(f.vatPercent)} onChange={(val) => setHead('vatPercent')(val === '8' ? 8 : val === '10' ? 10 : null)} options={VAT_OPTIONS} error={errs.vatPercent} disabled={busy} /></div> : <span style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>Loại này tính VAT theo từng dòng.</span>}
+          {!lineMode ? <div style={{ minWidth: 160 }}><Select label="VAT cho cả báo giá" size="sm" value={f.vatPercent == null ? '' : String(f.vatPercent)} onChange={(val) => setHead('vatPercent')(val === '8' ? 8 : val === '10' ? 10 : null)} options={VAT_OPTIONS} placeholder="Chọn mức VAT" error={errs.vatPercent} disabled={busy} /></div> : <span style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>Loại này tính VAT theo từng dòng.</span>}
         </div>
         {cols.length ? <div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>{'Cột riêng của loại báo giá này: ' + cols.map((c) => c.label + (c.unit ? ' (' + c.unit + ')' : '')).join(', ') + '.'}</div> : null}
         {errs.lines ? errText(errs.lines) : null}
