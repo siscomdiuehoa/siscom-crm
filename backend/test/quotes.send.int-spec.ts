@@ -246,11 +246,18 @@ describe('Nhóm D — đồng thời qua API (mục 8.1)', () => {
       const [rs, rm] = await Promise.all([send('salesA', d, 2), a('crmAdmin').patch(O + '/' + o.id, { version: ov, expectedAmountVnd: '555' })]);
       expect(rs.status).toBe(200);
       expect([200, 409]).toContain(rm.status);
-      // sửa tay thua (409) => giá trị = bản gửi; sửa tay thắng sau khi gửi => 555 (QB5: được sửa tay); không bao giờ là trạng thái khác
+      // Hai yêu cầu cùng giữ khoá dòng cơ hội nên chạy lần lượt:
+      //  - gửi trước => version cơ hội đã tăng (100 -> 300+i) => sửa tay mang version cũ nhận 409;
+      //  - sửa tay trước (200, 555) => gửi chạy sau và ghi đè bằng tạm tính báo giá (sự kiện gửi kế tiếp thắng sửa tay).
+      // Cả hai thứ tự đều kết thúc ở giá trị của bản vừa gửi.
       const amount = (await oppRow(o.id)).expectedAmountVnd?.toString();
-      expect([String(300 + i), '555']).toContain(amount);
-      if (rm.status === 409) expect(amount).toBe(String(300 + i));
+      expect(amount).toBe(String(300 + i));
       const hist = await amountHistory(o.id);
+      // (không dựa vào thứ tự changedAt: now() là giờ bắt đầu transaction, có thể lệch thứ tự lấy khoá)
+      const ch = hist.map((h) => [h.oldValue, h.newValue]);
+      if (rm.status === 200) expect(ch).toEqual(expect.arrayContaining([['100', '555'], ['555', String(300 + i)]]));   // sửa tay trước, gửi ghi đè sau
+      else expect(ch).toEqual(expect.arrayContaining([['100', String(300 + i)]]));
+      expect(ch.some(([, n]) => n === '555')).toBe(rm.status === 200);
       expect(hist.every((h) => h.oldValue !== h.newValue)).toBe(true);   // D11: mỗi dòng AMOUNT là một lần giá trị thực sự đổi
     }
   });
