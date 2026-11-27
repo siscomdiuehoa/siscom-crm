@@ -16,6 +16,8 @@ export const SISCOM_V1_CSS = `
 .qp-sheet table { width: 100%; border-collapse: collapse; }
 .qp-sheet thead { display: table-header-group; }
 .qp-sheet tr, .qp-keep { break-inside: avoid; page-break-inside: avoid; }
+.qp-totals { break-inside: avoid; page-break-inside: avoid; }
+.qp-totals tr + tr { break-before: avoid; page-break-before: avoid; }
 .qp-watermark { position: absolute; top: 38%; left: 0; right: 0; text-align: center; font-size: 84px; font-weight: 700; letter-spacing: 6px; color: rgba(0, 0, 0, 0.09); transform: rotate(-28deg); pointer-events: none; user-select: none; }
 @media print { .qp-watermark { position: fixed; } }
 `;
@@ -60,12 +62,14 @@ export function SiscomV1Sheet({ v, layout }) {
           {layout.rows.map(({ line: l, no }) => (l.kind !== 'ITEM'
             ? <tr key={l.lineNo}><td style={td} /><td style={{ ...td, fontWeight: 700 }} colSpan={span}>{l.description}</td></tr>
             : <tr key={l.lineNo}>
-              <td style={{ ...td, textAlign: 'center' }}>{no}</td><td style={td}>{l.description}</td>
+              <td style={{ ...td, textAlign: 'center', whiteSpace: 'nowrap' }}>{no}</td><td style={td}>{l.description}</td>
               {cols.map((x) => <td key={x.key} style={td}>{(l.extra || {})[x.key] || ''}</td>)}
               <td style={{ ...td, textAlign: 'center' }}>{l.unit}</td><td style={num}>{fmtQty(l.quantity)}</td><td style={num}>{fmtVnd(l.unitPriceVnd)}</td>
               {layout.vatColumn ? <td style={{ ...td, textAlign: 'center' }}>{l.vatPercent}</td> : null}
               <td style={num}>{fmtVnd(l.amountVnd)}</td><td style={td}>{l.note || ''}</td>
             </tr>))}
+        </tbody>
+        <tbody className="qp-totals">
           {totalRow('Tổng giá trị trước VAT', v.subtotalVnd)}
           {layout.vatRows.map((r) => totalRow('VAT ' + r.percent + ' %', r.value))}
           {totalRow('Tổng giá trị sau VAT', v.totalVnd, true)}

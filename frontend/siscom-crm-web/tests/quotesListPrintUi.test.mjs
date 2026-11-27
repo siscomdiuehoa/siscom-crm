@@ -215,6 +215,20 @@ describe('Báo giá Q8a — trang danh sách và bản in', () => {
     const f2 = server({ detail: DETAIL([wide]) }); const m2 = await mount(f2, printEl());
     assert.match(css(m2.container), /size:\s*A4 landscape/); await m2.unmount();
   });
+  it('E2 / E3 (thấy khi in bằng Chrome thật): các dòng tổng nằm chung một khối không bị tách qua hai trang; ô TT không xuống dòng khi số có 3 chữ số', async () => {
+    const f = server(); const m = await mount(f, printEl());
+    const s = sheet(m.container);
+    const tb = findAll(s, (e) => e.tagName === 'TBODY' && (e.attributes.class || '').split(' ').includes('qp-totals'));
+    assert.equal(tb.length, 1, 'có đúng một khối tổng');
+    assert.equal(byTag(tb[0], 'tr').length, 3, 'trước VAT, VAT, sau VAT');
+    assert.ok(/Tổng giá trị trước VAT/.test(text(tb[0])) && /Tổng giá trị sau VAT/.test(text(tb[0])));
+    const css = byTag(m.container, 'style').map((x) => x.textContent).join('\n');
+    assert.match(css, /\.qp-totals\s*\{[^}]*break-inside:\s*avoid/);
+    assert.match(css, /\.qp-totals tr \+ tr\s*\{[^}]*break-before:\s*avoid/);
+    const tt = byTag(s, 'td').find((td) => text(td) === '1');
+    assert.equal(tt.style.whiteSpace, 'nowrap');
+    await m.unmount();
+  });
   it('giá vốn KHÔNG BAO GIỜ lên bản in, kể cả khi người xem được thấy giá vốn', async () => {
     const v = version(1, 'SENT', { costVisible: true, margin: { itemLines: 1, costedLines: 1, costedAmountVnd: '4090000', costVnd: '2777777', grossProfitVnd: '1312223' }, lines: [line(1, 'ITEM', { costPriceVnd: '1111111' })] });
     const f = server({ detail: DETAIL([v]) }); const m = await mount(f, printEl());

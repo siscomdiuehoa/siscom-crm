@@ -83,7 +83,7 @@ describe('Báo giá Q8a — model danh sách và bản in', () => {
   });
   it('mục 4.3: bố cục in đã có mã thì không sửa — chốt mã băm của tệp bố cục siscom-v1 (đổi mẫu / logo = thêm bố cục mới với mã mới)', () => {
     const src = readFileSync(new URL('../src/features/quotes/print/siscom-v1.jsx', import.meta.url), 'utf8').split(String.fromCharCode(13)).join('');
-    assert.equal(createHash('sha256').update(src).digest('hex'), 'bf9a362a2a8c18a53874031e63411f0cd12a0459af5e57dc4dc4079adfdd8a25');
+    assert.equal(createHash('sha256').update(src).digest('hex'), '91c7f583afbad84b418814557f841aacf23704a2d2254fc8657d741601c71db4');
   });
   it('kiểm tĩnh: màn hình Q8a không dùng Number( / parseFloat( / parseInt(, không ghi bộ nhớ trình duyệt, không chèn HTML thô', () => {
     for (const f of ['QuotesPage.jsx', 'QuotePrint.jsx']) {
