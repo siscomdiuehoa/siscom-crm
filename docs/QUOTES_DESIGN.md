@@ -633,3 +633,15 @@ Q5 trong mục 12 được tách làm **hai PR** để dễ review: **Q5a** = t�
 | 6 | Đổi đang theo đuổi: bỏ cờ của báo giá cũ trước rồi bật cờ báo giá mới (U-3); **cả hai** báo giá tăng `version`. Báo giá đã là đang theo đuổi ⇒ trả về không đổi gì | Mục 8.1: mọi thay đổi trên báo giá tăng `quote.version` | D5 / D7 |
 | 7 | Nhãn giá trị cơ hội [QB5] trả ở `GET /opportunities/:id/quotes` → `amountSource = { quoteId, code, versionNo, subtotalVnd, matchesOpportunity }` (null khi chưa có báo giá đang theo đuổi đã gửi); giao diện hiện "theo báo giá …" khi `matchesOpportunity`, "đã sửa tay, khác báo giá" khi không | Tính lúc đọc, không thêm cột vào `opportunity`; module cơ hội không phải đọc bảng báo giá | D9 |
 | 8 | Bài kiểm nhóm D chạy qua API, song song thật trên pool kết nối, số vòng theo `CONCURRENCY_ROUNDS` (CI đặt 20) | Mẫu `concurrency.int-spec` | D1, D5 / D7, D6, D8, D9, D10, D11 |
+
+## 23. Ghi chú triển khai Q6 (ghi loại báo giá + mặc định cá nhân)
+
+| # | Nội dung | Lý do | Ca kiểm |
+|---|---|---|---|
+| 1 | API: `POST /quotes/templates`, `PATCH /quotes/templates/:templateId` (kèm `version` riêng của loại), `PUT /quotes/my-defaults`; chỉ người có `quote.template` (Quản trị CRM) ghi loại báo giá [QB19]; mặc định cá nhân luôn của chính người gọi, cần `quote.create` | Mục 7.1, 9 | `quotes.templates.int-spec` (C12) |
+| 2 | **Mã loại báo giá đặt một lần lúc thêm, không đổi được** (gửi `code` khi sửa ⇒ 400) | Mã là định danh ổn định cho người quản trị; phiên bản báo giá không chép mã loại nên đổi mã không có lợi gì | `quotes.templates.int-spec` |
+| 3 | **Không cho ngừng dùng loại báo giá cuối cùng đang dùng** (422 `TEMPLATE_LAST_ACTIVE`); thêm loại khi đã đủ 200 ⇒ 422 `TEMPLATE_LIMIT`; mã trùng ⇒ 409 `TEMPLATE_CODE_EXISTS`. Hai việc này tuần tự hoá bằng khoá tư vấn trong transaction | Không còn loại nào đang dùng thì không ai lập được báo giá mới; giới hạn 200 ở mục 8 điểm 12 | `quotes.templates.int-spec` |
+| 4 | Cột riêng: cùng hình dạng với CHECK C-6 (`fn_quote_columns_ok`); đơn vị không gửi ⇒ `''`; key trùng ⇒ 400 theo vị trí cột; thuộc tính lạ (ví dụ công thức) ⇒ 400 | Báo lỗi rõ ở tầng API thay vì lỗi ràng buộc DB | B10 qua API |
+| 5 | Gửi lại đúng giá trị cũ ⇒ không tăng `version`, không ghi nhật ký; so sánh cột không phụ thuộc thứ tự khoá (JSONB tự sắp lại khoá) | Như các module hiện có | `quotes.templates.int-spec` |
+| 6 | `PUT /quotes/my-defaults` **thay toàn bộ** (trường không gửi ⇒ để trống); không có `version` (dữ liệu của riêng một người, ghi sau thắng); gửi kèm `employeeId` ⇒ 400 | Không ai đọc / sửa được mặc định của người khác (C12) | `quotes.templates.int-spec` |
+| 7 | Nhật ký: loại báo giá ghi mã loại + tên trường đã đổi; mặc định cá nhân ghi "(đã ghi)" — không ghi nội dung (số tài khoản…) | Mục 7.2 | `quotes.templates.int-spec` |

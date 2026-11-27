@@ -33,6 +33,10 @@ export const quoteErrors = {
   notPrimary: () => new DomainException(409, 'QUOTE_NOT_PRIMARY', 'Chỉ chấp nhận được báo giá đang theo đuổi. Hãy chọn báo giá này làm đang theo đuổi trước.'),
   primaryFixed: () => new DomainException(409, 'QUOTE_PRIMARY_FIXED', 'Cơ hội đã có báo giá được chấp nhận — không đổi báo giá đang theo đuổi.'),
   primaryNeedsSent: () => new DomainException(422, 'QUOTE_PRIMARY_NEEDS_SENT', 'Báo giá chưa có phiên bản nào đã gửi khách.'),
+  // ───── Q6: loại báo giá ─────
+  templateCodeExists: () => new DomainException(409, 'TEMPLATE_CODE_EXISTS', 'Mã loại báo giá đã được dùng.'),
+  templateLimit: () => new DomainException(422, 'TEMPLATE_LIMIT', 'Đã đủ 200 loại báo giá.'),
+  templateLastActive: () => new DomainException(422, 'TEMPLATE_LAST_ACTIVE', 'Đây là loại báo giá cuối cùng đang dùng — ngừng dùng thì không ai lập được báo giá mới.'),
 };
 
 type Dict = Record<string, unknown>;
@@ -40,7 +44,7 @@ const dig = (v: unknown, ...path: string[]): unknown => path.reduce<unknown>((cu
 
 // Tên ràng buộc / mã lỗi của trigger báo giá trong lỗi DB. Trigger Q2 đặt trường CONSTRAINT = mã cố định (mục 19, điểm 5) và đầu thông điệp
 // cũng là mã đó; chỉ mục duy nhất mang tên của nó. Chỉ dùng để SO KHỚP nội bộ — không bao giờ đưa vào phản hồi hay log.
-const KNOWN = /\b(QUOTE_[A-Z_]+|uq_quote_[a-z_]+|quote_version_quote_id_version_no_key)\b/;
+const KNOWN = /\b(QUOTE_[A-Z_]+|uq_quote_[a-z_]+|quote_version_quote_id_version_no_key|quote_template_code_key)\b/;
 export function quoteConstraintOf(e: unknown): string | null {
   for (const p of [dig(e, 'meta', 'driverAdapterError', 'cause', 'constraint'), dig(e, 'meta', 'constraint'), dig(e, 'cause', 'constraint'), dig(e, 'constraint')]) {
     if (typeof p === 'string' && KNOWN.test(p)) return KNOWN.exec(p)![1]!;
@@ -67,6 +71,7 @@ export function quoteDbError(e: unknown): DomainException | null {
     case 'QUOTE_PRIMARY_FIXED': return quoteErrors.primaryFixed();
     case 'QUOTE_PRIMARY_NEEDS_SENT': return quoteErrors.primaryNeedsSent();
     case 'QUOTE_DELETED': return quoteErrors.notFound();
+    case 'quote_template_code_key': return quoteErrors.templateCodeExists();
     default: break;
   }
   const m = mapPrismaError(e);

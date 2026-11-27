@@ -3,8 +3,9 @@ import type { RequestCtx } from '../../common/auth/actor';
 import { CurrentCtx } from '../../common/auth/actor.decorator';
 import { ActorGuard } from '../../common/auth/actor.guard';
 import { QueryQuoteDefaultsDto, QueryQuotesDto, QueryTemplatesDto } from './dto/query-quotes.dto';
-import { CreateQuoteDto, DeleteQuoteDto, QuoteVersionRefDto, RejectQuoteDto, SaveQuoteDraftDto, SendQuoteDto, UpdateQuoteDto } from './dto/write-quotes.dto';
+import { CreateQuoteDto, CreateTemplateDto, DeleteQuoteDto, MyDefaultsDto, QuoteVersionRefDto, RejectQuoteDto, SaveQuoteDraftDto, SendQuoteDto, UpdateQuoteDto, UpdateTemplateDto } from './dto/write-quotes.dto';
 import { QuotesService } from './quotes.service';
+import { QuotesSetupService } from './quotes.setup.service';
 import { QuotesWriteService } from './quotes.write.service';
 
 // Báo giá Q4 (đọc) + Q5a (ghi) — docs/QUOTES_DESIGN.md mục 9. Tập route ghim trong quotes.read.spec.ts.
@@ -36,7 +37,7 @@ export class OpportunityQuotesController {
 @Controller('quotes')
 @UseGuards(ActorGuard)
 export class QuotesController {
-  constructor(private readonly service: QuotesService, private readonly writes: QuotesWriteService) {}
+  constructor(private readonly service: QuotesService, private readonly writes: QuotesWriteService, private readonly setup: QuotesSetupService) {}
 
   @Get()
   async list(@CurrentCtx() ctx: RequestCtx, @Query() q: QueryQuotesDto) {
@@ -52,6 +53,22 @@ export class QuotesController {
   @Get('my-defaults')
   async myDefaults(@CurrentCtx() ctx: RequestCtx) {
     return { data: await this.service.myDefaults(ctx) };
+  }
+
+  // ───── Q6: loại báo giá (chỉ Quản trị CRM) + mặc định cá nhân — ĐƯỜNG TĨNH, khai báo trước ':id' ─────
+  @Post('templates')
+  async createTemplate(@CurrentCtx() ctx: RequestCtx, @Body() dto: CreateTemplateDto) {
+    return { data: await this.setup.createTemplate(ctx, dto) };
+  }
+
+  @Patch('templates/:templateId')
+  async updateTemplate(@CurrentCtx() ctx: RequestCtx, @Param('templateId', new ParseUUIDPipe()) templateId: string, @Body() dto: UpdateTemplateDto) {
+    return { data: await this.setup.updateTemplate(ctx, templateId, dto) };
+  }
+
+  @Put('my-defaults')
+  async putMyDefaults(@CurrentCtx() ctx: RequestCtx, @Body() dto: MyDefaultsDto) {
+    return { data: await this.setup.putMyDefaults(ctx, dto) };
   }
 
   @Get(':id')
