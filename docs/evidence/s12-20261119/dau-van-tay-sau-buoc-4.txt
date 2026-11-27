@@ -1,0 +1,22 @@
+# sau buoc 4 · 2026-11-19T07:48:21Z · siscom_crm_staging · tbl | ncol | n | md5 (cot cu, theo danh sach co dinh truoc Sales)
+_prisma_migrations | 8 | 16 | 5013e739261e96358198f457fcb6491d
+activity | 24 | 0 | -
+activity_access | 9 | 0 | -
+activity_transfer_request | 10 | 0 | -
+app_meta | 3 | 2 | 5376edee2757ee4c03fb849318e1e701
+audit_log | 12 | 30 | 0b9e5282e54049d45dc6d2b007bbd3e4
+auth_session | 17 | 10 | 544da72d743f62f48a39a7b93258b48e
+contact | 16 | 3 | be08cf53113512b3dea04d394e8b4496
+customer | 32 | 3 | 9efcd9f3b2bc82b34ff1f11e493f6d9a
+customer_assignment | 8 | 2 | f62875309e6a99c7e81c62421740446c
+department | 8 | 5 | 9ea0ab1588565f62cbe8224fc8610142
+employee | 15 | 5 | 2a5162f9fd4865c8a8e00a7b188ca16c
+employee_credential | 15 | 5 | 6ae0b29b5d733b1a26545e56d7137140
+employee_role | 3 | 5 | d72705150a18d20a38c48dd7a2a1e7da
+lookup_item | 9 | 57 | 6445d6702e8ca3533206176e48e96513
+password_reset_token | 10 | 0 | -
+permission | 3 | 27 | d325aa1e95e3dac1bbf303d2742272c0
+privileged_change_request | 14 | 0 | -
+remember_device | 15 | 0 | -
+role | 6 | 5 | 644b323c6008a96b19624394b0a1c3db
+role_permission | 3 | 49 | 8144133fddbb283dd1162e0b5859dcbd

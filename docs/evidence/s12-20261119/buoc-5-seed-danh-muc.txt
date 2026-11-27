@@ -1,0 +1,67 @@
+== 2026-11-19T07:54:54Z ban dang chay: /opt/siscom-crm/releases/src-20261119073843
+== TRUOC SEED
+customer_status | 4 | 4 | b544f2e90d8815e3ba29ba5a51885217
+customer_tier | 4 | 4 | 8c1ff641ee0115b7c192c64077d43478
+industry | 10 | 10 | a4eef30bdca2bfa8d3622e3a4336e672
+province | 34 | 34 | ad44da6c2cce828f6ee3a3e6c693bcf0
+source | 5 | 5 | ec13193f9ffae40487fa076c2b64165d
+57 dong cu: 57 | ec73803d573ab37f4e5b2b36d27842a1
+== SEED LAN 1
+Chay seed-lookups tren DB siscom_crm_staging (tai khoan siscom_migrator).
+Seed bang MIGRATE_DATABASE_URL (tai khoan siscom_migrator).
+Seed danh muc tren siscom_crm_staging: tong 73, chen moi 16, da co 57.
+  customer_tier            4/4
+  customer_status          4/4
+  source                   5/5
+  industry                 10/10
+  province                 34/34
+  opportunity_stage        4/4
+  opportunity_type         3/3
+  opportunity_lost_reason  9/9
+rc=0
+== SAU LAN 1 2026-11-19T07:54:55Z
+customer_status | 4 | 4 | b544f2e90d8815e3ba29ba5a51885217
+customer_tier | 4 | 4 | 8c1ff641ee0115b7c192c64077d43478
+industry | 10 | 10 | a4eef30bdca2bfa8d3622e3a4336e672
+opportunity_lost_reason | 9 | 9 | 2cace09595ecb14f6c9eb42087c62e37
+opportunity_stage | 4 | 4 | fca4c7a66eb32b6c3cd31bb03fbaa75d
+opportunity_type | 3 | 3 | 664756fd24715bb72cd6b2afdc81d04a
+province | 34 | 34 | ad44da6c2cce828f6ee3a3e6c693bcf0
+source | 5 | 5 | ec13193f9ffae40487fa076c2b64165d
+57 dong cu: 57 | ec73803d573ab37f4e5b2b36d27842a1
+== SEED LAN 2 (chay lai)
+Chay seed-lookups tren DB siscom_crm_staging (tai khoan siscom_migrator).
+Seed bang MIGRATE_DATABASE_URL (tai khoan siscom_migrator).
+Seed danh muc tren siscom_crm_staging: tong 73, chen moi 0, da co 73.
+  customer_tier            4/4
+  customer_status          4/4
+  source                   5/5
+  industry                 10/10
+  province                 34/34
+  opportunity_stage        4/4
+  opportunity_type         3/3
+  opportunity_lost_reason  9/9
+rc=0
+== SAU LAN 2 2026-11-19T07:54:56Z
+LAN 2 == LAN 1 (khong them, khong sua, khong xoa)
+57 dong cu: 57 | ec73803d573ab37f4e5b2b36d27842a1
+tong: 73
+== DANH MUC SALES
+opportunity_lost_reason | 10 | PRICE_HIGHER | Giá cao hơn đối thủ | t
+opportunity_lost_reason | 20 | CHOSE_COMPETITOR | Khách chọn đối thủ khác | t
+opportunity_lost_reason | 30 | NO_RESPONSE | Khách không phản hồi | t
+opportunity_lost_reason | 40 | PROJECT_CANCELLED | Khách hủy dự án/nhu cầu | t
+opportunity_lost_reason | 50 | NO_BUDGET | Khách không đủ ngân sách | t
+opportunity_lost_reason | 60 | SCHEDULE_UNMET | Không đáp ứng tiến độ giao hàng/thi công | t
+opportunity_lost_reason | 70 | TERMS_DISAGREED | Không thống nhất điều kiện thanh toán/hợp đồng | t
+opportunity_lost_reason | 80 | SISCOM_WITHDREW | SISCOM chủ động không tiếp tục theo đuổi | t
+opportunity_lost_reason | 90 | OTHER | Khác (kèm ghi chú) | t
+opportunity_stage | 10 | PROSPECTING | Tiếp cận | t
+opportunity_stage | 20 | SURVEY | Khảo sát | t
+opportunity_stage | 30 | QUOTATION | Báo giá | t
+opportunity_stage | 40 | NEGOTIATION | Đàm phán | t
+opportunity_type | 10 | SUPPLY | Cung cấp thiết bị, vật tư | t
+opportunity_type | 20 | INSTALLATION | Thi công | t
+opportunity_type | 30 | SUPPLY_INSTALLATION | Cung cấp và thi công | t
+== trung ma: 0
+health={"status":"ok","service":"sisc

@@ -1,0 +1,25 @@
+# sau · 2026-11-19T09:36:37Z · tbl | ncol | n | md5
+_prisma_migrations | 8 | 16 | 5013e739261e96358198f457fcb6491d
+activity | 26 | 0 | -
+activity_access | 9 | 0 | -
+activity_transfer_request | 10 | 0 | -
+app_meta | 3 | 2 | 5376edee2757ee4c03fb849318e1e701
+audit_log | 12 | 120 | 2463a02ac77d97429c665a9c790314ea
+auth_session | 17 | 13 | 74843514f4d87c2f3ab3507d4f82cef7
+contact | 16 | 3 | be08cf53113512b3dea04d394e8b4496
+customer | 32 | 3 | 9efcd9f3b2bc82b34ff1f11e493f6d9a
+customer_assignment | 8 | 2 | f62875309e6a99c7e81c62421740446c
+department | 8 | 5 | 9ea0ab1588565f62cbe8224fc8610142
+employee | 15 | 5 | 2a5162f9fd4865c8a8e00a7b188ca16c
+employee_credential | 15 | 5 | 6731a197fc2eee0dc071e2e0cf9f65a6
+employee_role | 3 | 5 | d72705150a18d20a38c48dd7a2a1e7da
+lookup_item | 9 | 73 | 278869481728f14a2091ecced643a492
+opportunity | 38 | 1 | 509253c6713a79e4d7e79e408932226d
+opportunity_change | 8 | 6 | ba4485f1e9f272859cf1315ebd691def
+opportunity_document | 10 | 0 | -
+password_reset_token | 10 | 4 | 685048b4249476f500adf06dcf5c367c
+permission | 3 | 37 | d4df9eec1e629d1092fad526fbf3e8b1
+privileged_change_request | 14 | 23 | 0ec500ada3fdef56bc50247f4f85b260
+remember_device | 15 | 0 | -
+role | 6 | 5 | 644b323c6008a96b19624394b0a1c3db
+role_permission | 3 | 66 | 4c81206bef97bfc587734cd22c268c7a
