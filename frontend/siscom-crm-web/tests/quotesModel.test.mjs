@@ -2,6 +2,7 @@
 // Báo giá Q7 — model thuần của giao diện (docs/QUOTES_DESIGN.md mục 6, 10): đọc ô nhập kiểu Việt Nam, định dạng tiền, tạm tính bằng BigInt
 // (giống công thức máy chủ — chỉ để hiển thị; số chính thức luôn là của máy chủ), kiểm dòng tại chỗ, dựng thân yêu cầu lưu nháp.
 import { describe, it } from 'node:test';
+import './quotesListPrintModel.test.mjs'; // Q8a: chạy kèm trong CI (không đổi danh sách tệp của CI)
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
