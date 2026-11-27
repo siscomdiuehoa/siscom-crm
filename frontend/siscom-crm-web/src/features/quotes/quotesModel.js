@@ -143,3 +143,58 @@ export const STATE_META = {
   ACCEPTED: { label: 'Được chấp nhận', tone: 'success' },
   REJECTED: { label: 'Bị từ chối', tone: 'error' },
 };
+
+// ───── Q8a: trang danh sách (#/quotes) và bản in (#/quotes/:id/print/:no) — mục 4.2, 4.4, 9, 10 ─────
+// Trạng thái lọc = trạng thái của phiên bản MỚI NHẤT (máy chủ tính; EXPIRING = còn hiệu lực, hết hạn trong 7 ngày).
+export const LIST_STATE_FILTERS = [
+  { value: '', label: 'Mọi trạng thái' }, { value: 'DRAFT', label: 'Nháp' }, { value: 'SENT', label: 'Đã gửi, còn hiệu lực' },
+  { value: 'EXPIRING', label: 'Sắp hết hạn (trong 7 ngày)' }, { value: 'EXPIRED', label: 'Hết hiệu lực' },
+  { value: 'ACCEPTED', label: 'Được chấp nhận' }, { value: 'REJECTED', label: 'Bị từ chối' },
+];
+export const LIST_SORTS = [{ value: 'updatedAt:desc', label: 'Mới cập nhật' }, { value: 'createdAt:desc', label: 'Mới tạo' }, { value: 'code:asc', label: 'Theo mã' }];
+export const LIST_PAGE_SIZE = 20;
+// Chỉ gửi tham số máy chủ nhận (tham số lạ => 400). Từ khoá dưới 2 ký tự không gửi. Không có lọc / sắp xếp theo giá vốn (mục 7.2).
+export function buildQuoteListQuery(f = {}) {
+  const q = {};
+  if (LIST_STATE_FILTERS.some((x) => x.value && x.value === f.state)) q.state = f.state;
+  if (f.templateId) q.templateId = f.templateId;
+  const term = String(f.q == null ? '' : f.q).trim();
+  if (term.length >= 2) q.q = term.slice(0, 100);
+  const sort = LIST_SORTS.some((x) => x.value === f.sort) ? f.sort : LIST_SORTS[0].value;
+  const [sortBy, sortOrder] = sort.split(':');
+  return { ...q, page: f.page || 1, pageSize: LIST_PAGE_SIZE, sortBy, sortOrder };
+}
+// Nhãn ở cột hạn hiệu lực. daysLeft do máy chủ tính (chỉ có ở bản đã gửi).
+export function validityLabel(latest) {
+  if (!latest) return null;
+  if (latest.state === 'EXPIRED') return { text: 'Hết hiệu lực', tone: 'error' };
+  if (latest.state !== 'SENT' || latest.daysLeft === null || latest.daysLeft === undefined) return null;
+  if (latest.daysLeft === 0) return { text: 'Hết hạn hôm nay', tone: 'warning' };
+  return { text: 'Còn ' + latest.daysLeft + ' ngày', tone: latest.daysLeft <= 7 ? 'warning' : 'neutral' };
+}
+// Thanh bên: chế độ API mà không có quote.read => bỏ mục "Báo giá" (mục 10). Chế độ minh hoạ giữ nguyên.
+export function quotesNav(nav, apiOn, allowed) {
+  if (!apiOn || allowed || !Array.isArray(nav)) return nav;
+  return nav.filter((n) => n.id !== 'quotes');
+}
+// p = các phần của địa chỉ sau '#/'. Số phiên bản không hợp lệ => 'latest' (không báo lỗi; trang in tự lấy bản mới nhất).
+export function parseQuotesRoute(p) {
+  if (!p[1]) return { page: 'quotes' };
+  let id = p[1]; try { id = decodeURIComponent(id); } catch (e) { /* giữ nguyên; máy chủ trả 404 */ }
+  if (p[2] !== 'print') return { page: 'quotes', id };
+  return { page: 'quotes', id, print: /^[1-9][0-9]{0,5}$/.test(p[3] || '') ? p[3] : 'latest' };
+}
+const nonZero = (s) => s !== null && s !== undefined && String(s) !== '0';
+// Bố cục bản in của MỘT phiên bản (mọi thứ đọc từ chính phiên bản — mục 4.3). quoteCode chỉ dùng khi phiên bản chưa có mã chép.
+export function printLayout(v, quoteCode = '') {
+  const columns = Array.isArray(v.columns) ? v.columns : [];
+  const vatRows = [];
+  if (nonZero(v.base8Vnd)) vatRows.push({ percent: 8, value: v.vat8Vnd });
+  if (nonZero(v.base10Vnd)) vatRows.push({ percent: 10, value: v.vat10Vnd });
+  let n = 0;
+  const rows = (v.lines || []).map((line) => ({ line, no: line.kind === 'ITEM' ? ++n : null }));
+  return {
+    columns, landscape: columns.length > 3, vatColumn: v.vatMode === 'LINE' && vatRows.length === 2, vatRows, draft: v.status === 'DRAFT', rows,
+    codeLabel: (v.codeSnapshot || quoteCode) + (v.versionNo > 1 ? ' (v' + v.versionNo + ')' : ''),
+  };
+}

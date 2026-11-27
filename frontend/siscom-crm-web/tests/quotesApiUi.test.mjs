@@ -2,6 +2,7 @@
 // Báo giá Q7: tab "Báo giá" ở chi tiết cơ hội và màn hình soạn (#/quotes/:id) trên API /quotes. Máy chủ giả trả đúng hình dạng của backend Q4–Q5b.
 // Chạy kèm tệp khác: dùng lại DOM giả đã cài (nếu có) thay vì cài thêm một bản.
 import { describe, it, before, after } from 'node:test';
+import './quotesListPrintUi.test.mjs'; // Q8a: chạy kèm trong CI (không đổi danh sách tệp của CI)
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import React from 'react';

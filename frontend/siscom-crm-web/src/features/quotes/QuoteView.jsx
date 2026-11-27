@@ -106,6 +106,7 @@ export function QuoteView({ ui, id }) {
           </div>
         ) : null}
         {!editing && q.can && q.can.update && latest.status !== 'DRAFT' && !accepted ? <div><Button size="sm" icon="copy-plus" loading={!!s.busy} onClick={newVersion}>Tạo bản mới</Button></div> : null}
+        <div><Button size="sm" variant="secondary" icon="printer" onClick={() => ui.navigate('/quotes/' + q.id + '/print/' + shown.versionNo)}>Xem bản in</Button></div>
         {latest.status === 'DRAFT' && !(q.can && q.can.update) ? <div style={{ font: 'var(--type-caption)', color: 'var(--text-3)' }}>Bạn chỉ xem được bản nháp này.</div> : null}
       </section>
       {editing ? <QuoteEditor ui={ui} q={q} v={latest} onSaved={(data) => setSt({ status: 'ready', q: data, error: null })} /> : <VersionRead v={shown} mobile={ui.mobile} />}

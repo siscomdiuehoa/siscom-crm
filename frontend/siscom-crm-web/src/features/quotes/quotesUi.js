@@ -14,6 +14,7 @@ export function createQuotesController(repo, describe, hooks = {}) {
   const subs = new Set();
   const set = (patch) => { state = { ...state, ...patch }; subs.forEach((f) => f()); };
   const req = (m, p, b) => repo.quotes(m, p, b);
+  const qs = (o) => (typeof repo.qs === 'function' ? repo.qs(o) : '');
   // Lỗi 400 của API báo giá: details = [{ field, code, message }] — field trùng khoá của biểu mẫu (lines[i].quantity…). Thông điệp không lặp lại giá trị.
   const err = (e) => {
     const d = describe(e);
@@ -49,6 +50,8 @@ export function createQuotesController(repo, describe, hooks = {}) {
     getState: () => state,
     subscribe: (f) => { subs.add(f); return () => subs.delete(f); },
     // ───── Đọc ─────
+    // Q8a: danh sách chung (GET /quotes). query = buildQuoteListQuery(...) — chỉ gồm tham số máy chủ nhận.
+    list(query) { return read('/quotes' + qs(query)); },
     byOpportunity(oppId) { return read('/opportunities/' + enc(oppId) + '/quotes'); },
     detail(id) { return read('/quotes/' + enc(id)); },
     templates() { return read('/quotes/templates'); },

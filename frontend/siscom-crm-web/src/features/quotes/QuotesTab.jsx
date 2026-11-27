@@ -131,6 +131,7 @@ function QuoteBlock({ ui, o, q, onDialog, busy }) {
     if (!q.isPrimary && !accepted && can('quote.send')) actions.push(<Button key="pri" size="sm" variant="ghost" icon="star" disabled={busy} onClick={() => onDialog({ kind: 'primary', q })}>Chọn đang theo đuổi</Button>);
     actions.push(<Button key="open" size="sm" variant="ghost" icon="eye" onClick={() => ui.navigate('/quotes/' + q.id)}>Xem</Button>);
   }
+  if (latest) actions.push(<Button key="print" size="sm" variant="ghost" icon="printer" onClick={() => ui.navigate('/quotes/' + q.id + '/print/' + latest.versionNo)}>Xem bản in</Button>);
   return (
     <section aria-label={'Báo giá ' + q.code} className="sg-card" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
