@@ -142,10 +142,11 @@ describe('Báo giá — "hết hiệu lực" tính lúc đọc', () => {
 describe('Báo giá Q4 — route và ràng buộc tĩnh', () => {
   const dir = __dirname;
   const src = readFileSync(join(dir, 'quotes.controller.ts'), 'utf8');
-  it('tập route cố định: 6 route GET (Q4) + 6 route ghi (Q5a); chưa có gửi / kết quả / đang theo đuổi (Q5b), loại báo giá / mặc định (Q6), xuất tệp', () => {
+  it('tập route cố định: 6 route GET (Q4) + 6 route ghi (Q5a) + 4 route gửi / kết quả / đang theo đuổi (Q5b); chưa có loại báo giá / mặc định (Q6), xuất tệp', () => {
     expect([...src.matchAll(/@(Get|Post|Put|Patch|Delete)\(([^)]*)\)/g)].map((m) => m[1] + ' ' + m[2])).toEqual([
       'Get ', "Get 'defaults'", 'Post ', 'Get ', "Get 'templates'", "Get 'my-defaults'", "Get ':id'",
       "Patch ':id'", "Delete ':id'", "Post ':id/versions'", "Put ':id/versions/:no'", "Delete ':id/versions/:no'",
+      "Post ':id/primary'", "Post ':id/versions/:no/send'", "Post ':id/versions/:no/accept'", "Post ':id/versions/:no/reject'",
     ]);
   });
   it("đường tĩnh 'templates' và 'my-defaults' khai báo TRƯỚC ':id'", () => {

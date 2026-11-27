@@ -26,6 +26,13 @@ export const quoteErrors = {
   amountOutOfRange: () => new DomainException(400, 'AMOUNT_OUT_OF_RANGE', 'Tổng giá trị trước VAT vượt giới hạn cho phép.'),
   busy: () => new DomainException(409, 'QUOTE_BUSY', 'Báo giá đang được xử lý bởi thao tác khác. Vui lòng thử lại.'),
   conflict: () => new DomainException(409, 'CONSTRAINT_CONFLICT', 'Dữ liệu vi phạm ràng buộc của hệ thống.'),
+  // ───── Q5b: gửi / kết quả / đang theo đuổi ─────
+  empty: () => new DomainException(422, 'QUOTE_EMPTY', 'Phiên bản chưa có dòng hàng nào — chưa gửi được.'),
+  notSent: () => new DomainException(422, 'QUOTE_NOT_SENT', 'Phiên bản này chưa gửi khách.'),
+  notLatest: () => new DomainException(422, 'QUOTE_NOT_LATEST', 'Chỉ ghi kết quả cho phiên bản đã gửi mới nhất của báo giá.'),
+  notPrimary: () => new DomainException(409, 'QUOTE_NOT_PRIMARY', 'Chỉ chấp nhận được báo giá đang theo đuổi. Hãy chọn báo giá này làm đang theo đuổi trước.'),
+  primaryFixed: () => new DomainException(409, 'QUOTE_PRIMARY_FIXED', 'Cơ hội đã có báo giá được chấp nhận — không đổi báo giá đang theo đuổi.'),
+  primaryNeedsSent: () => new DomainException(422, 'QUOTE_PRIMARY_NEEDS_SENT', 'Báo giá chưa có phiên bản nào đã gửi khách.'),
 };
 
 type Dict = Record<string, unknown>;
@@ -54,7 +61,12 @@ export function quoteDbError(e: unknown): DomainException | null {
     case 'uq_quote_version_one_draft': return quoteErrors.draftExists();
     case 'QUOTE_ALREADY_ACCEPTED': case 'uq_quote_version_one_accepted': case 'uq_quote_version_accepted_opportunity': return quoteErrors.alreadyAccepted();
     case 'QUOTE_DELETE_FORBIDDEN': return quoteErrors.deleteForbidden();
-    case 'quote_version_quote_id_version_no_key': return quoteErrors.busy();
+    case 'quote_version_quote_id_version_no_key': case 'uq_quote_primary_per_opportunity': return quoteErrors.busy();
+    case 'QUOTE_EMPTY': return quoteErrors.empty();
+    case 'QUOTE_NOT_PRIMARY': return quoteErrors.notPrimary();
+    case 'QUOTE_PRIMARY_FIXED': return quoteErrors.primaryFixed();
+    case 'QUOTE_PRIMARY_NEEDS_SENT': return quoteErrors.primaryNeedsSent();
+    case 'QUOTE_DELETED': return quoteErrors.notFound();
     default: break;
   }
   const m = mapPrismaError(e);

@@ -10,7 +10,8 @@ import { quoteDbError, quoteErrors } from './quotes.errors';
 import { TEMPLATE_SELECT, TemplateRow } from './quotes.mapper';
 import { computeTotals, LineIn, MoneyError, parseQuantity, parseVnd, qtyText, VatMode } from './quotes.money';
 import { CURRENT_PRINT_TEMPLATE, QuotesService } from './quotes.service';
-import type { CreateQuoteDto, DeleteQuoteDto, QuoteLineDto, QuoteVersionRefDto, SaveQuoteDraftDto, UpdateQuoteDto } from './dto/write-quotes.dto';
+import { todayVn } from './quotes.state';
+import type { CreateQuoteDto, DeleteQuoteDto, QuoteLineDto, QuoteVersionRefDto, RejectQuoteDto, SaveQuoteDraftDto, SendQuoteDto, UpdateQuoteDto } from './dto/write-quotes.dto';
 
 type Tx = Prisma.TransactionClient;
 const MIN_YEAR = 2000;
@@ -23,8 +24,8 @@ const OPP_W = { id: true, status: true, ownerId: true, deletedAt: true, contactI
 interface OppW { id: string; status: string; ownerId: string; deletedAt: Date | null; contactId: string | null; projectName: string | null; customerId: string; customer: { ownerId: string | null; deletedAt: Date | null } }
 const refOf = (o: OppW): OppRef => ({ ownerId: o.ownerId, deletedAt: o.deletedAt, customer: { ownerId: o.customer.ownerId, deletedAt: o.customer.deletedAt } });
 // Báo giá mà đường ghi cần (kèm tóm tắt mọi phiên bản).
-const QUOTE_W = { id: true, code: true, version: true, itemName: true, deletedAt: true, versions: { select: { id: true, versionNo: true, status: true, createdById: true }, orderBy: { versionNo: 'asc' as const } } } as const;
-interface QuoteW { id: string; code: string; version: number; itemName: string; deletedAt: Date | null; versions: Array<{ id: string; versionNo: number; status: string; createdById: string }> }
+const QUOTE_W = { id: true, code: true, version: true, itemName: true, isPrimary: true, deletedAt: true, versions: { select: { id: true, versionNo: true, status: true, createdById: true }, orderBy: { versionNo: 'asc' as const } } } as const;
+interface QuoteW { id: string; code: string; version: number; itemName: string; isPrimary: boolean; deletedAt: Date | null; versions: Array<{ id: string; versionNo: number; status: string; createdById: string }> }
 // Cột của phiên bản được chép sang bản mới (mục 8 điểm 5) — mọi nội dung, KHÔNG có trạng thái / người gửi / kết quả / người tạo.
 const COPY_SELECT = {
   codeSnapshot: true, itemName: true, templateName: true, title: true, columns: true, vatMode: true, quoteDate: true, validUntil: true,
@@ -95,7 +96,7 @@ export function parseLines(lines: readonly QuoteLineDto[], vatMode: VatMode, col
 const columnKeysOf = (columns: unknown): Set<string> => new Set(Array.isArray(columns) ? columns.map((c) => (typeof c === 'object' && c !== null ? String((c as { key?: unknown }).key ?? '') : '')).filter((k) => k !== '') : []);
 
 // Báo giá Q5a (docs/QUOTES_DESIGN.md mục 6, 7, 8, 9) — GHI: tạo báo giá, đổi hạng mục, lưu nháp, tạo bản mới, xoá nháp, xoá báo giá.
-// Gửi / chấp nhận / từ chối / đang theo đuổi / đồng bộ giá trị cơ hội = Q5b.
+// Q5b: gửi, chấp nhận, từ chối, đổi báo giá đang theo đuổi, đồng bộ giá trị cơ hội (mục 8 điểm 4, 6, 7, 8).
 // Quyền: không có mã của thao tác => 403 TRƯỚC khi tra bản ghi; ngoài phạm vi xem (kể cả đã xoá) => 404; thấy được nhưng không phụ trách => 403.
 // Thứ tự khoá (mục 8.1, giống đường ghi cơ hội): khách FOR SHARE -> cơ hội FOR UPDATE -> quote FOR UPDATE, SAU ĐÓ mới đọc lại và kiểm quyền.
 // Khoá lạc quan: mọi thao tác gửi kèm `version` của quote; lệch => 409 VERSION_CONFLICT; mọi thay đổi tăng quote.version.
@@ -340,6 +341,148 @@ export class QuotesWriteService {
       await this.bump(tx, q, { deletedAt: new Date(), deletedById: actor.employeeId, deleteReason: dto.reason });
       await this.record(tx, ctx, 'quote.delete', q, 'Xoá báo giá ' + q.code, { reason: '(đã ghi)' });
       return { id: q.id, code: q.code, deleted: true };
+    });
+  }
+
+  // ───────────────────────── Q5b ─────────────────────────
+  // Phiên bản đã gửi mới nhất (SENT / ACCEPTED / REJECTED) của báo giá — đích duy nhất của "kết quả" (mục 8 điểm 6).
+  private latestSentNo(q: QuoteW): number | null {
+    const sent = q.versions.filter((v) => v.status !== 'DRAFT');
+    return sent.length ? sent[sent.length - 1]!.versionNo : null;
+  }
+  private async oppHasAccepted(tx: Tx, opportunityId: string): Promise<boolean> {
+    return (await tx.quoteVersion.count({ where: { acceptedOpportunityId: opportunityId } })) > 0;
+  }
+
+  // Đồng bộ giá trị cơ hội (D7, mục 8 điểm 8): GÁN expected_amount_vnd = subtotal của phiên bản đã gửi mới nhất của báo giá đang theo đuổi.
+  // Cơ hội không Mở => không đồng bộ. Giá trị không đổi => không ghi lịch sử, không tăng version. Đổi => một dòng opportunity_change AMOUNT
+  // (lý do "Theo báo giá BG-… v…" — có mã, không lặp lại số tiền) + version cơ hội tăng 1. Gọi khi transaction ĐÃ giữ khoá dòng cơ hội.
+  private async syncOpportunityAmount(tx: Tx, ctx: RequestCtx, opportunityId: string): Promise<boolean> {
+    const o = await tx.opportunity.findUniqueOrThrow({ where: { id: opportunityId }, select: { status: true, expectedAmountVnd: true, version: true } });
+    if (o.status !== 'OPEN') return false;
+    const p = await tx.quote.findFirst({
+      where: { opportunityId, isPrimary: true, deletedAt: null },
+      select: { code: true, versions: { where: { status: { not: 'DRAFT' } }, orderBy: { versionNo: 'desc' }, take: 1, select: { versionNo: true, subtotalVnd: true } } },
+    });
+    const v = p?.versions[0];
+    if (!p || !v || o.expectedAmountVnd === v.subtotalVnd) return false;
+    const upd = await tx.opportunity.updateMany({ where: { id: opportunityId, version: o.version }, data: { expectedAmountVnd: v.subtotalVnd, version: { increment: 1 }, updatedById: ctx.actor.employeeId } });
+    if (upd.count !== 1) throw quoteErrors.busy();
+    await tx.opportunityChange.create({
+      data: {
+        opportunityId, field: 'AMOUNT', oldValue: o.expectedAmountVnd === null ? null : o.expectedAmountVnd.toString(), newValue: v.subtotalVnd.toString(),
+        reason: 'Theo báo giá ' + p.code + ' v' + v.versionNo, changedById: ctx.actor.employeeId,
+      },
+    });
+    return true;
+  }
+
+  // ───── POST /quotes/:id/versions/:no/send ─────
+  // Đánh dấu đã gửi [QB1]: cần ≥ 1 dòng hàng, ngày báo giá (không ở tương lai, theo giờ Việt Nam), hạn ≥ ngày báo giá. Phiên bản bị khoá (R-Q2).
+  // Báo giá gửi ĐẦU TIÊN của cơ hội tự thành "đang theo đuổi" (mục 8 điểm 7), trừ khi cơ hội đã có báo giá được chấp nhận.
+  // Trigger R-Q1 của DB kiểm lại tổng theo từng mức VAT và mức VAT của loại "một mức".
+  async send(ctx: RequestCtx, id: string, no: number, dto: SendQuoteDto) {
+    const { actor } = ctx;
+    const scopeOf = this.scopeOf(actor);
+    if (scopeOf('quote.send') === null) throw quoteErrors.forbidden();
+    return this.inTx(async (tx) => {
+      const { q, opp } = await this.loadQuote(tx, actor, scopeOf, id, 'quote.send');
+      const v = this.versionOf(q, no);
+      if (v.status !== 'DRAFT') throw quoteErrors.versionLocked();
+      if (q.version !== dto.version) throw quoteErrors.versionConflict(q.version);
+      const cur = await tx.quoteVersion.findUniqueOrThrow({ where: { id: v.id }, select: { quoteDate: true, validUntil: true } });
+      const errs: FieldErr[] = [];
+      const quoteDate = keep(dateOf(dto.quoteDate, 'quoteDate', errs), cur.quoteDate);
+      const validUntil = keep(dateOf(dto.validUntil, 'validUntil', errs), cur.validUntil);
+      const today = await todayVn(tx);
+      if (!quoteDate) errs.push({ field: 'quoteDate', code: 'DATE_REQUIRED', message: 'Cần ngày báo giá trước khi gửi.' });
+      if (!validUntil) errs.push({ field: 'validUntil', code: 'DATE_REQUIRED', message: 'Cần hạn hiệu lực trước khi gửi.' });
+      if (quoteDate && ymd(quoteDate)! > today) errs.push({ field: 'quoteDate', code: 'INVALID_DATE', message: 'Ngày báo giá không được ở tương lai.' });
+      if (quoteDate && validUntil && ymd(validUntil)! < ymd(quoteDate)!) errs.push({ field: 'validUntil', code: 'INVALID_DATE', message: 'Hạn hiệu lực phải từ ngày báo giá trở đi.' });
+      if (errs.length) throw quoteErrors.validation(errs);
+      if ((await tx.quoteLine.count({ where: { quoteVersionId: v.id, kind: 'ITEM' } })) === 0) throw quoteErrors.empty();
+
+      await tx.quoteVersion.update({ where: { id: v.id }, data: { status: 'SENT', quoteDate, validUntil, sentById: actor.employeeId, sentAt: new Date() } });
+      const hasPrimary = (await tx.quote.count({ where: { opportunityId: opp.id, isPrimary: true, deletedAt: null } })) > 0;
+      const becomesPrimary = !q.isPrimary && !hasPrimary && !(await this.oppHasAccepted(tx, opp.id));
+      await this.bump(tx, q, becomesPrimary ? { isPrimary: true } : {});
+      const synced = q.isPrimary || becomesPrimary ? await this.syncOpportunityAmount(tx, ctx, opp.id) : false;
+      await this.record(tx, ctx, 'quote.version.send', q, 'Đánh dấu đã gửi ' + q.code + ' v' + no, { versionNo: no, becamePrimary: becomesPrimary, syncedToOpportunity: synced });
+      return this.reads.detailIn(tx, actor, scopeOf, id);
+    });
+  }
+
+  // Kiểm chung cho "kết quả": phiên bản phải đang SENT và là phiên bản đã gửi MỚI NHẤT của báo giá.
+  private decidable(q: QuoteW, no: number) {
+    const v = this.versionOf(q, no);
+    if (v.status === 'DRAFT') throw quoteErrors.notSent();
+    if (v.status !== 'SENT') throw quoteErrors.versionLocked();
+    if (this.latestSentNo(q) !== no) throw quoteErrors.notLatest();
+    return v;
+  }
+
+  // ───── POST /quotes/:id/versions/:no/accept ─────
+  // Được chấp nhận [QB6, QB7]: chỉ báo giá đang theo đuổi (R-Q7); mỗi cơ hội tối đa một (U-4). Quá hạn vẫn được, kèm cảnh báo EXPIRED [QB10].
+  // Không tự chốt Thắng cơ hội (D3). Đồng bộ giá trị cơ hội (mục 8 điểm 8c).
+  async accept(ctx: RequestCtx, id: string, no: number, dto: QuoteVersionRefDto) {
+    const { actor } = ctx;
+    const scopeOf = this.scopeOf(actor);
+    if (scopeOf('quote.decide') === null) throw quoteErrors.forbidden();
+    return this.inTx(async (tx) => {
+      const { q, opp } = await this.loadQuote(tx, actor, scopeOf, id, 'quote.decide');
+      const v = this.decidable(q, no);
+      if (q.version !== dto.version) throw quoteErrors.versionConflict(q.version);
+      if (!q.isPrimary) throw quoteErrors.notPrimary();
+      if (await this.oppHasAccepted(tx, opp.id)) throw quoteErrors.alreadyAccepted();
+      const cur = await tx.quoteVersion.findUniqueOrThrow({ where: { id: v.id }, select: { validUntil: true } });
+      const today = await todayVn(tx);
+      await tx.quoteVersion.update({ where: { id: v.id }, data: { status: 'ACCEPTED', decidedById: actor.employeeId, decidedAt: new Date() } });
+      await this.bump(tx, q);
+      const synced = await this.syncOpportunityAmount(tx, ctx, opp.id);
+      const warnings = cur.validUntil && ymd(cur.validUntil)! < today ? ['EXPIRED'] : [];
+      await this.record(tx, ctx, 'quote.version.accept', q, 'Báo giá ' + q.code + ' v' + no + ' được chấp nhận', { versionNo: no, expired: warnings.length > 0, syncedToOpportunity: synced });
+      return { ...(await this.reads.detailIn(tx, actor, scopeOf, id)), warnings };
+    });
+  }
+
+  // ───── POST /quotes/:id/versions/:no/reject ─────
+  async reject(ctx: RequestCtx, id: string, no: number, dto: RejectQuoteDto) {
+    const { actor } = ctx;
+    const scopeOf = this.scopeOf(actor);
+    if (scopeOf('quote.decide') === null) throw quoteErrors.forbidden();
+    return this.inTx(async (tx) => {
+      const { q } = await this.loadQuote(tx, actor, scopeOf, id, 'quote.decide');
+      const v = this.decidable(q, no);
+      if (q.version !== dto.version) throw quoteErrors.versionConflict(q.version);
+      await tx.quoteVersion.update({ where: { id: v.id }, data: { status: 'REJECTED', decidedById: actor.employeeId, decidedAt: new Date(), rejectReason: dto.reason } });
+      await this.bump(tx, q);
+      await this.record(tx, ctx, 'quote.version.reject', q, 'Báo giá ' + q.code + ' v' + no + ' bị từ chối', { versionNo: no, reason: '(đã ghi)' });
+      return { ...(await this.reads.detailIn(tx, actor, scopeOf, id)), warnings: [] as string[] };
+    });
+  }
+
+  // ───── POST /quotes/:id/primary ─────
+  // Đổi báo giá đang theo đuổi (mục 8 điểm 7): báo giá phải có phiên bản đã gửi (R-Q5); cơ hội đã có báo giá được chấp nhận => cố định (R-Q8).
+  // Bỏ cờ của báo giá đang theo đuổi cũ TRƯỚC (U-3); cả hai báo giá đều tăng version. Đồng bộ giá trị cơ hội (mục 8 điểm 8b).
+  async setPrimary(ctx: RequestCtx, id: string, dto: QuoteVersionRefDto) {
+    const { actor } = ctx;
+    const scopeOf = this.scopeOf(actor);
+    if (scopeOf('quote.send') === null) throw quoteErrors.forbidden();
+    return this.inTx(async (tx) => {
+      const { q, opp } = await this.loadQuote(tx, actor, scopeOf, id, 'quote.send');
+      if (q.version !== dto.version) throw quoteErrors.versionConflict(q.version);
+      if (q.isPrimary) return this.reads.detailIn(tx, actor, scopeOf, id);
+      if (this.latestSentNo(q) === null) throw quoteErrors.primaryNeedsSent();
+      if (await this.oppHasAccepted(tx, opp.id)) throw quoteErrors.primaryFixed();
+      const old = await tx.quote.findFirst({ where: { opportunityId: opp.id, isPrimary: true, deletedAt: null }, select: { id: true, code: true } });
+      if (old) {
+        await tx.$queryRaw`SELECT id FROM quote WHERE id = ${old.id}::uuid FOR UPDATE`;
+        await tx.quote.update({ where: { id: old.id }, data: { isPrimary: false, version: { increment: 1 } } });
+      }
+      await this.bump(tx, q, { isPrimary: true });
+      const synced = await this.syncOpportunityAmount(tx, ctx, opp.id);
+      await this.record(tx, ctx, 'quote.primary', q, 'Chọn ' + q.code + ' làm báo giá đang theo đuổi', { previous: old ? old.code : null, syncedToOpportunity: synced });
+      return this.reads.detailIn(tx, actor, scopeOf, id);
     });
   }
 }

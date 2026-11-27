@@ -145,3 +145,25 @@ export class SaveQuoteDraftDto {
   @ValidateNested({ each: true }) @Type(() => QuoteLineDto)
   lines!: QuoteLineDto[];
 }
+
+// ───── Q5b ─────
+// POST /quotes/:id/versions/:no/send — đánh dấu đã gửi [QB1]. Ngày báo giá / hạn hiệu lực: không gửi = dùng giá trị đã lưu ở bản nháp.
+export class SendQuoteDto {
+  @IsInt({ message: VERSION_MESSAGE }) @Min(1, { message: VERSION_MESSAGE })
+  version!: number;
+
+  @SkipIfUndefined() @Matches(YMD, { message: YMD_MESSAGE })
+  quoteDate?: string;
+
+  @SkipIfUndefined() @Matches(YMD, { message: YMD_MESSAGE })
+  validUntil?: string;
+}
+
+// POST /quotes/:id/versions/:no/reject — bắt buộc lý do.
+export class RejectQuoteDto {
+  @IsInt({ message: VERSION_MESSAGE }) @Min(1, { message: VERSION_MESSAGE })
+  version!: number;
+
+  @Trim() @IsString() @IsNotEmpty({ message: 'Vui lòng ghi lý do khách từ chối' }) @MaxLength(500)
+  reason!: string;
+}
