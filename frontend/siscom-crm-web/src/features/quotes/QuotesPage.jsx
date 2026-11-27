@@ -1,7 +1,8 @@
 import React from 'react';
 import { Badge, Button, EmptyState, Input, Select } from '../../ds/index.js';
 import { ApiErrorBox } from '../customers/ApiListStatus.jsx';
-import { LIST_SORTS, LIST_STATE_FILTERS, STATE_META, buildQuoteListQuery, fmtVnd, validityLabel } from './quotesModel.js';
+import { QuotesSubnav } from './QuoteSetup.jsx';
+import { LIST_SORTS,LIST_STATE_FILTERS, STATE_META, buildQuoteListQuery, fmtVnd, validityLabel } from './quotesModel.js';
 
 // Báo giá Q8a: trang "Báo giá" (#/quotes) — danh sách mọi báo giá trong phạm vi xem của người dùng (mục 9, 10). Dữ liệu CHỈ từ GET /quotes;
 // lọc, tìm (không dấu), sắp xếp và phân trang đều do máy chủ làm. Không có giá vốn ở đây (máy chủ không trả). Không lưu gì vào bộ nhớ trình duyệt.
@@ -128,5 +129,6 @@ export function QuoteNoAccess({ ui }) {
   return <div className="sg-card sg-solid"><EmptyState icon="lock" title="Không có quyền xem báo giá" description="Tài khoản của bạn không được xem báo giá." action={<Button onClick={() => ui.navigate('/customers')}>Về danh sách khách hàng</Button>} /></div>;
 }
 export function QuotesListRoute({ ui, allowed }) {
-  return allowed ? <QuotesPage ui={ui} /> : <QuoteNoAccess ui={ui} />;
+  // Q8b: thanh trang con (Danh sách / Loại báo giá / Mặc định của tôi) chỉ hiện khi người dùng có thêm quyền tương ứng.
+  return allowed ? <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><QuotesSubnav ui={ui} current="list" /><QuotesPage ui={ui} /></div> : <QuoteNoAccess ui={ui} />;
 }

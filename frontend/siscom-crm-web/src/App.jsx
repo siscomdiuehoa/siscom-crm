@@ -21,6 +21,7 @@ import { AccountsRoute } from './features/accounts/AccountsPage.jsx';
 import { QuoteRoute } from './features/quotes/QuoteView.jsx';
 import { QuotesListRoute } from './features/quotes/QuotesPage.jsx';
 import { QuotePrintRoute } from './features/quotes/QuotePrint.jsx';
+import { MyQuoteDefaultsRoute, QuoteTemplatesRoute } from './features/quotes/QuoteSetup.jsx';
 import { parseQuotesRoute, quotesNav } from './features/quotes/quotesModel.js';
 import { canManageAccounts, accountsNav } from './features/accounts/accountsModel.js';
 import ApiModeUnsupported, { API_UNSUPPORTED_NOTE } from './features/apiMode/ApiModeUnsupported.jsx';
@@ -201,7 +202,10 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
   else if (route.page === 'quotes' && API_ON) {
     const allowed = QUOTES_ON;
     title = 'Báo giá'; crumbs = ['SISCOM CRM', 'Kinh doanh', 'Báo giá'];
-    body = !route.id ? <QuotesListRoute ui={ui} allowed={allowed} /> : route.print ? <QuotePrintRoute ui={ui} id={route.id} no={route.print} allowed={allowed} /> : <QuoteRoute ui={ui} id={route.id} allowed={allowed} />;
+    // Q8b: trang con — "Loại báo giá" cần quote.template; "Mặc định của tôi" cần quote.create. Không có quyền => "không có quyền", không gọi máy chủ.
+    if (route.sub === 'templates') body = <QuoteTemplatesRoute ui={ui} allowed={!!(CUSTOMER_API.quotes && API_CAN('quote.template'))} />;
+    else if (route.sub === 'my-defaults') body = <MyQuoteDefaultsRoute ui={ui} allowed={!!(CUSTOMER_API.quotes && API_CAN('quote.create'))} />;
+    else body = !route.id ? <QuotesListRoute ui={ui} allowed={allowed} /> : route.print ? <QuotePrintRoute ui={ui} id={route.id} no={route.print} allowed={allowed} /> : <QuoteRoute ui={ui} id={route.id} allowed={allowed} />;
   }
   else if (route.page === 'accounts' && API_ON) { title = 'Tài khoản'; crumbs = ['SISCOM CRM', 'Vận hành', 'Tài khoản']; body = <AccountsRoute ui={ui} allowed={!!ACCOUNTS} />; }
   else if (route.page === 'customers' && route.id && CUSTOMER_API) { title = 'Chi tiết khách hàng'; crumbs = ['SISCOM CRM', 'Khách hàng', 'Chi tiết']; body = <CustomerApiDetail ui={ui} id={route.id} />; }
@@ -234,7 +238,7 @@ function SiscomCrmApp({ session = null, customerApi = undefined } = {}) {
           {API_ON ? null : <DataTools ui={ui} getDb={() => dbRef.current} onRestoreText={(text) => { const next = parseBackupFile(text); backupNow('auto-restore'); replaceDb(next); }} onReset={() => { backupNow('auto-reset'); replaceDb(seedV2()); }} />}
         </div>
         {boot.report.error && ro ? <div role="alert" style={{ padding: '8px var(--page-gutter)', font: 'var(--type-caption)', color: 'var(--error-text)', background: 'var(--error-soft)', borderBottom: '1px solid var(--error-border)' }}><b>Chế độ chỉ đọc — không ghi dữ liệu.</b> {boot.report.error} Có thể dùng "Nhập sao lưu" hoặc "Khôi phục dữ liệu mẫu" (có sao lưu tự động) để tiếp tục.</div> : null}
-        <div key={route.page + (route.id || '')} style={{ padding: 'var(--page-gutter)', maxWidth: 'var(--content-max)', margin: '0 auto', animation: 'sg-fade-up var(--dur-page) var(--ease-out)' }}>{body}</div>
+        <div key={route.page + (route.id || route.sub || '')} style={{ padding: 'var(--page-gutter)', maxWidth: 'var(--content-max)', margin: '0 auto', animation: 'sg-fade-up var(--dur-page) var(--ease-out)' }}>{body}</div>
       </main>
       <SearchResults q={q} db={db} api={CUSTOMER_API} onPick={(id) => { setQ(''); navigate('/customers/' + id); }} />
       {chat && !API_ON ? (

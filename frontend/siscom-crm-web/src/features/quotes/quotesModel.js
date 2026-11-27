@@ -180,6 +180,7 @@ export function quotesNav(nav, apiOn, allowed) {
 // p = các phần của địa chỉ sau '#/'. Số phiên bản không hợp lệ => 'latest' (không báo lỗi; trang in tự lấy bản mới nhất).
 export function parseQuotesRoute(p) {
   if (!p[1]) return { page: 'quotes' };
+  if (QUOTE_SUBPAGES.includes(p[1])) return { page: 'quotes', sub: p[1] }; // Q8b: trang con (id báo giá là UUID nên không trùng)
   let id = p[1]; try { id = decodeURIComponent(id); } catch (e) { /* giữ nguyên; máy chủ trả 404 */ }
   if (p[2] !== 'print') return { page: 'quotes', id };
   return { page: 'quotes', id, print: /^[1-9][0-9]{0,5}$/.test(p[3] || '') ? p[3] : 'latest' };
@@ -197,4 +198,113 @@ export function printLayout(v, quoteCode = '') {
     columns, landscape: columns.length > 3, vatColumn: v.vatMode === 'LINE' && vatRows.length === 2, vatRows, draft: v.status === 'DRAFT', rows,
     codeLabel: (v.codeSnapshot || quoteCode) + (v.versionNo > 1 ? ' (v' + v.versionNo + ')' : ''),
   };
+}
+
+// ───── Q8b: "Loại báo giá" (#/quotes/templates) và "Mặc định của tôi" (#/quotes/my-defaults) — mục 4.1, 9, 10, 23 ─────
+export const QUOTE_SUBPAGES = ['templates', 'my-defaults'];
+export const MAX_TEMPLATE_COLUMNS = 10;
+export const TEMPLATE_VAT_MODES = [{ value: 'QUOTE', label: 'Một mức cho cả báo giá' }, { value: 'LINE', label: 'Theo từng dòng' }];
+export const TEMPLATE_VAT_RATES = [{ value: 10, label: '10 %' }, { value: 8, label: '8 %' }];
+// Thanh trang con của mục "Báo giá". can = hàm kiểm quyền của phiên. Chỉ còn "Danh sách" => không cần thanh.
+export function quotesSubnav(can) {
+  const tabs = [{ id: 'list', label: 'Danh sách', path: '/quotes' }];
+  if (can('quote.template')) tabs.push({ id: 'templates', label: 'Loại báo giá', path: '/quotes/templates' });
+  if (can('quote.create')) tabs.push({ id: 'my-defaults', label: 'Mặc định của tôi', path: '/quotes/my-defaults' });
+  return tabs.length > 1 ? tabs : [];
+}
+// Biểu mẫu sửa loại báo giá (t = loại máy chủ trả; null = loại mới). Số ngày giữ dạng chữ trong ô nhập.
+export function templateForm(t) {
+  if (!t) return { code: '', name: '', title: '', intro: '', defaultTerms: '', defaultValidDays: '15', defaultVat: 10, vatMode: 'QUOTE', columns: [], isActive: true };
+  return {
+    code: t.code, name: t.name, title: t.title, intro: t.intro || '', defaultTerms: t.defaultTerms || '', defaultValidDays: String(t.defaultValidDays), defaultVat: t.defaultVat, vatMode: t.vatMode,
+    columns: (Array.isArray(t.columns) ? t.columns : []).map((c) => ({ key: c.key, label: c.label, unit: c.unit || '' })), isActive: !!t.isActive,
+  };
+}
+// key của cột riêng (máy chủ: ^[a-z][a-z0-9_]{0,19}$, không trùng) tự sinh từ tên cột — người dùng không phải gõ. Cột đã có giữ nguyên key.
+export function columnKey(label, taken = []) {
+  let base = String(label == null ? '' : label).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!base) base = 'cot';
+  if (!/^[a-z]/.test(base)) base = 'c_' + base;
+  const cut = (s, n) => s.slice(0, n).replace(/_+$/, '');
+  let key = cut(base, 20);
+  for (let i = 2; taken.includes(key); i++) key = cut(base, 20 - ('_' + i).length) + '_' + i;
+  return key;
+}
+// Đổi chỗ phần tử i với phần tử i + d; ra ngoài biên => trả lại chính mảng cũ.
+export function moveItem(list, i, d) {
+  const j = i + d;
+  if (i < 0 || j < 0 || i >= list.length || j >= list.length) return list;
+  const next = list.slice(); const x = next[i]; next[i] = next[j]; next[j] = x;
+  return next;
+}
+const TEMPLATE_CODE_RE = /^[a-z0-9][a-z0-9-]{0,29}$/;
+const DAYS_RE = /^[1-9][0-9]{0,2}$/;
+const tooLong = (v, n) => String(v == null ? '' : v).length > n;
+// Kiểm tại chỗ đúng giới hạn của máy chủ (CreateTemplateDto / UpdateTemplateDto); khoá lỗi trùng tên trường máy chủ trả (columns[i].label…).
+export function validateTemplateForm(f, isNew = false) {
+  const e = {};
+  if (isNew && !TEMPLATE_CODE_RE.test(String(f.code || '').trim())) e.code = 'Mã loại: chữ thường không dấu, số, gạch nối; tối đa 30 ký tự (ví dụ: ong-gio).';
+  const name = String(f.name || '').trim(); const title = String(f.title || '').trim();
+  if (!name) e.name = 'Nhập tên loại báo giá.'; else if (name.length > 120) e.name = 'Tối đa 120 ký tự.';
+  if (!title) e.title = 'Nhập dòng tiêu đề in.'; else if (title.length > 200) e.title = 'Tối đa 200 ký tự.';
+  if (tooLong(f.intro, 300)) e.intro = 'Tối đa 300 ký tự.';
+  if (tooLong(f.defaultTerms, 4000)) e.defaultTerms = 'Tối đa 4000 ký tự.';
+  const days = String(f.defaultValidDays == null ? '' : f.defaultValidDays).trim();
+  if (!DAYS_RE.test(days) || days * 1 > 365) e.defaultValidDays = 'Số ngày hiệu lực: số nguyên từ 1 đến 365.';
+  if (f.defaultVat !== 8 && f.defaultVat !== 10) e.defaultVat = 'VAT mặc định chỉ nhận 8 % hoặc 10 %.';
+  if (!TEMPLATE_VAT_MODES.some((x) => x.value === f.vatMode)) e.vatMode = 'Chọn cách tính VAT.';
+  const cols = f.columns || [];
+  if (cols.length > MAX_TEMPLATE_COLUMNS) { e.columns = 'Tối đa ' + MAX_TEMPLATE_COLUMNS + ' cột riêng.'; return e; }
+  const seen = new Set();
+  cols.forEach((c, i) => {
+    const label = String(c.label || '').trim(); const low = label.toLowerCase();
+    if (!label) e['columns[' + i + '].label'] = 'Nhập tên cột.';
+    else if (label.length > 40) e['columns[' + i + '].label'] = 'Tối đa 40 ký tự.';
+    else if (seen.has(low)) e['columns[' + i + '].label'] = 'Tên cột trùng với cột phía trên.';
+    seen.add(low);
+    if (String(c.unit || '').trim().length > 20) e['columns[' + i + '].unit'] = 'Tối đa 20 ký tự.';
+  });
+  return e;
+}
+// Thân yêu cầu: version = null => POST (có code); có version => PATCH (không có code — mã không đổi được). Không gửi sortOrder (màn hình chưa cho sửa).
+export function toTemplateBody(f, version) {
+  const taken = (f.columns || []).map((c) => c.key).filter(Boolean);
+  const columns = (f.columns || []).map((c) => {
+    const label = String(c.label || '').trim();
+    let key = c.key;
+    if (!key) { key = columnKey(label, taken); taken.push(key); }
+    return { key, label, unit: String(c.unit || '').trim() };
+  });
+  const body = {
+    name: String(f.name || '').trim(), title: String(f.title || '').trim(), intro: f.intro || '', defaultTerms: f.defaultTerms || '', defaultValidDays: String(f.defaultValidDays).trim() * 1,
+    defaultVat: f.defaultVat, vatMode: f.vatMode, isActive: !!f.isActive, columns,
+  };
+  return version === null || version === undefined ? { code: String(f.code || '').trim(), ...body } : { version, ...body };
+}
+// Hàng tiêu đề của bảng hàng để xem trước (mục 4.2): cột riêng nằm giữa "Nội dung công việc" và "ĐVT".
+export function previewHeaders(f) {
+  const own = (f.columns || []).map((c) => { const l = String(c.label || '').trim(); const u = String(c.unit || '').trim(); return l ? l + (u ? ' (' + u + ')' : '') : '(chưa đặt tên)'; });
+  return ['TT', 'Nội dung công việc', ...own, 'ĐVT', 'SL', 'Đơn giá', ...(f.vatMode === 'LINE' ? ['VAT %'] : []), 'Thành tiền', 'Ghi chú'];
+}
+// Mặc định của tôi [QB15]: chức vụ, điện thoại, email, thông tin tài khoản — luôn là của chính người đang đăng nhập.
+export function myDefaultsForm(d) {
+  const x = d || {};
+  return { quoterTitle: x.quoterTitle || '', quoterPhone: x.quoterPhone || '', quoterEmail: x.quoterEmail || '', paymentInfo: x.paymentInfo || '' };
+}
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export function validateMyDefaults(f) {
+  const e = {};
+  const email = String(f.quoterEmail || '').trim();
+  if (String(f.quoterTitle || '').trim().length > 120) e.quoterTitle = 'Tối đa 120 ký tự.';
+  if (String(f.quoterPhone || '').trim().length > 30) e.quoterPhone = 'Tối đa 30 ký tự.';
+  if (email && (!EMAIL_RE.test(email) || email.length > 254)) e.quoterEmail = 'Email không hợp lệ.';
+  if (tooLong(f.paymentInfo, 2000)) e.paymentInfo = 'Tối đa 2000 ký tự.';
+  return e;
+}
+// PUT thay toàn bộ: ô trống không gửi (máy chủ để trống); không bao giờ có employeeId.
+export function toMyDefaultsBody(f) {
+  const b = {};
+  for (const k of ['quoterTitle', 'quoterPhone', 'quoterEmail']) { const v = String(f[k] || '').trim(); if (v) b[k] = v; }
+  b.paymentInfo = f.paymentInfo || '';
+  return b;
 }
