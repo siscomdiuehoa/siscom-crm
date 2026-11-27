@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import './quotesSetupModel.test.mjs'; // Q8b: chạy kèm trong CI (không đổi danh sách tệp của CI)
 import {
   LIST_STATE_FILTERS, buildQuoteListQuery, validityLabel, quotesNav, parseQuotesRoute, printLayout,
 } from '../src/features/quotes/quotesModel.js';

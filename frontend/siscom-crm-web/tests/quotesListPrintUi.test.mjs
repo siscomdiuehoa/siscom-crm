@@ -4,6 +4,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import React from 'react';
+import './quotesSetupUi.test.mjs'; // Q8b: chạy kèm trong CI (không đổi danh sách tệp của CI)
 import { installDom, text, findAll, byTag, buttonByText, inputByLabel, click, type } from './helpers/miniDom.mjs';
 
 const BASE = 'http://127.0.0.1:3000/api/v1';

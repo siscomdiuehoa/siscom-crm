@@ -1,7 +1,7 @@
 // Báo giá Q7 — controller trên API /quotes (không React / DOM / bộ nhớ trình duyệt). Mẫu của opportunitiesUi.js / accountsUi.js.
 // Mọi dữ liệu chỉ từ máy chủ; thao tác ghi thành công => trả lại chi tiết máy chủ gửi về (không tự sửa); lỗi => báo, không thử lại ngầm.
 // Tiền / số lượng luôn là chuỗi; máy chủ tự tính mọi tổng (thân yêu cầu không có trường tổng nào).
-import { toSaveBody, validateDraft } from './quotesModel.js';
+import { toMyDefaultsBody, toSaveBody, toTemplateBody, validateDraft, validateMyDefaults, validateTemplateForm } from './quotesModel.js';
 
 const enc = encodeURIComponent;
 export const QUOTE_VERSION_CONFLICT = 'VERSION_CONFLICT';
@@ -97,6 +97,23 @@ export function createQuotesController(repo, describe, hooks = {}) {
       return write('reject:' + q.id, oppOf(q), () => req('POST', vpath(q, no, '/reject'), { version: q.version, reason: r }));
     },
     setPrimary(q) { return write('primary:' + q.id, oppOf(q), () => req('POST', '/quotes/' + enc(q.id) + '/primary', { version: q.version })); },
+    // ───── Q8b: loại báo giá (quote.template) và mặc định của chính người đang đăng nhập (quote.create) ─────
+    templatesAll() { return read('/quotes/templates' + qs({ all: '1' })); }, // gồm cả loại đã ngừng dùng
+    myDefaults() { return read('/quotes/my-defaults'); },
+    // t = loại đang sửa (null = thêm mới). Kiểm tại chỗ trước; máy chủ kiểm lại. Sửa gửi kèm version của loại (khoá lạc quan).
+    async saveTemplate(t, form) {
+      const fieldErrors = validateTemplateForm(form, !t);
+      if (Object.keys(fieldErrors).length) return { ok: false, invalid: true, fieldErrors };
+      if (!t) return write('template:new', null, () => req('POST', '/quotes/templates', toTemplateBody(form, null)));
+      return write('template:' + t.id, null, () => req('PATCH', '/quotes/templates/' + enc(t.id), toTemplateBody(form, t.version)));
+    },
+    // Bật / ngừng dùng nhanh từ danh sách: chỉ gửi isActive + version.
+    setTemplateActive(t, isActive) { return write('template:' + t.id, null, () => req('PATCH', '/quotes/templates/' + enc(t.id), { version: t.version, isActive: !!isActive })); },
+    async saveMyDefaults(form) {
+      const fieldErrors = validateMyDefaults(form);
+      if (Object.keys(fieldErrors).length) return { ok: false, invalid: true, fieldErrors };
+      return write('my-defaults', null, () => req('PUT', '/quotes/my-defaults', toMyDefaultsBody(form)));
+    },
   };
   return ctl;
 }
