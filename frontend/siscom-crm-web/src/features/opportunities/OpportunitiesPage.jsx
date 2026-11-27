@@ -319,7 +319,7 @@ export function OpportunityView({ ui, id }) {
         {row('clock', 'Cập nhật', U.dtVN(o.updatedAt))}
         {!fullView ? <p style={{ margin: '8px 0 4px', font: 'var(--type-caption)', color: 'var(--text-3)' }}>Bạn xem cơ hội này qua công việc được giao: chỉ có thông tin kỹ thuật, không có giá trị, xác suất và chứng từ.</p> : null}
       </section>
-      <OpportunityTabs ui={ui} o={o} meta={meta} />
+      <OpportunityTabs ui={ui} o={o} meta={meta} onReload={load} />
     </div>
   );
 }

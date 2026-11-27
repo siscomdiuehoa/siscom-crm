@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import React from 'react';
 import { installDom, text, findAll, byTag, buttonByText, inputByLabel, click, type } from './helpers/miniDom.mjs';
+// Báo giá Q7: giao diện báo giá (tab ở chi tiết cơ hội + màn hình soạn) chạy cùng tệp này trong CI (danh sách tệp FE của CI không đổi).
+import './quotesApiUi.test.mjs';
 
 const BASE = 'http://127.0.0.1:3000/api/v1';
 const ON = { VITE_CRM_API_ENABLED: 'true', VITE_CRM_API_BASE: BASE };

@@ -6,6 +6,7 @@ import { useCustomerApiState } from '../customers/useCustomerApi.js';
 import { ActivityItem } from '../activities/ActivitiesPanel.jsx';
 import { TYPE_META, ALL_TYPES, STATUS_META as ACTIVITY_STATUS, allowedTypes, hasTitle, hasDue, hasOutcome, hasOccurred } from '../activities/activityModel.js';
 import { holdsUpdate, describeChange, DOC_KINDS, EMPTY_DOC, safeHttps, pagedReloadStart, pagedCanLoadMore } from './opportunitiesModel.js';
+import { QuotesTab } from '../quotes/QuotesTab.jsx';
 
 // Sales S10c: ba tab ở chi tiết cơ hội (§8.2) — Hoạt động & công việc (§5.5), Lịch sử thay đổi, Tài liệu (§6.14).
 // Mọi dữ liệu do máy chủ lọc theo ĐƯỜNG TRUY CẬP: bản kỹ thuật chỉ thấy việc của chính mình và tài liệu nhóm Kỹ thuật, không có tab Lịch sử.
@@ -302,16 +303,18 @@ function DocumentsTab({ ui, o }) {
   );
 }
 
-export function OpportunityTabs({ ui, o, meta }) {
+// Báo giá Q7: tab "Báo giá" chỉ trên đường ĐẦY ĐỦ và khi có quote.read (fail-closed; không có mã => không có tab, không gọi API báo giá).
+export function OpportunityTabs({ ui, o, meta, onReload }) {
   const full = o.access === 'FULL';
-  const items = [{ id: 'activities', label: 'Hoạt động & công việc', icon: 'list-checks' }].concat(full ? [{ id: 'history', label: 'Lịch sử thay đổi', icon: 'history' }] : [], [{ id: 'documents', label: 'Tài liệu', icon: 'paperclip' }]);
+  const quotes = full && canUi(ui, 'quote.read') && !!(ui.customerApi && ui.customerApi.quotes);
+  const items = [{ id: 'activities', label: 'Hoạt động & công việc', icon: 'list-checks' }].concat(quotes ? [{ id: 'quotes', label: 'Báo giá', icon: 'file-text' }] : [], full ? [{ id: 'history', label: 'Lịch sử thay đổi', icon: 'history' }] : [], [{ id: 'documents', label: 'Tài liệu', icon: 'paperclip' }]);
   const [tab, setTab] = React.useState('activities');
   const cur = items.some((x) => x.id === tab) ? tab : 'activities';
   return (
     <section className="sg-card sg-solid" style={{ padding: ui.mobile ? '12px 14px' : '16px 20px', display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
       <div style={{ overflowX: 'auto' }}><Tabs variant="line" items={items} value={cur} onChange={setTab} /></div>
       <div role="tabpanel" aria-label={(items.find((x) => x.id === cur) || {}).label}>
-        {cur === 'activities' ? <ActivitiesTab ui={ui} o={o} /> : cur === 'history' ? <HistoryTab ui={ui} o={o} meta={meta} /> : <DocumentsTab ui={ui} o={o} />}
+        {cur === 'activities' ? <ActivitiesTab ui={ui} o={o} /> : cur === 'quotes' ? <QuotesTab ui={ui} o={o} onReload={onReload} /> : cur === 'history' ? <HistoryTab ui={ui} o={o} meta={meta} /> : <DocumentsTab ui={ui} o={o} />}
       </div>
     </section>
   );
