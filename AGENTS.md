@@ -25,7 +25,7 @@
 - **Phạm vi nhỏ:** một yêu cầu = một thay đổi tối thiểu. Không "tiện tay" sửa nơi khác. Gợi ý cải tiến thì ghi lại để người dùng quyết.
 - **Modular Monolith:** thêm miền nghiệp vụ = module riêng trong `backend/src/modules/<miền>`; dùng module khác qua giao diện export, không import chéo vào nội bộ; `backend/src/common` chỉ hạ tầng.
 - **Mặc định từ chối:** không làm yếu cơ chế từ chối khi chưa xác thực. Danh tính không được lấy từ nội dung request. Không đưa provider/checker giả vào `src` (chỉ trong `test`).
-- **Frontend chính thức:** `frontend/siscom-crm-web`. Không dùng các bản sao giao diện trong `backend/src`.
+- **Frontend chính thức:** `frontend/siscom-crm-web`. Không đặt mã giao diện trong `backend/`.
 - **Migration mới:** chỉ cộng thêm, tương thích ngược, có test ràng buộc, rollback viết sẵn (không tự chạy), thử trên bản sao database mới trước. Không chứa dữ liệu thật hoặc bí mật.
 - **Kiểm thử:** chỉ chạy phần liên quan; ghi kết quả thật. Môi trường không chạy được (không có Node/PostgreSQL) thì nêu rõ "chưa kiểm chứng".
 - **Giao file cho người dùng Windows:** ghi rõ đường dẫn đích trên `D:\SISCOM-CRM\…`, phân biệt **file mới** và **file chép đè**, nêu file không đụng tới, có bước sao lưu và rollback.

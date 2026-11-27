@@ -42,7 +42,7 @@ frontend/
 docs/               tài liệu cấp dự án, docs/evidence (bằng chứng nghiệm thu)
 .github/            mẫu Pull Request
 ```
-Một số tệp trong kho đang được rà soát và sẽ dọn ở Pull Request riêng, **chưa xử lý trong gói này**: bản sao mã giao diện nằm trong `backend/src` (`App.jsx`, `ds/`, `pages/`…), `frontend/package.json` ở cấp `frontend/`, và tài liệu trùng giữa `docs/` và `backend/docs/`. Đừng dựa vào chúng; frontend chuẩn là `frontend/siscom-crm-web`.
+Frontend chuẩn là `frontend/siscom-crm-web`. Còn tồn tại tài liệu trùng giữa `docs/` và `backend/docs/` (chưa dọn); khi hai bản khác nhau, bản trong `docs/` mới hơn.
 
 ## Chạy trên máy phát triển (Windows)
 
